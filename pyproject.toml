@@ -10,6 +10,6 @@ Repository = "https://github.com/MieMieeeee/ComfyUI-MieNodes"
 #  Used by Comfy Registry https://comfyregistry.org
 
 [tool.comfy]
-PublisherId = "MieMieeeee"
-DisplayName = "ComfyUI_MideNodes"
+PublisherId = "mie"
+DisplayName = "ComfyUI_MieNodes"
 Icon = ""
