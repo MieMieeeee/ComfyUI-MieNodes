@@ -1,0 +1,15 @@
+[project]
+name = "comfyui_mienodes"
+description = "Offering a series of utility nodes designed to simplify workflows and enhance efficiency"
+version = "1.0.0"
+license = { file = "LICENSE" }
+dependencies = ["imghdr"]
+
+[project.urls]
+Repository = "https://github.com/MieMieeeee/ComfyUI-MieNodes"
+#  Used by Comfy Registry https://comfyregistry.org
+
+[tool.comfy]
+PublisherId = "MieMieeeee"
+DisplayName = "ComfyUI_MideNodes"
+Icon = ""
