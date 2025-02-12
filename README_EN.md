@@ -1,12 +1,14 @@
 ## ComfyUI-MieNodes
 
+English | [简体中文](README.md)
+
 **ComfyUI-MieNodes** is a plugin for the ComfyUI ecosystem, offering a series of utility nodes designed to simplify workflows and enhance efficiency.
 
 ### Current Features
 
 #### LoRA Training Caption Preparation Features
 
-Currently, the plugin includes the following completed utility nodes, focusing on caption file management tasks in LoRA training workflows:
+Currently, the plugin includes the following completed utility nodes, focusing on dataset file management tasks in LoRA training workflows:
 
 1. Batch edit caption files (Insert/Append/Replace operations).
 
@@ -15,6 +17,8 @@ Currently, the plugin includes the following completed utility nodes, focusing o
 3. Synchronize image and caption files, with support for automatically creating or removing .txt files to match image files.
 
 4. Batch read caption files, with support for extracting all file contents for analysis and summarization by large language models### 未来计划 / Future Plans
+
+5. Batch convert image files, supporting conversion of all image files to the specified format (jpg or png).
 
 ### Future Plans
 

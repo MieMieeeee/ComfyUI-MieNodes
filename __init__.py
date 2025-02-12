@@ -1,6 +1,6 @@
 from .common import ShowAnythingMie
 from .caption_file_operator import BatchRenameFiles, BatchDeleteFiles, BatchEditTextFiles, BatchSyncImageCaptionFiles, \
-    SummaryTextFiles
+    SummaryTextFiles, BatchConvertImageFiles
 from .utils import add_suffix, add_emoji
 
 WEB_DIRECTORY = "./js"
@@ -11,6 +11,7 @@ NODE_CLASS_MAPPINGS = {
     add_suffix("BatchEditTextFiles"): BatchEditTextFiles,
     add_suffix("BatchSyncImageCaptionFiles"): BatchSyncImageCaptionFiles,
     add_suffix("SummaryTextFiles"): SummaryTextFiles,
+    add_suffix("BatchConvertImageFiles"): BatchConvertImageFiles,
     add_suffix("ShowAnything"): ShowAnythingMie
 }
 
@@ -20,6 +21,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     add_suffix("BatchEditTextFiles"): add_emoji("Batch Edit Text Files"),
     add_suffix("BatchSyncImageCaptionFiles"): add_emoji("Batch Sync Image Caption Files"),
     add_suffix("SummaryTextFiles"): add_emoji("Summary Text Files"),
+    add_suffix("BatchConvertImageFiles"): add_emoji("Batch Convert Image Files"),
     add_suffix("ShowAnything"): add_emoji("Show Anything"),
 }
 

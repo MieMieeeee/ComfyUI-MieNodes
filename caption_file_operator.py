@@ -1,7 +1,9 @@
 import os
 import re
 import imghdr
+import shutil
 from glob import glob
+from PIL import Image
 
 from .utils import mie_log
 
@@ -234,7 +236,6 @@ class BatchSyncImageCaptionFiles(object):
         images = set()
         caption_ext = ".txt"
         for file_path in glob(os.path.join(directory, "*")):
-            mie_log("{} is {}".format(file_path, imghdr.what(file_path)))
             if imghdr.what(file_path):
                 images.add(file_path)
 
@@ -326,3 +327,72 @@ class SummaryTextFiles(object):
         the_log_message = f"Summarized {len(files)} files in {directory}."
         mie_log(the_log_message)
         return summary_text,
+
+
+class BatchConvertImageFiles(object):
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "directory": ("STRING", {"default": "X://path/to/files"}),
+                "target_format": (["jpg", "png"], {"default": "jpg"}),
+                "save_original": ("BOOLEAN", {"default": True}),
+            },
+        }
+
+    RETURN_TYPES = ("INT", "STRING")
+    RETURN_NAMES = ("converted_file_count", "log")
+    FUNCTION = "convert_image_files"
+
+    CATEGORY = MY_CATEGORY
+
+    def convert_image_files(self, directory, target_format, save_original):
+        """
+        Convert all images in the specified directory to the target format.
+
+        Parameters:
+        - directory (str): Directory path
+        - target_format (str): Target image format ('jpg' or 'png')
+        - save_original (bool): Whether to save the original files
+
+        Returns:
+        - Number of files converted
+        - Log message
+        """
+
+        supported_formats = ["jpeg", "png", "bmp", "gif", "tiff", "webp"]
+        files = [f for f in glob(os.path.join(directory, "*")) if self.is_supported_image(f, supported_formats)]
+
+        if not files:
+            return 0, f"No supported image files found in {directory}."
+
+        if save_original:
+            backup_dir = os.path.join(directory, "backup")
+            os.makedirs(backup_dir, exist_ok=True)
+
+        converted_count = 0
+        for file_path in files:
+            with Image.open(file_path) as img:
+                base_name = os.path.splitext(file_path)[0]
+                new_file_path = f"{base_name}.{target_format}"
+                img.convert("RGB").save(new_file_path, target_format.upper())
+                converted_count += 1
+
+            if save_original:
+                shutil.move(file_path, os.path.join(backup_dir, os.path.basename(file_path)))
+            else:
+                os.remove(file_path)
+
+        the_log_message = f"Converted {converted_count} images to {target_format} format in {directory}."
+        if save_original:
+            the_log_message += f" source images are saved in {backup_dir}."
+        mie_log(the_log_message)
+        return converted_count, the_log_message
+
+    @staticmethod
+    def is_supported_image(file_path, supported_formats):
+        try:
+            with Image.open(file_path) as img:
+                return img.format.lower() in supported_formats
+        except IOError:
+            return False
