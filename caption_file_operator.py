@@ -76,6 +76,53 @@ class BatchRenameFiles(object):
         return updated_count, the_log_message
 
 
+class BatchDeleteFiles(object):
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "directory": ("STRING", {"default": "X://path/to/files"}),
+                "file_extension": ("STRING", {"default": ".txt"}),
+            },
+            "optional": {
+                "prefix": ("STRING",),
+            },
+        }
+
+    RETURN_TYPES = ("INT", "STRING")
+    RETURN_NAMES = ("deleted_file_count", "log")
+    FUNCTION = "batch_delete_files"
+
+    CATEGORY = MY_CATEGORY
+
+    def batch_delete_files(self, directory, file_extension, prefix=None):
+        """
+        Batch delete files with the specified extension and optional prefix.
+
+        Parameters:
+        - directory (str): Directory path
+        - file_extension (str): File extension to delete (e.g., ".jpg", ".txt")
+        - prefix (str, optional): File name prefix to check
+
+        Returns:
+        - Number of files deleted
+        - Log message
+        """
+
+        deleted_count = 0
+        files = glob(os.path.join(directory, f"*{file_extension}"))
+
+        for file_path in files:
+            file_name = os.path.basename(file_path)
+            if prefix is None or file_name.startswith(prefix):
+                os.remove(file_path)
+                deleted_count += 1
+
+        the_log_message = f"{deleted_count} files deleted from {directory}."
+        mie_log(the_log_message)
+        return deleted_count, the_log_message
+
+
 class BatchEditTextFiles(object):
     @classmethod
     def INPUT_TYPES(cls):
@@ -184,8 +231,6 @@ class BatchSyncImageCaptionFiles(object):
         - Log
         """
 
-        mie_log("sync_image_caption_files")
-
         images = set()
         caption_ext = ".txt"
         for file_path in glob(os.path.join(directory, "*")):
@@ -214,3 +259,70 @@ class BatchSyncImageCaptionFiles(object):
         the_log_message = f"Created {created_count} and deleted {deleted_count} captions for files in {directory}."
         mie_log(the_log_message)
         return the_log_message,
+
+
+class SummaryTextFiles(object):
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "directory": ("STRING", {"default": "X://path/to/files"},),
+                "add_separator": ("BOOLEAN", {"default": True}),
+                "save_to_file": ("BOOLEAN", {"default": False}),
+            },
+            "optional": {
+                "file_extension": ("STRING", {"default": ".txt"},),
+                "summary_file_name": ("STRING", {"default": "summary.txt"}),
+            },
+        }
+
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("log",)
+    FUNCTION = "summary_txt_files"
+
+    CATEGORY = MY_CATEGORY
+
+    def summary_txt_files(self, directory, add_separator, save_to_file, file_extension, summary_file_name):
+        """
+        Summarize text files in a directory.
+
+        Parameters:
+        - directory (str): Directory path
+        - add_separator (bool): Whether to add a separator between file contents
+        - file_extension (str): File extension to operate on (e.g., ".txt")
+        - save_to_file (bool): Whether to save the summary to a file
+        - summary_file_name (str): Name of the summary file
+
+        Returns:
+        - Log message
+        """
+
+        files = glob(os.path.join(directory, f"*{file_extension}"))
+
+        if not files:
+            return f"No {file_extension} files found in {directory}.",
+
+        summary_content = []
+        for file_path in files:
+            with open(file_path, 'r', encoding='utf-8') as file:
+                content = file.read()
+                file_name = os.path.basename(file_path)
+                if add_separator:
+                    separator = f"=== FILE: {file_name} ===\n"
+                    summary_content.append(separator + content)
+                else:
+                    summary_content.append(content)
+
+        summary_text = "\n".join(summary_content)
+
+        if save_to_file:
+            summary_file_path = os.path.join(directory, summary_file_name)
+            with open(summary_file_path, 'w', encoding='utf-8') as summary_file:
+                summary_file.write(summary_text)
+            the_log_message = f"Summarized {len(files)} files in {directory} and saved in {summary_file_path}."
+            mie_log(the_log_message)
+            return the_log_message,
+
+        the_log_message = f"Summarized {len(files)} files in {directory}."
+        mie_log(the_log_message)
+        return summary_text,
