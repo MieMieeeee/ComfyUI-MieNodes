@@ -16,7 +16,7 @@ Currently, the plugin includes the following completed utility nodes, focusing o
 
 3. Synchronize image and caption files, with support for automatically creating or removing .txt files to match image files.
 
-4. Batch read caption files, with support for extracting all file contents for analysis and summarization by large language models### 未来计划 / Future Plans
+4. Batch read caption files, with support for extracting all file contents for analysis and summarization by large language models
 
 5. Batch convert image files, supporting conversion of all image files to the specified format (jpg or png).
 
