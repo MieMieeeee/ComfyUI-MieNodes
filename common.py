@@ -5,6 +5,9 @@ MY_CATEGORY = "🐑 MieNodes/🐑 Common"
 # Learned a lot from https://github.com/cubiq/ComfyUI_essentials
 
 class ShowAnythingMie(object):
+    def __init__(self):
+        pass
+
     @classmethod
     def INPUT_TYPES(s):
         return {
@@ -13,7 +16,7 @@ class ShowAnythingMie(object):
             },
         }
 
-    RETURN_TYPES = ()
+    RETURN_TYPES = ("STRING",)
     FUNCTION = "execute"
     OUTPUT_NODE = True
 
@@ -34,7 +37,7 @@ class ShowAnythingMie(object):
         - 给UI的json格式
         """
 
-        result = str(anything)
-        mie_log(f"ShowAnythingMie: {result}")
+        text = str(anything)
+        mie_log(f"ShowAnythingMie: {text}")
 
-        return {"ui": {"text": result}, "result": ()}
+        return {"ui": {"text": text}, "result": (text,)}

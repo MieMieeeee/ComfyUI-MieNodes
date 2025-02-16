@@ -1,12 +1,14 @@
 import {app} from "../../scripts/app.js";
 import {ComfyWidgets} from "../../scripts/widgets.js";
 
-// Displays input text on a node
 app.registerExtension({
     name: "ShowAnything|Mie",
     async beforeRegisterNodeDef(nodeType, nodeData, app) {
-        if (nodeData && nodeData.name === "ShowAnything|Mie") {
-            console.log("ShowAnything|Mie");
+        if (!nodeData || nodeData?.category !== "🐑 MieNodes/🐑 Common") {
+            return;
+        }
+
+        if (nodeData.name === "ShowAnything|Mie") {
             const onExecuted = nodeType.prototype.onExecuted;
 
             nodeType.prototype.onExecuted = function (message) {
@@ -19,22 +21,14 @@ app.registerExtension({
                     this.widgets.length = 1;
                 }
 
-                console.log(message);
-
                 // Check if the "text" widget already exists.
-                let textWidget = this.widgets && this.widgets.find(w => w && w.name === "displaytext");
-
-                console.log(textWidget);
-
+                let textWidget = Array.isArray(this.widgets) && this.widgets.find(w => w.name === "displaytext");
                 if (!textWidget) {
                     textWidget = ComfyWidgets["STRING"](this, "displaytext", ["STRING", {multiline: true}], app).widget;
                     textWidget.inputEl.readOnly = true;
                     textWidget.inputEl.style.border = "none";
                     textWidget.inputEl.style.backgroundColor = "transparent";
                 }
-
-                console.log(textWidget);
-
                 textWidget.value = message["text"].join("");
             };
         }
