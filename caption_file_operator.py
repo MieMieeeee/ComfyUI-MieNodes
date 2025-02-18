@@ -21,7 +21,7 @@ class BatchRenameFiles(object):
                 "update_caption_as_well": ("BOOLEAN", {"default": True}),
             },
             "optional": {
-                "prefix": ("STRING",),
+                "prefix": ("STRING", {"default": ""}),
             },
         }
 
@@ -87,7 +87,7 @@ class BatchDeleteFiles(object):
                 "file_extension": ("STRING", {"default": ".txt"}),
             },
             "optional": {
-                "prefix": ("STRING",),
+                "prefix": ("STRING", {"default": ""}),
             },
         }
 
@@ -97,7 +97,7 @@ class BatchDeleteFiles(object):
 
     CATEGORY = MY_CATEGORY
 
-    def batch_delete_files(self, directory, file_extension, prefix=None):
+    def batch_delete_files(self, directory, file_extension, prefix):
         """
         Batch delete files with the specified extension and optional prefix.
 
@@ -116,7 +116,7 @@ class BatchDeleteFiles(object):
 
         for file_path in files:
             file_name = os.path.basename(file_path)
-            if prefix is None or file_name.startswith(prefix):
+            if len(prefix) > 0 or file_name.startswith(prefix):
                 os.remove(file_path)
                 deleted_count += 1
 
@@ -135,8 +135,8 @@ class BatchEditTextFiles(object):
             },
             "optional": {
                 "file_extension": ("STRING", {"default": ".txt"},),
-                "target_text": ("STRING",),
-                "new_text": ("STRING",),
+                "target_text": ("STRING", {"default": ""}),
+                "new_text": ("STRING", {"default": ""}),
             },
         }
 
@@ -209,7 +209,7 @@ class BatchSyncImageCaptionFiles(object):
         return {
             "required": {
                 "directory": ("STRING", {"default": "X://path/to/files"},),
-                "caption_content": ("STRING",),
+                "caption_content": ("STRING", {"default": ""}),
             },
         }
 
