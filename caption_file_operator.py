@@ -437,42 +437,42 @@ class DedupImageFiles(object):
                     img_hash = hashfunc(img)
                     hashes[filename] = img_hash
             except Exception as e:
-                print(f"无法处理文件 {filename}: {e}")
+                print(f"Unable to process file {filename}: {e}")
 
-        # 比较图像哈希值，记录重复图片
+        # Compare image hashes and record duplicate images
         duplicates = {}
         filenames = list(hashes.keys())
         for i in range(len(filenames)):
             for j in range(i + 1, len(filenames)):
                 file1, file2 = filenames[i], filenames[j]
                 hash1, hash2 = hashes[file1], hashes[file2]
-                if hash1 - hash2 <= max_distance_threshold:  # 汉明距离小于等于阈值
+                if hash1 - hash2 <= max_distance_threshold:  # Hamming distance less than or equal to threshold
                     if file1 not in duplicates:
                         duplicates[file1] = []
                     duplicates[file1].append(os.path.join(directory, file2))
 
-        # 删除重复的图片
+        # Delete duplicate images
         files_to_delete = set()
         for key, duplicate_files in duplicates.items():
-            # 保留主文件（key），将其余重复文件加入待删除列表
+            # Keep the main file (key) and add the rest of the duplicate files to the delete list
             files_to_delete.update(duplicate_files)
 
-        # Step 4: 删除文件并记录日志
+        # Delete files and log
         deleted_count = 0
         for file in files_to_delete:
             try:
-                if os.path.exists(file):  # 确保文件仍然存在
+                if os.path.exists(file):  # Ensure the file still exists
                     os.remove(file)
-                    mie_log(f"删除重复图像: {file}")
+                    mie_log(f"Deleted duplicate image: {file}")
                     deleted_count += 1
                 else:
-                    mie_log(f"文件不存在，可能已经被删除: {file}")
+                    mie_log(f"File does not exist, may have already been deleted: {file}")
 
             except Exception as e:
-                mie_log(f"无法删除文件 {file}: {e}")
+                mie_log(f"Unable to delete file {file}: {e}")
 
-        # 日志
-        the_log_message = f"已从 {directory} 中删除了 {deleted_count} 张重复图像。"
+        # Log
+        the_log_message = f"Deleted {deleted_count} duplicate images from {directory}."
         mie_log(the_log_message)
 
         return deleted_count, the_log_message
