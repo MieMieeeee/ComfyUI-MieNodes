@@ -2,6 +2,7 @@ import os
 import re
 import imghdr
 import shutil
+import imagehash
 from glob import glob
 from PIL import Image
 
@@ -396,3 +397,82 @@ class BatchConvertImageFiles(object):
                 return img.format.lower() in supported_formats
         except IOError:
             return False
+
+
+class DedupImageFiles(object):
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "directory": ("STRING", {"default": "X://path/to/files"}),
+                "max_distance_threshold": ("INT", {"default": 10, "min": 0, "max": 64}),
+            },
+        }
+
+    RETURN_TYPES = ("INT", "STRING")
+    RETURN_NAMES = ("deleted_file_count", "log")
+    FUNCTION = "dedup_image_files"
+
+    CATEGORY = MY_CATEGORY
+
+    def dedup_image_files(self, directory, max_distance_threshold):
+        """
+        Delete duplicated image files in the specified directory
+
+        Parameters:
+        - directory (str): Directory path
+
+        Returns:
+        - Number of files deleted
+        - Log message
+        """
+
+        hashfunc = imagehash.phash
+        hashes = {}
+
+        for filename in os.listdir(directory):
+            filepath = os.path.join(directory, filename)
+            try:
+                with Image.open(filepath) as img:
+                    img_hash = hashfunc(img)
+                    hashes[filename] = img_hash
+            except Exception as e:
+                print(f"无法处理文件 {filename}: {e}")
+
+        # 比较图像哈希值，记录重复图片
+        duplicates = {}
+        filenames = list(hashes.keys())
+        for i in range(len(filenames)):
+            for j in range(i + 1, len(filenames)):
+                file1, file2 = filenames[i], filenames[j]
+                hash1, hash2 = hashes[file1], hashes[file2]
+                if hash1 - hash2 <= max_distance_threshold:  # 汉明距离小于等于阈值
+                    if file1 not in duplicates:
+                        duplicates[file1] = []
+                    duplicates[file1].append(os.path.join(directory, file2))
+
+        # 删除重复的图片
+        files_to_delete = set()
+        for key, duplicate_files in duplicates.items():
+            # 保留主文件（key），将其余重复文件加入待删除列表
+            files_to_delete.update(duplicate_files)
+
+        # Step 4: 删除文件并记录日志
+        deleted_count = 0
+        for file in files_to_delete:
+            try:
+                if os.path.exists(file):  # 确保文件仍然存在
+                    os.remove(file)
+                    mie_log(f"删除重复图像: {file}")
+                    deleted_count += 1
+                else:
+                    mie_log(f"文件不存在，可能已经被删除: {file}")
+
+            except Exception as e:
+                mie_log(f"无法删除文件 {file}: {e}")
+
+        # 日志
+        the_log_message = f"已从 {directory} 中删除了 {deleted_count} 张重复图像。"
+        mie_log(the_log_message)
+
+        return deleted_count, the_log_message
