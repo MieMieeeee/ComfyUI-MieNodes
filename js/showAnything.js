@@ -8,7 +8,7 @@ app.registerExtension({
             return;
         }
 
-        if (nodeData.name === "ShowAnything|Mie") {
+        if (nodeData?.name === "ShowAnything|Mie") {
             const onExecuted = nodeType.prototype.onExecuted;
 
             nodeType.prototype.onExecuted = function (message) {
