@@ -1,6 +1,7 @@
 import os
 import json
 import toml
+from types import SimpleNamespace
 
 from .utils import mie_log
 
@@ -93,6 +94,12 @@ class SaveAnythingAsFile(object):
                     f.write(json_data)
             elif save_format == "toml":
                 try:
+                    if isinstance(data, SimpleNamespace):
+                        data = vars(data)
+                    elif isinstance(data, dict):
+                        data = data
+                    else:
+                        data = data.__dict__
                     toml_data = toml.dumps(data)
                 except (TypeError, ValueError) as e:
                     return mie_log(f"Failed to serialize data to TOML: {e}")
