@@ -220,9 +220,9 @@ class BatchEditTextFiles(object):
         mie_log(the_log_message)
         return modified_count, the_log_message
 
-    @classmethod
-    def IS_CHANGED(cls, **kwargs):
-        return float("nan")
+    # @classmethod
+    # def IS_CHANGED(cls, **kwargs):
+    #     return float("nan")
 
 
 class BatchSyncImageCaptionFiles(object):
