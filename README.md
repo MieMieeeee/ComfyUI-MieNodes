@@ -18,7 +18,9 @@ The plugin provides the following utility nodes, with a focus on dataset file ma
 4. Batch read caption files, with support for extracting all file contents for analysis and summarization by large language models.  
 5. Batch convert image files, enabling conversion of all image files to a specified format (`.jpg` or `.png`).  
 6. Batch delete files with the specified extension and optional prefix.  
-7. Remove duplicated (same content) image files in the specified directory.  
+7. Remove duplicated (same content) image files in the specified directory. 
+8. Save any data as a file in TOML, JSON, or TXT format.
+9. Compare two files (in TOML or JSON format) and return the differences.
 
 ---
 
