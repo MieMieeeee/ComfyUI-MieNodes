@@ -116,6 +116,15 @@ The plugin also provides utility nodes for general-purpose tasks:
 
 ---
 
+### **CompareFiles**
+**Function:** Compare two files and return the differences.
+**Parameter:**
+- `file1_path` (str): The path to the first file.
+- `file2_path` (str): The path to the second file.
+- `file_format` (str): The format of the files ("json" or "toml").
+
+---
+
 ## Future Plans  
 
 ComfyUI-MieNodes is under active development and will expand its features in future updates. Planned additions include:  

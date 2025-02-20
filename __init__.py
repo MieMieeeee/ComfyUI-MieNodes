@@ -1,4 +1,4 @@
-from .common import ShowAnythingMie, SaveAnythingAsFile
+from .common import ShowAnythingMie, SaveAnythingAsFile, CompareFiles
 from .caption_file_operator import BatchRenameFiles, BatchDeleteFiles, BatchEditTextFiles, BatchSyncImageCaptionFiles, \
     SummaryTextFiles, BatchConvertImageFiles, DedupImageFiles
 from .utils import add_suffix, add_emoji
@@ -14,7 +14,8 @@ NODE_CLASS_MAPPINGS = {
     add_suffix("BatchConvertImageFiles"): BatchConvertImageFiles,
     add_suffix("DedupImageFiles"): DedupImageFiles,
     add_suffix("ShowAnything"): ShowAnythingMie,
-    add_suffix("SaveAnythingAsFile"): SaveAnythingAsFile
+    add_suffix("SaveAnythingAsFile"): SaveAnythingAsFile,
+    add_suffix("CompareFiles"): CompareFiles
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -26,7 +27,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     add_suffix("BatchConvertImageFiles"): add_emoji("Batch Convert Image Files"),
     add_suffix("DedupImageFiles"): add_emoji("Dedup Image Files"),
     add_suffix("ShowAnything"): add_emoji("Show Anything"),
-    add_suffix("SaveAnythingAsFile"): add_emoji("Save Anything As File")
+    add_suffix("SaveAnythingAsFile"): add_emoji("Save Anything As File"),
+    add_suffix("CompareFiles"): add_emoji("Compare Files")
 }
 
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS", "WEB_DIRECTORY"]

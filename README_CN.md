@@ -116,6 +116,15 @@
 
 ---
 
+### **CompareFiles**
+**功能说明：** 比较两个文件并返回差异。
+**参数说明：**
+- `file1_path` (str): 第一个文件的路径。
+- `file2_path` (str): 第二个文件的路径。
+- `file_format` (str): 文件的格式（"json" 或 "toml"）。
+
+---
+
 ## 未来计划  
 
 ComfyUI-MieNodes 插件正在积极开发中，未来将进一步扩展功能。规划中的新功能包括：  

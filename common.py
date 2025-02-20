@@ -2,7 +2,7 @@ import os
 import json
 import toml
 from types import SimpleNamespace
-
+from deepdiff import DeepDiff
 from .utils import mie_log
 
 MY_CATEGORY = "🐑 MieNodes/🐑 Common"
@@ -116,3 +116,105 @@ class SaveAnythingAsFile(object):
             return mie_log(f"Data successfully saved to {file_path} in {save_format} format.")
         except Exception as e:
             return mie_log(f"Failed to save data: {e}")
+
+
+class CompareFiles(object):
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "file1_path": ("STRING", {"default": "X://path/to/file1"}),
+                "file2_path": ("STRING", {"default": "X://path/to/file2"}),
+                "file_format": (["json", "toml"], {}),
+            },
+        }
+
+    RETURN_TYPES = ("STRING",)
+    FUNCTION = "compare_files"
+    CATEGORY = "🐑 MieNodes/🐑 Common"
+    OUTPUT_NODE = True
+
+    @classmethod
+    def VALIDATE_INPUTS(s, input_types):
+        return True
+
+    def convert_sets_to_lists(self, data):
+        if isinstance(data, set):
+            return list(data)
+        elif isinstance(data, dict):
+            return {k: self.convert_sets_to_lists(v) for k, v in data.items()}
+        elif isinstance(data, list):
+            return [self.convert_sets_to_lists(i) for i in data]
+        else:
+            return data
+
+    def compare_files(self, file1_path, file2_path, file_format):
+        """
+        Compare two files and return the differences.
+
+        Parameters:
+        - file1_path (str): The path to the first file
+        - file2_path (str): The path to the second file
+        - file_format (str): The format of the files ("json" or "toml")
+
+        Returns:
+        - A string describing the differences
+        """
+        try:
+            if file_format == "json":
+                with open(file1_path, 'r') as f1, open(file2_path, 'r') as f2:
+                    data1 = json.load(f1)
+                    data2 = json.load(f2)
+            elif file_format == "toml":
+                with open(file1_path, 'r') as f1, open(file2_path, 'r') as f2:
+                    data1 = toml.load(f1)
+                    data2 = toml.load(f2)
+            else:
+                return mie_log("Unsupported format. Please choose 'json' or 'toml'."),
+
+            data1 = self.convert_sets_to_lists(data1)
+            data2 = self.convert_sets_to_lists(data2)
+
+            differences = DeepDiff(data1, data2, ignore_order=True, report_repetition=True).to_dict()
+            formatted_diff = self.format_diff(differences, file1_path, file2_path)
+            return formatted_diff,
+        except Exception as e:
+            return mie_log(f"Failed to compare files: {e}"),
+
+    def format_diff(self, differences, file1_name, file2_name):
+        """
+        Format the DeepDiff output to key:\n\tfile1: value1\n\tfile2: value2 format.
+
+        Parameters:
+        - differences (dict): The DeepDiff output
+        - file1_name (str): The name of the first file
+        - file2_name (str): The name of the second file
+
+        Returns:
+        - A formatted string
+        """
+        formatted = []
+        for change_type, changes in differences.items():
+            if isinstance(changes, dict):
+                for key, change in changes.items():
+                    short_key = key.split('[')[-1].strip("']")
+                    if change_type == 'values_changed':
+                        old_value = change['old_value']
+                        new_value = change['new_value']
+                    elif change_type == 'dictionary_item_added':
+                        old_value = 'null'
+                        new_value = change
+                    elif change_type == 'dictionary_item_removed':
+                        old_value = change
+                        new_value = 'null'
+                    else:
+                        continue
+                    formatted.append(f"{short_key}:\n\t{file1_name}: {old_value}\n\t{file2_name}: {new_value}")
+            elif isinstance(changes, set):
+                for change in changes:
+                    short_key = change.split('[')[-1].strip("']")
+                    if change_type == 'dictionary_item_added':
+                        formatted.append(f"{short_key}:\n\t{file1_name}: null\n\t{file2_name}: {changes[change]}")
+                    elif change_type == 'dictionary_item_removed':
+                        formatted.append(f"{short_key}:\n\t{file1_name}: {changes[change]}\n\t{file2_name}: null")
+        return "\n".join(formatted)
