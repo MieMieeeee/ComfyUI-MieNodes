@@ -3,12 +3,17 @@ import re
 import imghdr
 import shutil
 import imagehash
+from datetime import datetime
 from glob import glob
 from PIL import Image
 
 from .utils import mie_log
 
 MY_CATEGORY = "🐑 MieNodes/🐑 Caption Tools"
+
+
+def get_current_time():
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
 class BatchRenameFiles(object):
@@ -54,7 +59,8 @@ class BatchRenameFiles(object):
         files.sort()  # Ensure files are sorted alphabetically
 
         if not files:
-            the_log_message = "No {} files found in directory {}.".format(file_extension, directory)
+            current_time = get_current_time()
+            the_log_message = "No {} files found in directory {} at {}.".format(file_extension, directory, current_time)
             mie_log(the_log_message)
             return 0, the_log_message
 
@@ -74,9 +80,14 @@ class BatchRenameFiles(object):
                 if os.path.exists(old_caption_path):
                     os.rename(old_caption_path, new_caption_path)
 
-        the_log_message = "{} files updated.".format(updated_count)
+        current_time = get_current_time()
+        the_log_message = "{} files updated at {}.".format(updated_count, current_time)
         mie_log(the_log_message)
         return updated_count, the_log_message
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return float("nan")
 
 
 class BatchDeleteFiles(object):
@@ -121,9 +132,14 @@ class BatchDeleteFiles(object):
                 os.remove(file_path)
                 deleted_count += 1
 
-        the_log_message = f"{deleted_count} files deleted from {directory}."
+        current_time = get_current_time()
+        the_log_message = f"{deleted_count} files deleted from {directory} at {current_time}."
         mie_log(the_log_message)
         return deleted_count, the_log_message
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return float("nan")
 
 
 class BatchEditTextFiles(object):
@@ -198,10 +214,15 @@ class BatchEditTextFiles(object):
                 with open(file_path, 'w', encoding='utf-8') as file:
                     file.write(content)
 
+        current_time = get_current_time()
         the_log_message = (f"{operation.capitalize()} operation completed successfully for {modified_count} files "
-                           f"in {directory}.")
+                           f"in {directory} at {current_time}.")
         mie_log(the_log_message)
         return modified_count, the_log_message
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return float("nan")
 
 
 class BatchSyncImageCaptionFiles(object):
@@ -258,9 +279,14 @@ class BatchSyncImageCaptionFiles(object):
                 os.remove(caption_file)
                 deleted_count += 1
 
-        the_log_message = f"Created {created_count} and deleted {deleted_count} captions for files in {directory}."
+        current_time = get_current_time()
+        the_log_message = f"Created {created_count} and deleted {deleted_count} captions for files in {directory} at {current_time}."
         mie_log(the_log_message)
         return the_log_message,
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return float("nan")
 
 
 class SummaryTextFiles(object):
@@ -321,13 +347,19 @@ class SummaryTextFiles(object):
             summary_file_path = os.path.join(directory, summary_file_name)
             with open(summary_file_path, 'w', encoding='utf-8') as summary_file:
                 summary_file.write(summary_text)
-            the_log_message = f"Summarized {len(files)} files in {directory} and saved in {summary_file_path}."
+            current_time = get_current_time()
+            the_log_message = f"Summarized {len(files)} files in {directory} and saved in {summary_file_path} at {current_time}."
             mie_log(the_log_message)
             return the_log_message,
 
-        the_log_message = f"Summarized {len(files)} files in {directory}."
+        current_time = get_current_time()
+        the_log_message = f"Summarized {len(files)} files in {directory} at {current_time}."
         mie_log(the_log_message)
         return summary_text,
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return float("nan")
 
 
 class BatchConvertImageFiles(object):
@@ -384,7 +416,8 @@ class BatchConvertImageFiles(object):
             else:
                 os.remove(file_path)
 
-        the_log_message = f"Converted {converted_count} images to {target_format} format in {directory}."
+        current_time = get_current_time()
+        the_log_message = f"Converted {converted_count} images to {target_format} format in {directory} at {current_time}."
         if save_original:
             the_log_message += f" source images are saved in {backup_dir}."
         mie_log(the_log_message)
@@ -397,6 +430,10 @@ class BatchConvertImageFiles(object):
                 return img.format.lower() in supported_formats
         except IOError:
             return False
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return float("nan")
 
 
 class DedupImageFiles(object):
@@ -472,7 +509,12 @@ class DedupImageFiles(object):
                 mie_log(f"Unable to delete file {file}: {e}")
 
         # Log
-        the_log_message = f"Deleted {deleted_count} duplicate images from {directory}."
+        current_time = get_current_time()
+        the_log_message = f"Deleted {deleted_count} duplicate images from {directory} at {current_time}."
         mie_log(the_log_message)
 
         return deleted_count, the_log_message
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return float("nan")

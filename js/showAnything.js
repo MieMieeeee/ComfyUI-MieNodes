@@ -14,22 +14,16 @@ app.registerExtension({
             nodeType.prototype.onExecuted = function (message) {
                 onExecuted?.apply(this, arguments);
 
-                if (this.widgets) {
-                    for (let i = 1; i < this.widgets.length; i++) {
-                        this.widgets[i].onRemove?.();
-                    }
-                    this.widgets.length = 1;
+                // Ensure the "text" widget is created only once
+                if (!this.textWidget) {
+                    this.textWidget = ComfyWidgets["STRING"](this, "displaytext", ["STRING", {multiline: true}], app).widget;
+                    this.textWidget.inputEl.readOnly = true;
+                    this.textWidget.inputEl.style.border = "none";
+                    this.textWidget.inputEl.style.backgroundColor = "transparent";
                 }
 
-                // Check if the "text" widget already exists.
-                let textWidget = Array.isArray(this.widgets) && this.widgets.find(w => w.name === "displaytext");
-                if (!textWidget) {
-                    textWidget = ComfyWidgets["STRING"](this, "displaytext", ["STRING", {multiline: true}], app).widget;
-                    textWidget.inputEl.readOnly = true;
-                    textWidget.inputEl.style.border = "none";
-                    textWidget.inputEl.style.backgroundColor = "transparent";
-                }
-                textWidget.value = message["text"].join("");
+                // Update the value of the text widget
+                this.textWidget.value = message["text"].join("");
             };
         }
     },
