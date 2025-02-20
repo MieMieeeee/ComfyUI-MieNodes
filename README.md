@@ -106,6 +106,16 @@ The plugin also provides utility nodes for general-purpose tasks:
 
 ---
 
+### **SaveAnythingAsFile**
+**Function:** Save data to a file in either TOML, JSON, or TXT format.  
+**Parameters:**  
+- `data` (\*): The data to save.  
+- `directory` (str): The directory to save the file in.  
+- `file_name` (str): The name of the output file.  
+- `save_format` (str): The format to save the data in ("json", "toml", or "txt").
+
+---
+
 ## Future Plans  
 
 ComfyUI-MieNodes is under active development and will expand its features in future updates. Planned additions include:  

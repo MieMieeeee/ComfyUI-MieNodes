@@ -6,7 +6,9 @@ LOGO_EMOJI = "🐑"
 
 def mie_log(message):
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    print(f"[{timestamp}] {LOGO_EMOJI}: {message}")
+    the_message = f"[{timestamp}] {LOGO_EMOJI}: {message}"
+    print(the_message)
+    return the_message
 
 
 def add_suffix(source):

@@ -134,8 +134,7 @@ class BatchDeleteFiles(object):
 
         current_time = get_current_time()
         the_log_message = f"{deleted_count} files deleted from {directory} at {current_time}."
-        mie_log(the_log_message)
-        return deleted_count, the_log_message
+        return deleted_count, mie_log(the_log_message)
 
     @classmethod
     def IS_CHANGED(cls, **kwargs):
@@ -182,7 +181,7 @@ class BatchEditTextFiles(object):
         files = glob(os.path.join(directory, f"*{file_extension}"))
 
         if not files:
-            return 0, f"No {file_extension} files found in {directory}."
+            return 0, mie_log(f"No {file_extension} files found in {directory}.")
 
         modified_count = 0
 
@@ -199,11 +198,11 @@ class BatchEditTextFiles(object):
                 content += new_text
             elif operation == 'replace':
                 if not target_text:
-                    return 0, "Target text is required for Replace operation."
+                    return 0, mie_log("Target text is required for Replace operation.")
                 content = re.sub(target_text, new_text, content)
             elif operation == 'remove':
                 if not target_text:
-                    return 0, "Target text is required for Remove operation."
+                    return 0, mie_log("Target text is required for Remove operation.")
                 content = content.replace(target_text, '')
             else:
                 return 0, f"Unsupported operation: {operation}"
@@ -217,8 +216,7 @@ class BatchEditTextFiles(object):
         current_time = get_current_time()
         the_log_message = (f"{operation.capitalize()} operation completed successfully for {modified_count} files "
                            f"in {directory} at {current_time}.")
-        mie_log(the_log_message)
-        return modified_count, the_log_message
+        return modified_count, mie_log(the_log_message)
 
     # @classmethod
     # def IS_CHANGED(cls, **kwargs):
@@ -281,8 +279,7 @@ class BatchSyncImageCaptionFiles(object):
 
         current_time = get_current_time()
         the_log_message = f"Created {created_count} and deleted {deleted_count} captions for files in {directory} at {current_time}."
-        mie_log(the_log_message)
-        return the_log_message,
+        return mie_log(the_log_message),
 
     @classmethod
     def IS_CHANGED(cls, **kwargs):
@@ -349,8 +346,7 @@ class SummaryTextFiles(object):
                 summary_file.write(summary_text)
             current_time = get_current_time()
             the_log_message = f"Summarized {len(files)} files in {directory} and saved in {summary_file_path} at {current_time}."
-            mie_log(the_log_message)
-            return the_log_message,
+            return mie_log(the_log_message),
 
         current_time = get_current_time()
         the_log_message = f"Summarized {len(files)} files in {directory} at {current_time}."
@@ -397,7 +393,7 @@ class BatchConvertImageFiles(object):
         files = [f for f in glob(os.path.join(directory, "*")) if self.is_supported_image(f, supported_formats)]
 
         if not files:
-            return 0, f"No supported image files found in {directory}."
+            return 0, mie_log(f"No supported image files found in {directory}.")
 
         if save_original:
             backup_dir = os.path.join(directory, "backup")
@@ -420,8 +416,7 @@ class BatchConvertImageFiles(object):
         the_log_message = f"Converted {converted_count} images to {target_format} format in {directory} at {current_time}."
         if save_original:
             the_log_message += f" source images are saved in {backup_dir}."
-        mie_log(the_log_message)
-        return converted_count, the_log_message
+        return converted_count, mie_log(the_log_message)
 
     @staticmethod
     def is_supported_image(file_path, supported_formats):
@@ -474,7 +469,7 @@ class DedupImageFiles(object):
                     img_hash = hashfunc(img)
                     hashes[filename] = img_hash
             except Exception as e:
-                print(f"Unable to process file {filename}: {e}")
+                mie_log(f"Unable to process file {filename}: {e}")
 
         # Compare image hashes and record duplicate images
         duplicates = {}
@@ -511,9 +506,7 @@ class DedupImageFiles(object):
         # Log
         current_time = get_current_time()
         the_log_message = f"Deleted {deleted_count} duplicate images from {directory} at {current_time}."
-        mie_log(the_log_message)
-
-        return deleted_count, the_log_message
+        return deleted_count, mie_log(the_log_message)
 
     @classmethod
     def IS_CHANGED(cls, **kwargs):

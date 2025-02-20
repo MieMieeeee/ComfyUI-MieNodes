@@ -106,6 +106,16 @@
 
 ---
 
+### **SaveAnythingAsFile**
+**功能说明：** 将数据保存为 TOML、JSON 或 TXT 格式的文件。  
+**参数说明：**  
+- `data` (\*): 要保存的数据。  
+- `directory` (str): 保存文件的目录。  
+- `file_name` (str): 输出文件的名称。  
+- `save_format` (str): 保存数据的格式（"json"、"toml" 或 "txt"）。
+
+---
+
 ## 未来计划  
 
 ComfyUI-MieNodes 插件正在积极开发中，未来将进一步扩展功能。规划中的新功能包括：  
