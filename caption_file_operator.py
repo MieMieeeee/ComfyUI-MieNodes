@@ -298,6 +298,7 @@ class SummaryTextFiles(object):
             "optional": {
                 "file_extension": ("STRING", {"default": ".txt"},),
                 "summary_file_name": ("STRING", {"default": "summary.txt"}),
+                "trigger_signal": (("*", {})),
             },
         }
 
@@ -307,7 +308,11 @@ class SummaryTextFiles(object):
 
     CATEGORY = MY_CATEGORY
 
-    def summary_txt_files(self, directory, add_separator, save_to_file, file_extension, summary_file_name):
+    @classmethod
+    def VALIDATE_INPUTS(s, input_types):
+        return True
+
+    def summary_txt_files(self, directory, add_separator, save_to_file, file_extension, summary_file_name, trigger_signal):
         """
         Summarize text files in a directory.
 
@@ -317,6 +322,7 @@ class SummaryTextFiles(object):
         - file_extension (str): File extension to operate on (e.g., ".txt")
         - save_to_file (bool): Whether to save the summary to a file
         - summary_file_name (str): Name of the summary file
+        - trigger_signal: Just a trigger
 
         Returns:
         - Log message
