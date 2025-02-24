@@ -312,7 +312,7 @@ class SummaryTextFiles(object):
     def VALIDATE_INPUTS(s, input_types):
         return True
 
-    def summary_txt_files(self, directory, add_separator, save_to_file, file_extension, summary_file_name, trigger_signal):
+    def summary_txt_files(self, directory, add_separator, save_to_file, file_extension, summary_file_name, trigger_signal=None):
         """
         Summarize text files in a directory.
 
