@@ -402,9 +402,14 @@ class BatchConvertImageFiles(object):
         converted_count = 0
         for file_path in files:
             with Image.open(file_path) as img:
+                base_name, ext = os.path.splitext(file_path)
+                ext = ext.lower().lstrip('.')
+                if ext == target_format:
+                    continue  # Skip conversion if the image is already in the target format
+
                 base_name = os.path.splitext(file_path)[0]
                 new_file_path = f"{base_name}.{target_format}"
-                img.convert("RGB").save(new_file_path, target_format.upper())
+                img.convert("RGB").save(new_file_path, "JPEG" if target_format == "jpg" else target_format.upper())
                 converted_count += 1
 
             if save_original:
