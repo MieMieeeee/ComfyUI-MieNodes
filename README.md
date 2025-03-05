@@ -28,7 +28,8 @@ The plugin provides the following utility nodes, with a focus on dataset file ma
 
 The plugin also provides utility nodes for general-purpose tasks:  
 
-1. Display any input as a string.  
+1. Display any input as a string.
+2. Download files from huggingface, hf-mirror, github or anywhere to models folder. 
 
 ---
 
