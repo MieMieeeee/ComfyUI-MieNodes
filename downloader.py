@@ -25,10 +25,12 @@ class ModelDownloader(object):
                 "url": ("STRING", {"default": ""},),
                 "save_path": ("STRING", {"default": "checkpoints"}),
                 "override": ("BOOLEAN", {"default": True}),
+                "use_hf_mirror": ("BOOLEAN", {"default": False}),
             },
             "optional": {
                 "rename_to": ("STRING", {"default": ""},),
                 "hf_token": ("STRING", {"default": "", "multiline": False, "password": True}),
+                "trigger_signal": (("*", {})),
             },
         }
 
@@ -38,11 +40,18 @@ class ModelDownloader(object):
 
     CATEGORY = MY_CATEGORY
 
-    def download(self, url, save_path, override, rename_to, hf_token, chunk_size=1024 * 1024):
+    @classmethod
+    def VALIDATE_INPUTS(s, input_types):
+        return True
+
+    def download(self, url, save_path, override, use_hf_mirror, rename_to, hf_token, chunk_size=1024 * 1024, trigger_signal=None):
         if hf_token and "huggingface" in url:
             headers = {"Authorization": f"Bearer {hf_token}"}
         else:
             headers = None
+
+        if use_hf_mirror:
+           url = re.sub(r'^https://huggingface\.co', 'https://hf-mirror.com', url)
 
         response = requests.get(url, stream=True, headers=headers, params=None)
         response.raise_for_status()
