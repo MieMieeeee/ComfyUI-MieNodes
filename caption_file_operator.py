@@ -256,6 +256,8 @@ class BatchSyncImageCaptionFiles(object):
         images = set()
         caption_ext = ".txt"
         for file_path in glob(os.path.join(directory, "*")):
+            if os.path.isdir(file_path):
+                continue
             if imghdr.what(file_path):
                 images.add(file_path)
 
