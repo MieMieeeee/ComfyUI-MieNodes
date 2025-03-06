@@ -44,6 +44,8 @@ The plugin also provides utility nodes for general-purpose tasks:
 - `update_caption_as_well` (bool): Whether to also rename `.txt` files with the same name.  
 - `prefix` (str, optional): Prefix to add to the file name.  
 
+![Image](images/BatchRenameFiles.png)
+
 ---
 
 ### **BatchDeleteFiles**  
@@ -52,6 +54,14 @@ The plugin also provides utility nodes for general-purpose tasks:
 - `directory` (str): Path to the directory.  
 - `file_extension` (str): File extension to delete (e.g., `.jpg`, `.txt`).  
 - `prefix` (str, optional): Prefix to check before deleting files.  
+
+![Image](images/BatchDeleteFiles.png)
+
+Before:
+![Image](images/BatchDeleteFiles-1.png)
+
+After:
+![Image](images/BatchDeleteFiles-2.png)
 
 ---
 
@@ -64,6 +74,14 @@ The plugin also provides utility nodes for general-purpose tasks:
 - `target_text` (str, optional): Text to replace or remove (only used for Replace or Remove operations).  
 - `new_text` (str, optional): New content to insert, append, or replace.  
 
+![Image](images/BatchEditTextFiles.png)
+
+Before:
+![Image](images/BatchEditTextFiles-1.png)
+
+After:
+![Image](images/BatchEditTextFiles-2.png)
+
 ---
 
 ### **BatchSyncImageCaptionFiles**  
@@ -71,6 +89,14 @@ The plugin also provides utility nodes for general-purpose tasks:
 **Parameters:**  
 - `directory` (str): Path to the directory.  
 - `caption_content` (str): Content to populate in the caption file (e.g., `"nazha,"`).  
+
+![Image](images/BatchSyncImageCaptionFiles.png)
+
+Before:
+![Image](images/BatchSyncImageCaptionFiles-1.png)
+
+After:
+![Image](images/BatchSyncImageCaptionFiles-2.png)
 
 ---
 
@@ -83,6 +109,8 @@ The plugin also provides utility nodes for general-purpose tasks:
 - `file_extension` (str, optional): File extension to operate on (e.g., `.txt`).  
 - `summary_file_name` (str, optional): Name of the file to save the summary.  
 
+![Image](images/SummaryTextFiles.png)
+
 ---
 
 ### **BatchConvertImageFiles**  
@@ -92,6 +120,14 @@ The plugin also provides utility nodes for general-purpose tasks:
 - `target_format` (str): Target image format (`jpg` or `png`).  
 - `save_original` (bool): Whether to retain the original files after conversion.  
 
+![Image](images/BatchConvertImageFiles.png)
+
+Before:
+![Image](images/BatchConvertImageFiles-1.png)
+
+After:
+![Image](images/BatchConvertImageFiles-2.png)
+
 ---
 
 ### **DedupImageFiles**  
@@ -99,6 +135,14 @@ The plugin also provides utility nodes for general-purpose tasks:
 **Parameters:**  
 - `directory` (str): Path to the directory.  
 - `max_distance_threshold` (int): Maximum Hamming distance threshold for identifying duplicates.  
+
+![Image](images/DedupImageFiles.png)
+
+Before:
+![Image](images/DedupImageFiles-1.png)
+
+After:
+![Image](images/DedupImageFiles-2.png)
 
 ---
 
@@ -126,7 +170,22 @@ The plugin also provides utility nodes for general-purpose tasks:
 - `file2_path` (str): The path to the second file.
 - `file_format` (str): The format of the files ("json" or "toml").
 
+![Image](images/CompareFiles.png)
+
 ---
+
+### **ModelDownloader**
+**Function:** Download files from Hugging Face, hf-mirror, GitHub, or any other source to the models folder.
+**Parameters:**
+- `url` (str): The URL of the file to download.
+- `save_path` (str): The path to save the downloaded file.
+- `override` (bool): Whether to override the existing file if it already exists.
+- `use_hf_mirror` (bool): Whether to use the Hugging Face mirror URL.
+- `rename_to` (str, optional): The new name for the downloaded file (optional).
+- `hf_token` (str, optional): The Hugging Face token for authentication (optional).
+- `trigger_signal` (\*, optional): A signal to trigger the download (optional).
+
+![Image](images/downloader.png)
 
 ## Future Plans  
 
