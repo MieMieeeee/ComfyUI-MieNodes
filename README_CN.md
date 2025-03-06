@@ -36,7 +36,7 @@
 ## 节点功能
 
 ### **BatchRenameFiles**
-**功能说明：** 批量重命名文件，添加前缀和编号。
+**功能说明：** 批量重命名文件，添加前缀和编号。<br>
 **参数说明：**
 - `directory` (str): 目录路径。
 - `file_extension` (str): 要操作的文件扩展名，例如 `.jpg`、`.txt`。
@@ -49,7 +49,7 @@
 ---
 
 ### **BatchDeleteFiles**
-**功能说明：** 批量删除符合指定扩展名和前缀的文件。
+**功能说明：** 批量删除符合指定扩展名和前缀的文件。<br>
 **参数说明：**
 - `directory` (str): 目录路径。
 - `file_extension` (str): 要删除的文件扩展名，例如 `.jpg`、`.txt`。
@@ -66,7 +66,7 @@
 ---
 
 ### **BatchEditTextFiles**
-**功能说明：** 对文本文件执行操作（插入、追加、替换或删除）。
+**功能说明：** 对文本文件执行操作（插入、追加、替换或删除）。<br>
 **参数说明：**
 - `directory` (str): 目录路径。
 - `operation` (str): 操作类型（`insert`、`append`、`replace`、`remove`）。
@@ -85,7 +85,7 @@
 ---
 
 ### **BatchSyncImageCaptionFiles**
-**功能说明：** 为目录中的图像文件添加标注文件（同名 `.txt` 文件）。
+**功能说明：** 为目录中的图像文件添加标注文件（同名 `.txt` 文件）。<br>
 **参数说明：**
 - `directory` (str): 目录路径。
 - `caption_content` (str): 写入标注文件的内容，例如 `"nazha,"`。
@@ -101,7 +101,7 @@
 ---
 
 ### **SummaryTextFiles**
-**功能说明：** 摘要生成当前目录下所有文本文件的数据内容。
+**功能说明：** 摘要生成当前目录下所有文本文件的数据内容。<br>
 **参数说明：**
 - `directory` (str): 目录路径。
 - `add_separator` (bool): 是否在文件内容之间添加分隔符。
@@ -114,7 +114,7 @@
 ---
 
 ### **BatchConvertImageFiles**
-**功能说明：** 将指定目录中的所有图像文件转换为目标格式。
+**功能说明：** 将指定目录中的所有图像文件转换为目标格式。<br>
 **参数说明：**
 - `directory` (str): 目录路径。
 - `target_format` (str): 目标图像格式（`jpg` 或 `png`）。
@@ -131,7 +131,7 @@
 ---
 
 ### **DedupImageFiles**
-**功能说明：** 删除指定目录中的重复图像文件。
+**功能说明：** 删除指定目录中的重复图像文件。<br>
 **参数说明：**
 - `directory` (str): 目录路径。
 - `max_distance_threshold` (int): 最大 Hamming 距离阈值，用于判断图像是否重复。
@@ -147,14 +147,14 @@
 ---
 
 ### **ShowAnythingMie**
-**功能说明：** 将输入内容以字符串形式打印输出。
+**功能说明：** 将输入内容以字符串形式打印输出。<br>
 **参数说明：**
 - `anything` (*): 输入的任意内容。
 
 ---
 
 ### **SaveAnythingAsFile**
-**功能说明：** 将数据保存为 TOML、JSON 或 TXT 格式的文件。
+**功能说明：** 将数据保存为 TOML、JSON 或 TXT 格式的文件。<br>
 **参数说明：**
 - `data` (\*): 要保存的数据。
 - `directory` (str): 保存文件的目录。
@@ -164,7 +164,7 @@
 ---
 
 ### **CompareFiles**
-**功能说明：** 比较两个文件并返回差异。
+**功能说明：** 比较两个文件并返回差异。<br>
 **参数说明：**
 - `file1_path` (str): 第一个文件的路径。
 - `file2_path` (str): 第二个文件的路径。
@@ -175,7 +175,7 @@
 ---
 
 ### **ModelDownloader**
-**功能说明：** 从 Hugging Face、hf-mirror、GitHub 或其他来源下载文件到 models 目录。
+**功能说明：** 从 Hugging Face、hf-mirror、GitHub 或其他来源下载文件到 models 目录。<br>
 **参数说明：**
 - `url` (str): 要下载的文件的 URL。
 - `save_path` (str): 保存下载文件的路径。
