@@ -1,7 +1,7 @@
 [project]
 name = "comfyui_mienodes"
 description = "Offering a series of utility nodes designed to simplify workflows and enhance efficiency"
-version = "1.0.1"
+version = "1.0.2"
 license = { file = "LICENSE" }
 dependencies = []
 
@@ -12,4 +12,4 @@ Repository = "https://github.com/MieMieeeee/ComfyUI-MieNodes"
 [tool.comfy]
 PublisherId = "mie"
 DisplayName = "ComfyUI_MieNodes"
-Icon = ""
+Icon = "https://github.com/MieMieeeee/ComfyUI-MieNodes/blob/2f617ba2539e8fd13a91fe790e6b5e9ae1718a58/images/channels4_profile.jpg?raw=true"
