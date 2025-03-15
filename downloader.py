@@ -15,9 +15,6 @@ MY_CATEGORY = "🐑 MieNodes/🐑 Downloader"
 # Learned a lot from https://github.com/ciri/comfyui-model-downloader
 
 class ModelDownloader(object):
-    def __init__(self):
-        pass
-
     @classmethod
     def INPUT_TYPES(s):
         return {

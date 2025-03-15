@@ -3,7 +3,7 @@ import json
 import toml
 from types import SimpleNamespace
 from deepdiff import DeepDiff
-from .utils import mie_log
+from .utils import mie_log, any_typ
 
 MY_CATEGORY = "🐑 MieNodes/🐑 Common"
 
@@ -18,7 +18,7 @@ class ShowAnythingMie(object):
     def INPUT_TYPES(s):
         return {
             "required": {
-                "anything": (("*", {})),
+                "anything": (any_typ,),
             },
         }
 
@@ -27,10 +27,6 @@ class ShowAnythingMie(object):
     OUTPUT_NODE = True
 
     CATEGORY = MY_CATEGORY
-
-    @classmethod
-    def VALIDATE_INPUTS(s, input_types):
-        return True
 
     def execute(self, anything):
         """
@@ -54,7 +50,7 @@ class SaveAnythingAsFile(object):
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "data": (("*", {})),
+                "data": (any_typ,),
                 "directory": ("STRING", {"default": "X://path/to/folder"},),
                 "file_name": ("STRING", {"default": "output"}),
                 "save_format": (["txt", "json", "toml"], {}),
@@ -65,10 +61,6 @@ class SaveAnythingAsFile(object):
     FUNCTION = "save_data"
     CATEGORY = MY_CATEGORY
     OUTPUT_NODE = True
-
-    @classmethod
-    def VALIDATE_INPUTS(s, input_types):
-        return True
 
     def save_data(self, data, directory, file_name, save_format):
         """

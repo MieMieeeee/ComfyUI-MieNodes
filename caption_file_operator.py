@@ -7,7 +7,7 @@ from datetime import datetime
 from glob import glob
 from PIL import Image
 
-from .utils import mie_log
+from .utils import mie_log, any_typ
 
 MY_CATEGORY = "🐑 MieNodes/🐑 Caption Tools"
 
@@ -28,6 +28,7 @@ class BatchRenameFiles(object):
             },
             "optional": {
                 "prefix": ("STRING", {"default": ""}),
+                "trigger_signal": (any_typ,),
             },
         }
 
@@ -37,7 +38,8 @@ class BatchRenameFiles(object):
 
     CATEGORY = MY_CATEGORY
 
-    def batch_rename_files(self, directory, file_extension, numbering_format, update_caption_as_well, prefix):
+    def batch_rename_files(self, directory, file_extension, numbering_format, update_caption_as_well, prefix,
+                           trigger_signal=None):
         """
         Batch rename files and add prefix and numbering.
 
@@ -100,6 +102,7 @@ class BatchDeleteFiles(object):
             },
             "optional": {
                 "prefix": ("STRING", {"default": ""}),
+                "trigger_signal": (any_typ,),
             },
         }
 
@@ -109,7 +112,7 @@ class BatchDeleteFiles(object):
 
     CATEGORY = MY_CATEGORY
 
-    def batch_delete_files(self, directory, file_extension, prefix):
+    def batch_delete_files(self, directory, file_extension, prefix, trigger_signal=None):
         """
         Batch delete files with the specified extension and optional prefix.
 
@@ -153,6 +156,8 @@ class BatchEditTextFiles(object):
                 "file_extension": ("STRING", {"default": ".txt"},),
                 "target_text": ("STRING", {"default": ""}),
                 "new_text": ("STRING", {"default": ""}),
+                "trigger_signal": (any_typ,),
+
             },
         }
 
@@ -162,7 +167,7 @@ class BatchEditTextFiles(object):
 
     CATEGORY = MY_CATEGORY
 
-    def edit_text_file(self, directory, operation, file_extension, target_text, new_text):
+    def edit_text_file(self, directory, operation, file_extension, target_text, new_text, trigger_signal=None):
         """
         Operate on text files (Insert, Append, Replace, or Remove)
 
@@ -231,6 +236,9 @@ class BatchSyncImageCaptionFiles(object):
                 "directory": ("STRING", {"default": "X://path/to/files"},),
                 "caption_content": ("STRING", {"default": ""}),
             },
+            "optional": {
+                "trigger_signal": (any_typ,),
+            },
         }
 
     RETURN_TYPES = ("STRING",)
@@ -239,7 +247,7 @@ class BatchSyncImageCaptionFiles(object):
 
     CATEGORY = MY_CATEGORY
 
-    def sync_image_caption_files(self, directory, caption_content):
+    def sync_image_caption_files(self, directory, caption_content, trigger_signal=None):
         """
         Synchronize image files and caption files:
         - Generate a matching .txt file for each supported image file (if it doesn't exist)
@@ -300,7 +308,7 @@ class SummaryTextFiles(object):
             "optional": {
                 "file_extension": ("STRING", {"default": ".txt"},),
                 "summary_file_name": ("STRING", {"default": "summary.txt"}),
-                "trigger_signal": (("*", {})),
+                "trigger_signal": (any_typ,),
             },
         }
 
@@ -310,11 +318,8 @@ class SummaryTextFiles(object):
 
     CATEGORY = MY_CATEGORY
 
-    @classmethod
-    def VALIDATE_INPUTS(s, input_types):
-        return True
-
-    def summary_txt_files(self, directory, add_separator, save_to_file, file_extension, summary_file_name, trigger_signal=None):
+    def summary_txt_files(self, directory, add_separator, save_to_file, file_extension, summary_file_name,
+                          trigger_signal=None):
         """
         Summarize text files in a directory.
 
@@ -375,6 +380,9 @@ class BatchConvertImageFiles(object):
                 "target_format": (["jpg", "png"], {"default": "jpg"}),
                 "save_original": ("BOOLEAN", {"default": True}),
             },
+            "optional": {
+                "trigger_signal": (any_typ,),
+            },
         }
 
     RETURN_TYPES = ("INT", "STRING")
@@ -383,7 +391,7 @@ class BatchConvertImageFiles(object):
 
     CATEGORY = MY_CATEGORY
 
-    def convert_image_files(self, directory, target_format, save_original):
+    def convert_image_files(self, directory, target_format, save_original, trigger_signal=None):
         """
         Convert all images in the specified directory to the target format.
 
@@ -452,6 +460,9 @@ class DedupImageFiles(object):
                 "directory": ("STRING", {"default": "X://path/to/files"}),
                 "max_distance_threshold": ("INT", {"default": 10, "min": 0, "max": 64}),
             },
+            "optional": {
+                "trigger_signal": (any_typ,),
+            },
         }
 
     RETURN_TYPES = ("INT", "STRING")
@@ -460,7 +471,7 @@ class DedupImageFiles(object):
 
     CATEGORY = MY_CATEGORY
 
-    def dedup_image_files(self, directory, max_distance_threshold):
+    def dedup_image_files(self, directory, max_distance_threshold, trigger_signal=None):
         """
         Delete duplicated image files in the specified directory
 
