@@ -17,3 +17,12 @@ def add_suffix(source):
 
 def add_emoji(source):
     return source + " " + LOGO_EMOJI
+
+
+# wildcard trick is taken from pythongossss's
+class AnyType(str):
+    def __ne__(self, __value: object) -> bool:
+        return False
+
+
+any_typ = AnyType("*")

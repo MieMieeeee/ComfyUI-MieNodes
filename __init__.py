@@ -2,6 +2,7 @@ from .common import ShowAnythingMie, SaveAnythingAsFile, CompareFiles
 from .caption_file_operator import BatchRenameFiles, BatchDeleteFiles, BatchEditTextFiles, BatchSyncImageCaptionFiles, \
     SummaryTextFiles, BatchConvertImageFiles, DedupImageFiles
 from .downloader import ModelDownloader
+from .translator import SetLLMServiceConfig, SetSiliconFlowLLMServiceConfig, TextTranslator
 from .utils import add_suffix, add_emoji
 
 WEB_DIRECTORY = "./js"
@@ -17,7 +18,10 @@ NODE_CLASS_MAPPINGS = {
     add_suffix("ShowAnything"): ShowAnythingMie,
     add_suffix("SaveAnythingAsFile"): SaveAnythingAsFile,
     add_suffix("CompareFiles"): CompareFiles,
-    add_suffix("ModelDownloader"): ModelDownloader
+    add_suffix("ModelDownloader"): ModelDownloader,
+    add_suffix("SetLLMServiceConfig"): SetLLMServiceConfig,
+    add_suffix("SetSiliconFlowLLMServiceConfig"): SetSiliconFlowLLMServiceConfig,
+    add_suffix("Translator"): TextTranslator,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -31,7 +35,10 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     add_suffix("ShowAnything"): add_emoji("Show Anything"),
     add_suffix("SaveAnythingAsFile"): add_emoji("Save Anything As File"),
     add_suffix("CompareFiles"): add_emoji("Compare Files"),
-    add_suffix("ModelDownloader"): add_emoji("Model Downloader")
+    add_suffix("SetLLMServiceConfig"): add_emoji("Set LLM Service Config"),
+    add_suffix("SetSiliconFlowLLMServiceConfig"): add_emoji("Set SiliconFlow LLM Service Config"),
+    add_suffix("ModelDownloader"): add_emoji("Model Downloader"),
+    add_suffix("Translator"): add_emoji("Translator")
 }
 
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS", "WEB_DIRECTORY"]
