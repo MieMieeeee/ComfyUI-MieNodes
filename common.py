@@ -3,6 +3,8 @@ import json
 import toml
 from types import SimpleNamespace
 from deepdiff import DeepDiff
+
+import folder_paths
 from .utils import mie_log, any_typ
 
 MY_CATEGORY = "🐑 MieNodes/🐑 Common"
@@ -210,3 +212,21 @@ class CompareFiles(object):
                     elif change_type == 'dictionary_item_removed':
                         formatted.append(f"{short_key}:\n\t{file1_name}: {changes[change]}\n\t{file2_name}: null")
         return "\n".join(formatted)
+
+
+class GetAbsolutePath(object):
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "relative_path": ("STRING", {"default": "input/abc"}),
+            },
+        }
+
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("absolute_path",)
+    FUNCTION = "execute"
+    CATEGORY = "🐑 MieNodes/🐑 Common"
+
+    def execute(self, relative_path):
+        return os.path.join(folder_paths.base_path, relative_path),
