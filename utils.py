@@ -1,3 +1,5 @@
+import math
+import hashlib
 import datetime
 
 LOGO_SUFFIX = "|Mie"
@@ -26,3 +28,22 @@ class AnyType(str):
 
 
 any_typ = AnyType("*")
+
+
+def compute_hash(file_path, hash_algorithm):
+    if hash_algorithm == "None":
+        return None
+    hash_func = getattr(hashlib, hash_algorithm)()
+    with open(file_path, "rb") as f:
+        for chunk in iter(lambda: f.read(4096), b""):
+            hash_func.update(chunk)
+    return hash_func.hexdigest()
+
+def convert_size(size_bytes):
+    if size_bytes == 0:
+        return "0B"
+    size_name = ("B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB")
+    i = int(math.floor(math.log(size_bytes, 1024)))
+    p = math.pow(1024, i)
+    s = round(size_bytes / p, 2)
+    return f"{s} {size_name[i]}"

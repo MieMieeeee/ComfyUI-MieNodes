@@ -1,11 +1,14 @@
 import os
 import json
 import toml
+import hashlib
+import time
+import fnmatch
 from types import SimpleNamespace
 from deepdiff import DeepDiff
 
 import folder_paths
-from .utils import mie_log, any_typ
+from .utils import mie_log, any_typ, compute_hash, convert_size
 
 MY_CATEGORY = "🐑 MieNodes/🐑 Common"
 
@@ -230,3 +233,80 @@ class GetAbsolutePath(object):
 
     def execute(self, relative_path):
         return os.path.join(folder_paths.base_path, relative_path),
+
+
+class GetFileInfo(object):
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "file_path": ("STRING", {"default": "input/abc"}),
+                "hash_algorithm": (["md5", "sha1", "sha256", "None"], {"default": "sha256"}),
+            },
+        }
+
+    RETURN_TYPES = ("DICT",)
+    RETURN_NAMES = ("file_info",)
+    FUNCTION = "execute"
+    CATEGORY = "🐑 MieNodes/🐑 Common"
+
+    def execute(self, file_path, hash_algorithm):
+        file_path = os.path.join(folder_paths.base_path, file_path)
+
+        file_info = {}
+        try:
+            file_info['size'] = convert_size(os.path.getsize(file_path)),
+            file_info['creation_time'] = time.ctime(os.path.getctime(file_path))
+            file_info['modification_time'] = time.ctime(os.path.getmtime(file_path))
+            file_info['hash'] = compute_hash(file_path, hash_algorithm)
+            file_info_json = json.dumps(file_info, indent=4)
+        except Exception as e:
+            return json.dumps({"error": str(e)}),
+        return file_info_json,
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return float("nan")
+
+
+class GetDirectoryFilesInfo(object):
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "directory_path": ("STRING", {"default": "input/abc"}),
+                "hash_algorithm": (["md5", "sha1", "sha256", "None"], {"default": "None"}),
+                "pattern": ("STRING", {"default": "*"}),
+            },
+        }
+
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("directory_files_info",)
+    FUNCTION = "execute"
+    CATEGORY = "🐑 MieNodes/🐑 Common"
+
+    def execute(self, directory_path, hash_algorithm, pattern):
+        directory_path = os.path.join(folder_paths.base_path, directory_path)
+        pattern = "*" if not pattern else pattern
+
+        directory_files_info = []
+        try:
+            for root, _, files in os.walk(directory_path):
+                for file in fnmatch.filter(files, pattern):
+                    file_path = os.path.join(root, file)
+                    file_info = {
+                        'file_path': file_path,
+                        'size': convert_size(os.path.getsize(file_path)),
+                        'creation_time': time.ctime(os.path.getctime(file_path)),
+                        'modification_time': time.ctime(os.path.getmtime(file_path)),
+                        'hash': compute_hash(file_path, hash_algorithm)
+                    }
+                    directory_files_info.append(file_info)
+            directory_files_info_json = json.dumps(directory_files_info, indent=4)
+        except Exception as e:
+            return json.dumps({"error": str(e)}),
+        return directory_files_info_json,
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return float("nan")

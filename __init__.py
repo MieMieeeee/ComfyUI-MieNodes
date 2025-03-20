@@ -1,4 +1,5 @@
-from .common import ShowAnythingMie, SaveAnythingAsFile, CompareFiles, GetAbsolutePath
+from .common import ShowAnythingMie, SaveAnythingAsFile, CompareFiles, GetAbsolutePath, GetFileInfo, \
+    GetDirectoryFilesInfo
 from .caption_file_operator import BatchRenameFiles, BatchDeleteFiles, BatchEditTextFiles, BatchSyncImageCaptionFiles, \
     SummaryTextFiles, BatchConvertImageFiles, DedupImageFiles
 from .downloader import ModelDownloader
@@ -22,7 +23,9 @@ NODE_CLASS_MAPPINGS = {
     add_suffix("SetLLMServiceConfig"): SetLLMServiceConfig,
     add_suffix("SetSiliconFlowLLMServiceConfig"): SetSiliconFlowLLMServiceConfig,
     add_suffix("Translator"): TextTranslator,
-    add_suffix("GetAbsolutePath"): GetAbsolutePath
+    add_suffix("GetAbsolutePath"): GetAbsolutePath,
+    add_suffix("GetFileInfo"): GetFileInfo,
+    add_suffix("GetDirectoryFilesInfo"): GetDirectoryFilesInfo
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -40,7 +43,9 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     add_suffix("SetSiliconFlowLLMServiceConfig"): add_emoji("Set SiliconFlow LLM Service Config"),
     add_suffix("ModelDownloader"): add_emoji("Model Downloader"),
     add_suffix("Translator"): add_emoji("Translator"),
-    add_suffix("GetAbsolutePath"): add_emoji("Get Absolute Path")
+    add_suffix("GetAbsolutePath"): add_emoji("Get Absolute Path"),
+    add_suffix("GetFileInfo"): add_emoji("Get File Info"),
+    add_suffix("GetDirectoryFilesInfo"): add_emoji("Get Directory Files Info")
 }
 
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS", "WEB_DIRECTORY"]
