@@ -1,9 +1,11 @@
 import os
 import json
 import toml
+import glob
 import hashlib
 import time
 import fnmatch
+import shutil
 from types import SimpleNamespace
 from deepdiff import DeepDiff
 
@@ -310,3 +312,131 @@ class GetDirectoryFilesInfo(object):
     @classmethod
     def IS_CHANGED(cls, **kwargs):
         return float("nan")
+
+
+class CopyFiles(object):
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "source_directory": ("STRING", {"default": "X://path/to/source"}),
+                "destination_directory": ("STRING", {"default": "X://path/to/destination"}),
+                "pattern": ("STRING", {"default": "*.txt"}),
+                "delete_origin": ("BOOLEAN", {"default": False}),
+                "mock": ("BOOLEAN", {"default": False}),
+            },
+        }
+
+    RETURN_TYPES = ("INT", "STRING")
+    RETURN_NAMES = ("copied_file_count", "log")
+    FUNCTION = "copy_files"
+    CATEGORY = "🐑 MieNodes/🐑 File Operations"
+
+    def copy_files(self, source_directory, destination_directory, pattern, delete_origin, mock):
+        """
+        Copy files matching a pattern from source to destination directory.
+
+        Parameters:
+        - source_directory (str): Path to the source directory.
+        - destination_directory (str): Path to the destination directory.
+        - pattern (str): File pattern to match (e.g., "*.txt").
+        - delete_origin (bool): Whether to delete the original files after copying.
+        - mock (bool): If True, only log the actions without performing them.
+
+        Returns:
+        - Number of files copied.
+        - Log message.
+        """
+
+        source_directory = os.path.join(folder_paths.base_path, source_directory)
+        destination_directory = os.path.join(folder_paths.base_path, destination_directory)
+        pattern = "*" if not pattern else pattern
+
+        if not os.path.exists(destination_directory):
+            os.makedirs(destination_directory, exist_ok=True)
+
+        copied_count = 0
+        log_messages = []
+        try:
+            for root, _, files in os.walk(source_directory):
+                for file in fnmatch.filter(files, pattern):
+                    source_path = os.path.join(root, file)
+                    relative_path = os.path.relpath(root, source_directory)
+                    destination_path = os.path.join(destination_directory, relative_path, file)
+
+                    if not mock:
+                        os.makedirs(os.path.dirname(destination_path), exist_ok=True)
+                        shutil.copy2(source_path, destination_path)
+                        log_messages.append(f"Copied {source_path} to {destination_path}")
+                        copied_count += 1
+
+                        if delete_origin:
+                            os.remove(source_path)
+                            log_messages.append(f"Deleted {source_path}")
+                    else:
+                        log_messages.append(f"[MOCK] Would copy from: {source_path} to: {destination_path}")
+                        copied_count += 1
+                        if delete_origin:
+                            log_messages.append(f"[MOCK] Would delete source file: {source_path}")
+
+            if not mock:
+                log_messages.append(
+                    f"Copied {copied_count} files matching '{pattern}' from {source_directory} to {destination_directory}.")
+            elif copied_count == 0:
+                log_messages.append(f"No files matching '{pattern}' found in {source_directory}.")
+            return copied_count, mie_log("\n".join(log_messages))
+        except Exception as e:
+            return 0, mie_log(f"Failed to copy files: {e}")
+
+
+class DeleteFiles(object):
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "path": ("STRING", {"default": "X://path/to/file_or_directory/*.txt"}),  # Supports patterns
+                "mock": ("BOOLEAN", {"default": False}),
+            },
+        }
+
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("log",)
+    FUNCTION = "delete_files"
+    CATEGORY = "🐑 MieNodes/🐑 File Operations"
+
+    def delete_files(self, path, mock):
+        """
+        Delete files or directories matching a pattern.
+
+        Parameters:
+        - path (str): Path or pattern to match files or directories (e.g., "aa/cc/*.txt").
+        - mock (bool): If True, only log the actions without performing them.
+
+        Returns:
+        - Log message.
+        """
+        path = os.path.join(folder_paths.base_path, path)
+        log_messages = []
+
+        try:
+            matched_paths = glob.glob(path, recursive=True)
+            if not matched_paths:
+                log_messages.append(
+                    f"[MOCK] No matching files or directories for: {path}" if mock else f"No matching files or directories for: {path}")
+            for matched_path in matched_paths:
+                if os.path.isfile(matched_path):
+                    if mock:
+                        log_messages.append(f"[MOCK] Would delete file: {matched_path}")
+                    else:
+                        os.remove(matched_path)
+                        log_messages.append(f"Deleted file: {matched_path}")
+                elif os.path.isdir(matched_path):
+                    if mock:
+                        log_messages.append(f"[MOCK] Would delete directory and its contents: {matched_path}")
+                    else:
+                        shutil.rmtree(matched_path)
+                        log_messages.append(f"Deleted directory and its contents: {matched_path}")
+        except Exception as e:
+            log_messages.append(f"Failed to delete {path}: {e}")
+
+        return mie_log("\n".join(log_messages)),
