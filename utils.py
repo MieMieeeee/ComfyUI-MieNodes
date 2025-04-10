@@ -39,6 +39,7 @@ def compute_hash(file_path, hash_algorithm):
             hash_func.update(chunk)
     return hash_func.hexdigest()
 
+
 def convert_size(size_bytes):
     if size_bytes == 0:
         return "0B"
