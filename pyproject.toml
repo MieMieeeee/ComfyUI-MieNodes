@@ -1,7 +1,7 @@
 [project]
 name = "comfyui_mienodes"
 description = "Offering a series of utility nodes designed to simplify workflows and enhance efficiency"
-version = "1.0.4"
+version = "1.0.5"
 license = { file = "LICENSE" }
 dependencies = []
 
