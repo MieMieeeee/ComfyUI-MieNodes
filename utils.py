@@ -1,6 +1,7 @@
 import math
 import hashlib
 import datetime
+from PIL import Image
 
 LOGO_SUFFIX = "|Mie"
 LOGO_EMOJI = "🐑"
@@ -39,6 +40,7 @@ def compute_hash(file_path, hash_algorithm):
             hash_func.update(chunk)
     return hash_func.hexdigest()
 
+
 def convert_size(size_bytes):
     if size_bytes == 0:
         return "0B"
@@ -47,3 +49,20 @@ def convert_size(size_bytes):
     p = math.pow(1024, i)
     s = round(size_bytes / p, 2)
     return f"{s} {size_name[i]}"
+
+
+def is_image_file(file_path):
+    """
+    Check if a file is a valid image using Pillow.
+
+    Parameters:
+    - file_path (str): Path to the file.
+
+    Returns:
+    - bool: True if the file is a valid image, False otherwise.
+    """
+    try:
+        with Image.open(file_path) as img:
+            return img.format is not None  # Returns True if the image format is valid
+    except (IOError, FileNotFoundError):
+        return False

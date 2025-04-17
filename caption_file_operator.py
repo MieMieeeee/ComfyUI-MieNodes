@@ -1,13 +1,12 @@
 import os
 import re
-import imghdr
 import shutil
 import imagehash
 from datetime import datetime
 from glob import glob
 from PIL import Image
 
-from .utils import mie_log, any_typ
+from .utils import mie_log, any_typ, is_image_file
 
 MY_CATEGORY = "🐑 MieNodes/🐑 Caption Tools"
 
@@ -266,7 +265,7 @@ class BatchSyncImageCaptionFiles(object):
         for file_path in glob(os.path.join(directory, "*")):
             if os.path.isdir(file_path):
                 continue
-            if imghdr.what(file_path):
+            if is_image_file(file_path):
                 images.add(file_path)
 
         caption_files = set(glob(os.path.join(directory, caption_ext)))
@@ -488,6 +487,8 @@ class DedupImageFiles(object):
 
         for filename in os.listdir(directory):
             filepath = os.path.join(directory, filename)
+            if not is_image_file(filepath):
+                continue
             try:
                 with Image.open(filepath) as img:
                     img_hash = hashfunc(img)
