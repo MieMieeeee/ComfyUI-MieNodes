@@ -1,3 +1,5 @@
+import hashlib
+
 MY_CATEGORY = "🐑 MieNodes/🐑 Prompt Generator"
 
 
@@ -12,6 +14,8 @@ class PromptGenerator(object):
                     ["simple", "advanced"],
                     {"default": "advanced"},
                 ),
+                "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff, "control_after_generate": True,
+                                 "tooltip": "The random seed used for creating the noise."}),
             },
         }
 
@@ -20,7 +24,7 @@ class PromptGenerator(object):
     FUNCTION = "generate_prompt"
     CATEGORY = MY_CATEGORY
 
-    def generate_prompt(self, llm_service_connector, input_text, mode):
+    def generate_prompt(self, llm_service_connector, input_text, mode, seed=None):
         # 判断输入是否为空
         if not input_text.strip():
             # 为空时，随机生成高质量AI绘画提示词
@@ -73,6 +77,22 @@ class PromptGenerator(object):
                 ]
         prompt = llm_service_connector.invoke(messages)
         return prompt,
+
+    def is_changed(self, llm_service_connector, input_text, mode, seed):
+        # 创建一个哈希对象
+        hasher = hashlib.md5()
+
+        # 添加基本类型的输入到哈希
+        hasher.update(input_text.encode('utf-8'))
+        hasher.update(mode.encode('utf-8'))
+        hasher.update(str(seed).encode('utf-8'))
+
+        # 处理 llm_service_connector
+        connector_state = str(llm_service_connector).encode('utf-8')
+        hasher.update(connector_state)
+
+        # 返回哈希值
+        return hasher.hexdigest()
 
 
 KONTEXT_PRESETS = {
@@ -181,6 +201,8 @@ class KontextPromptGenerator(object):
                 "image_description": ("STRING", {"default": "", "multiline": True}),
                 "edit_instruction": ("STRING", {"default": "", "multiline": True}),
                 "preset": (list(KONTEXT_PRESETS.keys()), {"default": "Komposer: Teleport"}),
+                "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff, "control_after_generate": True,
+                                 "tooltip": "The random seed used for creating the noise."}),
             },
         }
 
@@ -189,7 +211,7 @@ class KontextPromptGenerator(object):
     FUNCTION = "generate_kontext_prompt"
     CATEGORY = MY_CATEGORY
 
-    def generate_kontext_prompt(self, llm_service_connector, image_description, edit_instruction, preset):
+    def generate_kontext_prompt(self, llm_service_connector, image_description, edit_instruction, preset, seed=None):
         preset_data = KONTEXT_PRESETS.get(preset)
         if not preset_data:
             raise ValueError(f"Unknown preset: {preset}")
@@ -210,3 +232,25 @@ class KontextPromptGenerator(object):
         ]
         kontext_prompt = llm_service_connector.invoke(messages)
         return kontext_prompt,
+
+    def is_changed(self, llm_service_connector, image_description, edit_instruction, preset, seed):
+        # 创建一个哈希对象
+        hasher = hashlib.md5()
+
+        # 添加基本类型的输入到哈希
+        hasher.update(image_description.encode('utf-8'))
+        hasher.update(edit_instruction.encode('utf-8'))
+        hasher.update(preset.encode('utf-8'))
+        hasher.update(str(seed).encode('utf-8'))
+
+        # 处理 KONTEXT_PRESETS 的内容
+        preset_data = KONTEXT_PRESETS.get(preset)
+        if preset_data:
+            hasher.update(preset_data["system"].encode('utf-8'))
+
+        # 处理 llm_service_connector
+        connector_state = str(llm_service_connector).encode('utf-8')
+        hasher.update(connector_state)
+
+        # 返回哈希值
+        return hasher.hexdigest()

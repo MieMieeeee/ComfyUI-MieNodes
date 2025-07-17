@@ -14,6 +14,10 @@ class LLMServiceConnectorBase(ABC):
     def invoke(self, messages, **kwargs):
         pass
 
+    def get_state(self):
+        """返回用于比较状态的字符串表示"""
+        return f"{self.api_url}|{self.api_token}|{self.model}"
+
 
 # 适配SiliconFlow
 class SiliconFlowConnector(LLMServiceConnectorBase):
@@ -51,9 +55,16 @@ class SetSiliconFlowLLMServiceConnector(object):
         return {
             "required": {
                 "api_token": ("STRING", {"default": ""}),
-                "model": ("STRING", {
-                    "default": "deepseek-ai/DeepSeek-V3",
-                }),
+                "model": (
+                    [
+                        "deepseek-ai/DeepSeek-V3",
+                        "THUDM/GLM-Z1-9B-0414",
+                        "THUDM/GLM-4-32B-0414",
+                        "Qwen/Qwen3-8B",
+                        "moonshotai/Kimi-K2-Instruct",
+                    ],
+                    {"default": "THUDM/GLM-4-32B-0414"},
+                ),
             },
         }
 
@@ -61,9 +72,8 @@ class SetSiliconFlowLLMServiceConnector(object):
     RETURN_NAMES = ("llm_service_config",)
     FUNCTION = "execute"
     DESCRIPTION = """
-Only test with deepseek-ai/DeepSeek-V3.
+支持 deepseek-ai/DeepSeek-V3、THUDM/GLM-4-32B-0414 等 SiliconFlow 平台模型。
 """
-
     CATEGORY = MY_CATEGORY
 
     def execute(self, api_token, model):
