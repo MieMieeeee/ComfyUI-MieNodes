@@ -50,6 +50,6 @@ class TextTranslator(object):
             },
         ]
         translated_text = llm_service_connector.invoke(messages)
-        return translated_text,
+        return translated_text.strip(),
 
 

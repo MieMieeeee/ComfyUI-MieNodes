@@ -76,7 +76,7 @@ class PromptGenerator(object):
                     {"role": "user", "content": input_text},
                 ]
         prompt = llm_service_connector.invoke(messages)
-        return prompt,
+        return prompt.strip(),
 
     def is_changed(self, llm_service_connector, input_text, mode, seed):
         # 创建一个哈希对象
@@ -231,7 +231,7 @@ class KontextPromptGenerator(object):
             {"role": "user", "content": user_content},
         ]
         kontext_prompt = llm_service_connector.invoke(messages)
-        return kontext_prompt,
+        return kontext_prompt.strip(),
 
     def is_changed(self, llm_service_connector, image_description, edit_instruction, preset, seed):
         # 创建一个哈希对象
