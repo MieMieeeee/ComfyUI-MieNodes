@@ -55,15 +55,25 @@ class SetSiliconFlowLLMServiceConnector(object):
         return {
             "required": {
                 "api_token": ("STRING", {"default": ""}),
-                "model": (
+                "model_select": (
                     [
                         "deepseek-ai/DeepSeek-V3",
                         "THUDM/GLM-Z1-9B-0414",
                         "THUDM/GLM-4-32B-0414",
                         "Qwen/Qwen3-8B",
                         "moonshotai/Kimi-K2-Instruct",
+                        "Custom",
                     ],
                     {"default": "THUDM/GLM-4-32B-0414"},
+                ),
+            },
+            "optional": {
+                "custom_model": (
+                    "STRING",
+                    {
+                        "default": "",
+                        "placeholder": "Enter custom model name (used when model_select is 'Custom')",
+                    },
                 ),
             },
         }
@@ -71,10 +81,11 @@ class SetSiliconFlowLLMServiceConnector(object):
     RETURN_TYPES = ("LLMServiceConnector",)
     RETURN_NAMES = ("llm_service_config",)
     FUNCTION = "execute"
-    DESCRIPTION = """
-支持 deepseek-ai/DeepSeek-V3、THUDM/GLM-4-32B-0414 等 SiliconFlow 平台模型。
-"""
     CATEGORY = MY_CATEGORY
 
-    def execute(self, api_token, model):
+    def execute(self, api_token, model_select, custom_model=""):
+        # 确定最终使用的模型
+        model = model_select if model_select != "Custom" else custom_model
+        if not model:
+            model = "THUDM/GLM-4-32B-0414"  # 默认模型
         return SiliconFlowConnector("https://api.siliconflow.cn/v1/chat/completions", api_token, model),
