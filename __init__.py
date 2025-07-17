@@ -3,7 +3,9 @@ from .common import ShowAnythingMie, SaveAnythingAsFile, CompareFiles, GetAbsolu
 from .caption_file_operator import BatchRenameFiles, BatchDeleteFiles, BatchEditTextFiles, BatchSyncImageCaptionFiles, \
     SummaryTextFiles, BatchConvertImageFiles, DedupImageFiles
 from .downloader import ModelDownloader
-from .translator import SetLLMServiceConfig, SetSiliconFlowLLMServiceConfig, TextTranslator
+from .translator import TextTranslator
+from .prompt_generator import PromptGenerator, KontextPromptGenerator
+from .llm_service_connector import SetSiliconFlowLLMServiceConnector
 from .utils import add_suffix, add_emoji
 
 WEB_DIRECTORY = "./js"
@@ -20,9 +22,10 @@ NODE_CLASS_MAPPINGS = {
     add_suffix("SaveAnythingAsFile"): SaveAnythingAsFile,
     add_suffix("CompareFiles"): CompareFiles,
     add_suffix("ModelDownloader"): ModelDownloader,
-    add_suffix("SetLLMServiceConfig"): SetLLMServiceConfig,
-    add_suffix("SetSiliconFlowLLMServiceConfig"): SetSiliconFlowLLMServiceConfig,
+    add_suffix("SetSiliconFlowLLMServiceConnector"): SetSiliconFlowLLMServiceConnector,
     add_suffix("Translator"): TextTranslator,
+    add_suffix("PromptGenerator"): PromptGenerator,
+    add_suffix("KontextPromptGenerator"): KontextPromptGenerator,
     add_suffix("GetAbsolutePath"): GetAbsolutePath,
     add_suffix("GetFileInfo"): GetFileInfo,
     add_suffix("GetDirectoryFilesInfo"): GetDirectoryFilesInfo,
@@ -41,10 +44,11 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     add_suffix("ShowAnything"): add_emoji("Show Anything"),
     add_suffix("SaveAnythingAsFile"): add_emoji("Save Anything As File"),
     add_suffix("CompareFiles"): add_emoji("Compare Files"),
-    add_suffix("SetLLMServiceConfig"): add_emoji("Set LLM Service Config"),
-    add_suffix("SetSiliconFlowLLMServiceConfig"): add_emoji("Set SiliconFlow LLM Service Config"),
+    add_suffix("SetSiliconFlowLLMServiceConnector"): add_emoji("Set SiliconFlow LLM Service Connector"),
     add_suffix("ModelDownloader"): add_emoji("Model Downloader"),
     add_suffix("Translator"): add_emoji("Translator"),
+    add_suffix("PromptGenerator"): add_emoji("Prompt Generator"),
+    add_suffix("KontextPromptGenerator"): add_emoji("Kontext Prompt Generator"),
     add_suffix("GetAbsolutePath"): add_emoji("Get Absolute Path"),
     add_suffix("GetFileInfo"): add_emoji("Get File Info"),
     add_suffix("GetDirectoryFilesInfo"): add_emoji("Get Directory Files Info"),
