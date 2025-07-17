@@ -28,7 +28,7 @@ class SiliconFlowConnector(LLMServiceConnectorBase):
             "stream": False,
             "max_tokens": kwargs.get("max_tokens", 512),
             "temperature": kwargs.get("temperature", 0.7),
-            "top_p": kwargs.get("top_p", 0.7),
+            "top_p": kwargs.get("top_p", 0.9),
             "top_k": kwargs.get("top_k", 50),
             "frequency_penalty": kwargs.get("frequency_penalty", 0.5),
             "n": kwargs.get("n", 1),

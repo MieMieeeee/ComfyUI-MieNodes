@@ -33,14 +33,18 @@ class PromptGenerator(object):
                     "You are a creative prompt engineer. Generate exactly 1 random, high-quality, natural English prompt for AI image generation.\n\n"
                     "The formula for a high-quality prompt is:\n"
                     "Style/Art Form + Main Subject + Layered Description of Visual Elements (composition, color and tone, lighting, texture and material) + Environment + Atmosphere + Fine Details + Quality Requirements.\n\n"
+                    "Ensure the prompt is unique and varied each time, incorporating diverse styles (e.g., watercolor, cyberpunk, surrealism, anime, photorealism), subjects, and environments. Avoid repeating the same style or subject across generations.\n"
                     "Your response must consist of exactly 1 complete, concise prompt, ready for direct use in Stable Diffusion or Midjourney, without conversational text, explanations, or extra formatting.\n\n"
-                    "Example output:\n"
-                    "Oil painting, a majestic stag standing in a misty forest clearing, soft golden sunrise lighting, intricate antler details, dewdrops on tall grass, ethereal atmosphere, ultra-detailed, award-winning artwork.\n"
+                    "Example outputs:\n"
+                    "1. Watercolor, a serene lotus pond with koi fish, soft pastel tones, gentle morning light, delicate ripples on water, lush greenery, tranquil atmosphere, intricate detail, museum-quality artwork.\n"
+                    "2. Cyberpunk digital art, a futuristic samurai in a neon-lit city, vibrant blue and pink color palette, reflective wet streets, dynamic composition, high-tech armor details, intense atmosphere, photorealistic quality.\n"
+                    "3. Surrealism, a floating island with vibrant flowers, dreamlike swirling skies, soft glowing light, smooth organic textures, mystical atmosphere, ultra-detailed, award-winning artwork.\n"
                 )
             else:
                 system_msg = (
                     "You are an expert prompt creator for AI image generation. "
                     "Randomly generate a concise, natural English prompt suitable for direct use in Stable Diffusion or Midjourney. "
+                    "Ensure the prompt is unique and varied each time, exploring diverse themes, styles (e.g., watercolor, cyberpunk, surrealism, anime, photorealism), and subjects. "
                     "Do not add any explanations or extra formatting. Only output the prompt."
                 )
             messages = [
@@ -65,6 +69,7 @@ class PromptGenerator(object):
                     "You are a creative prompt engineer. Your mission is to analyze the provided description and generate exactly 1 high-quality, natural English prompt for AI image generation.\n\n"
                     "The formula for a high-quality prompt is:\n"
                     "Style/Art Form + Main Subject + Layered Description of Visual Elements (composition, color and tone, lighting, texture and material) + Environment + Atmosphere + Fine Details + Quality Requirements.\n\n"
+                    "Ensure the prompt incorporates diverse styles and creative interpretations where possible. "
                     "Your response must consist of exactly 1 complete, concise prompt, ready for direct use in Stable Diffusion or Midjourney, without conversational text, explanations, or extra formatting.\n\n"
                     "Example input:\n"
                     "中国国画风格的桂林山水\n"
@@ -75,23 +80,22 @@ class PromptGenerator(object):
                     {"role": "system", "content": system_msg},
                     {"role": "user", "content": input_text},
                 ]
-        prompt = llm_service_connector.invoke(messages)
+
+        # 传递 seed 和随机性参数
+        prompt = llm_service_connector.invoke(messages, seed=seed, temperature=0.8, top_p=0.9)
         return prompt.strip(),
 
     def is_changed(self, llm_service_connector, input_text, mode, seed):
-        # 创建一个哈希对象
         hasher = hashlib.md5()
-
-        # 添加基本类型的输入到哈希
         hasher.update(input_text.encode('utf-8'))
         hasher.update(mode.encode('utf-8'))
         hasher.update(str(seed).encode('utf-8'))
-
-        # 处理 llm_service_connector
-        connector_state = str(llm_service_connector).encode('utf-8')
-        hasher.update(connector_state)
-
-        # 返回哈希值
+        try:
+            hasher.update(llm_service_connector.get_state().encode('utf-8'))
+        except AttributeError:
+            hasher.update(str(llm_service_connector.api_url).encode('utf-8'))
+            hasher.update(str(llm_service_connector.api_token).encode('utf-8'))
+            hasher.update(str(llm_service_connector.model).encode('utf-8'))
         return hasher.hexdigest()
 
 
