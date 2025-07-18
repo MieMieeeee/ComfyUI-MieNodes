@@ -1,26 +1,14 @@
 import requests
-from abc import ABC, abstractmethod
 
 MY_CATEGORY = "🐑 MieNodes/🐑 LLM Service Config"
 
 
-class LLMServiceConnectorBase(ABC):
+class LLMServiceConnectorBase:
     def __init__(self, api_url, api_token, model):
         self.api_url = api_url
         self.api_token = api_token
         self.model = model
 
-    @abstractmethod
-    def invoke(self, messages, **kwargs):
-        pass
-
-    def get_state(self):
-        """返回用于比较状态的字符串表示"""
-        return f"{self.api_url}|{self.api_token}|{self.model}"
-
-
-# 适配SiliconFlow
-class SiliconFlowConnector(LLMServiceConnectorBase):
     def invoke(self, messages, **kwargs):
         payload = {
             "model": self.model,
@@ -47,6 +35,37 @@ class SiliconFlowConnector(LLMServiceConnectorBase):
                 raise ValueError("Unexpected response format: missing 'content'.")
         else:
             raise Exception(f"Request failed with status code {response.status_code}: {response.text}")
+
+    def get_state(self):
+        """返回用于比较状态的字符串表示"""
+        return f"{self.api_url}|{self.api_token}|{self.model}"
+
+
+# 适配SiliconFlow
+class SiliconFlowConnector(LLMServiceConnectorBase):
+    api_url = "https://api.siliconflow.cn/v1/chat/completions"
+
+    def __init__(self, api_token, model):
+        super().__init__(self.api_url, api_token, model)
+
+
+class SetGeneralLLMServiceConnector(object):
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "api_token": ("STRING", {"default": ""}),
+                "model_select": ("STRING", {"default": ""}),
+            },
+        }
+
+    RETURN_TYPES = ("LLMServiceConnector",)
+    RETURN_NAMES = ("llm_service_config",)
+    FUNCTION = "execute"
+    CATEGORY = MY_CATEGORY
+
+    def execute(self, api_token, model_select):
+        return (api_token, model_select),
 
 
 class SetSiliconFlowLLMServiceConnector(object):
