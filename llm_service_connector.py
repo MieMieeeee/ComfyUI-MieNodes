@@ -3,7 +3,7 @@ import requests
 MY_CATEGORY = "🐑 MieNodes/🐑 LLM Service Config"
 
 
-class LLMServiceConnectorBase:
+class GeneralLLMServiceConnector:
     def __init__(self, api_url, api_token, model):
         self.api_url = api_url
         self.api_token = api_token
@@ -42,7 +42,7 @@ class LLMServiceConnectorBase:
 
 
 # 适配SiliconFlow
-class SiliconFlowConnector(LLMServiceConnectorBase):
+class SiliconFlowConnectorGeneral(GeneralLLMServiceConnector):
     api_url = "https://api.siliconflow.cn/v1/chat/completions"
 
     def __init__(self, api_token, model):
@@ -54,18 +54,19 @@ class SetGeneralLLMServiceConnector(object):
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "api_token": ("STRING", {"default": ""}),
-                "model_select": ("STRING", {"default": ""}),
+                "api_url": ("STRING", {"default": "https://api.siliconflow.cn/v1/chat/completions"}),
+                "api_token": ("STRING", {"default": "token"}),
+                "model_select": ("STRING", {"default": "deepseek-ai/DeepSeek-V3"}),
             },
         }
 
     RETURN_TYPES = ("LLMServiceConnector",)
-    RETURN_NAMES = ("llm_service_config",)
+    RETURN_NAMES = ("llm_service_connector",)
     FUNCTION = "execute"
     CATEGORY = MY_CATEGORY
 
-    def execute(self, api_token, model_select):
-        return (api_token, model_select),
+    def execute(self, api_url, api_token, model_select):
+        return GeneralLLMServiceConnector(api_url, api_token, model_select),
 
 
 class SetSiliconFlowLLMServiceConnector(object):
@@ -98,7 +99,7 @@ class SetSiliconFlowLLMServiceConnector(object):
         }
 
     RETURN_TYPES = ("LLMServiceConnector",)
-    RETURN_NAMES = ("llm_service_config",)
+    RETURN_NAMES = ("llm_service_connector",)
     FUNCTION = "execute"
     CATEGORY = MY_CATEGORY
 
@@ -107,4 +108,4 @@ class SetSiliconFlowLLMServiceConnector(object):
         model = model_select if model_select != "Custom" else custom_model
         if not model:
             model = "THUDM/GLM-4-32B-0414"  # 默认模型
-        return SiliconFlowConnector("https://api.siliconflow.cn/v1/chat/completions", api_token, model),
+        return SiliconFlowConnectorGeneral(api_token, model),
