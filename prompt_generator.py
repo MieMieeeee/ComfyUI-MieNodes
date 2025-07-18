@@ -148,7 +148,6 @@ KONTEXT_PRESETS = {
             "You are a creative prompt engineer. Your mission is to analyze the provided image and generate a distinct image transformation instruction. "
             "Create a movie poster with the subjects of this image as the main characters. Choose a random genre (action, comedy, horror, etc.) and make it look like a movie poster. "
             "If a title is provided, fit the scene to the title; otherwise, make up a title based on the image. Stylize the title and add taglines, quotes, and other typical movie poster text. "
-
             "Output only the transformation instruction, without any explanations, numbering, or extra text."
         )
     },
@@ -176,7 +175,7 @@ KONTEXT_PRESETS = {
     "Bodybuilder - 健美身材": {
         "system": (
             "You are a creative prompt engineer. Your mission is to analyze the provided image and generate a distinct image transformation instruction. "
-            "Largely increase the muscles of the subjects while keeping the same pose and context. Describe visually how to edit the subjects so they become bodybuilders with exaggerated large muscles, and change clothes if needed to reveal the new body. "
+            "Change the subject’s body shape in the provided image to a slimmer, toned, and athletic physique, as if they have exercised regularly, with a visibly flatter stomach, more defined arms, and a naturally contoured waistline, ensuring realistic proportions and clothing that fits the new shape. Preserve the original pose, facial features, clothing style, lighting, background, and all other elements not explicitly modified. "
             "Output only the transformation instruction, without any explanations, numbering, or extra text."
         )
     },
@@ -197,42 +196,7 @@ KONTEXT_PRESETS = {
     "Skin Spot Removal - 祛除皮肤瑕疵": {
         "system": (
             "You are a creative prompt engineer. Your mission is to analyze the provided image and generate a distinct image transformation instruction. "
-            "Smooth and even out the subject’s skin tone by removing visible spots, freckles, blemishes, or dark marks, while keeping skin texture natural. Enhance clarity, radiance, and overall skin health without altering facial features or expressions. "
-            "Output only the transformation instruction, without any explanations, numbering, or extra text."
-        )
-    },
-    "Slim Belly - 纤细腹部": {
-        "system": (
-            "You are a creative prompt engineer. Your mission is to analyze the provided image and generate a distinct image transformation instruction. "
-            "Slim down the subject’s abdominal area to create a visibly flatter, more toned stomach. Adjust the waistline and contour naturally, ensuring proportions remain realistic and clothing fits the new shape. Do not modify other body areas. "
-            "Output only the transformation instruction, without any explanations, numbering, or extra text."
-        )
-    },
-    "Pose Change - 姿势调整": {
-        "system": (
-            "You are a creative prompt engineer. Your mission is to analyze the provided image and generate a distinct image transformation instruction. "
-            "Change the subject’s pose to a specific reference pose. Clearly describe the new body position, limb placement, and posture (for example: arms raised overhead, one leg bent, side profile). Adjust clothing and scene as needed for realism. "
-            "Output only the transformation instruction, without any explanations, numbering, or extra text."
-        )
-    },
-    "Expression Change - 表情变换": {
-        "system": (
-            "You are a creative prompt engineer. Your mission is to analyze the provided image and generate a distinct image transformation instruction. "
-            "Change the subject’s facial expression to a specified emotion or action (for example: surprise, laughter, wink, pout). Maintain realism and accurate facial muscle movement. "
-            "Output only the transformation instruction, without any explanations, numbering, or extra text."
-        )
-    },
-    "Pose Reference - 姿势参考": {
-        "system": (
-            "You are a creative prompt engineer. Your mission is to analyze the provided images and generate a distinct image transformation instruction. "
-            "Change the pose of the subject in the first provided image to match the pose of the subject in the second provided image, aligning the body position, limb placement, and posture precisely while ensuring natural integration, preserving the original facial features, clothing, lighting, and background of the first provided image. "
-            "Output only the transformation instruction, without any explanations, numbering, or extra text."
-        )
-    },
-    "Expression Reference - 表情参考": {
-        "system": (
-            "You are a creative prompt engineer. Your mission is to analyze the provided images and generate a distinct image transformation instruction. "
-            "Change the facial expression of the subject in the first provided image to match the facial expression of the subject in the second provided image, aligning the facial muscle movements precisely while ensuring natural integration, preserving the original facial features, clothing, lighting, and background of the first provided image. "
+            "Remove all freckles and blemishes from the subject's face, smoothing the skin while preserving the subject's natural facial features, haircut, cloth, expression, lighting, and the original texture of her red hair and white t-shirt. "
             "Output only the transformation instruction, without any explanations, numbering, or extra text."
         )
     },
@@ -247,20 +211,6 @@ KONTEXT_PRESETS = {
         "system": (
             "You are a creative prompt engineer. Your mission is to analyze the provided image and generate a distinct image transformation instruction. "
             "Apply a specific weather effect to the image (for example: heavy rain, fog, bright sunshine, thunderstorm). Adjust lighting, reflections, and surroundings for realism. "
-            "Output only the transformation instruction, without any explanations, numbering, or extra text."
-        )
-    },
-    "Fashion Update - 时尚更新": {
-        "system": (
-            "You are a creative prompt engineer. Your mission is to analyze the provided image and generate a distinct image transformation instruction. "
-            "Change the subject's outfit to a specific fashion style or era (for example: futuristic streetwear, 1920s flapper dress, formal business suit). Ensure clothes fit naturally on the subject and match the setting. "
-            "Output only the transformation instruction, without any explanations, numbering, or extra text."
-        )
-    },
-    "Add Accessories - 添加饰品": {
-        "system": (
-            "You are a creative prompt engineer. Your mission is to analyze the provided image and generate a distinct image transformation instruction. "
-            "Add visually fitting accessories to the subject (for example: sunglasses, hat, jewelry, headphones). Ensure accessories appear naturally integrated and suit the subject’s style. "
             "Output only the transformation instruction, without any explanations, numbering, or extra text."
         )
     },
