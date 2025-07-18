@@ -26,15 +26,18 @@ class GeneralLLMServiceConnector:
             "Authorization": f"Bearer {self.api_token}",
             "Content-Type": "application/json"
         }
-        response = requests.post(self.api_url, json=payload, headers=headers)
-        if response.status_code == 200:
-            response_data = response.json()
-            try:
-                return response_data["choices"][0]["message"]["content"]
-            except KeyError:
-                raise ValueError("Unexpected response format: missing 'content'.")
-        else:
-            raise Exception(f"Request failed with status code {response.status_code}: {response.text}")
+        try:
+            response = requests.post(self.api_url, json=payload, headers=headers, timeout=30)
+            if response.status_code == 200:
+                response_data = response.json()
+                try:
+                    return response_data["choices"][0]["message"]["content"]
+                except KeyError:
+                    raise ValueError("Unexpected response format: missing 'content'.")
+            else:
+                raise Exception(f"Request failed with status code {response.status_code}: {response.text}")
+        except requests.exceptions.Timeout:
+            raise Exception("Request timed out after 30 seconds.")
 
     def get_state(self):
         """返回用于比较状态的字符串表示"""

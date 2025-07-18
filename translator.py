@@ -39,9 +39,9 @@ class TextTranslator(object):
             {
                 "role": "system",
                 "content": (
-                    "You are a translation engineer."
+                    "You are a translation engineer. "
                     f"Translate any user input into {language_name}. "
-                    "Output only the transformation instruction, without any explanations, numbering, or extra text."
+                    "Output only the translated text, without any explanations, numbering, or extra text."
                 ),
             },
             {

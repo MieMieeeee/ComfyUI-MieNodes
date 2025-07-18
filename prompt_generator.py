@@ -220,7 +220,20 @@ KONTEXT_PRESETS = {
             "Transform the subject into a fantasy character or creature (for example: elf with pointed ears, cyborg with visible mechanical parts, mermaid with a tail). Modify clothing, accessories, and background as needed for consistency. "
             "Output only the transformation instruction, without any explanations, numbering, or extra text."
         )
-    }
+    },
+    "Change Clothes - 一键换装": {
+        "system": (
+            "You are a creative prompt engineer. Your mission is to analyze two provided images: "
+            "The left image contains a person, and the right image contains clothing. "
+            "Generate a transformation instruction that describes how to put the clothing from the right image onto the person in the left image. "
+            "Only replace the part of the clothing in the left image that corresponds to the clothing type in the right image (for example, if the right image is a jacket, only replace the jacket or top in the left image). "
+            "Do not change or remove any other clothing in the left image, such as skirts, pants, or accessories—these must remain exactly as they are. "
+            "Ensure that everything else in the left image—including the person's pose, facial features, hairstyle, lighting, background, and all other elements—remains unchanged as much as possible, only swapping the clothing part that matches the right image. "
+            "Pay special attention to preserving all the intricate details, textures, patterns, colors, and accessories of the clothing from the right image, ensuring they are realistically and accurately transferred onto the person in the left image. "
+            "The new clothing should be naturally fitted, matching the lighting, perspective, and style of the left image. "
+            "Output only the transformation instruction, without any explanations, numbering, or extra text."
+        )
+    },
 }
 
 
@@ -230,7 +243,8 @@ class KontextPromptGenerator(object):
         return {
             "required": {
                 "llm_service_connector": ("LLMServiceConnector",),
-                "image_description": ("STRING", {"default": "", "multiline": True}),
+                "image1_description": ("STRING", {"default": "", "multiline": True, "tooltip": "Describe the person in image 1"}),
+                "image2_description": ("STRING", {"default": "", "multiline": True, "tooltip": "Describe the clothes in image 2"}),
                 "edit_instruction": ("STRING", {"default": "", "multiline": True}),
                 "preset": (list(KONTEXT_PRESETS.keys()), {"default": "Komposer: Teleport"}),
                 "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff, "control_after_generate": True,
@@ -243,15 +257,17 @@ class KontextPromptGenerator(object):
     FUNCTION = "generate_kontext_prompt"
     CATEGORY = MY_CATEGORY
 
-    def generate_kontext_prompt(self, llm_service_connector, image_description, edit_instruction, preset, seed=None):
+    def generate_kontext_prompt(self, llm_service_connector, image1_description, image2_description, edit_instruction, preset, seed=None):
         preset_data = KONTEXT_PRESETS.get(preset)
         if not preset_data:
             raise ValueError(f"Unknown preset: {preset}")
 
         # 用户输入拼到user消息中，给LLM最大上下文
         user_content = ""
-        if image_description.strip():
-            user_content += f"Image description: {image_description.strip()}\n"
+        if image1_description.strip():
+            user_content += f"Image 1 (person) description: {image1_description.strip()}\n"
+        if image2_description.strip():
+            user_content += f"Image 2 (clothing) description: {image2_description.strip()}\n"
         if edit_instruction.strip():
             user_content += f"Edit instruction: {edit_instruction.strip()}"
 
@@ -265,12 +281,13 @@ class KontextPromptGenerator(object):
         kontext_prompt = llm_service_connector.invoke(messages)
         return kontext_prompt.strip(),
 
-    def is_changed(self, llm_service_connector, image_description, edit_instruction, preset, seed):
+    def is_changed(self, llm_service_connector, image1_description, image2_description, edit_instruction, preset, seed):
         # 创建一个哈希对象
         hasher = hashlib.md5()
 
         # 添加基本类型的输入到哈希
-        hasher.update(image_description.encode('utf-8'))
+        hasher.update(image1_description.encode('utf-8'))
+        hasher.update(image2_description.encode('utf-8'))
         hasher.update(edit_instruction.encode('utf-8'))
         hasher.update(preset.encode('utf-8'))
         hasher.update(str(seed).encode('utf-8'))
