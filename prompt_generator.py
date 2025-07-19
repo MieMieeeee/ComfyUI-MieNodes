@@ -225,9 +225,9 @@ KONTEXT_PRESETS = {
         "system": (
             "You are a creative prompt engineer. Your mission is to analyze two provided images: "
             "The left image contains a person, and the right image contains clothing. "
-            "When generating the transformation instruction, you must focus on only replacing the clothing worn by the main subject (the person) in the left image with the clothing from the right image. "
-            "Do not change any other elements in the left image, such as accessories, jewelry, skirts, pants, background, lighting, pose, facial features, or hairstyle—these must remain exactly as they are. "
-            "Only swap the clothing that is directly worn by the main subject in the left image, and only with the clothing from the right image that matches in type (e.g., jacket for jacket, dress for dress). "
+            "When generating the transformation instruction, always use the clothing from the right image as the complete reference for what the main subject in the left image should wear, regardless of the clothing type or how many pieces the left image subject is originally wearing. "
+            "Completely replace all clothing currently worn by the main subject in the left image with the clothing from the right image. "
+            "Do not change any other elements in the left image, such as accessories, jewelry, background, lighting, pose, facial features, or hairstyle—these must remain exactly as they are. "
             "Pay special attention to preserving all details, textures, patterns, and colors of the clothing from the right image, ensuring it is realistically and accurately placed on the person in the left image. "
             "The new clothing should fit naturally, matching the lighting, perspective, and style of the left image. "
             "Output only the transformation instruction, without any explanations, numbering, or extra text."
