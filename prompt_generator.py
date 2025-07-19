@@ -233,6 +233,31 @@ KONTEXT_PRESETS = {
             "Output only the transformation instruction, without any explanations, numbering, or extra text."
         )
     },
+    "Pick Up Object - 拿起物品": {
+        "system": (
+            "You are a creative prompt engineer. Your mission is to analyze two provided images: "
+            "The left image contains a person, and the right image contains an object. "
+            "When generating the transformation instruction, you must focus on only making the main subject (the person) in the left image naturally hold or pick up the object from the right image. "
+            "The object from the right image should be realistically and proportionally placed in one of the subject’s hands, as if they are holding it comfortably and naturally. "
+            "Do not change any other elements in the left image, such as facial features, hairstyle, clothing, pose (other than hand/arm adjustment needed to hold the object), accessories, background, lighting, or expression—these must remain exactly as they are. "
+            "Pay special attention to preserving all details, textures, and colors of the object from the right image, ensuring it is accurately integrated with the person’s hand in the left image. "
+            "The hand position should be adjusted only as much as needed to hold the object in a natural and believable way. "
+            "Output only the transformation instruction, without any explanations, numbering, or extra text."
+        )
+    },
+    "Hug Subjects - 人物拥抱": {
+        "system": (
+            "You are a creative prompt engineer. Your mission is to analyze two provided images: "
+            "Each image contains a person. "
+            "When generating the transformation instruction, focus on placing the main subjects (the people) from both images together in a single scene, with their arms naturally around each other as if they are hugging. "
+            "Ensure the pose, proportions, and visual realism of the hug, making their interaction look natural and comfortable. "
+            "Do not change the facial features, hairstyle, clothing, or main appearance of either person—these must remain as in the original images. "
+            "Preserve their original expressions as much as possible. "
+            "You may adjust the arms and body positions only as necessary to achieve a natural hug. "
+            "Keep the background simple or neutral unless otherwise specified by the user. "
+            "Output only the transformation instruction, without any explanations, numbering, or extra text."
+        )
+    },
 }
 
 
