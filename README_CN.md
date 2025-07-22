@@ -12,7 +12,7 @@
 
 ### Kontext 预设提示词生成工作流
 
-![Image](images/KontextPresets.png)
+![Image](images/KontextPrompt.png)
 
 该工作流演示了如何加载图片，利用 Florence2 模型生成详细描述，并借助大语言模型自动生成上下文提示词。最终结果通过 `Show Anything` 节点以中英文展示。  
 - **图片加载节点**：加载输入图片。
