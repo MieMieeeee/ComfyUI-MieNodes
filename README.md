@@ -8,7 +8,7 @@
 
 ## Workflows
 
-I currently support [SiliconFlow 硅基流动](https://cloud.siliconflow.cn/i/PYyJkS9S)) and [GitHub Models](https://github.com/marketplace?type=models). If you wish to use other LLM services that cannot be connected through SetGeneralLLMServiceConnector, please submit an issue or a pull request.
+I currently support [SiliconFlow 硅基流动](https://cloud.siliconflow.cn/i/PYyJkS9S) and [GitHub Models](https://github.com/marketplace?type=models). If you wish to use other LLM services that cannot be connected through SetGeneralLLMServiceConnector, please submit an issue or a pull request.
 
 ### Kontext Presets Prompt Generator Workflow
 
