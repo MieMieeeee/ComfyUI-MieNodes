@@ -6,6 +6,42 @@
 
 ---
 
+## 工作流
+
+目前已支持 [SiliconFlow 硅基流动](https://cloud.siliconflow.cn/i/PYyJkS9S) 和 [GitHub Models](https://github.com/marketplace?type=models)。如果您希望使用无法通过 SetGeneralLLMServiceConnector 连接的其他大语言模型（LLM）服务，请提交 issue 或 pull request 进行反馈。
+
+### Kontext 预设提示词生成工作流
+
+![Image](images/KontextPresets.png)
+
+该工作流演示了如何加载图片，利用 Florence2 模型生成详细描述，并借助大语言模型自动生成上下文提示词。最终结果通过 `Show Anything` 节点以中英文展示。  
+- **图片加载节点**：加载输入图片。
+- **Florence2 模型加载与描述节点**：为图片生成详细注释。
+- **Set SiliconFlow LLM 服务连接器 & Kontext Prompt Generator**：利用大语言模型生成上下文相关的提示词。
+- **Show Anything**：以多语言输出生成结果。
+
+### 高级提示词生成工作流
+
+![Image](images/PromptGenerator.png)
+
+该工作流主要用于生成富有表现力的提示词，结合 LLM 连接器和高级提示词生成节点实现。  
+- **Prompt Generator 提示词生成器**：基于简单的输入（支持非英文），生成细节丰富的创意提示词。
+- **Show Anything**：中英文展示生成的描述，实现多语言提示词工程集成。
+
+---
+
+## 当前功能
+
+### 提示词增强功能
+
+本插件提供了一系列用于提示词增强的节点，包括：
+
+1. Kontext预设工作流，结合大语言模型，可根据图片和文本输入自动生成高质量的Kontext提示词。
+2. 高级提示词优化，支持自动翻译与细节丰富，输出更具表现力和创意的内容，适用于各类创作任务。
+
+
+---
+
 ## 当前功能
 
 ### LoRA 训练标注准备功能

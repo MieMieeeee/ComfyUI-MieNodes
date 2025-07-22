@@ -6,7 +6,40 @@
 
 ---
 
+## Workflows
+
+I currently support [SiliconFlow 硅基流动](https://cloud.siliconflow.cn/i/PYyJkS9S)) and [GitHub Models](https://github.com/marketplace?type=models). If you wish to use other LLM services that cannot be connected through SetGeneralLLMServiceConnector, please submit an issue or a pull request.
+
+### Kontext Presets Prompt Generator Workflow
+
+![Image](images/KontextPresets.png)
+
+This workflow demonstrates how to load an image, generate a detailed description using the Florence2 model, and compose context prompts with the help of large language models. The results are displayed both in English and Chinese using the `Show Anything` node.  
+- **Image Loader**: Loads the input image.
+- **Florence2 Model Loader & Describe Image**: Generates a detailed caption for the image.
+- **Set SiliconFlow LLM Service Connector & Kontext Prompt Generator**: Uses LLM to create context-aware prompts.
+- **Show Anything**: Displays the generated result.
+
+### Advanced Prompt Generator Workflow
+
+![Image](images/PromptGenerator.png)
+
+This workflow focuses on generating an artistic prompt for an ethereal digital portrait using the LLM connector and advanced prompt generator nodes.  
+- **Prompt Generator**: Produces detailed prompts for creative tasks.
+- **Show Anything**: Displays the generated result.
+
+---
+
 ## Current Features  
+
+### Prompt Enhancement Features
+
+The plugin provides a suite of nodes for prompt enhancement, offering:
+
+1. A collection of preset workflows that leverage large language models to automatically generate high-quality prompts from image and text inputs.
+2. Advanced prompt optimization, including automatic translation and enrichment of details, enabling richer, more expressive outputs for various creative tasks.
+
+---
 
 ### LoRA Training Caption Preparation Features  
 
@@ -30,6 +63,8 @@ The plugin also provides utility nodes for general-purpose tasks:
 
 1. Display any input as a string.
 2. Download files from huggingface, hf-mirror, github or anywhere to models folder. 
+3. Connect to large language models (LLMs) for advanced prompt generation, enhancement, translation, and style adaptation.
+4. Translate any text to another language (English, Chinese, etc.).
 
 ---
 
