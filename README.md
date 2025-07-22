@@ -12,7 +12,7 @@ I currently support [SiliconFlow 硅基流动](https://cloud.siliconflow.cn/i/PY
 
 ### Kontext Presets Prompt Generator Workflow
 
-![Image](images/KontextPresets.png)
+![Image](images/KontextPrompt.png)
 
 This workflow demonstrates how to load an image, generate a detailed description using the Florence2 model, and compose context prompts with the help of large language models. The results are displayed both in English and Chinese using the `Show Anything` node.  
 - **Image Loader**: Loads the input image.
