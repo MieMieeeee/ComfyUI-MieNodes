@@ -267,10 +267,10 @@ class KontextPromptGenerator(object):
         return {
             "required": {
                 "llm_service_connector": ("LLMServiceConnector",),
-                "image1_description": ("STRING", {"default": "", "multiline": True, "tooltip": "Describe the person in image 1"}),
-                "image2_description": ("STRING", {"default": "", "multiline": True, "tooltip": "Describe the clothes in image 2"}),
+                "image1_description": ("STRING", {"default": "", "multiline": True, "tooltip": "Describe the first image"}),
+                "image2_description": ("STRING", {"default": "", "multiline": True, "tooltip": "Describe the second image"}),
                 "edit_instruction": ("STRING", {"default": "", "multiline": True}),
-                "preset": (list(KONTEXT_PRESETS.keys()), {"default": "Komposer: Teleport"}),
+                "preset": (list(KONTEXT_PRESETS.keys()), {"default": "Product - 产品摄影"}),
                 "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff, "control_after_generate": True,
                                  "tooltip": "The random seed used for creating the noise."}),
             },
