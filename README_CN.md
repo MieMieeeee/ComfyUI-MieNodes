@@ -8,7 +8,9 @@
 
 ## 工作流
 
-目前已支持 [SiliconFlow 硅基流动](https://cloud.siliconflow.cn/i/PYyJkS9S) 和 [GitHub Models](https://github.com/marketplace?type=models)。如果您希望使用无法通过 SetGeneralLLMServiceConnector 连接的其他大语言模型（LLM）服务，请提交 issue 或 pull request 进行反馈。
+目前已支持 [ZhiPu 智谱](https://www.bigmodel.cn/invite?icode=saVhjJ197Yj7qCQ24NRSpGczbXFgPRGIalpycrEwJ28%3D) ,  [SiliconFlow 硅基流动](https://cloud.siliconflow.cn/i/PYyJkS9S) 和 [GitHub Models](https://github.com/marketplace?type=models)。如果您希望使用无法通过 SetGeneralLLMServiceConnector 连接的其他大语言模型（LLM）服务，请提交 issue 或 pull request 进行反馈。
+
+其中智谱AI的 GLM-4-Flash-250414 和 硅基流动的 Qwen3-8B、GLM-Z1-9B-0414、GLN-4-9B-0414 是免费模型，只需要注册获取一个API Key（或Token）即可随意使用。
 
 ### Kontext 预设提示词生成工作流
 
@@ -41,8 +43,6 @@
 
 
 ---
-
-## 当前功能
 
 ### LoRA 训练标注准备功能
 

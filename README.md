@@ -8,7 +8,9 @@
 
 ## Workflows
 
-I currently support [SiliconFlow 硅基流动](https://cloud.siliconflow.cn/i/PYyJkS9S) and [GitHub Models](https://github.com/marketplace?type=models). If you wish to use other LLM services that cannot be connected through SetGeneralLLMServiceConnector, please submit an issue or a pull request.
+Currently, [ZhiPu 智谱](https://www.bigmodel.cn/invite?icode=saVhjJ197Yj7qCQ24NRSpGczbXFgPRGIalpycrEwJ28%3D), [SiliconFlow 硅基流动](https://cloud.siliconflow.cn/i/PYyJkS9S), and [GitHub Models](https://github.com/marketplace?type=models) are supported. If you wish to use other large language model (LLM) services that cannot be connected through SetGeneralLLMServiceConnector, please submit an issue or a pull request for feedback.
+
+Among them, Zhipu AI's GLM-4-Flash-250414 and SiliconFlow's Qwen3-8B, GLM-Z1-9B-0414, and GLN-4-9B-0414 are free models. You only need to register and obtain an API Key (or Token) to use them without restriction.
 
 ### Kontext Presets Prompt Generator Workflow
 
