@@ -64,7 +64,7 @@ class SiliconFlowConnectorGeneral(GeneralLLMServiceConnector):
         }
 
 
-class GLMConnectorGeneral(GeneralLLMServiceConnector):
+class ZhiPuConnectorGeneral(GeneralLLMServiceConnector):
     api_url = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
 
     def __init__(self, api_token, model):
@@ -227,4 +227,4 @@ class SetZhiPuLLMServiceConnector(object):
         model = model_select if model_select != "Custom" else custom_model
         if not model:
             model = "GLM-4-Flash-250414"  # 默认模型
-        return SiliconFlowConnectorGeneral(api_token, model),
+        return ZhiPuConnectorGeneral(api_token, model),
