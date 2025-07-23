@@ -63,11 +63,34 @@ class SiliconFlowConnectorGeneral(GeneralLLMServiceConnector):
             "response_format": {"type": "text"},
         }
 
+
+class GLMConnectorGeneral(GeneralLLMServiceConnector):
+    api_url = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
+
+    def __init__(self, api_token, model):
+        super().__init__(self.api_url, api_token, model)
+
+    def generate_payload(self, messages, **kwargs):
+        return {
+            "model": self.model,
+            "messages": messages,
+            "stream": False,
+            "max_tokens": kwargs.get("max_tokens", 512),
+            "temperature": kwargs.get("temperature", 0.7),
+            "top_p": kwargs.get("top_p", 0.9),
+            "top_k": kwargs.get("top_k", 50),
+            "frequency_penalty": kwargs.get("frequency_penalty", 0.5),
+            "n": kwargs.get("n", 1),
+            "response_format": {"type": "text"},
+        }
+
+
 class GithubModelsConnectorGeneral(GeneralLLMServiceConnector):
     api_url = "https://models.github.ai/inference/chat/completions"
 
     def __init__(self, api_token, model):
         super().__init__(self.api_url, api_token, model)
+
 
 class SetGeneralLLMServiceConnector(object):
     @classmethod
@@ -166,4 +189,42 @@ class SetSiliconFlowLLMServiceConnector(object):
         model = model_select if model_select != "Custom" else custom_model
         if not model:
             model = "THUDM/GLM-4-32B-0414"  # 默认模型
+        return SiliconFlowConnectorGeneral(api_token, model),
+
+
+class SetZhiPuLLMServiceConnector(object):
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "api_token": ("STRING", {"default": ""}),
+                "model_select": (
+                    [
+                        "GLM-4-Flash-250414",
+                        "Custom",
+                    ],
+                    {"default": "GLM-4-Flash-250414"},
+                ),
+            },
+            "optional": {
+                "custom_model": (
+                    "STRING",
+                    {
+                        "default": "",
+                        "placeholder": "Enter custom model name (used when model_select is 'Custom')",
+                    },
+                ),
+            },
+        }
+
+    RETURN_TYPES = ("LLMServiceConnector",)
+    RETURN_NAMES = ("llm_service_connector",)
+    FUNCTION = "execute"
+    CATEGORY = MY_CATEGORY
+
+    def execute(self, api_token, model_select, custom_model=""):
+        # 确定最终使用的模型
+        model = model_select if model_select != "Custom" else custom_model
+        if not model:
+            model = "GLM-4-Flash-250414"  # 默认模型
         return SiliconFlowConnectorGeneral(api_token, model),
