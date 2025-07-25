@@ -14,6 +14,7 @@
   - [GitHub Models](https://github.com/marketplace?type=models)
   - [Kimi](https://platform.moonshot.cn)
   - [DeepSeek](https://platform.deepseek.com)
+
 如果你希望使用其他无法通过 SetGeneralLLMServiceConnector 连接的大语言模型（LLM）服务，请提交 issue 或 pull request 进行反馈。
 
 其中智谱AI的 GLM-4-Flash-250414 和 硅基流动的 Qwen3-8B、GLM-Z1-9B-0414、GLN-4-9B-0414 是免费模型，只需要注册获取一个API Key（或Token）即可随意使用。
