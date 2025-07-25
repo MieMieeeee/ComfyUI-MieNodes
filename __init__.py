@@ -5,7 +5,9 @@ from .caption_file_operator import BatchRenameFiles, BatchDeleteFiles, BatchEdit
 from .downloader import ModelDownloader
 from .translator import TextTranslator
 from .prompt_generator import PromptGenerator, KontextPromptGenerator
-from .llm_service_connector import SetGeneralLLMServiceConnector, SetSiliconFlowLLMServiceConnector, SetGithubModelsLLMServiceConnector, SetZhiPuLLMServiceConnector
+from .llm_service_connector import SetGeneralLLMServiceConnector, SetSiliconFlowLLMServiceConnector, \
+    SetGithubModelsLLMServiceConnector, SetZhiPuLLMServiceConnector, SetKimiLLMServiceConnector, \
+    SetDeepSeekLLMServiceConnector
 from .utils import add_suffix, add_emoji
 
 WEB_DIRECTORY = "./js"
@@ -25,7 +27,9 @@ NODE_CLASS_MAPPINGS = {
     add_suffix("SetGeneralLLMServiceConnector"): SetGeneralLLMServiceConnector,
     add_suffix("SetSiliconFlowLLMServiceConnector"): SetSiliconFlowLLMServiceConnector,
     add_suffix("SetGithubModelsLLMServiceConnector"): SetGithubModelsLLMServiceConnector,
+    add_suffix("SetKimiLLMServiceConnector"): SetKimiLLMServiceConnector,
     add_suffix("SetZhiPuLLMServiceConnector"): SetZhiPuLLMServiceConnector,
+    add_suffix("SetDeepSeekLLMServiceConnector"): SetDeepSeekLLMServiceConnector,
     add_suffix("Translator"): TextTranslator,
     add_suffix("PromptGenerator"): PromptGenerator,
     add_suffix("KontextPromptGenerator"): KontextPromptGenerator,
@@ -51,6 +55,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     add_suffix("SetSiliconFlowLLMServiceConnector"): add_emoji("Set SiliconFlow LLM Service Connector"),
     add_suffix("SetGithubModelsLLMServiceConnector"): add_emoji("Set Github Models LLM Service Connector"),
     add_suffix("SetZhiPuLLMServiceConnector"): add_emoji("Set ZhiPu LLM Service Connector"),
+    add_suffix("SetKimiLLMServiceConnector"): add_emoji("Set Kimi LLM Service Connector"),
+    add_suffix("SetDeepSeekLLMServiceConnector"): add_emoji("Set DeepSeek LLM Service Connector"),
     add_suffix("ModelDownloader"): add_emoji("Model Downloader"),
     add_suffix("Translator"): add_emoji("Translator"),
     add_suffix("PromptGenerator"): add_emoji("Prompt Generator"),
