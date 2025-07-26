@@ -29,6 +29,12 @@ This workflow demonstrates how to load an image, generate a detailed description
 - **Set SiliconFlow LLM Service Connector & Kontext Prompt Generator**: Uses LLM to create context-aware prompts.
 - **Show Anything**: Displays the generated result.
 
+### Kontext Presets Add and Remove Workflow
+
+![Image](images/AddAndRemoveUserPresets.png)
+
+This workflow demonstrates how to add and remove a custom preset.
+
 ### Advanced Prompt Generator Workflow
 
 ![Image](images/PromptGenerator.png)

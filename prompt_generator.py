@@ -383,6 +383,10 @@ class AddUserKontextPreset(object):
         log = f"Preset '{preset_name}' added successfully at {now}."
         return True, log
 
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return float("nan")
+
 class RemoveUserKontextPreset(object):
     @classmethod
     def INPUT_TYPES(cls):
@@ -409,3 +413,7 @@ class RemoveUserKontextPreset(object):
         else:
             log = f"Preset '{preset_name}' not found in user presets."
             return False, log
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return float("nan")

@@ -29,6 +29,12 @@
 - **Set SiliconFlow LLM 服务连接器 & Kontext Prompt Generator**：利用大语言模型生成上下文相关的提示词。
 - **Show Anything**：以多语言输出生成结果。
 
+### Kontext 预设添加与移除工作流
+
+![Image](images/AddAndRemoveUserPresets.png)
+
+该工作流演示了如何添加和移除自定义预设。
+
 ### 高级提示词生成工作流
 
 ![Image](images/PromptGenerator.png)
@@ -45,7 +51,7 @@
 
 本插件提供了一系列用于提示词增强的节点，包括：
 
-1. Kontext预设工作流，结合大语言模型，可根据图片和文本输入自动生成高质量的Kontext提示词。
+1. Kontext预设工作流，结合大语言模型，可根据图片和文本输入自动生成高质量的Kontext提示词，支持添加和移除自己的预设。
 2. 高级提示词优化，支持自动翻译与细节丰富，输出更具表现力和创意的内容，适用于各类创作任务。
 
 
