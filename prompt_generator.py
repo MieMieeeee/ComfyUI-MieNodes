@@ -1,7 +1,37 @@
 import hashlib
+import os
+import json
+
+import folder_paths
+script_directory = os.path.dirname(os.path.abspath(__file__))
 
 MY_CATEGORY = "🐑 MieNodes/🐑 Prompt Generator"
 
+
+def get_user_presets_file():
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base_dir, "user_kontext_presets.json")
+
+USER_PRESETS_FILE = get_user_presets_file()
+
+def load_user_presets():
+    if os.path.exists(USER_PRESETS_FILE):
+        with open(USER_PRESETS_FILE, "r", encoding="utf-8") as f:
+            try:
+                return json.load(f)
+            except json.JSONDecodeError:
+                return {}
+    return {}
+
+def save_user_presets(presets):
+    with open(USER_PRESETS_FILE, "w", encoding="utf-8") as f:
+        json.dump(presets, f, ensure_ascii=False, indent=2)
+
+def get_all_kontext_presets():
+    all_presets = dict(KONTEXT_PRESETS)
+    user_presets = load_user_presets()
+    all_presets.update(user_presets)
+    return all_presets
 
 class PromptGenerator(object):
     @classmethod
@@ -260,17 +290,17 @@ KONTEXT_PRESETS = {
     },
 }
 
-
 class KontextPromptGenerator(object):
     @classmethod
     def INPUT_TYPES(cls):
+        all_presets = get_all_kontext_presets()
         return {
             "required": {
                 "llm_service_connector": ("LLMServiceConnector",),
                 "image1_description": ("STRING", {"default": "", "multiline": True, "tooltip": "Describe the first image"}),
                 "image2_description": ("STRING", {"default": "", "multiline": True, "tooltip": "Describe the second image"}),
                 "edit_instruction": ("STRING", {"default": "", "multiline": True}),
-                "preset": (list(KONTEXT_PRESETS.keys()), {"default": "Product - 产品摄影"}),
+                "preset": (list(all_presets.keys()), {"default": next(iter(all_presets.keys()), "")}),
                 "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff, "control_after_generate": True,
                                  "tooltip": "The random seed used for creating the noise."}),
             },
@@ -282,7 +312,8 @@ class KontextPromptGenerator(object):
     CATEGORY = MY_CATEGORY
 
     def generate_kontext_prompt(self, llm_service_connector, image1_description, image2_description, edit_instruction, preset, seed=None):
-        preset_data = KONTEXT_PRESETS.get(preset)
+        all_presets = get_all_kontext_presets()
+        preset_data = all_presets.get(preset)
         if not preset_data:
             raise ValueError(f"Unknown preset: {preset}")
 
@@ -306,24 +337,75 @@ class KontextPromptGenerator(object):
         return kontext_prompt.strip(),
 
     def is_changed(self, llm_service_connector, image1_description, image2_description, edit_instruction, preset, seed):
-        # 创建一个哈希对象
         hasher = hashlib.md5()
-
-        # 添加基本类型的输入到哈希
         hasher.update(image1_description.encode('utf-8'))
         hasher.update(image2_description.encode('utf-8'))
         hasher.update(edit_instruction.encode('utf-8'))
         hasher.update(preset.encode('utf-8'))
         hasher.update(str(seed).encode('utf-8'))
 
-        # 处理 KONTEXT_PRESETS 的内容
-        preset_data = KONTEXT_PRESETS.get(preset)
+        # 合并全部预设
+        all_presets = get_all_kontext_presets()
+        preset_data = all_presets.get(preset)
         if preset_data:
             hasher.update(preset_data["system"].encode('utf-8'))
 
-        # 处理 llm_service_connector
         connector_state = str(llm_service_connector).encode('utf-8')
         hasher.update(connector_state)
-
-        # 返回哈希值
         return hasher.hexdigest()
+
+class AddUserKontextPreset(object):
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "preset_name": ("STRING", {"default": ""}),
+                "system_prompt": ("STRING", {"default": "", "multiline": True}),
+            }
+        }
+    RETURN_TYPES = ("BOOLEAN", "STRING")
+    RETURN_NAMES = ("success", "log")
+    FUNCTION = "add_preset"
+    CATEGORY = MY_CATEGORY
+
+    def add_preset(self, preset_name, system_prompt):
+        import datetime
+        if not preset_name or not system_prompt:
+            log = "Preset name and system prompt must not be empty."
+            return False, log
+        user_presets = load_user_presets()
+        if preset_name in user_presets:
+            log = f"Preset '{preset_name}' already exists (custom preset)."
+            return False, log
+        user_presets[preset_name] = {"system": system_prompt}
+        save_user_presets(user_presets)
+        now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        log = f"Preset '{preset_name}' added successfully at {now}."
+        return True, log
+
+class RemoveUserKontextPreset(object):
+    @classmethod
+    def INPUT_TYPES(cls):
+        user_presets = load_user_presets()
+        return {
+            "required": {
+                "preset_name": (list(user_presets.keys()), {}),
+            }
+        }
+    RETURN_TYPES = ("BOOLEAN", "STRING")
+    RETURN_NAMES = ("success", "log")
+    FUNCTION = "remove_preset"
+    CATEGORY = MY_CATEGORY
+
+    def remove_preset(self, preset_name):
+        import datetime
+        user_presets = load_user_presets()
+        if preset_name in user_presets:
+            del user_presets[preset_name]
+            save_user_presets(user_presets)
+            now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            log = f"Preset '{preset_name}' removed successfully at {now}."
+            return True, log
+        else:
+            log = f"Preset '{preset_name}' not found in user presets."
+            return False, log

@@ -4,7 +4,7 @@ from .caption_file_operator import BatchRenameFiles, BatchDeleteFiles, BatchEdit
     SummaryTextFiles, BatchConvertImageFiles, DedupImageFiles
 from .downloader import ModelDownloader
 from .translator import TextTranslator
-from .prompt_generator import PromptGenerator, KontextPromptGenerator
+from .prompt_generator import PromptGenerator, KontextPromptGenerator, AddUserKontextPreset, RemoveUserKontextPreset
 from .llm_service_connector import SetGeneralLLMServiceConnector, SetSiliconFlowLLMServiceConnector, \
     SetGithubModelsLLMServiceConnector, SetZhiPuLLMServiceConnector, SetKimiLLMServiceConnector, \
     SetDeepSeekLLMServiceConnector
@@ -33,6 +33,8 @@ NODE_CLASS_MAPPINGS = {
     add_suffix("Translator"): TextTranslator,
     add_suffix("PromptGenerator"): PromptGenerator,
     add_suffix("KontextPromptGenerator"): KontextPromptGenerator,
+    add_suffix("AddUserKontextPreset"): AddUserKontextPreset,
+    add_suffix("RemoveUserKontextPreset"): RemoveUserKontextPreset,
     add_suffix("GetAbsolutePath"): GetAbsolutePath,
     add_suffix("GetFileInfo"): GetFileInfo,
     add_suffix("GetDirectoryFilesInfo"): GetDirectoryFilesInfo,
@@ -61,6 +63,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     add_suffix("Translator"): add_emoji("Translator"),
     add_suffix("PromptGenerator"): add_emoji("Prompt Generator"),
     add_suffix("KontextPromptGenerator"): add_emoji("Kontext Prompt Generator"),
+    add_suffix("AddUserKontextPreset"): add_emoji("Add User Kontext Preset"),
+    add_suffix("RemoveUserKontextPreset"): add_emoji("Remove User Kontext Preset"),
     add_suffix("GetAbsolutePath"): add_emoji("Get Absolute Path"),
     add_suffix("GetFileInfo"): add_emoji("Get File Info"),
     add_suffix("GetDirectoryFilesInfo"): add_emoji("Get Directory Files Info"),
