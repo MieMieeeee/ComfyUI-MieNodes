@@ -8,6 +8,7 @@ from .prompt_generator import PromptGenerator, KontextPromptGenerator, AddUserKo
 from .llm_service_connector import SetGeneralLLMServiceConnector, SetSiliconFlowLLMServiceConnector, \
     SetGithubModelsLLMServiceConnector, SetZhiPuLLMServiceConnector, SetKimiLLMServiceConnector, \
     SetDeepSeekLLMServiceConnector, SetGeminiLLMServiceConnector, CheckLLMServiceConnectivity
+from .string_operator import StringConcat
 from .utils import add_suffix, add_emoji
 
 WEB_DIRECTORY = "./js"
@@ -42,6 +43,7 @@ NODE_CLASS_MAPPINGS = {
     add_suffix("GetDirectoryFilesInfo"): GetDirectoryFilesInfo,
     add_suffix("CopyFiles"): CopyFiles,
     add_suffix("DeleteFiles"): DeleteFiles,
+    add_suffix("StringConcat"): StringConcat,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -74,6 +76,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     add_suffix("GetDirectoryFilesInfo"): add_emoji("Get Directory Files Info"),
     add_suffix("CopyFiles"): add_emoji("Copy Files"),
     add_suffix("DeleteFiles"): add_emoji("Delete Files"),
+    add_suffix("StringConcat"): add_emoji("String Concat"),
 }
 
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS", "WEB_DIRECTORY"]
