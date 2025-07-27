@@ -7,7 +7,7 @@ from .translator import TextTranslator
 from .prompt_generator import PromptGenerator, KontextPromptGenerator, AddUserKontextPreset, RemoveUserKontextPreset
 from .llm_service_connector import SetGeneralLLMServiceConnector, SetSiliconFlowLLMServiceConnector, \
     SetGithubModelsLLMServiceConnector, SetZhiPuLLMServiceConnector, SetKimiLLMServiceConnector, \
-    SetDeepSeekLLMServiceConnector
+    SetDeepSeekLLMServiceConnector, SetGeminiLLMServiceConnector, CheckLLMServiceConnectivity
 from .utils import add_suffix, add_emoji
 
 WEB_DIRECTORY = "./js"
@@ -30,6 +30,8 @@ NODE_CLASS_MAPPINGS = {
     add_suffix("SetKimiLLMServiceConnector"): SetKimiLLMServiceConnector,
     add_suffix("SetZhiPuLLMServiceConnector"): SetZhiPuLLMServiceConnector,
     add_suffix("SetDeepSeekLLMServiceConnector"): SetDeepSeekLLMServiceConnector,
+    add_suffix("SetGeminiLLMServiceConnector"): SetGeminiLLMServiceConnector,
+    add_suffix("CheckLLMServiceConnectivity"): CheckLLMServiceConnectivity,
     add_suffix("Translator"): TextTranslator,
     add_suffix("PromptGenerator"): PromptGenerator,
     add_suffix("KontextPromptGenerator"): KontextPromptGenerator,
@@ -59,6 +61,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     add_suffix("SetZhiPuLLMServiceConnector"): add_emoji("Set ZhiPu LLM Service Connector"),
     add_suffix("SetKimiLLMServiceConnector"): add_emoji("Set Kimi LLM Service Connector"),
     add_suffix("SetDeepSeekLLMServiceConnector"): add_emoji("Set DeepSeek LLM Service Connector"),
+    add_suffix("SetGeminiLLMServiceConnector"): add_emoji("Set Gemini LLM Service Connector"),
+    add_suffix("CheckLLMServiceConnectivity"): add_emoji("Check LLM Service Connectivity"),
     add_suffix("ModelDownloader"): add_emoji("Model Downloader"),
     add_suffix("Translator"): add_emoji("Translator"),
     add_suffix("PromptGenerator"): add_emoji("Prompt Generator"),

@@ -14,6 +14,7 @@
   - [GitHub Models](https://github.com/marketplace?type=models)
   - [Kimi](https://platform.moonshot.cn)
   - [DeepSeek](https://platform.deepseek.com)
+  - [Gemini](https://ai.google.dev/gemini) - 我觉得它可以工作，但我现在无法测试。
 
 如果你希望使用其他无法通过 SetGeneralLLMServiceConnector 连接的大语言模型（LLM）服务，请提交 issue 或 pull request 进行反馈。
 
@@ -28,6 +29,11 @@
 - **Florence2 模型加载与描述节点**：为图片生成详细注释。
 - **Set SiliconFlow LLM 服务连接器 & Kontext Prompt Generator**：利用大语言模型生成上下文相关的提示词。
 - **Show Anything**：以多语言输出生成结果。
+
+### 检查 LLM 服务连接工作流
+![Image](images/CheckLLMServiceConnection.png)
+
+该工作流用于检查 LLM 服务连接状态，并显示结果。
 
 ### Kontext 预设添加与移除工作流
 

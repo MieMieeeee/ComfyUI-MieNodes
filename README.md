@@ -14,6 +14,7 @@ Currently, the following services are supported:
   - [GitHub Models](https://github.com/marketplace?type=models)
   - [Kimi](https://platform.moonshot.cn)
   - [DeepSeek](https://platform.deepseek.com)
+  - [Gemini](https://ai.google.dev/gemini) - I supposed it works, but I could not test it now.
 
 If you wish to use other large language model (LLM) services that cannot be connected through SetGeneralLLMServiceConnector, please submit an issue or a pull request for feedback.
  
@@ -28,6 +29,11 @@ This workflow demonstrates how to load an image, generate a detailed description
 - **Florence2 Model Loader & Describe Image**: Generates a detailed caption for the image.
 - **Set SiliconFlow LLM Service Connector & Kontext Prompt Generator**: Uses LLM to create context-aware prompts.
 - **Show Anything**: Displays the generated result.
+
+### Check LLM Service Connection Workflow
+![Image](images/CheckLLMServiceConnection.png)
+
+This workflow checks the connection to the LLM service and displays the result.
 
 ### Kontext Presets Add and Remove Workflow
 
