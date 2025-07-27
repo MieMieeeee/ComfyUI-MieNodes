@@ -423,9 +423,11 @@ class SetGeminiLLMServiceConnector(object):
                     [
                         "gemini-1.5-pro",
                         "gemini-1.5-flash",
+                        "gemini-2.5-pro",
+                        "gemini-2.5-flash",
                         "Custom",
                     ],
-                    {"default": "gemini-1.5-pro"},
+                    {"default": "gemini-2.5-pro"},
                 ),
             },
             "optional": {
@@ -447,7 +449,7 @@ class SetGeminiLLMServiceConnector(object):
     def execute(self, api_token, model_select, custom_model=""):
         model = model_select if model_select != "Custom" else custom_model
         if not model:
-            model = "gemini-1.5-pro"
+            model = "gemini-2.5-pro"
         return GeminiConnectorGeneral(api_token, model),
 
 class CheckLLMServiceConnectivity(object):
