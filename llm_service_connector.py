@@ -1,4 +1,5 @@
 import requests
+import time
 
 from .utils import mie_log
 
@@ -379,7 +380,7 @@ class GeminiConnectorGeneral(GeneralLLMServiceConnector):
         return {
             "contents": contents,
             "generationConfig": {
-                "maxOutputTokens": kwargs.get("max_tokens", 512),
+                "maxOutputTokens": kwargs.get("max_tokens", 10240),
                 "temperature": kwargs.get("temperature", 0.7),
                 "topP": kwargs.get("top_p", 0.9),
                 "topK": kwargs.get("top_k", 50)
@@ -389,28 +390,31 @@ class GeminiConnectorGeneral(GeneralLLMServiceConnector):
 
     def invoke(self, messages, **kwargs):
         payload = self.generate_payload(messages, **kwargs)
-        # Gemini uses API key as query parameter, not Authorization header
         headers = {
             "Content-Type": "application/json"
         }
-        # Append API key as query parameter
         url = f"{self.api_url}?key={self.api_token}"
-        try:
-            response = requests.post(url, json=payload, headers=headers, timeout=self.timeout)
-            if response.status_code == 200:
-                response_data = response.json()
-                try:
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                response = requests.post(url, json=payload, headers=headers, timeout=self.timeout)
+                if response.status_code == 200:
+                    response_data = response.json()
                     if not response_data.get("candidates"):
                         raise ValueError("No candidates in response.")
                     return response_data["candidates"][0]["content"]["parts"][0]["text"]
-                except KeyError as e:
-                    raise ValueError(f"Unexpected response format: missing key {str(e)}.")
-                except IndexError:
-                    raise ValueError("Unexpected response format: empty candidates list.")
-            else:
-                raise Exception(f"Request failed with status code {response.status_code}: {response.text}")
-        except requests.exceptions.Timeout:
-            raise Exception(f"Request timed out after {self.timeout} seconds.")
+                elif response.status_code == 500:
+                    time.sleep(2)
+                    continue  # 自动重试
+                else:
+                    raise Exception(f"Request failed with status code {response.status_code}: {response.text}")
+            except requests.exceptions.Timeout:
+                raise Exception(f"Request timed out after {self.timeout} seconds.")
+            except Exception as e:
+                print(f"[Gemini] Unknown error: {e}")
+                raise
+        # 如果重试结束还没成功
+        raise Exception(f"Gemini API 500 Internal Error after {max_retries} attempts")
 
 
 class SetGeminiLLMServiceConnector(object):
