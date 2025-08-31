@@ -417,3 +417,71 @@ class RemoveUserKontextPreset(object):
     @classmethod
     def IS_CHANGED(cls, **kwargs):
         return float("nan")
+
+
+# 支持多模型的首尾帧过渡提示词预设
+FRAME_TRANSITION_SYSTEM_PROMPTS = {
+    "wan": (
+        "You are a creative prompt engineer for AI animation. Given a description of the start frame (Image 1) and the end frame (Image 2), "
+        "generate a single, high-quality, natural English prompt that describes a smooth and visually continuous transformation from the first image to the second. "
+        "The prompt should:\n"
+        "- Clearly state the initial subject, style, and environment.\n"
+        "- Describe, in vivid detail, how the scene, style, and subject gradually and seamlessly transform into the final state.\n"
+        "- Emphasize the flow of the transformation, visual continuity, and any intermediate changes (e.g., color, material, pose, background, atmosphere).\n"
+        "- Specify consistent camera framing, lighting, and composition, unless otherwise stated.\n"
+        "- Avoid listing separate prompts; the output must be one coherent, detailed description fit for direct use in Stable Diffusion or Midjourney for animation/morphing.\n"
+        "- DO NOT add extra explanations, numbering, or formatting—output ONLY the prompt.\n"
+        "\n"
+        "Example input:\n"
+        "Start frame description: A bearded man with red facial hair wearing a yellow straw hat and dark coat in Van Gogh's self-portrait style.\n"
+        "End frame description: A space astronaut in a white spacesuit and silver helmet floating in realistic outer space with Earth in the background.\n"
+        "\n"
+        "Example output:\n"
+        "A bearded man with red facial hair wearing a yellow straw hat and dark coat in Van Gogh's self-portrait style, slowly and continuously transforms into a space astronaut. The transformation flows like liquid paint - his beard fades away strand by strand, the yellow hat melts and reforms smoothly into a silver space helmet, dark coat gradually lightens and restructures into a white spacesuit. The background swirling brushstrokes slowly organize and clarify into realistic stars and space, with Earth appearing gradually in the distance. Every change happens in seamless waves, maintaining visual continuity throughout the metamorphosis. Consistent soft lighting throughout, medium close-up maintaining same framing, central composition stays fixed, gentle color temperature shift from warm to cool, gradual contrast increase, smooth style transition from painterly to photorealistic. Static camera with subtle slow zoom, emphasizing the flowing transformation process without abrupt changes."
+    ),
+}
+
+class FrameTransitionPromptGenerator(object):
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "llm_service_connector": ("LLMServiceConnector",),
+                "start_image_description": ("STRING", {"default": "", "multiline": True}),
+                "end_image_description": ("STRING", {"default": "", "multiline": True}),
+                "model": (list(FRAME_TRANSITION_SYSTEM_PROMPTS.keys()), {"default": "wan"}),
+                "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff}),
+            },
+        }
+
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("transition_prompt",)
+    FUNCTION = "generate_transition_prompt"
+    CATEGORY = MY_CATEGORY
+
+    def generate_transition_prompt(self, llm_service_connector, start_image_description, end_image_description, model, seed=None):
+        system_prompt = FRAME_TRANSITION_SYSTEM_PROMPTS.get(model, FRAME_TRANSITION_SYSTEM_PROMPTS["wan"])
+        user_content = (
+            f"Start frame description: {start_image_description.strip()}\n"
+            f"End frame description: {end_image_description.strip()}"
+        )
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content},
+        ]
+        out = llm_service_connector.invoke(messages, seed=seed, temperature=0.8, top_p=0.9)
+        return out.strip(),
+
+    def is_changed(self, llm_service_connector, start_image_description, end_image_description, model, seed):
+        hasher = hashlib.md5()
+        hasher.update(start_image_description.encode('utf-8'))
+        hasher.update(end_image_description.encode('utf-8'))
+        hasher.update(model.encode('utf-8'))
+        hasher.update(str(seed).encode('utf-8'))
+        try:
+            hasher.update(llm_service_connector.get_state().encode('utf-8'))
+        except AttributeError:
+            hasher.update(str(llm_service_connector.api_url).encode('utf-8'))
+            hasher.update(str(llm_service_connector.api_token).encode('utf-8'))
+            hasher.update(str(llm_service_connector.model).encode('utf-8'))
+        return hasher.hexdigest()
