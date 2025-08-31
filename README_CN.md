@@ -14,7 +14,8 @@
   - [GitHub Models](https://github.com/marketplace?type=models)
   - [Kimi](https://platform.moonshot.cn)
   - [DeepSeek](https://platform.deepseek.com)
-  - [Gemini](https://ai.google.dev/gemini) - 我觉得它可以工作，但我现在无法测试。
+  - [Gemini](https://ai.google.dev/gemini)
+  - [Bailian 阿里云百炼](https://bailian.console.aliyun.com/)
 
 如果你希望使用其他无法通过 SetGeneralLLMServiceConnector 连接的大语言模型（LLM）服务，请提交 issue 或 pull request 进行反馈。
 

@@ -137,6 +137,21 @@ class GithubModelsConnectorGeneral(GeneralLLMServiceConnector):
         super().__init__(self.api_url, api_token, model)
 
 
+class BailianLLMServiceConnector(GeneralLLMServiceConnector):
+    api_url = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
+
+    def __init__(self, api_token, model):
+        super().__init__(self.api_url, api_token, model)
+
+    def generate_payload(self, messages, **kwargs):
+        return {
+            "model": self.model,
+            "messages": messages,
+            "stream": False,
+        }
+
+
+
 class SetGeneralLLMServiceConnector(object):
     @classmethod
     def INPUT_TYPES(cls):
@@ -456,6 +471,47 @@ class SetGeminiLLMServiceConnector(object):
             model = "gemini-2.5-pro"
         return GeminiConnectorGeneral(api_token, model),
 
+class SetBailianLLMServiceConnector(object):
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "api_token": ("STRING", {"default": ""}),
+                "model_select": (
+                    [
+                        "qwen-plus",
+                        "qwen-max",
+                        "qwen-flash",
+                        "qwen-turbo",
+                        "qwen-long",
+                        "Custom",
+                    ],
+                    {"default": "qwen-flash"},
+                ),
+            },
+            "optional": {
+                "custom_model": (
+                    "STRING",
+                    {
+                        "default": "",
+                        "placeholder": "自定义模型名（当选择Custom时生效）",
+                    },
+                ),
+            },
+        }
+
+    RETURN_TYPES = ("LLMServiceConnector",)
+    RETURN_NAMES = ("llm_service_connector",)
+    FUNCTION = "execute"
+    CATEGORY = MY_CATEGORY
+
+    def execute(self, api_token, model_select, custom_model=""):
+        model = model_select if model_select != "Custom" else custom_model
+        if not model:
+            model = "qwen-flash"
+        return BailianLLMServiceConnector(api_token, model),
+
+
 class CheckLLMServiceConnectivity(object):
     @classmethod
     def INPUT_TYPES(cls):
@@ -479,3 +535,4 @@ class CheckLLMServiceConnectivity(object):
             return mie_log(f"LLM服务接口可联通 (HTTP 200 + 正常响应), 返回内容: {result}"),
         except Exception as e:
             return mie_log(f"LLM服务检测失败: {str(e)}"),
+

@@ -14,7 +14,8 @@ Currently, the following services are supported:
   - [GitHub Models](https://github.com/marketplace?type=models)
   - [Kimi](https://platform.moonshot.cn)
   - [DeepSeek](https://platform.deepseek.com)
-  - [Gemini](https://ai.google.dev/gemini) - I supposed it works, but I could not test it now.
+  - [Gemini](https://ai.google.dev/gemini) 
+  - [Bailian 阿里云百炼](https://bailian.console.aliyun.com/)
 
 If you wish to use other large language model (LLM) services that cannot be connected through SetGeneralLLMServiceConnector, please submit an issue or a pull request for feedback.
  
