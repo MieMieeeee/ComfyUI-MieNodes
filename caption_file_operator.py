@@ -72,14 +72,27 @@ class BatchRenameFiles(object):
             new_name = f"{prefix}{str(index).zfill(num_digits)}{file_extension}"
             new_path = os.path.join(directory, new_name)
 
-            os.rename(file_path, new_path)
-            updated_count += 1
+            try:
+                # 1. 重命名主文件
+                os.rename(file_path, new_path)
+                updated_count += 1
 
-            if file_extension != ".txt" and update_caption_as_well:
-                old_caption_path = os.path.splitext(file_path)[0] + ".txt"
-                new_caption_path = os.path.splitext(new_path)[0] + ".txt"
-                if os.path.exists(old_caption_path):
-                    os.rename(old_caption_path, new_caption_path)
+                # 2. 重命名字幕文件 (只有在主文件重命名成功后才执行)
+                if file_extension != ".txt" and update_caption_as_well:
+                    old_caption_path = os.path.splitext(file_path)[0] + ".txt"
+                    new_caption_path = os.path.splitext(new_path)[0] + ".txt"
+
+                    if os.path.exists(old_caption_path):
+                        # 尝试重命名字幕文件
+                        try:
+                            os.rename(old_caption_path, new_caption_path)
+                        except OSError as e:
+                            # 字幕文件重命名失败，记录错误但继续
+                            mie_log(f"Error renaming caption file {old_caption_path} to {new_caption_path}: {e}")
+
+            except OSError as e:
+                # 主文件重命名失败，记录错误并跳过当前文件
+                mie_log(f"Error renaming file {file_path} to {new_path}: {e}")
 
         current_time = get_current_time()
         the_log_message = "{} files updated at {}.".format(updated_count, current_time)
@@ -130,9 +143,12 @@ class BatchDeleteFiles(object):
 
         for file_path in files:
             file_name = os.path.basename(file_path)
-            if len(prefix) > 0 or file_name.startswith(prefix):
-                os.remove(file_path)
-                deleted_count += 1
+            if not prefix or file_name.startswith(prefix):
+                try:
+                    os.remove(file_path)
+                    deleted_count += 1
+                except OSError as e:
+                    mie_log(f"Error deleting {file_path}: {e}")
 
         current_time = get_current_time()
         the_log_message = f"{deleted_count} files deleted from {directory} at {current_time}."
@@ -190,6 +206,10 @@ class BatchEditTextFiles(object):
         modified_count = 0
 
         mie_log("Total {} files with {}".format(len(files), file_extension))
+
+        if operation in ['replace', 'remove'] and not target_text:
+            return 0, mie_log(f"Target text is required for {operation.capitalize()} operation.")
+
         for file_path in files:
             with open(file_path, 'r', encoding='utf-8') as file:
                 content = file.read()
@@ -201,12 +221,8 @@ class BatchEditTextFiles(object):
             elif operation == 'append':
                 content += new_text
             elif operation == 'replace':
-                if not target_text:
-                    return 0, mie_log("Target text is required for Replace operation.")
                 content = re.sub(target_text, new_text, content)
             elif operation == 'remove':
-                if not target_text:
-                    return 0, mie_log("Target text is required for Remove operation.")
                 content = content.replace(target_text, '')
             else:
                 return 0, f"Unsupported operation: {operation}"
@@ -268,7 +284,7 @@ class BatchSyncImageCaptionFiles(object):
             if is_image_file(file_path):
                 images.add(file_path)
 
-        caption_files = set(glob(os.path.join(directory, caption_ext)))
+        caption_files = set(glob(os.path.join(directory, f"*{caption_ext}")))
 
         # Generate matching txt files and write caption
         created_count = 0
@@ -283,8 +299,11 @@ class BatchSyncImageCaptionFiles(object):
         deleted_count = 0
         for caption_file in caption_files:
             if not os.path.splitext(caption_file)[0] in {os.path.splitext(img)[0] for img in images}:
-                os.remove(caption_file)
-                deleted_count += 1
+                try:
+                    os.remove(caption_file)
+                    deleted_count += 1
+                except OSError as e:
+                    mie_log(f"Error deleting orphaned caption file {caption_file}: {e}")
 
         current_time = get_current_time()
         the_log_message = f"Created {created_count} and deleted {deleted_count} captions for files in {directory} at {current_time}."
@@ -416,21 +435,33 @@ class BatchConvertImageFiles(object):
 
         converted_count = 0
         for file_path in files:
-            with Image.open(file_path) as img:
-                base_name, ext = os.path.splitext(file_path)
-                ext = ext.lower().lstrip('.')
-                if ext == target_format:
-                    continue  # Skip conversion if the image is already in the target format
+            new_file_path = None
+            try:
+                with Image.open(file_path) as img:
+                    base_name, ext = os.path.splitext(file_path)
+                    ext = ext.lower().lstrip('.')
+                    if ext == target_format:
+                        continue  # Skip conversion if the image is already in the target format
 
-                base_name = os.path.splitext(file_path)[0]
-                new_file_path = f"{base_name}.{target_format}"
-                img.convert("RGB").save(new_file_path, "JPEG" if target_format == "jpg" else target_format.upper())
-                converted_count += 1
+                    base_name = os.path.splitext(file_path)[0]
+                    new_file_path = f"{base_name}.{target_format}"
+                    img.convert("RGB").save(new_file_path, "JPEG" if target_format == "jpg" else target_format.upper())
+                    converted_count += 1
+            except Exception as e:
+                mie_log(f"Error processing file {file_path}: {e}")
+                continue  # 跳过当前文件
 
-            if save_original:
-                shutil.move(file_path, os.path.join(backup_dir, os.path.basename(file_path)))
-            else:
-                os.remove(file_path)
+            # 仅在转换成功后，再处理原始文件
+            if new_file_path:  # 确保成功生成了新的文件路径
+                try:
+                    if save_original:
+                        # 移动原始文件
+                        shutil.move(file_path, os.path.join(backup_dir, os.path.basename(file_path)))
+                    else:
+                        # 删除原始文件
+                        os.remove(file_path)
+                except OSError as e:
+                    mie_log(f"Error handling original file {file_path}: {e}")
 
         current_time = get_current_time()
         the_log_message = f"Converted {converted_count} images to {target_format} format in {directory} at {current_time}."
