@@ -21,6 +21,11 @@
 
 其中智谱AI的 GLM-4-Flash-250414 和 硅基流动的 Qwen3-8B、GLM-Z1-9B-0414、GLN-4-9B-0414 是免费模型，只需要注册获取一个API Key（或Token）即可随意使用。
 
+### 调用 LLM Service 工作流
+![Image](images/CallLLMService.png)
+
+该工作流展示了如何连接到 LLM 服务并基于给定的提示词生成响应，你可以使用任何支持的 LLM 服务。
+
 ### Kontext 预设提示词生成工作流
 
 ![Image](images/KontextPrompt.png)

@@ -21,6 +21,11 @@ If you wish to use other large language model (LLM) services that cannot be conn
  
 Among them, Zhipu AI's GLM-4-Flash-250414 and SiliconFlow's Qwen3-8B, GLM-Z1-9B-0414, and GLN-4-9B-0414 are free models. You only need to register and obtain an API Key (or Token) to use them without restriction.
 
+### Call LLM Service Workflow
+![Image](images/CallLLMService.png)
+
+This workflow demonstrates how to connect to an LLM service and generate a response based on a given prompt, you can use any LLM service supported.
+
 ### Kontext Presets Prompt Generator Workflow
 
 ![Image](images/KontextPrompt.png)
