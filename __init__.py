@@ -9,7 +9,9 @@ from .llm_service_connector import SetGeneralLLMServiceConnector, SetSiliconFlow
     SetGithubModelsLLMServiceConnector, SetZhiPuLLMServiceConnector, SetKimiLLMServiceConnector, \
     SetDeepSeekLLMServiceConnector, SetGeminiLLMServiceConnector, SetBailianLLMServiceConnector, \
     CheckLLMServiceConnectivity, CallLLMService
+from .audio_operator import WavConcat
 from .string_operator import StringConcat
+from .image_operator import SingleImageToVideo
 from .utils import add_suffix, add_emoji
 
 WEB_DIRECTORY = "./js"
@@ -48,6 +50,8 @@ NODE_CLASS_MAPPINGS = {
     add_suffix("CopyFiles"): CopyFiles,
     add_suffix("DeleteFiles"): DeleteFiles,
     add_suffix("StringConcat"): StringConcat,
+    add_suffix("WavConcat"): WavConcat,
+    add_suffix("SingleImageToVideo"): SingleImageToVideo,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -84,6 +88,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     add_suffix("CopyFiles"): add_emoji("Copy Files"),
     add_suffix("DeleteFiles"): add_emoji("Delete Files"),
     add_suffix("StringConcat"): add_emoji("String Concat"),
+    add_suffix("WavConcat"): add_emoji("Wav Concat"),
+    add_suffix("SingleImageToVideo"): add_emoji("Single Image To Video"),
 }
 
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS", "WEB_DIRECTORY"]
