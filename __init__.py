@@ -11,7 +11,7 @@ from .llm_service_connector import SetGeneralLLMServiceConnector, SetSiliconFlow
     CheckLLMServiceConnectivity, CallLLMService
 from .audio_operator import WavConcat
 from .string_operator import StringConcat
-from .image_operator import SingleImageToVideo
+from .image_operator import SingleImageToVideo, AddNumberWatermarkForImage
 from .utils import add_suffix, add_emoji
 
 WEB_DIRECTORY = "./js"
@@ -52,6 +52,7 @@ NODE_CLASS_MAPPINGS = {
     add_suffix("StringConcat"): StringConcat,
     add_suffix("WavConcat"): WavConcat,
     add_suffix("SingleImageToVideo"): SingleImageToVideo,
+    add_suffix("AddNumberWatermarkForImage"): AddNumberWatermarkForImage,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -90,6 +91,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     add_suffix("StringConcat"): add_emoji("String Concat"),
     add_suffix("WavConcat"): add_emoji("Wav Concat"),
     add_suffix("SingleImageToVideo"): add_emoji("Single Image To Video"),
+    add_suffix("AddNumberWatermarkForImage"): add_emoji("Add Number Watermark For Image"),
 }
 
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS", "WEB_DIRECTORY"]
