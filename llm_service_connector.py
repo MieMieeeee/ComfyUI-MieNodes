@@ -340,6 +340,7 @@ class SetSiliconFlowLLMServiceConnector(object):
                         "THUDM/GLM-Z1-9B-0414",
                         "THUDM/GLM-4-32B-0414",
                         "Qwen/Qwen3-8B",
+                        "Qwen/Qwen3-235B-A22B-Thinking-2507",
                         "moonshotai/Kimi-K2-Instruct",
                         "Custom",
                     ],
