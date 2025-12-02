@@ -5,7 +5,7 @@ from .caption_file_operator import BatchRenameFiles, BatchDeleteFiles, BatchEdit
 from .downloader import ModelDownloader
 from .translator import TextTranslator
 from .prompt_generator import PromptGenerator, KontextPromptGenerator, AddUserKontextPreset, RemoveUserKontextPreset, \
-    FrameTransitionPromptGenerator, HunyuanVideoI2VPromptGenerator, HunyuanVideoT2VPromptGenerator
+    FrameTransitionPromptGenerator, HunyuanVideoI2VPromptGenerator, HunyuanVideoT2VPromptGenerator, ZImagePromptGenerator
 from .llm_service_connector import SetGeneralLLMServiceConnector, SetSiliconFlowLLMServiceConnector, \
     SetGithubModelsLLMServiceConnector, SetZhiPuLLMServiceConnector, SetKimiLLMServiceConnector, \
     SetDeepSeekLLMServiceConnector, SetGeminiLLMServiceConnector, SetBailianLLMServiceConnector, \
@@ -47,6 +47,7 @@ NODE_CLASS_MAPPINGS = {
     add_suffix("FrameTransitionPromptGenerator"): FrameTransitionPromptGenerator,
     add_suffix("HunyuanVideoI2VPromptGenerator"): HunyuanVideoI2VPromptGenerator,
     add_suffix("HunyuanVideoT2VPromptGenerator"): HunyuanVideoT2VPromptGenerator,
+    add_suffix("ZImagePromptGenerator"): ZImagePromptGenerator,
     add_suffix("GetAbsolutePath"): GetAbsolutePath,
     add_suffix("GetFileInfo"): GetFileInfo,
     add_suffix("GetDirectoryFilesInfo"): GetDirectoryFilesInfo,
@@ -88,6 +89,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     add_suffix("RemoveUserKontextPreset"): add_emoji("Remove User Kontext Preset"),
     add_suffix("HunyuanVideoI2VPromptGenerator"): add_emoji("Hunyuan Video I2V Prompt Generator"),
     add_suffix("HunyuanVideoT2VPromptGenerator"): add_emoji("Hunyuan Video T2V Prompt Generator"),
+    add_suffix("ZImagePromptGenerator"): add_emoji("Z-Image Prompt Generator"),
     add_suffix("GetAbsolutePath"): add_emoji("Get Absolute Path"),
     add_suffix("GetFileInfo"): add_emoji("Get File Info"),
     add_suffix("GetDirectoryFilesInfo"): add_emoji("Get Directory Files Info"),
