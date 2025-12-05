@@ -2,6 +2,8 @@ import os
 import re
 import shutil
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util import Retry
 import urllib
 from tqdm import tqdm
 
@@ -27,6 +29,8 @@ class ModelDownloader(object):
             "optional": {
                 "rename_to": ("STRING", {"default": ""},),
                 "hf_token": ("STRING", {"default": "", "multiline": False, "password": True}),
+                "skip_ssl_verify": ("BOOLEAN", {"default": True}),
+                "timeout": ("INT", {"default": 30, "min": 1, "max": 600}),
                 "trigger_signal": (("*", {})),
             },
         }
@@ -41,7 +45,7 @@ class ModelDownloader(object):
     def VALIDATE_INPUTS(s, input_types):
         return True
 
-    def download(self, url, save_path, override, use_hf_mirror, rename_to, hf_token, chunk_size=1024 * 1024, trigger_signal=None):
+    def download(self, url, save_path, override, use_hf_mirror, rename_to, hf_token, chunk_size=1024 * 1024, skip_ssl_verify=True, timeout=30, trigger_signal=None):
         if hf_token and "huggingface" in url:
             headers = {"Authorization": f"Bearer {hf_token}"}
         else:
@@ -50,18 +54,24 @@ class ModelDownloader(object):
         if use_hf_mirror:
            url = re.sub(r'^https://huggingface\.co', 'https://hf-mirror.com', url)
 
-        response = requests.get(url, stream=True, headers=headers, params=None)
-        response.raise_for_status()
+        verify = not skip_ssl_verify
 
-        total_size = int(response.headers.get('content-length', 0))
-
-        file_name = rename_to
-        if not file_name:
-            file_name = self._get_filename(response, url)
+        session = requests.Session()
+        retry = Retry(total=3, backoff_factor=0.5, status_forcelist=[429, 500, 502, 503, 504], allowed_methods=["GET"]) 
+        adapter = HTTPAdapter(max_retries=retry)
+        session.mount("http://", adapter)
+        session.mount("https://", adapter)
 
         target_directory = os.path.join(folder_paths.models_dir, save_path)
         if not os.path.exists(target_directory):
             os.makedirs(target_directory, exist_ok=True)
+
+        file_name = rename_to
+        if not file_name:
+            # preflight name by requesting headers only when needed
+            head_resp = session.get(url, stream=True, headers=headers, params=None, verify=verify, timeout=timeout)
+            head_resp.raise_for_status()
+            file_name = self._get_filename(head_resp, url)
 
         full_path = os.path.join(target_directory, file_name)
 
@@ -72,9 +82,27 @@ class ModelDownloader(object):
         temp_path = full_path + '.tmp'
 
         downloaded = 0
+        if os.path.exists(temp_path):
+            downloaded = os.path.getsize(temp_path)
+
+        req_headers = headers or {}
+        if downloaded > 0:
+            req_headers = dict(req_headers)
+            req_headers["Range"] = f"bytes={downloaded}-"
+
+        response = session.get(url, stream=True, headers=req_headers, params=None, verify=verify, timeout=timeout)
+        response.raise_for_status()
+
+        total_size = int(response.headers.get('content-length', 0))
+        cr = response.headers.get('content-range')
+        if cr and '/' in cr:
+            try:
+                total_size = int(cr.split('/')[-1])
+            except Exception:
+                total_size = downloaded + int(response.headers.get('content-length', 0))
         try:
-            with open(temp_path, 'wb') as file:
-                with tqdm(total=total_size, unit='iB', unit_scale=True, desc=file_name) as pbar:
+            with open(temp_path, 'ab' if downloaded > 0 else 'wb') as file:
+                with tqdm(total=total_size, initial=downloaded, unit='iB', unit_scale=True, desc=file_name) as pbar:
                     for data in response.iter_content(chunk_size=chunk_size):
                         size = file.write(data)
                         downloaded += size
