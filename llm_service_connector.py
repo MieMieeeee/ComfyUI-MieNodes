@@ -1,7 +1,11 @@
 import requests
 import time
+import base64
+import numpy as np
+import cv2
+import torch
 
-from .utils import mie_log
+from .utils import mie_log, load_plugin_config
 
 MY_CATEGORY = "🐑 MieNodes/🐑 LLM Service Config"
 
@@ -182,14 +186,20 @@ class GeminiConnectorGeneral(GeneralLLMServiceConnector):
         super().__init__(api_url, api_token, model)
 
     def generate_payload(self, messages, **kwargs):
-        # 适配 Gemini 特有的 Payload 格式
         contents = []
         for msg in messages:
-            # Gemini 要求 'role' 是 'user' 或 'model'
-            role = "user" if msg["role"] == "user" else "model"
+            role = "user" if msg.get("role") == "user" else "model"
+            parts = []
+            content = msg.get("content")
+            if isinstance(content, list):
+                for p in content:
+                    if isinstance(p, dict) and p.get("type") == "text" and "text" in p:
+                        parts.append({"text": p["text"]})
+            elif isinstance(content, str):
+                parts.append({"text": content})
             contents.append({
                 "role": role,
-                "parts": [{"text": msg["content"]}]
+                "parts": parts if parts else [{"text": ""}]
             })
         return {
             "contents": contents,
@@ -274,8 +284,13 @@ class SetGeneralLLMServiceConnector(object):
         return {
             "required": {
                 "api_url": ("STRING", {"default": "https://api.siliconflow.cn/v1/chat/completions"}),
-                "api_token": ("STRING", {"default": "token"}),
+                "api_token": ("STRING", {"default": ""}),
                 "model_select": ("STRING", {"default": "deepseek-ai/DeepSeek-V3"}),
+            },
+            "optional": {
+                "config_file": ("STRING", {"default": "mie_llm_keys.json"}),
+                "config_key": ("STRING", {"default": "openai_compatible"}),
+                "prefer_local_config": ("BOOLEAN", {"default": True}),
             },
         }
 
@@ -284,8 +299,9 @@ class SetGeneralLLMServiceConnector(object):
     FUNCTION = "execute"
     CATEGORY = MY_CATEGORY
 
-    def execute(self, api_url, api_token, model_select):
-        return GeneralLLMServiceConnector(api_url, api_token, model_select),
+    def execute(self, api_url, api_token, model_select, config_file="mie_llm_keys.json", config_key="openai_compatible", prefer_local_config=True):
+        token = _resolve_token(api_token, default_key="openai_compatible", config_file=config_file, config_key=config_key, prefer_local=prefer_local_config)
+        return GeneralLLMServiceConnector(api_url, token, model_select),
 
 
 class SetGithubModelsLLMServiceConnector(object):
@@ -310,6 +326,9 @@ class SetGithubModelsLLMServiceConnector(object):
                         "placeholder": "Enter custom model name (used when model_select is 'Custom')",
                     },
                 ),
+                "config_file": ("STRING", {"default": "mie_llm_keys.json"}),
+                "config_key": ("STRING", {"default": "github_models"}),
+                "prefer_local_config": ("BOOLEAN", {"default": True}),
             },
         }
 
@@ -318,12 +337,13 @@ class SetGithubModelsLLMServiceConnector(object):
     FUNCTION = "execute"
     CATEGORY = MY_CATEGORY
 
-    def execute(self, api_token, model_select, custom_model=""):
+    def execute(self, api_token, model_select, custom_model="", config_file="mie_llm_keys.json", config_key="github_models", prefer_local_config=True):
         # 确定最终使用的模型
         model = model_select if model_select != "Custom" else custom_model
         if not model:
             model = "openai/gpt-4.1"  # 默认模型
-        return GithubModelsConnectorGeneral(api_token, model),
+        token = _resolve_token(api_token, default_key="github_models", config_file=config_file, config_key=config_key, prefer_local=prefer_local_config)
+        return GithubModelsConnectorGeneral(token, model),
 
 
 class SetSiliconFlowLLMServiceConnector(object):
@@ -339,6 +359,7 @@ class SetSiliconFlowLLMServiceConnector(object):
                         "deepseek-ai/DeepSeek-V3.2-Exp",
                         "THUDM/GLM-Z1-9B-0414",
                         "THUDM/GLM-4-32B-0414",
+                        "zai-org/GLM-4.5V",
                         "Qwen/Qwen3-8B",
                         "Qwen/Qwen3-235B-A22B-Thinking-2507",
                         "moonshotai/Kimi-K2-Instruct",
@@ -355,6 +376,9 @@ class SetSiliconFlowLLMServiceConnector(object):
                         "placeholder": "Enter custom model name (used when model_select is 'Custom')",
                     },
                 ),
+                "config_file": ("STRING", {"default": "mie_llm_keys.json"}),
+                "config_key": ("STRING", {"default": "siliconflow"}),
+                "prefer_local_config": ("BOOLEAN", {"default": True}),
             },
         }
 
@@ -363,12 +387,13 @@ class SetSiliconFlowLLMServiceConnector(object):
     FUNCTION = "execute"
     CATEGORY = MY_CATEGORY
 
-    def execute(self, api_token, model_select, custom_model=""):
+    def execute(self, api_token, model_select, custom_model="", config_file="mie_llm_keys.json", config_key="siliconflow", prefer_local_config=True):
         # 确定最终使用的模型
         model = model_select if model_select != "Custom" else custom_model
         if not model:
             model = "THUDM/GLM-4-32B-0414"  # 默认模型
-        return SiliconFlowConnectorGeneral(api_token, model),
+        token = _resolve_token(api_token, default_key="siliconflow", config_file=config_file, config_key=config_key, prefer_local=prefer_local_config)
+        return SiliconFlowConnectorGeneral(token, model),
 
 
 class SetZhiPuLLMServiceConnector(object):
@@ -393,6 +418,9 @@ class SetZhiPuLLMServiceConnector(object):
                         "placeholder": "Enter custom model name (used when model_select is 'Custom')",
                     },
                 ),
+                "config_file": ("STRING", {"default": "mie_llm_keys.json"}),
+                "config_key": ("STRING", {"default": "zhipu"}),
+                "prefer_local_config": ("BOOLEAN", {"default": True}),
             },
         }
 
@@ -401,12 +429,13 @@ class SetZhiPuLLMServiceConnector(object):
     FUNCTION = "execute"
     CATEGORY = MY_CATEGORY
 
-    def execute(self, api_token, model_select, custom_model=""):
+    def execute(self, api_token, model_select, custom_model="", config_file="mie_llm_keys.json", config_key="zhipu", prefer_local_config=True):
         # 确定最终使用的模型
         model = model_select if model_select != "Custom" else custom_model
         if not model:
             model = "GLM-4-Flash-250414"  # 默认模型
-        return ZhiPuConnectorGeneral(api_token, model),
+        token = _resolve_token(api_token, default_key="zhipu", config_file=config_file, config_key=config_key, prefer_local=prefer_local_config)
+        return ZhiPuConnectorGeneral(token, model),
 
 
 class SetKimiLLMServiceConnector(object):
@@ -440,6 +469,9 @@ class SetKimiLLMServiceConnector(object):
                         "placeholder": "Enter custom model name (used when model_select is 'Custom')",
                     },
                 ),
+                "config_file": ("STRING", {"default": "mie_llm_keys.json"}),
+                "config_key": ("STRING", {"default": "kimi"}),
+                "prefer_local_config": ("BOOLEAN", {"default": True}),
             },
         }
 
@@ -448,12 +480,13 @@ class SetKimiLLMServiceConnector(object):
     FUNCTION = "execute"
     CATEGORY = MY_CATEGORY
 
-    def execute(self, api_token, model_select, custom_model=""):
+    def execute(self, api_token, model_select, custom_model="", config_file="mie_llm_keys.json", config_key="kimi", prefer_local_config=True):
         # 确定最终使用的模型
         model = model_select if model_select != "Custom" else custom_model
         if not model:
             model = "kimi-k2-0711-preview"  # 默认模型
-        return KimiConnectorGeneral(api_token, model),
+        token = _resolve_token(api_token, default_key="kimi", config_file=config_file, config_key=config_key, prefer_local=prefer_local_config)
+        return KimiConnectorGeneral(token, model),
 
 
 class SetDeepSeekLLMServiceConnector(object):
@@ -479,6 +512,9 @@ class SetDeepSeekLLMServiceConnector(object):
                         "placeholder": "Enter custom model name (used when model_select is 'Custom')",
                     },
                 ),
+                "config_file": ("STRING", {"default": "mie_llm_keys.json"}),
+                "config_key": ("STRING", {"default": "deepseek"}),
+                "prefer_local_config": ("BOOLEAN", {"default": True}),
             },
         }
 
@@ -487,12 +523,13 @@ class SetDeepSeekLLMServiceConnector(object):
     FUNCTION = "execute"
     CATEGORY = MY_CATEGORY
 
-    def execute(self, api_token, model_select, custom_model=""):
+    def execute(self, api_token, model_select, custom_model="", config_file="mie_llm_keys.json", config_key="deepseek", prefer_local_config=True):
         # 确定最终使用的模型
         model = model_select if model_select != "Custom" else custom_model
         if not model:
             model = "deepseek-chat"  # 默认模型
-        return DeepSeekConnectorGeneral(api_token, model),
+        token = _resolve_token(api_token, default_key="deepseek", config_file=config_file, config_key=config_key, prefer_local=prefer_local_config)
+        return DeepSeekConnectorGeneral(token, model),
 
 
 class SetGeminiLLMServiceConnector(object):
@@ -520,6 +557,9 @@ class SetGeminiLLMServiceConnector(object):
                         "placeholder": "Enter custom model name (used when model_select is 'Custom')",
                     },
                 ),
+                "config_file": ("STRING", {"default": "mie_llm_keys.json"}),
+                "config_key": ("STRING", {"default": "gemini"}),
+                "prefer_local_config": ("BOOLEAN", {"default": True}),
             },
         }
 
@@ -528,11 +568,12 @@ class SetGeminiLLMServiceConnector(object):
     FUNCTION = "execute"
     CATEGORY = MY_CATEGORY
 
-    def execute(self, api_token, model_select, custom_model=""):
+    def execute(self, api_token, model_select, custom_model="", config_file="mie_llm_keys.json", config_key="gemini", prefer_local_config=True):
         model = model_select if model_select != "Custom" else custom_model
         if not model:
             model = "gemini-2.5-pro"
-        return GeminiConnectorGeneral(api_token, model),
+        token = _resolve_token(api_token, default_key="gemini", config_file=config_file, config_key=config_key, prefer_local=prefer_local_config)
+        return GeminiConnectorGeneral(token, model),
 
 
 class SetBailianLLMServiceConnector(object):
@@ -561,6 +602,9 @@ class SetBailianLLMServiceConnector(object):
                         "placeholder": "自定义模型名（当选择Custom时生效）",
                     },
                 ),
+                "config_file": ("STRING", {"default": "mie_llm_keys.json"}),
+                "config_key": ("STRING", {"default": "bailian"}),
+                "prefer_local_config": ("BOOLEAN", {"default": True}),
             },
         }
 
@@ -569,11 +613,12 @@ class SetBailianLLMServiceConnector(object):
     FUNCTION = "execute"
     CATEGORY = MY_CATEGORY
 
-    def execute(self, api_token, model_select, custom_model=""):
+    def execute(self, api_token, model_select, custom_model="", config_file="mie_llm_keys.json", config_key="bailian", prefer_local_config=True):
         model = model_select if model_select != "Custom" else custom_model
         if not model:
             model = "qwen-flash"
-        return BailianLLMServiceConnector(api_token, model),
+        token = _resolve_token(api_token, default_key="bailian", config_file=config_file, config_key=config_key, prefer_local=prefer_local_config)
+        return BailianLLMServiceConnector(token, model),
 
 
 class CheckLLMServiceConnectivity(object):
@@ -615,6 +660,8 @@ class CallLLMService(object):
                 "top_p": ("FLOAT", {"default": 0.9, "min": 0.0, "max": 1.0}),
                 "max_tokens": ("INT", {"default": 512, "min": 1}),
                 "seed": ("INT", {"default": 0, "min": 0}),
+                "image": ("IMAGE",),
+                "image_detail": (["auto", "low", "high"], {"default": "auto"}),
             },
         }
 
@@ -623,13 +670,44 @@ class CallLLMService(object):
     FUNCTION = "call"
     CATEGORY = MY_CATEGORY
 
-    def call(self, llm_service_connector, input_text, temperature=0.7, top_p=0.9, max_tokens=512, seed=None):
+    def _image_to_data_url(self, image):
+        if image is None:
+            return None
+        t = image[0] if image.ndim == 4 else image
+        img_np = (np.clip(t.detach().cpu().numpy(), 0.0, 1.0) * 255.0).astype(np.uint8)
+        img_bgr = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
+        ok, buf = cv2.imencode('.jpg', img_bgr)
+        if not ok:
+            return None
+        return "data:image/jpeg;base64," + base64.b64encode(buf.tobytes()).decode("utf-8")
+
+    def call(self, llm_service_connector, input_text, temperature=0.7, top_p=0.9, max_tokens=512, seed=None, image=None, image_detail="auto"):
         """
         一个简单的通用节点，将纯文本包装为用户消息并调用任意 LLMServiceConnector 的 invoke 方法。
         该节点不会改变底层 connector 的行为或 state。
         """
-        messages = [{"role": "user", "content": input_text}]
+        if image is not None:
+            parts = []
+            url = self._image_to_data_url(image)
+            if url:
+                parts.append({
+                    "type": "image_url",
+                    "image_url": {"url": url, "detail": image_detail}
+                })
+            if isinstance(input_text, str) and input_text != "":
+                parts.append({"type": "text", "text": input_text})
+            messages = [{"role": "user", "content": parts}]
+        else:
+            messages = [{"role": "user", "content": input_text}]
         # 将可选参数直接转发给 connector.invoke
         result = llm_service_connector.invoke(messages, seed=seed, temperature=temperature, top_p=top_p,
                                               max_tokens=max_tokens)
         return (result.strip(),)
+def _resolve_token(api_token, default_key=None, config_file="mie_llm_keys.json", config_key=None, prefer_local=True):
+    cfg = load_plugin_config(config_file or "mie_llm_keys.json")
+    k = config_key or default_key
+    cfg_token = (cfg.get(k) or "")
+    api_token = (api_token or "")
+    if prefer_local:
+        return (cfg_token or api_token)
+    return (api_token or cfg_token)

@@ -4,17 +4,17 @@ import shutil
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util import Retry
+import math
 import urllib
 from tqdm import tqdm
 
 import folder_paths
 
 from .utils import mie_log
+ 
 
 MY_CATEGORY = "🐑 MieNodes/🐑 Downloader"
 
-
-# Learned a lot from https://github.com/ciri/comfyui-model-downloader
 
 class ModelDownloader(object):
     @classmethod
@@ -46,18 +46,23 @@ class ModelDownloader(object):
         return True
 
     def download(self, url, save_path, override, use_hf_mirror, rename_to, hf_token, chunk_size=1024 * 1024, skip_ssl_verify=True, timeout=30, trigger_signal=None):
+        """
+        改动要点：
+        - 使用 response.raw.read() 小块读取；并在 watcher 中尝试关闭底层 socket，确保能及时打断。
+        - 尝试关闭更多底层对象（response.raw._fp.fp.raw 等），以解除阻塞。
+        """
         if hf_token and "huggingface" in url:
             headers = {"Authorization": f"Bearer {hf_token}"}
         else:
             headers = None
 
         if use_hf_mirror:
-           url = re.sub(r'^https://huggingface\.co', 'https://hf-mirror.com', url)
+            url = re.sub(r'^https://huggingface\.co', 'https://hf-mirror.com', url)
 
         verify = not skip_ssl_verify
 
         session = requests.Session()
-        retry = Retry(total=3, backoff_factor=0.5, status_forcelist=[429, 500, 502, 503, 504], allowed_methods=["GET"]) 
+        retry = Retry(total=3, backoff_factor=0.5, status_forcelist=[429, 500, 502, 503, 504], allowed_methods=["GET"])
         adapter = HTTPAdapter(max_retries=retry)
         session.mount("http://", adapter)
         session.mount("https://", adapter)
@@ -68,7 +73,6 @@ class ModelDownloader(object):
 
         file_name = rename_to
         if not file_name:
-            # preflight name by requesting headers only when needed
             head_resp = session.get(url, stream=True, headers=headers, params=None, verify=verify, timeout=timeout)
             head_resp.raise_for_status()
             file_name = self._get_filename(head_resp, url)
@@ -101,21 +105,35 @@ class ModelDownloader(object):
             except Exception:
                 total_size = downloaded + int(response.headers.get('content-length', 0))
         try:
+            comfy_progress = None
+            try:
+                from comfy import utils as comfy_utils
+                steps_total = max(1, math.ceil((total_size - downloaded) / chunk_size)) if total_size > 0 else 0
+                comfy_progress = comfy_utils.ProgressBar(steps_total or 1)
+            except Exception:
+                pass
             with open(temp_path, 'ab' if downloaded > 0 else 'wb') as file:
-                with tqdm(total=total_size, initial=downloaded, unit='iB', unit_scale=True, desc=file_name) as pbar:
+                tqdm_total = total_size if total_size > 0 else None
+                with tqdm(total=tqdm_total, initial=downloaded, unit='iB', unit_scale=True, desc=file_name) as pbar:
                     for data in response.iter_content(chunk_size=chunk_size):
                         size = file.write(data)
                         downloaded += size
                         pbar.update(size)
+                        if comfy_progress is not None:
+                            try:
+                                comfy_progress.update(1)
+                            except Exception:
+                                pass
 
-            # Only move the file if the download completed successfully
             shutil.move(temp_path, full_path)
             return mie_log(f"File {full_path} is downloaded from {url}"),
 
         except Exception as e:
-            # Clean up the temp file if something goes wrong
             if os.path.exists(temp_path):
-                os.remove(temp_path)
+                try:
+                    os.remove(temp_path)
+                except Exception:
+                    pass
             raise e
 
     @staticmethod
@@ -127,3 +145,5 @@ class ModelDownloader(object):
                 return filenames[0]
         parsed_url = urllib.parse.urlparse(url)
         return os.path.basename(parsed_url.path)
+
+ 

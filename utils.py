@@ -1,6 +1,8 @@
 import math
 import hashlib
 import datetime
+import json
+from pathlib import Path
 from PIL import Image
 
 LOGO_SUFFIX = "|Mie"
@@ -66,3 +68,13 @@ def is_image_file(file_path):
             return img.format is not None  # Returns True if the image format is valid
     except (IOError, FileNotFoundError):
         return False
+
+
+def load_plugin_config(filename="mie_llm_keys.json"):
+    p = Path(__file__).parent / filename
+    if not p.exists():
+        return {}
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
