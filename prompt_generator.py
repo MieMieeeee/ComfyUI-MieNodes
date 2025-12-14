@@ -370,6 +370,57 @@ ZIMAGE_T2I_SYSTEM_PROMPT_TEMPLATE = """
 用户输入 prompt: {prompt}
 """
 
+FLUX2_T2I_SYSTEM_PROMPT = """
+你是一个“生图提示词结构化器（Flux/扩散模型专用）”。你的任务是：将用户的任意生图需求（可能是灵感短句、摄影brief、艺术描述）转换为单个可直接用于生成图像的 JSON 提示词对象。
+
+核心要求：
+1) 只生成“生图”提示词：绝不引用或依赖任何外部参考图/输入图。禁止出现 “image 1 / image2 / 图1 / 参考图 / apply style from … / replace … in image …” 等字样与指令。若用户输入包含这些内容，你必须将其改写为独立自洽的生图描述（用文字描述要素与风格），而不是引用图片。
+2) 输出必须是严格有效的 JSON（不要 Markdown，不要解释，不要多余文本）。只输出一个 JSON 对象。
+3) 使用如下固定字段结构（字段名固定；能填就填，缺失则给合理默认；不要增加新字段）：
+
+{
+  "scene": "",
+  "subjects": [],
+  "style": "",
+  "color_palette": [],
+  "lighting": "",
+  "mood": "",
+  "background": "",
+  "composition": "",
+  "camera": {
+    "angle": "",
+    "distance": "",
+    "focus": "",
+    "lens": "",
+    "camera_model": "",
+    "f-number": 0,
+    "ISO": 0,
+    "shutter_speed": ""
+  },
+  "effects": []
+}
+
+字段规范：
+- scene：一句完整场景概述，写清楚主体、场景性质、时间/环境。
+- subjects：列出主要主体名词（2~6项，简短）。
+- style：一句风格定义。
+- color_palette：优先使用HEX；若用户没给色板，给 4~8 个与描述一致的HEX。
+- lighting：写具体光源与质感（自然光/闪光灯/软箱/钨丝灯/霓虹，方向、软硬、对比）。
+- mood：2~8个词的气氛描述。
+- background：背景是什么，尽量具体且不抢主体。
+- composition：构图（机位、主体在画面位置、景别、留白、对称/三分法等）。
+- camera：尽量给出合理、互相一致的摄影参数；shutter_speed 用字符串如 "1/160"；f-number/ISO 为数值。镜头写例如 "50mm spherical" 或 "Sony FE 90mm f/2.8 Macro"。camera_model 给常见机型；若用户指定则照抄。
+- effects：列出后期/质感效果（grain/halation/vignette/motion blur/micro-contrast等）。
+
+生成规则：
+- 优先遵循用户给出的显式约束（对象、文字内容、年代、胶片、品牌色、参数）。
+- 保持物理/摄影合理性。
+- 文字内容（若用户要求画面含字）：必须在 scene 或 composition 中明确写出需要出现的文字，并保持原样。
+- 避免过度堆砌：每个字段信息密度高但不冗长；effects 3~8条即可。
+- 保持输出的所有内容都是英文。
+- 严禁输出除 JSON 以外的任何内容。
+"""
+
 class PromptGenerator(object):
     @classmethod
     def INPUT_TYPES(cls):
@@ -930,6 +981,44 @@ class ZImagePromptGenerator(object):
     def is_changed(self, llm_service_connector, prompt, seed):
         hasher = hashlib.md5()
         hasher.update(prompt.encode("utf-8"))
+        hasher.update(str(seed).encode("utf-8"))
+        try:
+            hasher.update(llm_service_connector.get_state().encode("utf-8"))
+        except AttributeError:
+            hasher.update(str(llm_service_connector.api_url).encode("utf-8"))
+            hasher.update(str(llm_service_connector.api_token).encode("utf-8"))
+            hasher.update(str(llm_service_connector.model).encode("utf-8"))
+        return hasher.hexdigest()
+
+class Flux2PromptGenerator(object):
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "llm_service_connector": ("LLMServiceConnector",),
+                "input_text": ("STRING", {"default": "", "multiline": True}),
+                "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff, "control_after_generate": True}),
+            },
+        }
+
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("flux2_prompt_json",)
+    FUNCTION = "generate_flux2_prompt"
+    CATEGORY = MY_CATEGORY
+
+    def generate_flux2_prompt(self, llm_service_connector, input_text, seed=None):
+        system_msg = FLUX2_T2I_SYSTEM_PROMPT
+        user_msg = input_text.strip()
+        messages = [
+            {"role": "system", "content": system_msg},
+            {"role": "user", "content": user_msg},
+        ]
+        out = llm_service_connector.invoke(messages, seed=seed, temperature=0.7, top_p=0.9)
+        return out.strip(),
+
+    def is_changed(self, llm_service_connector, input_text, seed):
+        hasher = hashlib.md5()
+        hasher.update(input_text.encode("utf-8"))
         hasher.update(str(seed).encode("utf-8"))
         try:
             hasher.update(llm_service_connector.get_state().encode("utf-8"))
