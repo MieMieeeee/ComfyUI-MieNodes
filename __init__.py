@@ -1,5 +1,5 @@
 from .common import ShowAnythingMie, SaveAnythingAsFile, CompareFiles, GetAbsolutePath, GetFileInfo, \
-    GetDirectoryFilesInfo, CopyFiles, DeleteFiles
+    GetDirectoryFilesInfo, CopyFiles, DeleteFiles, ClassicAspectRatio
 from .caption_file_operator import BatchRenameFiles, BatchDeleteFiles, BatchEditTextFiles, BatchSyncImageCaptionFiles, \
     SummaryTextFiles, BatchConvertImageFiles, DedupImageFiles
 from .downloader import ModelDownloader
@@ -58,6 +58,7 @@ NODE_CLASS_MAPPINGS = {
     add_suffix("WavConcat"): WavConcat,
     add_suffix("SingleImageToVideo"): SingleImageToVideo,
     add_suffix("AddNumberWatermarkForImage"): AddNumberWatermarkForImage,
+    add_suffix("ClassicAspectRatio"): ClassicAspectRatio,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -101,6 +102,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     add_suffix("WavConcat"): add_emoji("Wav Concat"),
     add_suffix("SingleImageToVideo"): add_emoji("Single Image To Video"),
     add_suffix("AddNumberWatermarkForImage"): add_emoji("Add Number Watermark For Image"),
+    add_suffix("ClassicAspectRatio"): add_emoji("Classic Aspect Ratio"),
 }
 
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS", "WEB_DIRECTORY"]
