@@ -2,7 +2,7 @@ from .common import ShowAnythingMie, SaveAnythingAsFile, CompareFiles, GetAbsolu
     GetDirectoryFilesInfo, CopyFiles, DeleteFiles, ClassicAspectRatio
 from .caption_file_operator import BatchRenameFiles, BatchDeleteFiles, BatchEditTextFiles, BatchSyncImageCaptionFiles, \
     SummaryTextFiles, BatchConvertImageFiles, DedupImageFiles
-from .downloader import ModelDownloader
+from .downloader import ModelDownloader, HFRepoDownloader
 from .translator import TextTranslator
 from .prompt_generator import PromptGenerator, KontextPromptGenerator, AddUserKontextPreset, RemoveUserKontextPreset, \
     FrameTransitionPromptGenerator, HunyuanVideoI2VPromptGenerator, HunyuanVideoT2VPromptGenerator, ZImagePromptGenerator, Flux2PromptGenerator, LTX2PromptGenerator
@@ -29,6 +29,7 @@ NODE_CLASS_MAPPINGS = {
     add_suffix("SaveAnythingAsFile"): SaveAnythingAsFile,
     add_suffix("CompareFiles"): CompareFiles,
     add_suffix("ModelDownloader"): ModelDownloader,
+    add_suffix("HFRepoDownloader"): HFRepoDownloader,
     add_suffix("SetGeneralLLMServiceConnector"): SetGeneralLLMServiceConnector,
     add_suffix("SetSiliconFlowLLMServiceConnector"): SetSiliconFlowLLMServiceConnector,
     add_suffix("SetGithubModelsLLMServiceConnector"): SetGithubModelsLLMServiceConnector,
@@ -84,6 +85,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     add_suffix("CheckLLMServiceConnectivity"): add_emoji("Check LLM Service Connectivity"),
     add_suffix("CallLLMService"): add_emoji("Call LLM Service"),
     add_suffix("ModelDownloader"): add_emoji("Model Downloader"),
+    add_suffix("HFRepoDownloader"): add_emoji("HF Repo Downloader"),
     add_suffix("Translator"): add_emoji("Translator"),
     add_suffix("PromptGenerator"): add_emoji("Prompt Generator"),
     add_suffix("KontextPromptGenerator"): add_emoji("Kontext Prompt Generator"),

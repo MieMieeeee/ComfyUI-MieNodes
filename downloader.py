@@ -150,4 +150,100 @@ class ModelDownloader(object):
         parsed_url = urllib.parse.urlparse(url)
         return os.path.basename(parsed_url.path)
 
+
+class HFRepoDownloader(object):
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "url_or_repo_id": ("STRING", {"default": "google/gemma-3-12b-it-qat-q4_0-unquantized"}),
+                "save_path": ("STRING", {"default": "checkpoints/gemma-3-12b"}),
+                "use_hf_mirror": ("BOOLEAN", {"default": True}),
+            },
+            "optional": {
+                "hf_token": ("STRING", {"default": "", "multiline": False, "password": True}),
+                "revision": ("STRING", {"default": "main"}),
+                "allow_patterns": ("STRING", {"default": "", "multiline": False}),
+                "exclude_patterns": ("STRING", {"default": "", "multiline": False}),
+                "trigger_signal": (("*", {})),
+            },
+        }
+
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("log",)
+    FUNCTION = "download_repo"
+
+    CATEGORY = MY_CATEGORY
+
+    @classmethod
+    def VALIDATE_INPUTS(s, input_types):
+        return True
+
+    def download_repo(self, url_or_repo_id, save_path, use_hf_mirror, hf_token, revision, allow_patterns, exclude_patterns, trigger_signal=None):
+        try:
+            from huggingface_hub import snapshot_download
+        except ImportError:
+            return mie_log("Error: huggingface_hub is not installed. Please install it using 'pip install huggingface_hub'."),
+
+        # Extract repo_id if it's a URL
+        repo_id = url_or_repo_id.strip()
+        if repo_id.startswith("http"):
+            # Try to extract repo_id from URL like https://huggingface.co/google/gemma-3-12b-it-qat-q4_0-unquantized
+            # or https://huggingface.co/google/gemma-3-12b-it-qat-q4_0-unquantized/tree/main
+            match = re.search(r"huggingface\.co/([^/]+/[^/]+)", repo_id)
+            if match:
+                repo_id = match.group(1)
+            else:
+                return mie_log(f"Error: Could not extract repo_id from URL: {url_or_repo_id}"),
+
+        # Setup save directory
+        target_directory = os.path.join(folder_paths.models_dir, save_path)
+        if not os.path.exists(target_directory):
+            os.makedirs(target_directory, exist_ok=True)
+
+        # Setup environment variables for mirror
+        env_vars = os.environ.copy()
+        if use_hf_mirror:
+            env_vars["HF_ENDPOINT"] = "https://hf-mirror.com"
+        
+        # Prepare parameters
+        kwargs = {
+            "repo_id": repo_id,
+            "local_dir": target_directory,
+            "revision": revision if revision else None,
+            "token": hf_token if hf_token else None,
+            "local_dir_use_symlinks": False,  # Always download actual files
+        }
+
+        if allow_patterns:
+            kwargs["allow_patterns"] = [p.strip() for p in allow_patterns.split(",") if p.strip()]
+        if exclude_patterns:
+            kwargs["ignore_patterns"] = [p.strip() for p in exclude_patterns.split(",") if p.strip()]
+
+        try:
+            # Temporarily set environment variable if needed
+            original_hf_endpoint = os.environ.get("HF_ENDPOINT")
+            if use_hf_mirror:
+                os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
+
+            downloaded_path = snapshot_download(**kwargs)
+            
+            # Restore environment variable
+            if use_hf_mirror:
+                if original_hf_endpoint:
+                    os.environ["HF_ENDPOINT"] = original_hf_endpoint
+                else:
+                    del os.environ["HF_ENDPOINT"]
+
+            return mie_log(f"Successfully downloaded repository {repo_id} to {downloaded_path}"),
+        
+        except Exception as e:
+            # Restore environment variable in case of error
+            if use_hf_mirror:
+                if original_hf_endpoint:
+                    os.environ["HF_ENDPOINT"] = original_hf_endpoint
+                else:
+                    del os.environ["HF_ENDPOINT"]
+            return mie_log(f"Error downloading repository {repo_id}: {str(e)}"),
+
  
