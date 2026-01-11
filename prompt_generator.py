@@ -7,6 +7,7 @@ script_directory = os.path.dirname(os.path.abspath(__file__))
 
 MY_CATEGORY = "🐑 MieNodes/🐑 Prompt Generator"
 
+from .utils import image_tensor_to_data_url
 
 def get_user_presets_file():
     base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -419,6 +420,36 @@ FLUX2_T2I_SYSTEM_PROMPT = """
 - 避免过度堆砌：每个字段信息密度高但不冗长；effects 3~8条即可。
 - 保持输出的所有内容都是英文。
 - 严禁输出除 JSON 以外的任何内容。
+"""
+
+LTX2_SYSTEM_PROMPT = """You are an expert prompt engineer for the LTX-2 video generation model. Your goal is to convert user requests into production-ready prompts that maximize the model's capabilities.
+
+## **Core Principles**
+1.  **Format**: Write a **single flowing paragraph** (4-8 sentences).
+2.  **Tense**: Use **present tense** for all actions and movements.
+3.  **Tone**: Objective, cinematic, and descriptive. Avoid abstract emotion labels (e.g., "sad"); describe physical cues instead (e.g., "tears welling up").
+
+## **Key Elements to Include**
+Your prompt must cover the following elements in a natural flow:
+1.  **Establish the Shot**: Use cinematography terms (Wide, Medium, Close-up, etc.).
+2.  **Set the Scene**: Describe lighting (e.g., "neon glow", "natural sunlight"), colors, textures ("rough stone", "worn fabric"), and atmosphere ("fog", "dust").
+3.  **Describe the Action**: A clear sequence of events.
+4.  **Define Characters**: Age, hairstyle, clothing, and distinguishing features.
+5.  **Camera Movement**: Specify how the camera moves relative to the subject (e.g., "The camera tracks...", "Slow dolly in...", "Handheld movement").
+6.  **Audio**: Describe ambient sound, music, or speech. **Place spoken dialogue in quotation marks.**
+
+## **What to Avoid**
+*   **Internal States**: Don't say "he feels confused". Show it: "he furrows his brow and looks around frantically".
+*   **Text/Logos**: Avoid relying on legible text generation unless necessary (it's unreliable).
+*   **Complex Physics**: Avoid chaotic motion that might confuse the model.
+*   **Overloaded Scenes**: Keep it focused on a single subject or clear interaction.
+
+## **Example Output Structure**
+"EXT. SMALL TOWN STREET – MORNING. The shot opens on a news reporter standing in front of a row of cordoned-off cars... The light is warm, early sun reflecting off the camera lens... The reporter looks directly into the camera... 'Thank you, Sylvia...' The camera pans over to reveal..."
+
+## **Your Task**
+Analyze the user's input. If it's simple, expand it creatively using the principles above. If it's already detailed, refine it to match the LTX-2 format.
+**Output ONLY the final prompt paragraph. Do not include explanations or markdown.**
 """
 
 class PromptGenerator(object):
@@ -990,6 +1021,55 @@ class ZImagePromptGenerator(object):
             hasher.update(str(llm_service_connector.model).encode("utf-8"))
         return hasher.hexdigest()
 
+class ZImagePromptGeneratorWithImageInput(object):
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "llm_service_connector": ("LLMServiceConnector",),
+                "image": ("IMAGE",),
+                "prompt": ("STRING", {"default": "", "multiline": True}),
+                "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff, "control_after_generate": True}),
+            },
+            "optional": {
+                "image_detail": (["auto", "low", "high"], {"default": "auto"}),
+            },
+        }
+
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("zimage_prompt",)
+    FUNCTION = "generate_zimage_prompt_with_image"
+    CATEGORY = MY_CATEGORY
+
+    def generate_zimage_prompt_with_image(self, llm_service_connector, image, prompt, seed=None, image_detail="auto"):
+        system_msg = ZIMAGE_T2I_SYSTEM_PROMPT_TEMPLATE.replace("{prompt}", (prompt or "").strip()) + "\n参考图像是主要信息源。若提供了文本指令，仅作为辅助约束，最终输出以图片内容为主。"
+        url = image_tensor_to_data_url(image)
+        parts = []
+        if url:
+            parts.append({"type": "image_url", "image_url": {"url": url, "detail": image_detail}})
+        if isinstance(prompt, str) and prompt.strip():
+            parts.append({"type": "text", "text": prompt.strip()})
+        messages = [
+            {"role": "system", "content": system_msg},
+            {"role": "user", "content": parts if parts else [{"type": "text", "text": ""}]},
+        ]
+        out = llm_service_connector.invoke(messages, seed=seed, temperature=0.8, top_p=0.9)
+        return out.strip(),
+
+    def is_changed(self, llm_service_connector, image, prompt, seed, image_detail="auto"):
+        hasher = hashlib.md5()
+        hasher.update((prompt or "").encode("utf-8"))
+        hasher.update(str(seed).encode("utf-8"))
+        try:
+            hasher.update(llm_service_connector.get_state().encode("utf-8"))
+        except AttributeError:
+            hasher.update(str(llm_service_connector.api_url).encode("utf-8"))
+            hasher.update(str(llm_service_connector.api_token).encode("utf-8"))
+            hasher.update(str(llm_service_connector.model).encode("utf-8"))
+        url = image_tensor_to_data_url(image) or ""
+        hasher.update(url[:64].encode("utf-8"))
+        return hasher.hexdigest()
+
 class Flux2PromptGenerator(object):
     @classmethod
     def INPUT_TYPES(cls):
@@ -1014,6 +1094,44 @@ class Flux2PromptGenerator(object):
             {"role": "user", "content": user_msg},
         ]
         out = llm_service_connector.invoke(messages, seed=seed, temperature=0.7, top_p=0.9)
+        return out.strip(),
+
+    def is_changed(self, llm_service_connector, input_text, seed):
+        hasher = hashlib.md5()
+        hasher.update(input_text.encode("utf-8"))
+        hasher.update(str(seed).encode("utf-8"))
+        try:
+            hasher.update(llm_service_connector.get_state().encode("utf-8"))
+        except AttributeError:
+            hasher.update(str(llm_service_connector.api_url).encode("utf-8"))
+            hasher.update(str(llm_service_connector.api_token).encode("utf-8"))
+            hasher.update(str(llm_service_connector.model).encode("utf-8"))
+        return hasher.hexdigest()
+
+class LTX2PromptGenerator(object):
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "llm_service_connector": ("LLMServiceConnector",),
+                "input_text": ("STRING", {"default": "", "multiline": True}),
+                "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff, "control_after_generate": True}),
+            },
+        }
+
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("ltx2_prompt",)
+    FUNCTION = "generate_ltx2_prompt"
+    CATEGORY = MY_CATEGORY
+
+    def generate_ltx2_prompt(self, llm_service_connector, input_text, seed=None):
+        system_msg = LTX2_SYSTEM_PROMPT
+        user_msg = input_text.strip() or "Generate a random cinematic video prompt."
+        messages = [
+            {"role": "system", "content": system_msg},
+            {"role": "user", "content": user_msg},
+        ]
+        out = llm_service_connector.invoke(messages, seed=seed, temperature=0.8, top_p=0.9)
         return out.strip(),
 
     def is_changed(self, llm_service_connector, input_text, seed):

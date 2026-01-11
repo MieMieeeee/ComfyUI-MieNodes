@@ -4,6 +4,10 @@ import datetime
 import json
 from pathlib import Path
 from PIL import Image
+import base64
+import numpy as np
+import cv2
+import torch
 
 LOGO_SUFFIX = "|Mie"
 LOGO_EMOJI = "🐑"
@@ -78,3 +82,19 @@ def load_plugin_config(filename="mie_llm_keys.json"):
         return json.loads(p.read_text(encoding="utf-8"))
     except Exception:
         return {}
+
+
+def image_tensor_to_data_url(image, fmt=".jpg"):
+    if image is None:
+        return None
+    t = image[0] if hasattr(image, "ndim") and image.ndim == 4 else image
+    if hasattr(t, "detach"):
+        img_np = t.detach().cpu().numpy()
+    else:
+        img_np = np.array(t)
+    img_np = (np.clip(img_np, 0.0, 1.0) * 255.0).astype(np.uint8)
+    img_bgr = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
+    ok, buf = cv2.imencode(fmt, img_bgr)
+    if not ok:
+        return None
+    return "data:image/jpeg;base64," + base64.b64encode(buf.tobytes()).decode("utf-8")
