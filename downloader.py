@@ -125,6 +125,10 @@ class ModelDownloader(object):
                             except Exception:
                                 pass
 
+            # Verify downloaded size
+            if total_size > 0 and downloaded != total_size:
+                raise requests.exceptions.ConnectionError(f"Incomplete download: expected {total_size} bytes, got {downloaded} bytes")
+
             shutil.move(temp_path, full_path)
             return mie_log(f"File {full_path} is downloaded from {url}"),
 
