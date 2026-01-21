@@ -20,9 +20,10 @@ class QwenTTSNode:
                 "text": ("STRING", {"multiline": True, "default": "你好，我是通义千问语音合成助手。"}),
                 "voice": (
                     [
-                        "Cherry", "Baby", "Ankai", "Chitong", "Pacha", 
-                        "Siyue", "Xiaoyun", "Xiaogang", "Huihui", "Luna", 
-                        "Luca", "Wendy", "William"
+                        "Cherry", "Ethan", "Chelsie", "Serena", "Dylan", "Jada", "Sunny",
+                        "Momo", "Ono Anna", "Vivian", "Eldric Sage", "Bunny", "Elias",
+                        "Nofish", "Jennifer", "Ryan", "Katerina", "Li", "Marcus", 
+                        "Roy", "Peter", "Rocky", "Kiki", "Eric"
                     ],
                     {"default": "Cherry"}
                 ),
