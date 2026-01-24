@@ -1,13 +1,26 @@
 try:
-    from .utils import load_plugin_config
+    from .utils import load_plugin_config, resolve_token
 except ImportError:
-    from utils import load_plugin_config
+    from utils import load_plugin_config, resolve_token
 
 MY_CATEGORY = "🐑 MieNodes/🐑 TTS Service Config"
 
 class TTSConnector:
-    def __init__(self, api_token):
-        self.api_token = api_token
+    def __init__(self, manual_token, config_file="mie_llm_keys.json", config_key="bailian", prefer_local_config=True):
+        self.manual_token = manual_token
+        self.config_file = config_file
+        self.config_key = config_key
+        self.prefer_local_config = prefer_local_config
+
+    @property
+    def api_token(self):
+        return resolve_token(
+            self.manual_token, 
+            default_key="bailian", 
+            config_file=self.config_file, 
+            config_key=self.config_key, 
+            prefer_local=self.prefer_local_config
+        )
 
 class SetBailianTTSConnector(object):
     @classmethod
@@ -29,14 +42,5 @@ class SetBailianTTSConnector(object):
     CATEGORY = MY_CATEGORY
 
     def execute(self, api_token, config_file="mie_llm_keys.json", config_key="bailian", prefer_local_config=True):
-        token = _resolve_token(api_token, default_key="bailian", config_file=config_file, config_key=config_key, prefer_local=prefer_local_config)
-        return (TTSConnector(token),)
-
-def _resolve_token(api_token, default_key=None, config_file="mie_llm_keys.json", config_key=None, prefer_local=True):
-    cfg = load_plugin_config(config_file or "mie_llm_keys.json")
-    k = config_key or default_key
-    cfg_token = (cfg.get(k) or "")
-    api_token = (api_token or "")
-    if prefer_local:
-        return (cfg_token or api_token)
-    return (api_token or cfg_token)
+        # Pass all parameters to the connector so it can resolve the token dynamically
+        return (TTSConnector(api_token, config_file, config_key, prefer_local_config),)

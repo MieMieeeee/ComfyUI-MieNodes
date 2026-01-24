@@ -122,13 +122,19 @@ class QwenTTSNode:
                 
                 # 4. Load Audio
                 try:
-                    # Try loading with explicit backend if possible, or default
-                    try:
-                        waveform, sample_rate = torchaudio.load(temp_path, backend="soundfile")
-                    except:
-                        waveform, sample_rate = torchaudio.load(temp_path)
+                    import soundfile as sf
+                    data, samplerate = sf.read(temp_path)
+                    # data shape: [frames, channels] or [frames]
+                    waveform = torch.from_numpy(data).float()
+                    if waveform.ndim == 1:
+                        waveform = waveform.unsqueeze(0)  # [1, N] -> [1, N] (mono treated as channel first later)
+                    else:
+                        waveform = waveform.t()  # [N, C] -> [C, N]
+                    sample_rate = samplerate
+                except ImportError:
+                     raise RuntimeError("soundfile is required but not installed. Please install it via 'pip install soundfile'.")
                 except Exception as e:
-                    raise RuntimeError(f"Failed to load audio from {temp_path}: {e}. Ensure torchaudio and ffmpeg are installed.")
+                    raise RuntimeError(f"Failed to load audio from {temp_path}: {e}")
                 finally:
                     # Clean up temp file
                     try:

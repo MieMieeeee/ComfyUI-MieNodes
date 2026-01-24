@@ -84,6 +84,16 @@ def load_plugin_config(filename="mie_llm_keys.json"):
         return {}
 
 
+def resolve_token(api_token, default_key=None, config_file="mie_llm_keys.json", config_key=None, prefer_local=True):
+    cfg = load_plugin_config(config_file or "mie_llm_keys.json")
+    k = config_key or default_key
+    cfg_token = (cfg.get(k) or "")
+    api_token = (api_token or "")
+    if prefer_local:
+        return (cfg_token or api_token)
+    return (api_token or cfg_token)
+
+
 def image_tensor_to_data_url(image, fmt=".jpg"):
     if image is None:
         return None

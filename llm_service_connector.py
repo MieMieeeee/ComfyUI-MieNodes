@@ -5,20 +5,34 @@ import numpy as np
 import cv2
 import torch
 
-from .utils import mie_log, load_plugin_config
+from .utils import mie_log, load_plugin_config, resolve_token
 
 MY_CATEGORY = "🐑 MieNodes/🐑 LLM Service Config"
 
 
 # 引入 time 模块用于在重试间增加延迟
 class GeneralLLMServiceConnector:
-    def __init__(self, api_url, api_token, model, timeout=30, max_retries=3, retry_delay=5):
+    def __init__(self, api_url, manual_token, model, timeout=30, max_retries=3, retry_delay=5, 
+                 config_file="mie_llm_keys.json", config_key=None, prefer_local_config=True):
         self.api_url = api_url
-        self.api_token = api_token
+        self.manual_token = manual_token
         self.model = model
         self.timeout = timeout
-        self.max_retries = max_retries  # 最大重试次数
-        self.retry_delay = retry_delay  # 重试间隔（秒）
+        self.max_retries = max_retries
+        self.retry_delay = retry_delay
+        self.config_file = config_file
+        self.config_key = config_key
+        self.prefer_local_config = prefer_local_config
+
+    @property
+    def api_token(self):
+        return resolve_token(
+            self.manual_token, 
+            default_key=self.config_key, 
+            config_file=self.config_file, 
+            config_key=self.config_key, 
+            prefer_local=self.prefer_local_config
+        )
 
     def generate_payload(self, messages, **kwargs):
         """
@@ -126,37 +140,37 @@ class StandardOpenAICompatibleConnector(GeneralLLMServiceConnector):
 class SiliconFlowConnectorGeneral(StandardOpenAICompatibleConnector):
     api_url = "https://api.siliconflow.cn/v1/chat/completions"
 
-    def __init__(self, api_token, model):
-        super().__init__(self.api_url, api_token, model)
+    def __init__(self, api_token, model, **kwargs):
+        super().__init__(self.api_url, api_token, model, **kwargs)
 
 
 class ZhiPuConnectorGeneral(StandardOpenAICompatibleConnector):
     api_url = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
 
-    def __init__(self, api_token, model):
-        super().__init__(self.api_url, api_token, model)
+    def __init__(self, api_token, model, **kwargs):
+        super().__init__(self.api_url, api_token, model, **kwargs)
 
 
 class KimiConnectorGeneral(StandardOpenAICompatibleConnector):
     api_url = "https://api.moonshot.cn/v1/chat/completions"
 
-    def __init__(self, api_token, model):
-        super().__init__(self.api_url, api_token, model)
+    def __init__(self, api_token, model, **kwargs):
+        super().__init__(self.api_url, api_token, model, **kwargs)
 
 
 class GithubModelsConnectorGeneral(GeneralLLMServiceConnector):
     api_url = "https://models.github.ai/inference/chat/completions"
 
-    def __init__(self, api_token, model):
+    def __init__(self, api_token, model, **kwargs):
         # 继承 GeneralLLMServiceConnector 的默认 Payload
-        super().__init__(self.api_url, api_token, model)
+        super().__init__(self.api_url, api_token, model, **kwargs)
 
 
 class BailianLLMServiceConnector(GeneralLLMServiceConnector):
     api_url = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
 
-    def __init__(self, api_token, model):
-        super().__init__(self.api_url, api_token, model)
+    def __init__(self, api_token, model, **kwargs):
+        super().__init__(self.api_url, api_token, model, **kwargs)
 
     def generate_payload(self, messages, **kwargs):
         # 阿里百炼（通义千问）的 Payload 可能有所不同，这里保留其特殊性
@@ -171,19 +185,19 @@ class BailianLLMServiceConnector(GeneralLLMServiceConnector):
 class DeepSeekConnectorGeneral(GeneralLLMServiceConnector):
     api_url = "https://api.deepseek.com/chat/completions"
 
-    def __init__(self, api_token, model):
-        super().__init__(self.api_url, api_token, model)
+    def __init__(self, api_token, model, **kwargs):
+        super().__init__(self.api_url, api_token, model, **kwargs)
 
 
 class GeminiConnectorGeneral(GeneralLLMServiceConnector):
     base_url = "https://generativelanguage.googleapis.com/v1beta/models"
 
-    def __init__(self, api_token, model):
+    def __init__(self, api_token, model, **kwargs):
         self.model = model
-        self.api_token = api_token  # 需要保留，因为 Token 是通过 URL 参数传递的
+        # self.api_token = api_token  # Removed, using base class dynamic property
         api_url = f"{self.base_url}/{model}:generateContent"
         # 继承基类的 timeout, max_retries, retry_delay
-        super().__init__(api_url, api_token, model)
+        super().__init__(api_url, api_token, model, **kwargs)
 
     def generate_payload(self, messages, **kwargs):
         contents = []
@@ -300,8 +314,7 @@ class SetGeneralLLMServiceConnector(object):
     CATEGORY = MY_CATEGORY
 
     def execute(self, api_url, api_token, model_select, config_file="mie_llm_keys.json", config_key="openai_compatible", prefer_local_config=True):
-        token = _resolve_token(api_token, default_key="openai_compatible", config_file=config_file, config_key=config_key, prefer_local=prefer_local_config)
-        return GeneralLLMServiceConnector(api_url, token, model_select),
+        return (GeneralLLMServiceConnector(api_url, api_token, model_select, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
 
 
 class SetGithubModelsLLMServiceConnector(object):
@@ -342,8 +355,7 @@ class SetGithubModelsLLMServiceConnector(object):
         model = model_select if model_select != "Custom" else custom_model
         if not model:
             model = "openai/gpt-4.1"  # 默认模型
-        token = _resolve_token(api_token, default_key="github_models", config_file=config_file, config_key=config_key, prefer_local=prefer_local_config)
-        return GithubModelsConnectorGeneral(token, model),
+        return (GithubModelsConnectorGeneral(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
 
 
 class SetSiliconFlowLLMServiceConnector(object):
@@ -392,8 +404,7 @@ class SetSiliconFlowLLMServiceConnector(object):
         model = model_select if model_select != "Custom" else custom_model
         if not model:
             model = "THUDM/GLM-4-32B-0414"  # 默认模型
-        token = _resolve_token(api_token, default_key="siliconflow", config_file=config_file, config_key=config_key, prefer_local=prefer_local_config)
-        return SiliconFlowConnectorGeneral(token, model),
+        return (SiliconFlowConnectorGeneral(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
 
 
 class SetZhiPuLLMServiceConnector(object):
@@ -434,8 +445,7 @@ class SetZhiPuLLMServiceConnector(object):
         model = model_select if model_select != "Custom" else custom_model
         if not model:
             model = "GLM-4-Flash-250414"  # 默认模型
-        token = _resolve_token(api_token, default_key="zhipu", config_file=config_file, config_key=config_key, prefer_local=prefer_local_config)
-        return ZhiPuConnectorGeneral(token, model),
+        return (ZhiPuConnectorGeneral(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
 
 
 class SetKimiLLMServiceConnector(object):
@@ -485,8 +495,7 @@ class SetKimiLLMServiceConnector(object):
         model = model_select if model_select != "Custom" else custom_model
         if not model:
             model = "kimi-k2-0711-preview"  # 默认模型
-        token = _resolve_token(api_token, default_key="kimi", config_file=config_file, config_key=config_key, prefer_local=prefer_local_config)
-        return KimiConnectorGeneral(token, model),
+        return (KimiConnectorGeneral(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
 
 
 class SetDeepSeekLLMServiceConnector(object):
@@ -528,8 +537,7 @@ class SetDeepSeekLLMServiceConnector(object):
         model = model_select if model_select != "Custom" else custom_model
         if not model:
             model = "deepseek-chat"  # 默认模型
-        token = _resolve_token(api_token, default_key="deepseek", config_file=config_file, config_key=config_key, prefer_local=prefer_local_config)
-        return DeepSeekConnectorGeneral(token, model),
+        return (DeepSeekConnectorGeneral(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
 
 
 class SetGeminiLLMServiceConnector(object):
@@ -572,8 +580,7 @@ class SetGeminiLLMServiceConnector(object):
         model = model_select if model_select != "Custom" else custom_model
         if not model:
             model = "gemini-2.5-pro"
-        token = _resolve_token(api_token, default_key="gemini", config_file=config_file, config_key=config_key, prefer_local=prefer_local_config)
-        return GeminiConnectorGeneral(token, model),
+        return (GeminiConnectorGeneral(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
 
 
 class SetBailianLLMServiceConnector(object):
@@ -617,8 +624,7 @@ class SetBailianLLMServiceConnector(object):
         model = model_select if model_select != "Custom" else custom_model
         if not model:
             model = "qwen-flash"
-        token = _resolve_token(api_token, default_key="bailian", config_file=config_file, config_key=config_key, prefer_local=prefer_local_config)
-        return BailianLLMServiceConnector(token, model),
+        return (BailianLLMServiceConnector(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
 
 
 class CheckLLMServiceConnectivity(object):
@@ -703,11 +709,3 @@ class CallLLMService(object):
         result = llm_service_connector.invoke(messages, seed=seed, temperature=temperature, top_p=top_p,
                                               max_tokens=max_tokens)
         return (result.strip(),)
-def _resolve_token(api_token, default_key=None, config_file="mie_llm_keys.json", config_key=None, prefer_local=True):
-    cfg = load_plugin_config(config_file or "mie_llm_keys.json")
-    k = config_key or default_key
-    cfg_token = (cfg.get(k) or "")
-    api_token = (api_token or "")
-    if prefer_local:
-        return (cfg_token or api_token)
-    return (api_token or cfg_token)

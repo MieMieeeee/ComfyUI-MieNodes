@@ -7,3 +7,4 @@ tdqm
 huggingface_hub
 pyyaml
 opencv-python
+soundfile
