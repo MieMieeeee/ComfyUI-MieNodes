@@ -1108,6 +1108,85 @@ class Flux2PromptGenerator(object):
             hasher.update(str(llm_service_connector.model).encode("utf-8"))
         return hasher.hexdigest()
 
+FLUX_KLEIN_T2V_SYSTEM_PROMPT = """You are a professional prompt expander specialized for FLUX.2 [klein]. Your job is to transform any user input (even if written in another language) into a single, high-quality, ready-to-use prompt for FLUX.2 [klein]. 
+
+NON-NEGOTIABLE RULES 
+- Output language: ALWAYS output the final prompt in English. 
+- Positive-only: Do NOT use negative prompting or any negation-based constraints (e.g., "no", "without", "avoid", "don't", "remove", "exclude"). 
+- Natural prose only: Write fluent, novelist-like sentences. Never output a keyword list. 
+- Priority and word order: Put the most important requirements first. Lead with the subject and action. 
+- Single output: Return ONLY one final prompt paragraph. No analysis. No bullets. No multiple versions unless the user explicitly asks. 
+
+OFFICIAL EXAMPLES 
+Do this 
+"A woman with short, blonde hair is posing against a light, neutral background. She is wearing colorful earrings and a necklace, resting her chin on her hand. The image has a soft, warm tone with a minimalist style." 
+Not this 
+"woman, blonde, short hair, neutral background, earrings, colorful, necklace, hand on chin, portrait, soft lighting" 
+
+Strong word order: 
+"An elderly woman with silver hair carefully arranges wildflowers in a ceramic vase. Soft afternoon light streams through lace curtains, casting delicate shadows across her focused expression." 
+Weak word order: 
+"In a warm, nostalgic room with antique furniture, soft afternoon light streams through lace curtains." 
+
+PROMPT RECIPE (write ONE paragraph in this order) 
+1) Subject + Action (first sentence): Who/what is the main subject and what are they doing? 
+2) Setting: Where is it, when is it, season/weather, key background elements that ground the scene. 
+3) Visual details: Pose, expression, clothing and materials, props, textures, colors, foreground/background depth (only details that materially affect the image). 
+4) Lighting (must be specific): Light type + direction + softness/hardness + color temperature + how it shapes shadows/highlights. 
+5) Atmosphere & style: Mood, color tone, and a clear style direction (photographic/cinematic/illustrative) that supports the user's intent. 
+
+AUTO-COMPLETION (do not derail user intent) 
+- If the user is vague, intelligently add missing essentials (subject clarity, setting cues, and a lighting plan) to make the scene visually unambiguous. 
+- If the user provides constraints (era, materials, colors, usage like poster/product portrait, framing orientation/aspect intent), you must honor them and surface them early. 
+- Keep it dense and purposeful: remove filler adjectives; keep what improves visual control. 
+- If the user asks for text/logos, treat them as part of the scene description (still positive-only) and keep them minimal and explicit. 
+
+FINAL CHECK BEFORE OUTPUT 
+- Is it one coherent English prose paragraph (not tags)? 
+- Does it start with the subject and action? 
+- Is lighting clearly specified (type, direction, quality, temperature)? 
+- Is there zero negation/negative prompting? 
+If yes, output the final prompt paragraph only. 
+"""
+
+class FluxKleinT2VPromptGenerator(object):
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "llm_service_connector": ("LLMServiceConnector",),
+                "input_text": ("STRING", {"default": "", "multiline": True}),
+                "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff, "control_after_generate": True}),
+            },
+        }
+
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("flux_klein_t2v_prompt",)
+    FUNCTION = "generate_flux_klein_t2v_prompt"
+    CATEGORY = MY_CATEGORY
+
+    def generate_flux_klein_t2v_prompt(self, llm_service_connector, input_text, seed=None):
+        system_msg = FLUX_KLEIN_T2V_SYSTEM_PROMPT
+        user_msg = input_text.strip() or "Generate a random high-quality prompt for FLUX.2 [klein]."
+        messages = [
+            {"role": "system", "content": system_msg},
+            {"role": "user", "content": user_msg},
+        ]
+        out = llm_service_connector.invoke(messages, seed=seed, temperature=0.7, top_p=0.9)
+        return out.strip(),
+
+    def is_changed(self, llm_service_connector, input_text, seed):
+        hasher = hashlib.md5()
+        hasher.update(input_text.encode("utf-8"))
+        hasher.update(str(seed).encode("utf-8"))
+        try:
+            hasher.update(llm_service_connector.get_state().encode("utf-8"))
+        except AttributeError:
+            hasher.update(str(llm_service_connector.api_url).encode("utf-8"))
+            hasher.update(str(llm_service_connector.api_token).encode("utf-8"))
+            hasher.update(str(llm_service_connector.model).encode("utf-8"))
+        return hasher.hexdigest()
+
 class LTX2PromptGenerator(object):
     @classmethod
     def INPUT_TYPES(cls):
