@@ -9,7 +9,7 @@
 ## Workflows
 
 Currently, the following services are supported:
-  - [ZhiPu 智谱](https://www.bigmodel.cn/invite?icode=saVhjJ197Yj7qCQ24NRSpGczbXFgPRGIalpycrEwJ28%3D)
+  - [ZhiPu 智谱](https://www.bigmodel.cn/glm-coding?ic=QCHZLYWEXV)
   - [SiliconFlow 硅基流动](https://cloud.siliconflow.cn/i/PYyJkS9S)
   - [GitHub Models](https://github.com/marketplace?type=models)
   - [Kimi](https://platform.moonshot.cn)
