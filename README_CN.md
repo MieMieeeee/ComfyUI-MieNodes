@@ -9,7 +9,7 @@
 ## 工作流
 
 当前支持以下服务：
-  - [智谱 ZhiPu](https://www.bigmodel.cn/invite?icode=saVhjJ197Yj7qCQ24NRSpGczbXFgPRGIalpycrEwJ28%3D)
+  - [智谱 ZhiPu](https://www.bigmodel.cn/glm-coding?ic=QCHZLYWEXV)
   - [硅基流动 SiliconFlow](https://cloud.siliconflow.cn/i/PYyJkS9S)
   - [GitHub Models](https://github.com/marketplace?type=models)
   - [Kimi](https://platform.moonshot.cn)
