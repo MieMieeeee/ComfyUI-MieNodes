@@ -115,7 +115,7 @@ class SingleImageToVideo:
         # comfy counter workaround
         max_counter = 0
         if os.path.exists(full_output_folder):
-            matcher = re.compile(f"{re.escape(filename)}_(\d+)\D*\.mp4", re.IGNORECASE)
+            matcher = re.compile(rf"{re.escape(filename)}_(\d+)\D*\.mp4", re.IGNORECASE)
             for f in os.listdir(full_output_folder):
                 match = matcher.match(f)
                 if match:
