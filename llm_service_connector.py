@@ -46,6 +46,44 @@ class GeneralLLMServiceConnector:
             "response_format": {"type": "text"},
         }
 
+    def _extract_message_text(self, response_data):
+        """
+        Normalize response message content from OpenAI-compatible APIs.
+        Supports string content and content-parts arrays used by some multimodal models.
+        """
+        choices = response_data.get("choices") or []
+        if not choices:
+            raise ValueError("Unexpected response format: missing 'choices'.")
+
+        message = choices[0].get("message") or {}
+        content = message.get("content")
+
+        if isinstance(content, str):
+            return content
+
+        if isinstance(content, list):
+            text_parts = []
+            for part in content:
+                if isinstance(part, dict):
+                    if part.get("type") == "text" and "text" in part:
+                        text_parts.append(str(part["text"]))
+                    elif "content" in part:
+                        text_parts.append(str(part["content"]))
+                elif isinstance(part, str):
+                    text_parts.append(part)
+            merged = "\n".join([p for p in text_parts if p]).strip()
+            if merged:
+                return merged
+
+        if isinstance(content, dict):
+            if "text" in content:
+                return str(content["text"])
+
+        if "reasoning_content" in message and message["reasoning_content"]:
+            return str(message["reasoning_content"])
+
+        raise ValueError("Unexpected response format: missing text content in message.")
+
     def invoke(self, messages, **kwargs):
         """
         调用 LLM 服务，并实现针对瞬时错误的重试机制。
@@ -68,11 +106,7 @@ class GeneralLLMServiceConnector:
                 # 请求成功（状态码 200）
                 if response.status_code == 200:
                     response_data = response.json()
-                    try:
-                        return response_data["choices"][0]["message"]["content"]
-                    except KeyError:
-                        raise ValueError(
-                            f"Unexpected response format: missing 'content'. Response: {response.text[:200]}...")
+                    return self._extract_message_text(response_data)
 
                 # 服务器错误（5xx）: 瞬时错误，尝试重试
                 elif 500 <= response.status_code < 600:
@@ -122,7 +156,7 @@ class StandardOpenAICompatibleConnector(GeneralLLMServiceConnector):
 
     def generate_payload(self, messages, **kwargs):
         # 封装 OpenAI 兼容服务的通用参数
-        return {
+        payload = {
             "model": self.model,
             "messages": messages,
             "stream": False,
@@ -135,13 +169,34 @@ class StandardOpenAICompatibleConnector(GeneralLLMServiceConnector):
             "response_format": {"type": "text"},
         }
 
+        # SiliconFlow/Qwen reasoning-related optional parameters.
+        optional_fields = ("enable_thinking", "thinking_budget", "min_p")
+        for field in optional_fields:
+            if field in kwargs and kwargs[field] is not None:
+                payload[field] = kwargs[field]
+
+        return payload
+
 
 # 适配SiliconFlow
 class SiliconFlowConnectorGeneral(StandardOpenAICompatibleConnector):
     api_url = "https://api.siliconflow.cn/v1/chat/completions"
 
-    def __init__(self, api_token, model, **kwargs):
+    def __init__(self, api_token, model, enable_thinking=None, thinking_budget=None, min_p=None, **kwargs):
+        self.enable_thinking = enable_thinking
+        self.thinking_budget = thinking_budget
+        self.min_p = min_p
         super().__init__(self.api_url, api_token, model, **kwargs)
+
+    def generate_payload(self, messages, **kwargs):
+        payload_kwargs = dict(kwargs)
+        if "enable_thinking" not in payload_kwargs:
+            payload_kwargs["enable_thinking"] = self.enable_thinking
+        if "thinking_budget" not in payload_kwargs:
+            payload_kwargs["thinking_budget"] = self.thinking_budget
+        if "min_p" not in payload_kwargs:
+            payload_kwargs["min_p"] = self.min_p
+        return super().generate_payload(messages, **payload_kwargs)
 
 
 class ZhiPuConnectorGeneral(StandardOpenAICompatibleConnector):
@@ -373,6 +428,7 @@ class SetSiliconFlowLLMServiceConnector(object):
                         "THUDM/GLM-4-32B-0414",
                         "zai-org/GLM-4.5V",
                         "Qwen/Qwen3-8B",
+                        "Qwen/Qwen3.5-4B",
                         "Qwen/Qwen3-235B-A22B-Thinking-2507",
                         "moonshotai/Kimi-K2-Instruct",
                         "Custom",
@@ -391,6 +447,12 @@ class SetSiliconFlowLLMServiceConnector(object):
                 "config_file": ("STRING", {"default": "mie_llm_keys.json"}),
                 "config_key": ("STRING", {"default": "siliconflow"}),
                 "prefer_local_config": ("BOOLEAN", {"default": True}),
+                "timeout": ("INT", {"default": 90, "min": 5, "max": 300}),
+                "max_retries": ("INT", {"default": 3, "min": 1, "max": 10}),
+                "retry_delay": ("INT", {"default": 5, "min": 1, "max": 30}),
+                "enable_thinking": ("BOOLEAN", {"default": False}),
+                "thinking_budget": ("INT", {"default": 1024, "min": 128, "max": 32768}),
+                "min_p": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1.0}),
             },
         }
 
@@ -399,12 +461,39 @@ class SetSiliconFlowLLMServiceConnector(object):
     FUNCTION = "execute"
     CATEGORY = MY_CATEGORY
 
-    def execute(self, api_token, model_select, custom_model="", config_file="mie_llm_keys.json", config_key="siliconflow", prefer_local_config=True):
+    def execute(
+            self,
+            api_token,
+            model_select,
+            custom_model="",
+            config_file="mie_llm_keys.json",
+            config_key="siliconflow",
+            prefer_local_config=True,
+            timeout=90,
+            max_retries=3,
+            retry_delay=5,
+            enable_thinking=False,
+            thinking_budget=1024,
+            min_p=0.0):
         # 确定最终使用的模型
         model = model_select if model_select != "Custom" else custom_model
         if not model:
             model = "THUDM/GLM-4-32B-0414"  # 默认模型
-        return (SiliconFlowConnectorGeneral(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
+        return (
+            SiliconFlowConnectorGeneral(
+                api_token,
+                model,
+                config_file=config_file,
+                config_key=config_key,
+                prefer_local_config=prefer_local_config,
+                timeout=timeout,
+                max_retries=max_retries,
+                retry_delay=retry_delay,
+                enable_thinking=enable_thinking,
+                thinking_budget=thinking_budget,
+                min_p=min_p,
+            ),
+        )
 
 
 class SetZhiPuLLMServiceConnector(object):
@@ -662,10 +751,16 @@ class CallLLMService(object):
                 "input_text": ("STRING", {"default": "", "multiline": True}),
             },
             "optional": {
+                "system_prompt": ("STRING", {"default": "", "multiline": True}),
                 "temperature": ("FLOAT", {"default": 0.7, "min": 0.0, "max": 2.0}),
                 "top_p": ("FLOAT", {"default": 0.9, "min": 0.0, "max": 1.0}),
+                "top_k": ("INT", {"default": 50, "min": 1, "max": 200}),
+                "frequency_penalty": ("FLOAT", {"default": 0.5, "min": -2.0, "max": 2.0}),
                 "max_tokens": ("INT", {"default": 512, "min": 1}),
                 "seed": ("INT", {"default": 0, "min": 0}),
+                "enable_thinking": ("BOOLEAN", {"default": False}),
+                "thinking_budget": ("INT", {"default": 1024, "min": 128, "max": 32768}),
+                "min_p": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1.0}),
                 "image": ("IMAGE",),
                 "image_detail": (["auto", "low", "high"], {"default": "auto"}),
             },
@@ -687,11 +782,31 @@ class CallLLMService(object):
             return None
         return "data:image/jpeg;base64," + base64.b64encode(buf.tobytes()).decode("utf-8")
 
-    def call(self, llm_service_connector, input_text, temperature=0.7, top_p=0.9, max_tokens=512, seed=None, image=None, image_detail="auto"):
+    def call(
+            self,
+            llm_service_connector,
+            input_text,
+            system_prompt="",
+            temperature=0.7,
+            top_p=0.9,
+            top_k=50,
+            frequency_penalty=0.5,
+            max_tokens=512,
+            seed=None,
+            enable_thinking=False,
+            thinking_budget=1024,
+            min_p=0.0,
+            image=None,
+            image_detail="auto"):
         """
         一个简单的通用节点，将纯文本包装为用户消息并调用任意 LLMServiceConnector 的 invoke 方法。
         该节点不会改变底层 connector 的行为或 state。
         """
+        messages = []
+
+        if isinstance(system_prompt, str) and system_prompt.strip():
+            messages.append({"role": "system", "content": system_prompt.strip()})
+
         if image is not None:
             parts = []
             url = self._image_to_data_url(image)
@@ -702,10 +817,22 @@ class CallLLMService(object):
                 })
             if isinstance(input_text, str) and input_text != "":
                 parts.append({"type": "text", "text": input_text})
-            messages = [{"role": "user", "content": parts}]
+            if not parts:
+                parts.append({"type": "text", "text": ""})
+            messages.append({"role": "user", "content": parts})
         else:
-            messages = [{"role": "user", "content": input_text}]
+            messages.append({"role": "user", "content": input_text})
         # 将可选参数直接转发给 connector.invoke
-        result = llm_service_connector.invoke(messages, seed=seed, temperature=temperature, top_p=top_p,
-                                              max_tokens=max_tokens)
+        result = llm_service_connector.invoke(
+            messages,
+            seed=seed,
+            temperature=temperature,
+            top_p=top_p,
+            top_k=top_k,
+            frequency_penalty=frequency_penalty,
+            max_tokens=max_tokens,
+            enable_thinking=enable_thinking,
+            thinking_budget=thinking_budget,
+            min_p=min_p,
+        )
         return (result.strip(),)
