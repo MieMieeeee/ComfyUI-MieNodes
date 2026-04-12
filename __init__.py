@@ -15,6 +15,9 @@ from .tts_generator import QwenTTSNode
 from .tts_service_connector import SetBailianTTSConnector
 from .string_operator import StringConcat
 from .image_operator import SingleImageToVideo, AddNumberWatermarkForImage
+from .loop import MieLoopStart, MieLoopResume, MieLoopBodyIn, MieLoopBodyOut, MieLoopEnd, MieLoopParamGetInt, MieLoopParamGetFloat, \
+    MieLoopParamGetString, MieLoopParamGetBool, MieLoopStateGetInt, MieLoopStateGetFloat, MieLoopStateGetString, \
+    MieLoopStateGetBool, MieLoopStateSet, MieLoopCollectImage
 from .utils import add_suffix, add_emoji
 
 WEB_DIRECTORY = "./js"
@@ -66,6 +69,21 @@ NODE_CLASS_MAPPINGS = {
     add_suffix("SingleImageToVideo"): SingleImageToVideo,
     add_suffix("AddNumberWatermarkForImage"): AddNumberWatermarkForImage,
     add_suffix("ClassicAspectRatio"): ClassicAspectRatio,
+    add_suffix("MieLoopStart"): MieLoopStart,
+    add_suffix("MieLoopResume"): MieLoopResume,
+    add_suffix("MieLoopBodyIn"): MieLoopBodyIn,
+    add_suffix("MieLoopBodyOut"): MieLoopBodyOut,
+    add_suffix("MieLoopEnd"): MieLoopEnd,
+    add_suffix("MieLoopParamGetInt"): MieLoopParamGetInt,
+    add_suffix("MieLoopParamGetFloat"): MieLoopParamGetFloat,
+    add_suffix("MieLoopParamGetString"): MieLoopParamGetString,
+    add_suffix("MieLoopParamGetBool"): MieLoopParamGetBool,
+    add_suffix("MieLoopStateGetInt"): MieLoopStateGetInt,
+    add_suffix("MieLoopStateGetFloat"): MieLoopStateGetFloat,
+    add_suffix("MieLoopStateGetString"): MieLoopStateGetString,
+    add_suffix("MieLoopStateGetBool"): MieLoopStateGetBool,
+    add_suffix("MieLoopStateSet"): MieLoopStateSet,
+    add_suffix("MieLoopCollectImage"): MieLoopCollectImage,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -115,6 +133,21 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     add_suffix("SingleImageToVideo"): add_emoji("Single Image To Video"),
     add_suffix("AddNumberWatermarkForImage"): add_emoji("Add Number Watermark For Image"),
     add_suffix("ClassicAspectRatio"): add_emoji("Classic Aspect Ratio"),
+    add_suffix("MieLoopStart"): add_emoji("Mie Loop Start"),
+    add_suffix("MieLoopResume"): add_emoji("Mie Loop Resume"),
+    add_suffix("MieLoopBodyIn"): add_emoji("Mie Loop Body In"),
+    add_suffix("MieLoopBodyOut"): add_emoji("Mie Loop Body Out"),
+    add_suffix("MieLoopEnd"): add_emoji("Mie Loop End"),
+    add_suffix("MieLoopParamGetInt"): add_emoji("Mie Loop Param Get Int"),
+    add_suffix("MieLoopParamGetFloat"): add_emoji("Mie Loop Param Get Float"),
+    add_suffix("MieLoopParamGetString"): add_emoji("Mie Loop Param Get String"),
+    add_suffix("MieLoopParamGetBool"): add_emoji("Mie Loop Param Get Bool"),
+    add_suffix("MieLoopStateGetInt"): add_emoji("Mie Loop State Get Int"),
+    add_suffix("MieLoopStateGetFloat"): add_emoji("Mie Loop State Get Float"),
+    add_suffix("MieLoopStateGetString"): add_emoji("Mie Loop State Get String"),
+    add_suffix("MieLoopStateGetBool"): add_emoji("Mie Loop State Get Bool"),
+    add_suffix("MieLoopStateSet"): add_emoji("Mie Loop State Set"),
+    add_suffix("MieLoopCollectImage"): add_emoji("Mie Loop Collect Image"),
 }
 
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS", "WEB_DIRECTORY"]

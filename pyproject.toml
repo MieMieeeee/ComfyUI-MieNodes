@@ -9,6 +9,9 @@ dependencies = []
 Repository = "https://github.com/MieMieeeee/ComfyUI-MieNodes"
 #  Used by Comfy Registry https://comfyregistry.org
 
+[tool.pytest.ini_options]
+consider_namespace_packages = false
+
 [tool.comfy]
 PublisherId = "mie"
 DisplayName = "ComfyUI_MieNodes"
