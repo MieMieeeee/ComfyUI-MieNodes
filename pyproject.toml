@@ -13,3 +13,6 @@ Repository = "https://github.com/MieMieeeee/ComfyUI-MieNodes"
 PublisherId = "mie"
 DisplayName = "ComfyUI_MieNodes"
 Icon = "https://github.com/MieMieeeee/ComfyUI-MieNodes/blob/2f617ba2539e8fd13a91fe790e6b5e9ae1718a58/images/channels4_profile.jpg?raw=true"
+
+[tool.pytest.ini_options]
+consider_namespace_packages = false
