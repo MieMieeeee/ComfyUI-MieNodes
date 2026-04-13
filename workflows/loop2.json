@@ -1,0 +1,204 @@
+{
+  "42": {
+    "inputs": {
+      "loop_id": "scan_steps",
+      "params_mode": "int_list",
+      "int_list": "8,9,10",
+      "string_list": "cat\ndog\ncar",
+      "json_list": "[{\"steps\": 8}, {\"steps\": 9}, {\"steps\": 10}]",
+      "initial_state_json": "{}",
+      "meta_json": "{}",
+      "resume_loop_ctx": ""
+    },
+    "class_type": "MieLoopStart|Mie",
+    "_meta": {
+      "title": "Mie Loop Start 🐑"
+    }
+  },
+  "43": {
+    "inputs": {
+      "loop_ctx": [
+        "42",
+        0
+      ],
+      "anchor": [
+        "45",
+        0
+      ]
+    },
+    "class_type": "MieLoopBodyIn|Mie",
+    "_meta": {
+      "title": "Mie Loop Body In 🐑"
+    }
+  },
+  "44": {
+    "inputs": {
+      "images": [
+        "52",
+        0
+      ]
+    },
+    "class_type": "PreviewImage",
+    "_meta": {
+      "title": "Preview Image"
+    }
+  },
+  "45": {
+    "inputs": {
+      "image": "Flux2-Klein-Edit_00009_.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Load Image"
+    }
+  },
+  "46": {
+    "inputs": {
+      "key": "feedback_image",
+      "loop_ctx": [
+        "43",
+        0
+      ],
+      "fallback_image": [
+        "43",
+        1
+      ]
+    },
+    "class_type": "MieLoopStateGetImage|Mie",
+    "_meta": {
+      "title": "Mie Loop State Get Image 🐑"
+    }
+  },
+  "48": {
+    "inputs": {
+      "state_json": [
+        "50",
+        3
+      ],
+      "value_string": "",
+      "debug": false,
+      "loop_ctx": [
+        "50",
+        0
+      ]
+    },
+    "class_type": "MieLoopEnd|Mie",
+    "_meta": {
+      "title": "Mie Loop End 🐑"
+    }
+  },
+  "49": {
+    "inputs": {
+      "key": "feedback_image",
+      "loop_ctx": [
+        "43",
+        0
+      ],
+      "image": [
+        "52",
+        0
+      ]
+    },
+    "class_type": "MieLoopStateSetImage|Mie",
+    "_meta": {
+      "title": "Mie Loop State Set Image 🐑"
+    }
+  },
+  "50": {
+    "inputs": {
+      "value_string": "",
+      "state_json": "{}",
+      "loop_ctx": [
+        "59",
+        0
+      ]
+    },
+    "class_type": "MieLoopBodyOut|Mie",
+    "_meta": {
+      "title": "Mie Loop Body Out 🐑"
+    }
+  },
+  "52": {
+    "inputs": {
+      "start_number": [
+        "53",
+        0
+      ],
+      "position_x": 95,
+      "position_y": 95,
+      "font_scale": 1,
+      "color_r": 255,
+      "color_g": 255,
+      "color_b": 255,
+      "thickness": 2,
+      "outline": true,
+      "outline_thickness": 2,
+      "images": [
+        "46",
+        0
+      ]
+    },
+    "class_type": "AddNumberWatermarkForImage|Mie",
+    "_meta": {
+      "title": "Add Number Watermark For Image 🐑"
+    }
+  },
+  "53": {
+    "inputs": {
+      "key": "value",
+      "default_value": 0,
+      "loop_ctx": [
+        "43",
+        0
+      ]
+    },
+    "class_type": "MieLoopParamGetInt|Mie",
+    "_meta": {
+      "title": "Mie Loop Param Get Int 🐑"
+    }
+  },
+  "56": {
+    "inputs": {
+      "images": [
+        "58",
+        0
+      ]
+    },
+    "class_type": "PreviewImage",
+    "_meta": {
+      "title": "Preview Image"
+    }
+  },
+  "58": {
+    "inputs": {
+      "loop_ctx": [
+        "48",
+        0
+      ],
+      "done": [
+        "48",
+        1
+      ]
+    },
+    "class_type": "MieLoopFinalizeImages|Mie",
+    "_meta": {
+      "title": "Mie Loop Finalize Images 🐑"
+    }
+  },
+  "59": {
+    "inputs": {
+      "loop_ctx": [
+        "49",
+        0
+      ],
+      "image": [
+        "52",
+        0
+      ]
+    },
+    "class_type": "MieLoopCollectImage|Mie",
+    "_meta": {
+      "title": "Mie Loop Collect Image 🐑"
+    }
+  }
+}

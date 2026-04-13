@@ -6,7 +6,7 @@ from loop import (
     _ensure_collectors,
     _ensure_meta_fields,
     _ensure_runtime_meta,
-    _pop_images_by_ref,
+    _pop_collector_items,
     _cleanup_runtime_for_run,
     _prune_runtime_store,
     _merge_images_for_ctx,
@@ -25,26 +25,42 @@ class TestEnsureCollectors:
     def test_ensure_collectors_creates_default(self):
         ctx = {}
         _ensure_collectors(ctx)
-        assert ctx["collectors"] == {"images": {"ref": None, "count": 0}}
+        assert ctx["collectors"] == {
+            "image": {"ref": None, "count": 0},
+            "text": {"ref": None, "count": 0},
+            "json": {"ref": None, "count": 0},
+        }
 
     def test_ensure_collectors_preserves_existing(self):
-        ctx = {"collectors": {"images": {"ref": "abc", "count": 5}}}
+        ctx = {
+            "collectors": {
+                "image": {"ref": "abc", "count": 5},
+                "text": {"ref": None, "count": 0},
+                "json": {"ref": None, "count": 0},
+            }
+        }
         original = ctx["collectors"]
         _ensure_collectors(ctx)
         assert ctx["collectors"] is original
-        assert ctx["collectors"]["images"]["ref"] == "abc"
-        assert ctx["collectors"]["images"]["count"] == 5
+        assert ctx["collectors"]["image"]["ref"] == "abc"
+        assert ctx["collectors"]["image"]["count"] == 5
+        assert ctx["collectors"]["text"]["ref"] is None
+        assert ctx["collectors"]["json"]["ref"] is None
 
     def test_ensure_collectors_fixes_corrupt(self):
         ctx = {"collectors": "bad"}
         _ensure_collectors(ctx)
         assert isinstance(ctx["collectors"], dict)
-        assert ctx["collectors"]["images"] == {"ref": None, "count": 0}
+        assert ctx["collectors"]["image"] == {"ref": None, "count": 0}
+        assert ctx["collectors"]["text"] == {"ref": None, "count": 0}
+        assert ctx["collectors"]["json"] == {"ref": None, "count": 0}
 
-    def test_ensure_collectors_fixes_images(self):
+    def test_ensure_collectors_fixes_image_slot(self):
         ctx = {"collectors": {"other_key": 42}}
         _ensure_collectors(ctx)
-        assert ctx["collectors"]["images"] == {"ref": None, "count": 0}
+        assert ctx["collectors"]["image"] == {"ref": None, "count": 0}
+        assert ctx["collectors"]["text"] == {"ref": None, "count": 0}
+        assert ctx["collectors"]["json"] == {"ref": None, "count": 0}
         assert ctx["collectors"]["other_key"] == 42
 
 
@@ -102,27 +118,27 @@ class TestEnsureRuntimeMeta:
 
 
 # ---------------------------------------------------------------------------
-# _pop_images_by_ref
+# _pop_collector_items
 # ---------------------------------------------------------------------------
 
 
-class TestPopImagesByRef:
-    def test_pop_images_by_ref_existing(self):
+class TestPopCollectorItems:
+    def test_pop_image_collector_existing(self):
         imgs = [torch.rand(2, 64, 64, 3)]
-        RUNTIME_STORE["images"]["ref_x"] = imgs
-        result = _pop_images_by_ref("ref_x")
+        RUNTIME_STORE["collectors"]["image"]["ref_x"] = imgs
+        result = _pop_collector_items("image", "ref_x")
         assert result is imgs
-        assert "ref_x" not in RUNTIME_STORE["images"]
+        assert "ref_x" not in RUNTIME_STORE["collectors"]["image"]
 
-    def test_pop_images_by_ref_missing(self):
-        result = _pop_images_by_ref("nonexistent")
+    def test_pop_image_collector_missing(self):
+        result = _pop_collector_items("image", "nonexistent")
         assert result == []
 
-    def test_pop_images_by_ref_empty_list(self):
-        RUNTIME_STORE["images"]["ref_empty"] = []
-        result = _pop_images_by_ref("ref_empty")
+    def test_pop_image_collector_empty_list(self):
+        RUNTIME_STORE["collectors"]["image"]["ref_empty"] = []
+        result = _pop_collector_items("image", "ref_empty")
         assert result == []
-        assert "ref_empty" not in RUNTIME_STORE["images"]
+        assert "ref_empty" not in RUNTIME_STORE["collectors"]["image"]
 
 
 # ---------------------------------------------------------------------------
@@ -135,11 +151,11 @@ class TestCleanupRuntimeForRun:
         run_id = "cleanup_run"
         refs = ["r1", "r2", "r3"]
         for r in refs:
-            RUNTIME_STORE["images"][r] = [torch.rand(1, 32, 32, 3)]
+            RUNTIME_STORE["collectors"]["image"][r] = [torch.rand(1, 32, 32, 3)]
         RUNTIME_STORE["meta"][run_id] = {"image_refs": refs}
         _cleanup_runtime_for_run(run_id)
         for r in refs:
-            assert r not in RUNTIME_STORE["images"]
+            assert r not in RUNTIME_STORE["collectors"]["image"]
 
     def test_cleanup_removes_meta(self):
         run_id = "cleanup_meta"
@@ -168,16 +184,16 @@ class TestCleanupRuntimeForRun:
 
 class TestPruneRuntimeStore:
     def test_prune_removes_orphaned_images(self):
-        RUNTIME_STORE["images"]["orphan_ref"] = [torch.rand(1, 8, 8, 3)]
+        RUNTIME_STORE["collectors"]["image"]["orphan_ref"] = [torch.rand(1, 8, 8, 3)]
         _prune_runtime_store()
-        assert "orphan_ref" not in RUNTIME_STORE["images"]
+        assert "orphan_ref" not in RUNTIME_STORE["collectors"]["image"]
 
     def test_prune_keeps_live_images(self):
         live_ref = "live_ref"
-        RUNTIME_STORE["images"][live_ref] = [torch.rand(1, 8, 8, 3)]
+        RUNTIME_STORE["collectors"]["image"][live_ref] = [torch.rand(1, 8, 8, 3)]
         RUNTIME_STORE["meta"]["active_run"] = {"image_refs": [live_ref]}
         _prune_runtime_store()
-        assert live_ref in RUNTIME_STORE["images"]
+        assert live_ref in RUNTIME_STORE["collectors"]["image"]
 
     def test_prune_empty_store(self):
         _prune_runtime_store()  # no error on empty
@@ -186,16 +202,16 @@ class TestPruneRuntimeStore:
         ref_a = "ref_a"
         ref_b = "ref_b"
         ref_c = "ref_c"
-        RUNTIME_STORE["images"][ref_a] = [torch.rand(1, 4, 4, 3)]
-        RUNTIME_STORE["images"][ref_b] = [torch.rand(1, 4, 4, 3)]
-        RUNTIME_STORE["images"][ref_c] = [torch.rand(1, 4, 4, 3)]
+        RUNTIME_STORE["collectors"]["image"][ref_a] = [torch.rand(1, 4, 4, 3)]
+        RUNTIME_STORE["collectors"]["image"][ref_b] = [torch.rand(1, 4, 4, 3)]
+        RUNTIME_STORE["collectors"]["image"][ref_c] = [torch.rand(1, 4, 4, 3)]
         RUNTIME_STORE["meta"]["run_1"] = {"image_refs": [ref_a]}
         # run_2 has ref_b; ref_c is orphaned
         RUNTIME_STORE["meta"]["run_2"] = {"image_refs": [ref_b]}
         _prune_runtime_store()
-        assert ref_a in RUNTIME_STORE["images"]
-        assert ref_b in RUNTIME_STORE["images"]
-        assert ref_c not in RUNTIME_STORE["images"]
+        assert ref_a in RUNTIME_STORE["collectors"]["image"]
+        assert ref_b in RUNTIME_STORE["collectors"]["image"]
+        assert ref_c not in RUNTIME_STORE["collectors"]["image"]
 
 
 # ---------------------------------------------------------------------------
@@ -211,9 +227,9 @@ class TestMergeImagesForCtx:
 
     def test_merge_images_single_batch(self, sample_loop_ctx):
         ref = "merge_ref_1"
-        sample_loop_ctx["collectors"]["images"]["ref"] = ref
+        sample_loop_ctx["collectors"]["image"]["ref"] = ref
         batch = torch.rand(3, 64, 64, 3)
-        RUNTIME_STORE["images"][ref] = [batch]
+        RUNTIME_STORE["collectors"]["image"][ref] = [batch]
         RUNTIME_STORE["meta"][sample_loop_ctx["run_id"]] = {"image_refs": [ref]}
         result = _merge_images_for_ctx(sample_loop_ctx)
         assert result.shape == (3, 64, 64, 3)
@@ -221,11 +237,11 @@ class TestMergeImagesForCtx:
 
     def test_merge_images_multiple_batches(self, sample_loop_ctx):
         ref = "merge_ref_multi"
-        sample_loop_ctx["collectors"]["images"]["ref"] = ref
+        sample_loop_ctx["collectors"]["image"]["ref"] = ref
         b1 = torch.rand(2, 32, 32, 3)
         b2 = torch.rand(3, 32, 32, 3)
         b3 = torch.rand(1, 32, 32, 3)
-        RUNTIME_STORE["images"][ref] = [b1, b2, b3]
+        RUNTIME_STORE["collectors"]["image"][ref] = [b1, b2, b3]
         RUNTIME_STORE["meta"][sample_loop_ctx["run_id"]] = {"image_refs": [ref]}
         result = _merge_images_for_ctx(sample_loop_ctx)
         assert result.shape == (6, 32, 32, 3)
@@ -235,30 +251,30 @@ class TestMergeImagesForCtx:
 
     def test_merge_images_shape_mismatch(self, sample_loop_ctx):
         ref = "merge_mismatch"
-        sample_loop_ctx["collectors"]["images"]["ref"] = ref
+        sample_loop_ctx["collectors"]["image"]["ref"] = ref
         b1 = torch.rand(2, 32, 32, 3)
         b2 = torch.rand(2, 64, 64, 3)
-        RUNTIME_STORE["images"][ref] = [b1, b2]
+        RUNTIME_STORE["collectors"]["image"][ref] = [b1, b2]
         RUNTIME_STORE["meta"][sample_loop_ctx["run_id"]] = {"image_refs": [ref]}
         with pytest.raises(ValueError, match="shape mismatch"):
             _merge_images_for_ctx(sample_loop_ctx)
 
     def test_merge_images_empty_batches(self, sample_loop_ctx):
         ref = "merge_empty"
-        sample_loop_ctx["collectors"]["images"]["ref"] = ref
-        RUNTIME_STORE["images"][ref] = []
+        sample_loop_ctx["collectors"]["image"]["ref"] = ref
+        RUNTIME_STORE["collectors"]["image"][ref] = []
         RUNTIME_STORE["meta"][sample_loop_ctx["run_id"]] = {"image_refs": [ref]}
         result = _merge_images_for_ctx(sample_loop_ctx)
         assert result.shape[0] == 0
 
     def test_merge_images_cleans_up_ref(self, sample_loop_ctx):
         ref = "merge_cleanup"
-        sample_loop_ctx["collectors"]["images"]["ref"] = ref
-        RUNTIME_STORE["images"][ref] = [torch.rand(1, 8, 8, 3)]
+        sample_loop_ctx["collectors"]["image"]["ref"] = ref
+        RUNTIME_STORE["collectors"]["image"][ref] = [torch.rand(1, 8, 8, 3)]
         meta = {"image_refs": [ref]}
         RUNTIME_STORE["meta"][sample_loop_ctx["run_id"]] = meta
         _merge_images_for_ctx(sample_loop_ctx)
-        assert ref not in RUNTIME_STORE["images"]
+        assert ref not in RUNTIME_STORE["collectors"]["image"]
         assert ref not in RUNTIME_STORE["meta"][sample_loop_ctx["run_id"]]["image_refs"]
 
 
@@ -330,12 +346,12 @@ class TestBugH1MemoryLeak:
 
         # Create a stale run
         run_id = "stale_run_1"
-        RUNTIME_STORE["images"]["stale_ref"] = [torch.rand(1, 8, 8, 3)]
+        RUNTIME_STORE["collectors"]["image"]["stale_ref"] = [torch.rand(1, 8, 8, 3)]
         RUNTIME_STORE["meta"][run_id] = {"image_refs": ["stale_ref"]}
         _runtime_store_timestamps[run_id] = time.time() - 7200  # 2 hours ago
         _prune_runtime_store()
         assert run_id not in RUNTIME_STORE["meta"]
-        assert "stale_ref" not in RUNTIME_STORE["images"]
+        assert "stale_ref" not in RUNTIME_STORE["collectors"]["image"]
         assert run_id not in _runtime_store_timestamps
 
     def test_bug_h1_recent_run_preserved(self):
@@ -344,12 +360,12 @@ class TestBugH1MemoryLeak:
 
         run_id = "recent_run_1"
         ref = "recent_ref"
-        RUNTIME_STORE["images"][ref] = [torch.rand(1, 8, 8, 3)]
+        RUNTIME_STORE["collectors"]["image"][ref] = [torch.rand(1, 8, 8, 3)]
         RUNTIME_STORE["meta"][run_id] = {"image_refs": [ref]}
         _runtime_store_timestamps[run_id] = time.time()  # now
         _prune_runtime_store()
         assert run_id in RUNTIME_STORE["meta"]
-        assert ref in RUNTIME_STORE["images"]
+        assert ref in RUNTIME_STORE["collectors"]["image"]
 
 
 # ── Edge case: N=50 large loop simulation ─────────────────────────
@@ -358,7 +374,7 @@ class TestBugH1MemoryLeak:
 class TestLargeLoop:
     def test_runtime_store_large_loop_50_iterations(self):
         """Simulate 50 iterations of image collection → verify no leak."""
-        from loop import _ensure_runtime_meta, _pop_images_by_ref
+        from loop import _ensure_runtime_meta, _pop_collector_items
 
         run_id = "large_loop_run"
         ref = "large_loop_ref"
@@ -369,12 +385,12 @@ class TestLargeLoop:
         for i in range(50):
             batch = torch.rand(1, 32, 32, 3)
             batches.append(batch)
-        RUNTIME_STORE["images"][ref] = batches
-        assert len(RUNTIME_STORE["images"][ref]) == 50
+        RUNTIME_STORE["collectors"]["image"][ref] = batches
+        assert len(RUNTIME_STORE["collectors"]["image"][ref]) == 50
         # Pop all images (simulating merge at loop end)
-        merged = _pop_images_by_ref(ref)
+        merged = _pop_collector_items("image", ref)
         assert len(merged) == 50
-        assert "ref" not in RUNTIME_STORE["images"]
+        assert "ref" not in RUNTIME_STORE["collectors"]["image"]
         # Prune should clean up the orphaned meta
         _prune_runtime_store()
         assert run_id not in RUNTIME_STORE["meta"]
@@ -387,10 +403,10 @@ class TestLargeLoop:
         for i in range(50):
             rid = f"run_{i}"
             ref = f"ref_{i}"
-            RUNTIME_STORE["images"][ref] = [torch.rand(1, 8, 8, 3)]
+            RUNTIME_STORE["collectors"]["image"][ref] = [torch.rand(1, 8, 8, 3)]
             RUNTIME_STORE["meta"][rid] = {"image_refs": [ref]}
             _runtime_store_timestamps[rid] = now  # recent, not stale
         _prune_runtime_store()
         # All refs are live (referenced by meta) and runs are recent → nothing pruned
-        assert len(RUNTIME_STORE["images"]) == 50
+        assert len(RUNTIME_STORE["collectors"]["image"]) == 50
         assert len(RUNTIME_STORE["meta"]) == 50
