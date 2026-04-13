@@ -118,11 +118,13 @@ import pytest
 def reset_runtime_store():
     """Reset RUNTIME_STORE before and after each test."""
     store = loop.RUNTIME_STORE
-    store["images"] = {}
+    store["collectors"] = {"image": {}, "text": {}, "json": {}}
+    store["state_objects"] = {"image": {}}
     store["meta"] = {}
     store["_detect_cache"] = {}
     yield
-    store["images"] = {}
+    store["collectors"] = {"image": {}, "text": {}, "json": {}}
+    store["state_objects"] = {"image": {}}
     store["meta"] = {}
     store["_detect_cache"] = {}
 
@@ -141,7 +143,11 @@ def sample_loop_ctx():
         "params_list": [{"value": 1}, {"value": 2}, {"value": 3}],
         "current_params": {"value": 1},
         "state": {},
-        "collectors": {"images": {"ref": None, "count": 0}},
+        "collectors": {
+            "image": {"ref": None, "count": 0},
+            "text": {"ref": None, "count": 0},
+            "json": {"ref": None, "count": 0},
+        },
         "meta": {
             "body_in_id": "10",
             "body_out_id": "20",

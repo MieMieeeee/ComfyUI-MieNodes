@@ -97,6 +97,11 @@ class TestMieLoopStart:
         assert count == 0
         assert index == 0
         assert is_last is True
+        assert ctx["collectors"] == {
+            "image": {"ref": None, "count": 0},
+            "text": {"ref": None, "count": 0},
+            "json": {"ref": None, "count": 0},
+        }
 
     def test_count_1_immediate_last(self):
         node = MieLoopStart()
@@ -123,6 +128,11 @@ class TestMieLoopStart:
             initial_state_json='{"key":"val"}',
         )
         assert ctx["state"]["key"] == "val"
+        assert ctx["collectors"] == {
+            "image": {"ref": None, "count": 0},
+            "text": {"ref": None, "count": 0},
+            "json": {"ref": None, "count": 0},
+        }
 
     def test_meta_json(self):
         node = MieLoopStart()
@@ -275,6 +285,12 @@ class TestMieLoopBodyOut:
         parsed = json.loads(result[3])
         assert parsed["k"] == "v"
 
+    def test_cloned_round_keeps_original_body_out_id(self, sample_loop_ctx):
+        node = MieLoopBodyOut()
+        sample_loop_ctx["meta"]["body_out_id"] = "20"
+        ctx = node.execute(loop_ctx=sample_loop_ctx, unique_id="48.0.0.20")[0]
+        assert ctx["meta"]["body_out_id"] == "20"
+
 
 # ---- MieLoopEnd ----
 
@@ -302,7 +318,7 @@ class TestMieLoopEnd:
     def test_last_iteration_done(self, sample_loop_ctx):
         ctx = self._make_last_ctx(sample_loop_ctx)
         node = MieLoopEnd()
-        _, done, _, _ = node.execute(loop_ctx=ctx, state_json="{}")
+        _, done = node.execute(loop_ctx=ctx, state_json="{}")
         assert done is True
 
     def test_count_1_immediate_done(self):
@@ -316,7 +332,7 @@ class TestMieLoopEnd:
             initial_state_json="{}",
         )
         end_node = MieLoopEnd()
-        _, done, _, _ = end_node.execute(loop_ctx=start_ctx, state_json="{}")
+        _, done = end_node.execute(loop_ctx=start_ctx, state_json="{}")
         assert done is True
 
     def test_state_update(self, sample_loop_ctx):
@@ -339,7 +355,7 @@ class TestMieLoopEnd:
         with pytest.raises(ValueError, match="dynprompt"):
             node.execute(loop_ctx=sample_loop_ctx, state_json="{}")
 
-    def test_done_cleanup(self, sample_loop_ctx):
+    def test_done_keeps_runtime_meta_for_finalize(self, sample_loop_ctx):
         ctx = self._make_last_ctx(sample_loop_ctx)
         # Ensure runtime meta exists
         from loop import _ensure_runtime_meta
@@ -347,23 +363,31 @@ class TestMieLoopEnd:
         _ensure_runtime_meta(ctx["run_id"])
         node = MieLoopEnd()
         node.execute(loop_ctx=ctx, state_json="{}")
-        # After done, run_id should be cleaned from RUNTIME_STORE["meta"]
-        assert ctx["run_id"] not in RUNTIME_STORE["meta"]
+        # After done, runtime meta remains for finalize / cleanup nodes to consume.
+        assert ctx["run_id"] in RUNTIME_STORE["meta"]
 
-    def test_done_returns_grid(self, sample_loop_ctx):
+    def test_done_returns_only_ctx_and_done(self, sample_loop_ctx):
         ctx = self._make_last_ctx(sample_loop_ctx)
         node = MieLoopEnd()
-        _, done, final_images, final_grid = node.execute(loop_ctx=ctx, state_json="{}")
+        result = node.execute(loop_ctx=ctx, state_json="{}")
+        assert len(result) == 2
+        _, done = result
         assert done is True
-        # No collected images → EMPTY_IMAGES for both
-        assert final_images.shape[0] == 0
-        assert final_grid.shape[0] == 0
 
     def test_records_end_id(self, sample_loop_ctx):
         ctx = self._make_last_ctx(sample_loop_ctx)
         node = MieLoopEnd()
         result_ctx, *_ = node.execute(loop_ctx=ctx, state_json="{}", unique_id="99")
         assert result_ctx["meta"]["end_id"] == "99"
+
+    def test_cloned_round_keeps_original_end_id(self, sample_loop_ctx):
+        ctx = self._make_last_ctx(sample_loop_ctx)
+        ctx["meta"]["end_id"] = "30"
+        node = MieLoopEnd()
+        result_ctx, *_ = node.execute(
+            loop_ctx=ctx, state_json="{}", unique_id="48.0.0.30"
+        )
+        assert result_ctx["meta"]["end_id"] == "30"
 
 
 # ---- Param getters ----
@@ -472,30 +496,26 @@ class TestMieLoopCollectImage:
         node = MieLoopCollectImage()
         img = torch.rand(1, 64, 64, 3)
         (ctx,) = node.execute(loop_ctx=sample_loop_ctx, image=img)
-        assert ctx["collectors"]["images"]["ref"] is not None
-        assert ctx["collectors"]["images"]["count"] == 1
+        assert ctx["collectors"]["image"]["ref"] is not None
+        assert ctx["collectors"]["image"]["count"] == 1
 
     def test_appends(self, sample_loop_ctx):
         node = MieLoopCollectImage()
         img = torch.rand(1, 64, 64, 3)
         (ctx1,) = node.execute(loop_ctx=sample_loop_ctx, image=img)
         (ctx2,) = node.execute(loop_ctx=ctx1, image=img)
-        assert ctx2["collectors"]["images"]["count"] == 2
+        assert ctx2["collectors"]["image"]["count"] == 2
 
 
 # ---- MieLoopFinalizeImages ----
 
 
 class TestMieLoopFinalizeImages:
-    def test_done_false_returns_execution_blocker(self, sample_loop_ctx):
-        """When done=False, FinalizeImages returns ExecutionBlocker to prevent propagation."""
+    def test_done_false_returns_empty_images(self, sample_loop_ctx):
         node = MieLoopFinalizeImages()
         result = node.execute(loop_ctx=sample_loop_ctx, done=False)
-        # Should return ExecutionBlocker (from comfy_execution.graph_utils),
-        # which is mocked as MagicMock in test conftest — verify it's not a tensor
-        assert not isinstance(result[0], torch.Tensor)
-        # Verify it has the ExecutionBlocker .message attribute
-        assert hasattr(result[0], "message")
+        assert isinstance(result[0], torch.Tensor)
+        assert result[0].shape[0] == 0
 
 
 # ---- MieLoopCleanupImages ----
@@ -507,12 +527,13 @@ class TestMieLoopCleanupImages:
 
         _ensure_runtime_meta(sample_loop_ctx["run_id"])
         # Simulate collected images
-        sample_loop_ctx["collectors"]["images"]["ref"] = "test_ref_abc"
-        RUNTIME_STORE["images"]["test_ref_abc"] = [torch.rand(1, 8, 8, 3)]
+        sample_loop_ctx["collectors"]["image"]["ref"] = "test_ref_abc"
+        RUNTIME_STORE["collectors"]["image"]["test_ref_abc"] = [torch.rand(1, 8, 8, 3)]
         node = MieLoopCleanupImages()
         ctx, cleaned = node.execute(loop_ctx=sample_loop_ctx)
         assert cleaned is True
-        assert "test_ref_abc" not in RUNTIME_STORE["images"]
+        assert "test_ref_abc" not in RUNTIME_STORE["collectors"]["image"]
+        assert ctx["collectors"]["image"] == {"ref": None, "count": 0}
 
 
 # ---- MieImageGrid ----

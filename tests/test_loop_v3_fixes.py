@@ -45,7 +45,7 @@ def _make_next_ctx(index=1, count=3, **overrides):
         "params_list": [{"value": i} for i in range(count)],
         "current_params": {"value": index},
         "state": {},
-        "collectors": {"images": {"ref": None, "count": 0}},
+        "collectors": {"image": {"ref": None, "count": 0}},
         "meta": {
             "body_in_id": "32",
             "body_out_id": "33",
@@ -240,8 +240,8 @@ class TestExpandGraphTupleReturn:
             next_ctx, dynprompt, "32", "33", "34", detect
         )
         # Simulate what MieLoopEnd.execute does:
-        result_tuple = tuple([end_node.out(i) for i in range(4)])
-        assert len(result_tuple) == 4
+        result_tuple = tuple([end_node.out(i) for i in range(2)])
+        assert len(result_tuple) == 2
         for i, val in enumerate(result_tuple):
             assert is_link(val), f"out({i}) = {val} should be is_link() compatible"
 
@@ -308,17 +308,13 @@ class TestBodyInAnchorPassthrough:
         model_input = ksampler["inputs"]["model"]
         assert model_input == ["16", 0], "model should remain as external link"
 
-    def test_bodyout_loop_ctx_from_resume(self, monkeypatch):
-        """BodyOut's loop_ctx input must come from Resume node, not original CollectImage.
+    def test_bodyout_loop_ctx_from_resume_for_plain_collector_workflow(self, monkeypatch):
+        """Plain collector workflows should still use Resume for BodyOut.loop_ctx.
 
-        This is the fix for the infinite expand loop: BodyOut's loop_ctx was
-        previously pointing to the original CollectImage (#37), which is NOT cloned
-        in the expand graph (it's a collector). This meant BodyOut always received
-        Round 0's ctx (index=0), so clone MieLoopEnd always saw done=False and
-        kept returning new expand graphs forever.
-
-        With the fix, BodyOut.loop_ctx is forced to resume_node.out(0), which
-        carries the correctly incremented ctx.
+        When the upstream chain only carries ctx through BodyIn -> CollectImage,
+        BodyOut should not inherit the collector link because no state mutation
+        happened inside the body. Using Resume keeps index progression stable and
+        avoids reintroducing the historical infinite expand loop.
         """
         monkeypatch.setattr(loop_module, "GraphBuilder", FakeGraphBuilder)
         dynprompt = _make_user_workflow_dynprompt()
@@ -329,23 +325,18 @@ class TestBodyInAnchorPassthrough:
             next_ctx, dynprompt, "32", "33", "34", detect
         )
 
-        # Find Resume node (first node built, id = fake.1)
+        # Find Resume node and BodyOut node
         resume_node_id = None
+        bodyout = None
         for nid, nd in result.items():
             if nd["class_type"] == "MieLoopResume|Mie":
                 resume_node_id = nid
-                break
-        assert resume_node_id is not None, "Resume node should exist in expand graph"
-
-        # Find BodyOut node
-        bodyout = None
-        for nid, nd in result.items():
             if nd["class_type"] == "MieLoopBodyOut|Mie":
                 bodyout = nd
-                break
+        assert resume_node_id is not None, "Resume node should exist in expand graph"
         assert bodyout is not None, "BodyOut should be cloned in expand graph"
 
-        # BodyOut.loop_ctx must point to Resume node
+        # BodyOut.loop_ctx should point to Resume for the plain collector workflow.
         loop_ctx_input = bodyout["inputs"]["loop_ctx"]
         assert isinstance(loop_ctx_input, list), (
             f"BodyOut.loop_ctx should be a link, got {loop_ctx_input}"
@@ -355,11 +346,11 @@ class TestBodyInAnchorPassthrough:
             f"got {loop_ctx_input}"
         )
 
-    def test_end_loop_ctx_from_resume(self, monkeypatch):
-        """MieLoopEnd's loop_ctx input must also come from Resume node.
+    def test_end_loop_ctx_from_current_cloned_bodyout(self, monkeypatch):
+        """MieLoopEnd.loop_ctx should come from the current cloned BodyOut.
 
-        Same fix as BodyOut: End's loop_ctx was also incorrectly pointing through
-        the non-cloned collector chain, causing it to always see index=0.
+        End needs the current round's post-body ctx, not Resume directly, so it
+        can observe updates made inside the body before deciding the next round.
         """
         monkeypatch.setattr(loop_module, "GraphBuilder", FakeGraphBuilder)
         dynprompt = _make_user_workflow_dynprompt()
@@ -370,29 +361,24 @@ class TestBodyInAnchorPassthrough:
             next_ctx, dynprompt, "32", "33", "34", detect
         )
 
-        # Find Resume node
-        resume_node_id = None
-        for nid, nd in result.items():
-            if nd["class_type"] == "MieLoopResume|Mie":
-                resume_node_id = nid
-                break
-        assert resume_node_id is not None
-
-        # Find End node
+        # Find End node and BodyOut node
         end_node = None
+        bodyout_node = None
         for nid, nd in result.items():
             if nd["class_type"] == "MieLoopEnd|Mie":
                 end_node = nd
-                break
+            if nd["class_type"] == "MieLoopBodyOut|Mie":
+                bodyout_node = nd
         assert end_node is not None, "MieLoopEnd should be cloned in expand graph"
+        assert bodyout_node is not None, "MieLoopBodyOut should be cloned in expand graph"
 
-        # End.loop_ctx must point to Resume node
+        # End.loop_ctx must point to current cloned BodyOut
         loop_ctx_input = end_node["inputs"]["loop_ctx"]
         assert isinstance(loop_ctx_input, list), (
             f"End.loop_ctx should be a link, got {loop_ctx_input}"
         )
-        assert loop_ctx_input[0] == resume_node_id, (
-            f"End.loop_ctx should point to Resume node ({resume_node_id}), "
+        assert loop_ctx_input[0] == "fake.33", (
+            "End.loop_ctx should point to the current cloned BodyOut (fake.33), "
             f"got {loop_ctx_input}"
         )
 
@@ -553,7 +539,7 @@ class TestThreeRoundSimulation:
         )
 
         # Simulate MieLoopEnd return
-        result_vals = tuple([end_node.out(i) for i in range(4)])
+        result_vals = tuple([end_node.out(i) for i in range(2)])
         for val in result_vals:
             assert is_link(val), f"{val} should pass is_link()"
 

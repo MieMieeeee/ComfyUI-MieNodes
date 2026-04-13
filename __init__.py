@@ -17,7 +17,9 @@ from .string_operator import StringConcat
 from .image_operator import SingleImageToVideo, AddNumberWatermarkForImage
 from .loop import MieLoopStart, MieLoopResume, MieLoopBodyIn, MieLoopBodyOut, MieLoopEnd, MieLoopParamGetInt, MieLoopParamGetFloat, \
     MieLoopParamGetString, MieLoopParamGetBool, MieLoopStateGetInt, MieLoopStateGetFloat, MieLoopStateGetString, \
-    MieLoopStateGetBool, MieLoopStateSet, MieLoopCollectImage
+    MieLoopStateGetBool, MieLoopStateSet, MieImageSelectFrame, MieLoopStateSetImage, MieLoopStateGetImage, MieLoopStateCleanupImage, \
+    MieLoopCollectImage, MieLoopFinalizeImages, MieLoopCleanupImages, MieImageGrid, \
+    MieLoopCollectText, MieLoopFinalizeTextList, MieLoopCleanupText, MieLoopCollectJSON, MieLoopFinalizeJSONList, MieLoopCleanupJSON
 from .utils import add_suffix, add_emoji
 
 WEB_DIRECTORY = "./js"
@@ -83,7 +85,20 @@ NODE_CLASS_MAPPINGS = {
     add_suffix("MieLoopStateGetString"): MieLoopStateGetString,
     add_suffix("MieLoopStateGetBool"): MieLoopStateGetBool,
     add_suffix("MieLoopStateSet"): MieLoopStateSet,
+    add_suffix("MieImageSelectFrame"): MieImageSelectFrame,
+    add_suffix("MieLoopStateSetImage"): MieLoopStateSetImage,
+    add_suffix("MieLoopStateGetImage"): MieLoopStateGetImage,
+    add_suffix("MieLoopStateCleanupImage"): MieLoopStateCleanupImage,
     add_suffix("MieLoopCollectImage"): MieLoopCollectImage,
+    add_suffix("MieLoopFinalizeImages"): MieLoopFinalizeImages,
+    add_suffix("MieLoopCleanupImages"): MieLoopCleanupImages,
+    add_suffix("MieImageGrid"): MieImageGrid,
+    add_suffix("MieLoopCollectText"): MieLoopCollectText,
+    add_suffix("MieLoopFinalizeTextList"): MieLoopFinalizeTextList,
+    add_suffix("MieLoopCleanupText"): MieLoopCleanupText,
+    add_suffix("MieLoopCollectJSON"): MieLoopCollectJSON,
+    add_suffix("MieLoopFinalizeJSONList"): MieLoopFinalizeJSONList,
+    add_suffix("MieLoopCleanupJSON"): MieLoopCleanupJSON,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -147,7 +162,20 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     add_suffix("MieLoopStateGetString"): add_emoji("Mie Loop State Get String"),
     add_suffix("MieLoopStateGetBool"): add_emoji("Mie Loop State Get Bool"),
     add_suffix("MieLoopStateSet"): add_emoji("Mie Loop State Set"),
+    add_suffix("MieImageSelectFrame"): add_emoji("Mie Image Select Frame"),
+    add_suffix("MieLoopStateSetImage"): add_emoji("Mie Loop State Set Image"),
+    add_suffix("MieLoopStateGetImage"): add_emoji("Mie Loop State Get Image"),
+    add_suffix("MieLoopStateCleanupImage"): add_emoji("Mie Loop State Cleanup Image"),
     add_suffix("MieLoopCollectImage"): add_emoji("Mie Loop Collect Image"),
+    add_suffix("MieLoopFinalizeImages"): add_emoji("Mie Loop Finalize Images"),
+    add_suffix("MieLoopCleanupImages"): add_emoji("Mie Loop Cleanup Images"),
+    add_suffix("MieImageGrid"): add_emoji("Mie Image Grid"),
+    add_suffix("MieLoopCollectText"): add_emoji("Mie Loop Collect Text"),
+    add_suffix("MieLoopFinalizeTextList"): add_emoji("Mie Loop Finalize Text List"),
+    add_suffix("MieLoopCleanupText"): add_emoji("Mie Loop Cleanup Text"),
+    add_suffix("MieLoopCollectJSON"): add_emoji("Mie Loop Collect JSON"),
+    add_suffix("MieLoopFinalizeJSONList"): add_emoji("Mie Loop Finalize JSON List"),
+    add_suffix("MieLoopCleanupJSON"): add_emoji("Mie Loop Cleanup JSON"),
 }
 
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS", "WEB_DIRECTORY"]
