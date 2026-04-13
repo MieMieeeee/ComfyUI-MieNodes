@@ -828,23 +828,11 @@ def _build_expand_graph_for_next_round(
                 else:
                     new_inputs["loop_ctx"] = resume_node.out(0)
 
-                value_any = next_ctx.get("value_any")
-                if value_any is None:
-                    value_any = [None] * 5
-                for idx in range(5):
-                    key = f"value_any_{idx + 1}"
-                    if key in new_inputs:
-                        new_inputs[key] = (
-                            value_any[idx] if idx < len(value_any) else None
-                        )
-
             if is_loop_end_node:
                 # End 必须强依赖当前层 cloned BodyOut
                 body_out_node = build_node(str(body_out_id))
                 new_inputs["loop_ctx"] = body_out_node.out(0)
-                new_inputs["value_image"] = body_out_node.out(1)
-                new_inputs["value_string"] = body_out_node.out(2)
-                new_inputs["state_json"] = body_out_node.out(3)
+                new_inputs["state_json"] = body_out_node.out(1)
             if oid in business_set:
                 new_inputs["__mie_loop_round_idx__"] = int(next_ctx.get("index", 0))
             new_node = graph.node(_get_class_type(old_node), oid, **new_inputs)
@@ -873,7 +861,7 @@ def _build_expand_graph_for_next_round(
                 build_node(cid)
             walk_from_body_in(cid)
 
-    walk_from_body_in(str(body_in_id))
+    # walk_from_body_in(str(body_in_id))
     build_node(str(body_out_id))
     build_node(str(end_id))
     # 返回 end 节点的 Node 对象，用于在 MieLoopEnd.execute 中构造 is_link() 结果
@@ -1155,14 +1143,7 @@ class MieLoopBodyOut:
                 "loop_ctx": ("MIE_LOOP_CTX",),
             },
             "optional": {
-                "value_image": ("IMAGE",),
-                "value_string": ("STRING", {"default": ""}),
                 "state_json": ("STRING", {"default": "{}"}),
-                "value_any_1": (any_typ,),
-                "value_any_2": (any_typ,),
-                "value_any_3": (any_typ,),
-                "value_any_4": (any_typ,),
-                "value_any_5": (any_typ,),
             },
             "hidden": {
                 "unique_id": "UNIQUE_ID",
@@ -1170,42 +1151,15 @@ class MieLoopBodyOut:
             },
         }
 
-    RETURN_TYPES = (
-        "MIE_LOOP_CTX",
-        "IMAGE",
-        "STRING",
-        "STRING",
-        any_typ,
-        any_typ,
-        any_typ,
-        any_typ,
-        any_typ,
-    )
-    RETURN_NAMES = (
-        "loop_ctx",
-        "value_image",
-        "value_string",
-        "state_json",
-        "value_any_1",
-        "value_any_2",
-        "value_any_3",
-        "value_any_4",
-        "value_any_5",
-    )
+    RETURN_TYPES = ("MIE_LOOP_CTX", "STRING")
+    RETURN_NAMES = ("loop_ctx", "state_json")
     FUNCTION = "execute"
     CATEGORY = MY_CATEGORY
 
     def execute(
         self,
         loop_ctx,
-        value_image=None,
-        value_string="",
         state_json="{}",
-        value_any_1=None,
-        value_any_2=None,
-        value_any_3=None,
-        value_any_4=None,
-        value_any_5=None,
         unique_id=None,
         dynprompt=None,
     ):
@@ -1218,25 +1172,8 @@ class MieLoopBodyOut:
             ctx["meta"].get("body_out_id"), current_node_id
         ):
             ctx["meta"]["body_out_id"] = current_node_id
-        ctx["value_any"] = [
-            value_any_1,
-            value_any_2,
-            value_any_3,
-            value_any_4,
-            value_any_5,
-        ]
         state_patch = _parse_json_object(state_json, "state_json")
-        return (
-            ctx,
-            value_image if value_image is not None else EMPTY_IMAGE,
-            str(value_string),
-            json.dumps(state_patch, ensure_ascii=False),
-            value_any_1,
-            value_any_2,
-            value_any_3,
-            value_any_4,
-            value_any_5,
-        )
+        return (ctx, json.dumps(state_patch, ensure_ascii=False))
 
 
 class MieLoopEnd:
@@ -1250,13 +1187,6 @@ class MieLoopEnd:
                 "state_json": ("STRING", {"default": "{}"}),
             },
             "optional": {
-                "value_image": ("IMAGE",),
-                "value_string": ("STRING", {"default": ""}),
-                "value_any_1": (any_typ,),
-                "value_any_2": (any_typ,),
-                "value_any_3": (any_typ,),
-                "value_any_4": (any_typ,),
-                "value_any_5": (any_typ,),
                 "debug": ("BOOLEAN", {"default": False}),
             },
             "hidden": {
@@ -1275,56 +1205,14 @@ class MieLoopEnd:
         self,
         loop_ctx,
         state_json,
-        value_image=None,
-        value_string="",
-        value_any_1=None,
-        value_any_2=None,
-        value_any_3=None,
-        value_any_4=None,
-        value_any_5=None,
         debug=False,
         dynprompt=None,
         unique_id=None,
         extra_pnginfo=None,
     ):
-        _ = value_image
-        _ = value_string
         _ = extra_pnginfo
-        _ = value_any_1
-        _ = value_any_2
-        _ = value_any_3
-        _ = value_any_4
-        _ = value_any_5
-        value_any_flags = [
-            value_any_1 is not None,
-            value_any_2 is not None,
-            value_any_3 is not None,
-            value_any_4 is not None,
-            value_any_5 is not None,
-        ]
-        if any(value_any_flags):
-            active_slots = [str(i + 1) for i, ok in enumerate(value_any_flags) if ok]
-            mie_log(f"LoopEnd: value_any received: slots={','.join(active_slots)}")
         ctx = copy.deepcopy(_validate_loop_ctx(loop_ctx))
         _ensure_meta_fields(ctx)
-        existing_value_any = ctx.get("value_any")
-        ctx["value_any"] = [
-            value_any_1
-            if value_any_1 is not None
-            else (existing_value_any[0] if existing_value_any else None),
-            value_any_2
-            if value_any_2 is not None
-            else (existing_value_any[1] if existing_value_any else None),
-            value_any_3
-            if value_any_3 is not None
-            else (existing_value_any[2] if existing_value_any else None),
-            value_any_4
-            if value_any_4 is not None
-            else (existing_value_any[3] if existing_value_any else None),
-            value_any_5
-            if value_any_5 is not None
-            else (existing_value_any[4] if existing_value_any else None),
-        ]
         current_node_id = _resolve_current_node_id(
             unique_id=unique_id, dynprompt=dynprompt
         )
