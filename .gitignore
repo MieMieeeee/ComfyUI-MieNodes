@@ -4,8 +4,12 @@ mie_llm_keys.json
 .idea/
 .trae/
 .sisyphus/
+.ruff_cache/
+%TEMP%/
+
 
 docs/
+ref/
 debug_logs/
 
 *.excalidraw
