@@ -7,7 +7,10 @@ from typing import Any
 
 import torch
 
-from .utils import any_typ, mie_log, add_suffix
+try:
+    from _mienodes_internal.core.utils import any_typ, mie_log, add_suffix
+except ImportError:
+    from ...core.utils import any_typ, mie_log, add_suffix
 
 try:
     from comfy_execution.graph_utils import GraphBuilder

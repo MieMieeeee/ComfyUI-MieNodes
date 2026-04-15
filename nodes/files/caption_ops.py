@@ -6,7 +6,10 @@ from datetime import datetime
 from glob import glob
 from PIL import Image
 
-from .utils import mie_log, any_typ, is_image_file
+try:
+    from _mienodes_internal.core.utils import mie_log, any_typ, is_image_file
+except ImportError:
+    from ...core.utils import mie_log, any_typ, is_image_file
 
 MY_CATEGORY = "🐑 MieNodes/🐑 Caption Tools"
 

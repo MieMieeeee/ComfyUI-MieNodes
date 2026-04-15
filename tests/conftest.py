@@ -3,8 +3,8 @@ Pytest conftest for ComfyUI-MieNodes loop module tests.
 
 Strategy: The project directory (ComfyUI-MieNodes) has hyphens in its name,
 so it cannot be imported as a Python package directly. We use importlib to
-load loop.py into a fake package context, after mocking all ComfyUI runtime
-dependencies.
+load nodes/loop/loop.py into a fake package context, after mocking all
+ComfyUI runtime dependencies.
 """
 
 import sys
@@ -61,42 +61,49 @@ for _mod_name in [
     sys.modules.setdefault(_mod_name, MagicMock())
 
 # ---------------------------------------------------------------------------
-# 2. Load utils.py as a standalone module
-#    loop.py does: from .utils import any_typ, mie_log, add_suffix
-#    We load utils.py first so it can be wired into the fake package.
+# 2. Load core/utils.py so it can be wired into the fake package.
 # ---------------------------------------------------------------------------
 _utils_spec = importlib.util.spec_from_file_location(
-    "utils",
-    os.path.join(PROJECT_DIR, "utils.py"),
+    "mie_pkg.core.utils",
+    os.path.join(PROJECT_DIR, "core", "utils.py"),
     submodule_search_locations=[],
 )
 _utils_mod = importlib.util.module_from_spec(_utils_spec)
 sys.modules["utils"] = _utils_mod
+_core_pkg = types.ModuleType("mie_pkg.core")
+_core_pkg.__path__ = [os.path.join(PROJECT_DIR, "core")]
+_core_pkg.__package__ = "mie_pkg.core"
+sys.modules["mie_pkg.core"] = _core_pkg
+sys.modules["mie_pkg.core.utils"] = _utils_mod
 _utils_spec.loader.exec_module(_utils_mod)
 
 # ---------------------------------------------------------------------------
-# 3. Create a fake parent package so relative imports in loop.py work
-#    loop.py uses: from .utils import ...
-#    Python resolves ".utils" relative to __package__.
-#    We create "mie_pkg" as a fake package with __path__ pointing to PROJECT_DIR.
+# 3. Create fake parent packages so relative imports in nodes/loop/loop.py work
 # ---------------------------------------------------------------------------
 _fake_pkg = types.ModuleType("mie_pkg")
 _fake_pkg.__path__ = [PROJECT_DIR]
 _fake_pkg.__package__ = "mie_pkg"
 sys.modules["mie_pkg"] = _fake_pkg
-sys.modules["mie_pkg.utils"] = _utils_mod
+_nodes_pkg = types.ModuleType("mie_pkg.nodes")
+_nodes_pkg.__path__ = [os.path.join(PROJECT_DIR, "nodes")]
+_nodes_pkg.__package__ = "mie_pkg.nodes"
+sys.modules["mie_pkg.nodes"] = _nodes_pkg
+_loop_pkg = types.ModuleType("mie_pkg.nodes.loop")
+_loop_pkg.__path__ = [os.path.join(PROJECT_DIR, "nodes", "loop")]
+_loop_pkg.__package__ = "mie_pkg.nodes.loop"
+sys.modules["mie_pkg.nodes.loop"] = _loop_pkg
 
 # ---------------------------------------------------------------------------
-# 4. Load loop.py with the fake package context
+# 4. Load nodes/loop/loop.py with the fake package context
 # ---------------------------------------------------------------------------
 _loop_spec = importlib.util.spec_from_file_location(
-    "mie_pkg.loop",
-    os.path.join(PROJECT_DIR, "loop.py"),
+    "mie_pkg.nodes.loop.loop",
+    os.path.join(PROJECT_DIR, "nodes", "loop", "loop.py"),
     submodule_search_locations=[],
 )
 loop = importlib.util.module_from_spec(_loop_spec)
-loop.__package__ = "mie_pkg"
-sys.modules["mie_pkg.loop"] = loop
+loop.__package__ = "mie_pkg.nodes.loop"
+sys.modules["mie_pkg.nodes.loop.loop"] = loop
 sys.modules["loop"] = loop  # also accessible as plain "loop"
 
 _loop_spec.loader.exec_module(loop)

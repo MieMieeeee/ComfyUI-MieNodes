@@ -1,7 +1,7 @@
 try:
-    from .utils import load_plugin_config, resolve_token
+    from _mienodes_internal.core.utils import load_plugin_config, resolve_token
 except ImportError:
-    from utils import load_plugin_config, resolve_token
+    from ..core.utils import load_plugin_config, resolve_token
 
 MY_CATEGORY = "🐑 MieNodes/🐑 TTS Service Config"
 

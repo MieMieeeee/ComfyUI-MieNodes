@@ -1,1 +1,13 @@
 mie_llm_keys.json
+
+.claude/
+.idea/
+.trae/
+.sisyphus/
+
+docs/
+debug_logs/
+
+*.excalidraw
+
+__pycache__/
