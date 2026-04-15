@@ -64,7 +64,7 @@ def _make_simple_dynprompt():
         },
         "20": {
             "class_type": "MieLoopBodyOut|Mie",
-            "inputs": {"loop_ctx": ["15", 0], "value_any_1": "hello"},
+            "inputs": {"loop_ctx": ["15", 0], "state_json": "{}"},
         },
         "30": {
             "class_type": "MieLoopEnd|Mie",
@@ -189,7 +189,7 @@ def test_body_nodes_business_used(monkeypatch):
         },
         "20": {
             "class_type": "MieLoopBodyOut|Mie",
-            "inputs": {"loop_ctx": ["15", 0], "value_any_1": ["17", 0]},
+            "inputs": {"loop_ctx": ["15", 0], "state_json": ["17", 0]},
         },
         "30": {
             "class_type": "MieLoopEnd|Mie",

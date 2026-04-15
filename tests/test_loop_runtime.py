@@ -29,6 +29,7 @@ class TestEnsureCollectors:
             "image": {"ref": None, "count": 0},
             "text": {"ref": None, "count": 0},
             "json": {"ref": None, "count": 0},
+            "audio": {"ref": None, "count": 0},
         }
 
     def test_ensure_collectors_preserves_existing(self):
@@ -37,6 +38,7 @@ class TestEnsureCollectors:
                 "image": {"ref": "abc", "count": 5},
                 "text": {"ref": None, "count": 0},
                 "json": {"ref": None, "count": 0},
+                "audio": {"ref": None, "count": 0},
             }
         }
         original = ctx["collectors"]
@@ -46,6 +48,7 @@ class TestEnsureCollectors:
         assert ctx["collectors"]["image"]["count"] == 5
         assert ctx["collectors"]["text"]["ref"] is None
         assert ctx["collectors"]["json"]["ref"] is None
+        assert ctx["collectors"]["audio"]["ref"] is None
 
     def test_ensure_collectors_fixes_corrupt(self):
         ctx = {"collectors": "bad"}
@@ -54,6 +57,7 @@ class TestEnsureCollectors:
         assert ctx["collectors"]["image"] == {"ref": None, "count": 0}
         assert ctx["collectors"]["text"] == {"ref": None, "count": 0}
         assert ctx["collectors"]["json"] == {"ref": None, "count": 0}
+        assert ctx["collectors"]["audio"] == {"ref": None, "count": 0}
 
     def test_ensure_collectors_fixes_image_slot(self):
         ctx = {"collectors": {"other_key": 42}}
@@ -61,6 +65,7 @@ class TestEnsureCollectors:
         assert ctx["collectors"]["image"] == {"ref": None, "count": 0}
         assert ctx["collectors"]["text"] == {"ref": None, "count": 0}
         assert ctx["collectors"]["json"] == {"ref": None, "count": 0}
+        assert ctx["collectors"]["audio"] == {"ref": None, "count": 0}
         assert ctx["collectors"]["other_key"] == 42
 
 

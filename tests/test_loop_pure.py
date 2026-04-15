@@ -87,37 +87,65 @@ def test_parse_json_array_not_array():
 
 
 def test_parse_params_list_int_list_basic():
-    result = _parse_params_list("int_list", "8,9,10", "", "[]")
+    result = _parse_params_list(param_type="int", param_mode="list", int_list="8,9,10")
     assert result == [{"value": 8}, {"value": 9}, {"value": 10}]
 
 
 def test_parse_params_list_int_list_chinese_comma():
-    result = _parse_params_list("int_list", "8\uff0c9\uff0c10", "", "[]")
+    result = _parse_params_list(param_type="int", param_mode="list", int_list="8\uff0c9\uff0c10")
     assert result == [{"value": 8}, {"value": 9}, {"value": 10}]
 
 
 def test_parse_params_list_int_list_newlines_tabs():
-    result = _parse_params_list("int_list", "8\n9\t10", "", "[]")
+    result = _parse_params_list(param_type="int", param_mode="list", int_list="8\n9\t10")
     assert result == [{"value": 8}, {"value": 9}, {"value": 10}]
 
 
 def test_parse_params_list_int_list_empty():
-    result = _parse_params_list("int_list", "", "", "[]")
+    result = _parse_params_list(param_type="int", param_mode="list", int_list="")
     assert result == []
 
 
 def test_parse_params_list_int_list_spaces():
-    result = _parse_params_list("int_list", " 8 , 9 ", "", "[]")
+    result = _parse_params_list(param_type="int", param_mode="list", int_list=" 8 , 9 ")
     assert result == [{"value": 8}, {"value": 9}]
 
 
 def test_parse_params_list_int_list_invalid_token():
     with pytest.raises(ValueError, match="invalid integer token"):
-        _parse_params_list("int_list", "8,abc,10", "", "[]")
+        _parse_params_list(param_type="int", param_mode="list", int_list="8,abc,10")
+
+
+def test_parse_params_list_int_range_basic():
+    result = _parse_params_list(
+        param_type="int",
+        param_mode="range",
+        int_range_start=2,
+        int_range_end=6,
+        int_range_step=2,
+    )
+    assert result == [{"value": 2}, {"value": 4}]
+
+
+def test_parse_params_list_int_range_left_closed_right_open():
+    result = _parse_params_list(
+        param_type="int",
+        param_mode="range",
+        int_range_start=0,
+        int_range_end=5,
+        int_range_step=1,
+    )
+    assert result == [
+        {"value": 0},
+        {"value": 1},
+        {"value": 2},
+        {"value": 3},
+        {"value": 4},
+    ]
 
 
 def test_parse_params_list_string_list_multiline():
-    result = _parse_params_list("string_list", "", "cat\ndog\ncar", "[]")
+    result = _parse_params_list(param_type="string", param_mode="list", string_list="cat\ndog\ncar")
     assert len(result) == 3
     assert result[0] == {"value": "cat"}
     assert result[1] == {"value": "dog"}
@@ -125,7 +153,7 @@ def test_parse_params_list_string_list_multiline():
 
 
 def test_parse_params_list_string_list_single_csv():
-    result = _parse_params_list("string_list", "", "cat,dog,car", "[]")
+    result = _parse_params_list(param_type="string", param_mode="list", string_list="cat,dog,car")
     assert len(result) == 3
     assert result[0] == {"value": "cat"}
     assert result[1] == {"value": "dog"}
@@ -133,35 +161,86 @@ def test_parse_params_list_string_list_single_csv():
 
 
 def test_parse_params_list_string_list_empty():
-    result = _parse_params_list("string_list", "", "", "[]")
+    result = _parse_params_list(param_type="string", param_mode="list", string_list="")
     assert result == []
 
 
 def test_parse_params_list_json_list_valid():
-    result = _parse_params_list("json_list", "", "", '[{"steps":8},{"steps":9}]')
+    result = _parse_params_list(
+        param_type="json", param_mode="list", json_list='[{"steps":8},{"steps":9}]'
+    )
     assert len(result) == 2
     assert result[0] == {"steps": 8}
     assert result[1] == {"steps": 9}
 
 
 def test_parse_params_list_json_list_empty():
-    result = _parse_params_list("json_list", "", "", "[]")
+    result = _parse_params_list(param_type="json", param_mode="list", json_list="[]")
     assert result == []
 
 
 def test_parse_params_list_json_list_invalid_json():
     with pytest.raises(ValueError, match="invalid JSON"):
-        _parse_params_list("json_list", "", "", "not json")
+        _parse_params_list(param_type="json", param_mode="list", json_list="not json")
 
 
 def test_parse_params_list_json_list_non_dict_items():
     with pytest.raises(ValueError, match="array of objects"):
-        _parse_params_list("json_list", "", "", "[1,2,3]")
+        _parse_params_list(param_type="json", param_mode="list", json_list="[1,2,3]")
+
+
+def test_parse_params_list_float_list_basic():
+    result = _parse_params_list(param_type="float", param_mode="list", float_list="0.5,1.25,2")
+    assert result == [{"value": 0.5}, {"value": 1.25}, {"value": 2.0}]
+
+
+def test_parse_params_list_float_range_basic():
+    result = _parse_params_list(
+        param_type="float",
+        param_mode="range",
+        float_range_start=0.1,
+        float_range_end=0.3,
+        float_range_step=0.1,
+    )
+    assert result == [{"value": 0.1}, {"value": 0.2}]
+
+
+def test_parse_params_list_float_range_left_closed_right_open():
+    result = _parse_params_list(
+        param_type="float",
+        param_mode="range",
+        float_range_start=0.0,
+        float_range_end=0.5,
+        float_range_step=0.1,
+    )
+    assert result == [
+        {"value": 0.0},
+        {"value": 0.1},
+        {"value": 0.2},
+        {"value": 0.3},
+        {"value": 0.4},
+    ]
+
+
+def test_parse_params_list_float_range_start_equal_end_is_empty():
+    result = _parse_params_list(
+        param_type="float",
+        param_mode="range",
+        float_range_start=0.3,
+        float_range_end=0.3,
+        float_range_step=0.1,
+    )
+    assert result == []
+
+
+def test_parse_params_list_string_range_not_supported():
+    with pytest.raises(ValueError, match="does not support range"):
+        _parse_params_list(param_type="string", param_mode="range")
 
 
 def test_parse_params_list_unknown_mode():
-    with pytest.raises(ValueError, match="Unknown params_mode"):
-        _parse_params_list("unknown", "", "", "[]")
+    with pytest.raises(ValueError, match="Unknown param_type|Unknown param_mode"):
+        _parse_params_list(param_type="unknown", param_mode="list")
 
 
 # ── _validate_loop_ctx ─────────────────────────────────────────────────────

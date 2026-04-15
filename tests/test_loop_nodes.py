@@ -29,6 +29,9 @@ from loop import (
     MieLoopCollectImage,
     MieLoopFinalizeImages,
     MieLoopCleanupImages,
+    MieLoopCollectAudio,
+    MieLoopFinalizeAudio,
+    MieLoopCleanupAudio,
     MieImageGrid,
     RUNTIME_STORE,
     EMPTY_IMAGES,
@@ -39,22 +42,80 @@ from loop import (
 
 
 class TestMieLoopStart:
-    def test_basic_int_list(self):
+    def test_input_types_put_initial_state_in_optional(self):
+        input_types = MieLoopStart.INPUT_TYPES()
+        assert "initial_state_json" not in input_types["required"]
+        assert "initial_state_json" in input_types["optional"]
+
+    def _execute_start(self, **overrides):
         node = MieLoopStart()
-        ctx, index, count, is_last = node.execute(
-            loop_id="scan_steps",
-            params_mode="int_list",
-            int_list="8,9,10",
-            string_list="",
-            json_list="[]",
-            initial_state_json="{}",
-        )
+        kwargs = {
+            "loop_id": "scan_steps",
+            "param_type": "int",
+            "param_mode": "list",
+            "int_list": "8,9,10",
+            "float_list": "",
+            "string_list": "",
+            "json_list": "[]",
+            "int_range_start": 0,
+            "int_range_end": 0,
+            "int_range_step": 1,
+            "float_range_start": 0.0,
+            "float_range_end": 0.0,
+            "float_range_step": 1.0,
+            "initial_state_json": "{}",
+        }
+        kwargs.update(overrides)
+        return node.execute(**kwargs)
+
+    def test_basic_int_list(self):
+        ctx, index, count, is_last = self._execute_start()
         assert ctx["version"] == 3
         assert index == 0
         assert count == 3
         assert is_last is False
         assert ctx["run_id"] != ""
         assert ctx["count"] == 3
+
+    def test_int_range(self):
+        ctx, index, count, is_last = self._execute_start(
+            param_type="int",
+            param_mode="range",
+            int_list="",
+            int_range_start=2,
+            int_range_end=6,
+            int_range_step=2,
+        )
+        assert ctx["params_list"] == [{"value": 2}, {"value": 4}]
+        assert count == 2
+        assert index == 0
+        assert is_last is False
+
+    def test_float_list(self):
+        ctx, index, count, is_last = self._execute_start(
+            param_type="float",
+            param_mode="list",
+            int_list="",
+            float_list="0.5,1.25,2.0",
+        )
+        assert ctx["params_list"] == [{"value": 0.5}, {"value": 1.25}, {"value": 2.0}]
+        assert count == 3
+        assert index == 0
+        assert is_last is False
+
+    def test_float_range(self):
+        ctx, index, count, is_last = self._execute_start(
+            param_type="float",
+            param_mode="range",
+            int_list="",
+            float_range_start=0.1,
+            float_range_end=0.3,
+            float_range_step=0.1,
+        )
+        assert ctx["params_list"] == [{"value": 0.1}, {"value": 0.2}]
+        assert count == 2
+        assert index == 0
+        assert is_last is False
 
     def test_string_list(self):
         node = MieLoopStart()
@@ -101,6 +162,7 @@ class TestMieLoopStart:
             "image": {"ref": None, "count": 0},
             "text": {"ref": None, "count": 0},
             "json": {"ref": None, "count": 0},
+            "audio": {"ref": None, "count": 0},
         }
 
     def test_count_1_immediate_last(self):
@@ -132,6 +194,7 @@ class TestMieLoopStart:
             "image": {"ref": None, "count": 0},
             "text": {"ref": None, "count": 0},
             "json": {"ref": None, "count": 0},
+            "audio": {"ref": None, "count": 0},
         }
 
     def test_meta_json(self):
@@ -262,27 +325,26 @@ class TestMieLoopBodyIn:
 
 
 class TestMieLoopBodyOut:
+    def test_input_types_put_state_json_in_optional(self):
+        input_types = MieLoopBodyOut.INPUT_TYPES()
+        assert "state_json" not in input_types["required"]
+        assert "state_json" in input_types["optional"]
+
     def test_basic(self, sample_loop_ctx):
         node = MieLoopBodyOut()
         result = node.execute(loop_ctx=sample_loop_ctx)
         assert result[0]["run_id"] == "test_run_123"
-        # result = (ctx, value_image, value_string, state_json, any1..any5)
+        assert len(result) == 2
 
-    def test_stores_value_any(self, sample_loop_ctx):
+    def test_returns_state_json(self, sample_loop_ctx):
         node = MieLoopBodyOut()
-        ctx = node.execute(loop_ctx=sample_loop_ctx, value_any_1="hello")[0]
-        assert ctx["value_any"][0] == "hello"
-
-    def test_empty_image(self, sample_loop_ctx):
-        node = MieLoopBodyOut()
-        result = node.execute(loop_ctx=sample_loop_ctx)
-        # value_image (index 1) should be EMPTY_IMAGE when None
-        assert result[1].shape == EMPTY_IMAGES.shape or result[1].shape[0] == 1
+        result = node.execute(loop_ctx=sample_loop_ctx, state_json='{"k":"v"}')
+        assert result[1] == '{"k": "v"}'
 
     def test_state_json(self, sample_loop_ctx):
         node = MieLoopBodyOut()
         result = node.execute(loop_ctx=sample_loop_ctx, state_json='{"k":"v"}')
-        parsed = json.loads(result[3])
+        parsed = json.loads(result[1])
         assert parsed["k"] == "v"
 
     def test_cloned_round_keeps_original_body_out_id(self, sample_loop_ctx):
@@ -296,6 +358,11 @@ class TestMieLoopBodyOut:
 
 
 class TestMieLoopEnd:
+    def test_input_types_put_state_json_in_optional(self):
+        input_types = MieLoopEnd.INPUT_TYPES()
+        assert "state_json" not in input_types["required"]
+        assert "state_json" in input_types["optional"]
+
     def _make_last_ctx(self, sample_loop_ctx):
         """Modify ctx so index is at the last position (done=True)."""
         ctx = sample_loop_ctx.copy()
@@ -340,14 +407,6 @@ class TestMieLoopEnd:
         node = MieLoopEnd()
         result_ctx, *_ = node.execute(loop_ctx=ctx, state_json='{"accumulated":5}')
         assert result_ctx["state"]["accumulated"] == 5
-
-    def test_value_any_stored(self, sample_loop_ctx):
-        ctx = self._make_last_ctx(sample_loop_ctx)
-        node = MieLoopEnd()
-        result_ctx, *_ = node.execute(
-            loop_ctx=ctx, state_json="{}", value_any_1="hello"
-        )
-        assert result_ctx["value_any"][0] == "hello"
 
     def test_no_dynprompt_not_done_raises(self, sample_loop_ctx):
         # index=0, count=3 → not done, dynprompt=None → raises
@@ -437,6 +496,13 @@ class TestStateGetters:
 
 
 # ---- MieLoopStateSet ----
+
+
+class TestMieLoopStateSet:
+    def test_input_types_put_base_state_json_in_optional(self):
+        input_types = MieLoopStateSet.INPUT_TYPES()
+        assert "base_state_json" not in input_types["required"]
+        assert "base_state_json" in input_types["optional"]
 
 
 class TestMieLoopStateSet:

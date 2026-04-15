@@ -118,12 +118,12 @@ import pytest
 def reset_runtime_store():
     """Reset RUNTIME_STORE before and after each test."""
     store = loop.RUNTIME_STORE
-    store["collectors"] = {"image": {}, "text": {}, "json": {}}
+    store["collectors"] = {"image": {}, "text": {}, "json": {}, "audio": {}}
     store["state_objects"] = {"image": {}}
     store["meta"] = {}
     store["_detect_cache"] = {}
     yield
-    store["collectors"] = {"image": {}, "text": {}, "json": {}}
+    store["collectors"] = {"image": {}, "text": {}, "json": {}, "audio": {}}
     store["state_objects"] = {"image": {}}
     store["meta"] = {}
     store["_detect_cache"] = {}
@@ -147,6 +147,7 @@ def sample_loop_ctx():
             "image": {"ref": None, "count": 0},
             "text": {"ref": None, "count": 0},
             "json": {"ref": None, "count": 0},
+            "audio": {"ref": None, "count": 0},
         },
         "meta": {
             "body_in_id": "10",
@@ -190,7 +191,6 @@ def sample_dynprompt():
             "class_type": "MieLoopBodyOut|Mie",
             "inputs": {
                 "loop_ctx": ["15", 0],
-                "value_string": "output",
                 "state_json": "{}",
             },
         },

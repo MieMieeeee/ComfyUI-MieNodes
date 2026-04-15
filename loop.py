@@ -1,5 +1,6 @@
 import copy
 import json
+import math
 import time
 import uuid
 from typing import Any
@@ -19,11 +20,13 @@ except Exception:
 MY_CATEGORY = "🐑 MieNodes/🐑 Loop"
 EMPTY_IMAGE = torch.zeros((1, 1, 1, 3), dtype=torch.float32)
 EMPTY_IMAGES = torch.zeros((0, 1, 1, 3), dtype=torch.float32)
+EMPTY_AUDIO = {"waveform": torch.empty((1, 2, 0), dtype=torch.float32), "sample_rate": 0}
 RUNTIME_STORE = {
     "collectors": {
         "image": {},
         "text": {},
         "json": {},
+        "audio": {},
     },
     "state_objects": {
         "image": {},
@@ -61,38 +64,154 @@ def _parse_json_array(value: str, name: str):
     return parsed
 
 
-def _parse_params_list(params_mode, int_list, string_list, json_list):
-    if params_mode == "int_list":
-        normalized = (
-            str(int_list).replace("，", ",").replace("\n", ",").replace("\t", ",")
+def _normalize_scalar_tokens(value):
+    normalized = str(value).replace("，", ",").replace("\n", ",").replace("\t", ",")
+    return [x.strip() for x in normalized.split(",") if x.strip()]
+
+
+def _parse_int_list(int_list):
+    parts = _normalize_scalar_tokens(int_list)
+    if not parts:
+        return []
+    params = []
+    for token in parts:
+        try:
+            params.append({"value": int(token)})
+        except Exception as e:
+            raise ValueError(
+                f"int_list contains invalid integer token '{token}'"
+            ) from e
+    return params
+
+
+def _parse_float_list(float_list):
+    parts = _normalize_scalar_tokens(float_list)
+    if not parts:
+        return []
+    params = []
+    for token in parts:
+        try:
+            params.append({"value": float(token)})
+        except Exception as e:
+            raise ValueError(
+                f"float_list contains invalid float token '{token}'"
+            ) from e
+    return params
+
+
+def _parse_string_list(string_list):
+    raw_lines = [x.strip() for x in str(string_list).splitlines() if x.strip()]
+    if len(raw_lines) == 1 and "," in raw_lines[0]:
+        raw_lines = [x.strip() for x in raw_lines[0].split(",") if x.strip()]
+    if not raw_lines:
+        return []
+    return [{"value": x} for x in raw_lines]
+
+
+def _parse_json_params_list(json_list):
+    parsed = _parse_json_array(json_list, "json_list")
+    if not parsed:
+        return []
+    if not all(isinstance(x, dict) for x in parsed):
+        raise ValueError("json_list must be an array of objects")
+    return parsed
+
+
+def _parse_int_range(start, end, step):
+    start = int(start)
+    end = int(end)
+    step = int(step)
+    if step <= 0:
+        raise ValueError("int_range_step must be > 0")
+    if end < start:
+        raise ValueError("int_range_end must be >= int_range_start")
+    return [{"value": x} for x in range(start, end, step)]
+
+
+def _normalize_float_value(value):
+    rounded = round(float(value), 12)
+    if abs(rounded) < 1e-12:
+        return 0.0
+    return rounded
+
+
+def _parse_float_range(start, end, step):
+    start = float(start)
+    end = float(end)
+    step = float(step)
+    if not math.isfinite(start) or not math.isfinite(end) or not math.isfinite(step):
+        raise ValueError("float_range values must be finite numbers")
+    if step <= 0:
+        raise ValueError("float_range_step must be > 0")
+    if end < start:
+        raise ValueError("float_range_end must be >= float_range_start")
+    eps = max(abs(step) * 1e-9, 1e-12)
+    count = int(math.floor(((end - start) / step) + eps))
+    values = []
+    for idx in range(count):
+        current = start + step * idx
+        if current >= end - eps:
+            break
+        values.append({"value": _normalize_float_value(current)})
+    return values
+
+
+def _resolve_param_selection(param_type, param_mode, params_mode=None):
+    legacy_modes = {
+        "int_list": ("int", "list"),
+        "int_range": ("int", "range"),
+        "float_list": ("float", "list"),
+        "float_range": ("float", "range"),
+        "string_list": ("string", "list"),
+        "json_list": ("json", "list"),
+    }
+    if params_mode is not None:
+        try:
+            return legacy_modes[str(params_mode)]
+        except KeyError as e:
+            raise ValueError(f"Unknown params_mode: {params_mode}") from e
+    pt = str(param_type)
+    pm = str(param_mode)
+    if pt not in {"int", "float", "string", "json"}:
+        raise ValueError(f"Unknown param_type: {param_type}")
+    if pm not in {"list", "range"}:
+        raise ValueError(f"Unknown param_mode: {param_mode}")
+    return pt, pm
+
+
+def _parse_params_list(
+    param_type,
+    param_mode,
+    int_list="",
+    float_list="",
+    string_list="",
+    json_list="[]",
+    int_range_start=0,
+    int_range_end=0,
+    int_range_step=1,
+    float_range_start=0.0,
+    float_range_end=0.0,
+    float_range_step=1.0,
+    params_mode=None,
+):
+    param_type, param_mode = _resolve_param_selection(
+        param_type, param_mode, params_mode=params_mode
+    )
+    if param_type == "int" and param_mode == "list":
+        return _parse_int_list(int_list)
+    if param_type == "int" and param_mode == "range":
+        return _parse_int_range(int_range_start, int_range_end, int_range_step)
+    if param_type == "float" and param_mode == "list":
+        return _parse_float_list(float_list)
+    if param_type == "float" and param_mode == "range":
+        return _parse_float_range(
+            float_range_start, float_range_end, float_range_step
         )
-        parts = [x.strip() for x in normalized.split(",") if x.strip()]
-        if not parts:
-            return []
-        params = []
-        for token in parts:
-            try:
-                params.append({"value": int(token)})
-            except Exception as e:
-                raise ValueError(
-                    f"int_list contains invalid integer token '{token}'"
-                ) from e
-        return params
-    if params_mode == "string_list":
-        raw_lines = [x.strip() for x in str(string_list).splitlines() if x.strip()]
-        if len(raw_lines) == 1 and "," in raw_lines[0]:
-            raw_lines = [x.strip() for x in raw_lines[0].split(",") if x.strip()]
-        if not raw_lines:
-            return []
-        return [{"value": x} for x in raw_lines]
-    if params_mode == "json_list":
-        parsed = _parse_json_array(json_list, "json_list")
-        if not parsed:
-            return []
-        if not all(isinstance(x, dict) for x in parsed):
-            raise ValueError("json_list must be an array of objects")
-        return parsed
-    raise ValueError(f"Unknown params_mode: {params_mode}")
+    if param_type == "string" and param_mode == "list":
+        return _parse_string_list(string_list)
+    if param_type == "json" and param_mode == "list":
+        return _parse_json_params_list(json_list)
+    raise ValueError(f"{param_type} does not support {param_mode}")
 
 
 def _validate_loop_ctx(loop_ctx):
@@ -179,6 +298,8 @@ def _ensure_collectors(ctx):
         collectors["text"] = {"ref": None, "count": 0}
     if "json" not in collectors or not isinstance(collectors["json"], dict):
         collectors["json"] = {"ref": None, "count": 0}
+    if "audio" not in collectors or not isinstance(collectors["audio"], dict):
+        collectors["audio"] = {"ref": None, "count": 0}
 
 
 def _ensure_collector_slot(ctx, kind):
@@ -453,6 +574,7 @@ def _is_collector_class(base_class_type: str):
         "MieLoopCollectImage",
         "MieLoopCollectText",
         "MieLoopCollectJSON",
+        "MieLoopCollectAudio",
     }
 
 
@@ -466,6 +588,8 @@ def _is_excluded_output_class(base_class_type: str):
         "MieLoopCleanupText",
         "MieLoopFinalizeJSONList",
         "MieLoopCleanupJSON",
+        "MieLoopFinalizeAudio",
+        "MieLoopCleanupAudio",
         "MieImageGrid",
         "SaveImage",
         "PreviewImage",
@@ -750,7 +874,7 @@ def _build_expand_graph_for_next_round(
         base_class_type = _base_class_type(_get_class_type(node))
         return not _is_excluded_output_class(base_class_type)
 
-    def loop_ctx_chain_has_state_update(node_id, visited=None):
+    def loop_ctx_chain_has_stateful_dependency(node_id, visited=None):
         nid = str(node_id)
         if visited is None:
             visited = set()
@@ -763,11 +887,13 @@ def _build_expand_graph_for_next_round(
         if not isinstance(node, dict):
             return False
         base_class_type = _base_class_type(_get_class_type(node))
-        if base_class_type.startswith("MieLoopStateSet"):
+        if base_class_type.startswith("MieLoopStateSet") or _is_collector_class(
+            base_class_type
+        ):
             return True
         loop_ctx_input = _get_inputs(node).get("loop_ctx")
         if is_link(loop_ctx_input):
-            return loop_ctx_chain_has_state_update(loop_ctx_input[0], visited)
+            return loop_ctx_chain_has_stateful_dependency(loop_ctx_input[0], visited)
         return False
 
     def build_node(old_id):
@@ -810,9 +936,10 @@ def _build_expand_graph_for_next_round(
                 new_inputs[in_name] = [src_id, src_idx]
             
             # 协议节点特殊重接：
-            # 1) BodyOut 默认回退到 Resume，确保普通 collector workflow 沿用稳定的推进语义。
-            #    只有当其真实 loop_ctx 上游链中存在 StateSet* 节点时，才保留真实链路，
-            #    以便把跨轮 feedback / state 更新传进下一轮。
+            # 1) BodyOut 默认回退到 Resume，确保纯协议空链仍沿用稳定推进语义。
+            #    只有当其真实 loop_ctx 上游链中存在 StateSet* 或 Collect* 节点时，
+            #    才保留真实链路，以便把跨轮 feedback/state 更新或当前轮 collector
+            #    业务链纳入 End 的强依赖路径。
             # 2) End 的协议输入必须显式绑定到“当前层 cloned BodyOut”，
             #    不能依赖通用 rewiring，否则递归 expand 时可能错误连到上一层 BodyOut，
             #    导致 End 早于当前轮业务链执行，最终少收一张图。
@@ -823,7 +950,7 @@ def _build_expand_graph_for_next_round(
                 original_loop_ctx = old_inputs.get("loop_ctx")
                 if is_link(original_loop_ctx):
                     original_src_id = str(original_loop_ctx[0])
-                    if not loop_ctx_chain_has_state_update(original_src_id):
+                    if not loop_ctx_chain_has_stateful_dependency(original_src_id):
                         new_inputs["loop_ctx"] = resume_node.out(0)
                 else:
                     new_inputs["loop_ctx"] = resume_node.out(0)
@@ -943,26 +1070,37 @@ class MieLoopStart:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "loop_id": ("STRING", {"default": "scan_steps"}),
-                "params_mode": (
-                    ["int_list", "string_list", "json_list"],
-                    {"default": "int_list"},
+                "loop_id": ("STRING", {"default": "loop_1"}),
+                "param_type": (
+                    ["int", "float", "string", "json"],
+                    {"default": "int"},
                 ),
-                "int_list": ("STRING", {"default": "8,9,10"}),
+                "param_mode": (
+                    ["list", "range"],
+                    {"default": "list"},
+                ),
+            },
+            "optional": {
+                "initial_state_json": ("STRING", {"default": "{}"}),
+                "int_list": ("STRING", {"default": "1,2,3"}),
+                "float_list": ("STRING", {"default": "0.1,0.2,0.3"}),
                 "string_list": (
                     "STRING",
-                    {"default": "cat\ndog\ncar", "multiline": True},
+                    {"default": "item_1\nitem_2\nitem_3", "multiline": True},
                 ),
                 "json_list": (
                     "STRING",
                     {
-                        "default": '[{"steps": 8}, {"steps": 9}, {"steps": 10}]',
+                        "default": '[{"value": 1}, {"value": 2}, {"value": 3}]',
                         "multiline": True,
                     },
                 ),
-                "initial_state_json": ("STRING", {"default": "{}"}),
-            },
-            "optional": {
+                "int_range_start": ("INT", {"default": 1}),
+                "int_range_end": ("INT", {"default": 3}),
+                "int_range_step": ("INT", {"default": 1, "min": 1}),
+                "float_range_start": ("FLOAT", {"default": 0.1}),
+                "float_range_end": ("FLOAT", {"default": 0.3}),
+                "float_range_step": ("FLOAT", {"default": 0.1}),
                 "meta_json": ("STRING", {"default": "{}"}),
                 "resume_loop_ctx": ("STRING", {"default": ""}),
             },
@@ -976,13 +1114,22 @@ class MieLoopStart:
     def execute(
         self,
         loop_id,
-        params_mode,
-        int_list,
-        string_list,
-        json_list,
-        initial_state_json,
+        initial_state_json="{}",
+        param_type="int",
+        param_mode="list",
+        int_list="",
+        float_list="",
+        string_list="",
+        json_list="[]",
+        int_range_start=0,
+        int_range_end=0,
+        int_range_step=1,
+        float_range_start=0.0,
+        float_range_end=0.0,
+        float_range_step=1.0,
         meta_json="{}",
         resume_loop_ctx="",
+        params_mode=None,
     ):
         _prune_runtime_store()
         resume_raw = (resume_loop_ctx or "").strip()
@@ -999,7 +1146,23 @@ class MieLoopStart:
                 f"LoopStart: resumed loop_id={ctx['loop_id']}, run_id={ctx['run_id']}, index={ctx['index']}, count={ctx['count']}"
             )
             return (ctx, int(ctx["index"]), int(ctx["count"]), bool(ctx["is_last"]))
-        params_list = _parse_params_list(params_mode, int_list, string_list, json_list)
+        resolved_param_type, resolved_param_mode = _resolve_param_selection(
+            param_type, param_mode, params_mode=params_mode
+        )
+        params_list = _parse_params_list(
+            param_type=resolved_param_type,
+            param_mode=resolved_param_mode,
+            int_list=int_list,
+            float_list=float_list,
+            string_list=string_list,
+            json_list=json_list,
+            int_range_start=int_range_start,
+            int_range_end=int_range_end,
+            int_range_step=int_range_step,
+            float_range_start=float_range_start,
+            float_range_end=float_range_end,
+            float_range_step=float_range_step,
+        )
         initial_state = _parse_json_object(initial_state_json, "initial_state_json")
         meta = _parse_json_object(meta_json, "meta_json")
         count = len(params_list)
@@ -1020,6 +1183,7 @@ class MieLoopStart:
                     "image": {"ref": None, "count": 0},
                     "text": {"ref": None, "count": 0},
                     "json": {"ref": None, "count": 0},
+                    "audio": {"ref": None, "count": 0},
                 },
                 "meta": {
                     "user_label": meta.get("user_label", ""),
@@ -1055,6 +1219,7 @@ class MieLoopStart:
                 "image": {"ref": None, "count": 0},
                 "text": {"ref": None, "count": 0},
                 "json": {"ref": None, "count": 0},
+                "audio": {"ref": None, "count": 0},
             },
             "meta": {
                 "user_label": meta.get("user_label", ""),
@@ -1071,7 +1236,8 @@ class MieLoopStart:
         RUNTIME_STORE["meta"][run_id]["count"] = count
         RUNTIME_STORE["meta"][run_id]["status"] = "running"
         mie_log(
-            f"LoopStart: initialized loop_id={loop_ctx['loop_id']}, run_id={run_id}, count={count}, params_mode={params_mode}"
+            f"LoopStart: initialized loop_id={loop_ctx['loop_id']}, run_id={run_id}, count={count}, "
+            f"param_type={resolved_param_type}, param_mode={resolved_param_mode}"
         )
         return (loop_ctx, 0, count, loop_ctx["is_last"])
 
@@ -1184,9 +1350,9 @@ class MieLoopEnd:
         return {
             "required": {
                 "loop_ctx": ("MIE_LOOP_CTX",),
-                "state_json": ("STRING", {"default": "{}"}),
             },
             "optional": {
+                "state_json": ("STRING", {"default": "{}"}),
                 "debug": ("BOOLEAN", {"default": False}),
             },
             "hidden": {
@@ -1204,7 +1370,7 @@ class MieLoopEnd:
     def execute(
         self,
         loop_ctx,
-        state_json,
+        state_json="{}",
         debug=False,
         dynprompt=None,
         unique_id=None,
@@ -1556,10 +1722,9 @@ class MieLoopStateSet:
     @classmethod
     def INPUT_TYPES(cls):
         return {
-            "required": {
-                "base_state_json": ("STRING", {"default": "{}"}),
-            },
+            "required": {},
             "optional": {
+                "base_state_json": ("STRING", {"default": "{}"}),
                 "key1": ("STRING", {"default": ""}),
                 "value1_json": ("STRING", {"default": ""}),
                 "key2": ("STRING", {"default": ""}),
@@ -1576,7 +1741,7 @@ class MieLoopStateSet:
 
     def execute(
         self,
-        base_state_json,
+        base_state_json="{}",
         key1="",
         value1_json="",
         key2="",
@@ -1946,6 +2111,125 @@ class MieLoopCollectJSON:
             f"LoopCollectJSON: loop_id={ctx['loop_id']}, run_id={ctx['run_id']}, ref={ref}, count={json_collector['count']}"
         )
         return (ctx,)
+
+
+class MieLoopCollectAudio:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "loop_ctx": ("MIE_LOOP_CTX",),
+                "audio": ("AUDIO",),
+            }
+        }
+
+    RETURN_TYPES = ("MIE_LOOP_CTX",)
+    RETURN_NAMES = ("loop_ctx",)
+    FUNCTION = "execute"
+    CATEGORY = MY_CATEGORY
+
+    def execute(self, loop_ctx, audio):
+        ctx = copy.deepcopy(_validate_loop_ctx(loop_ctx))
+        run_meta = _ensure_runtime_meta(ctx.get("run_id", ""))
+        audio_collector = _ensure_collector_slot(ctx, "audio")
+        ref = audio_collector.get("ref")
+        audio_store = _ensure_runtime_collector_store("audio")
+        if not ref:
+            ref = _create_collector_ref("audiocol", ctx)
+            audio_collector["ref"] = ref
+            audio_store[ref] = []
+            audio_refs = _ensure_runtime_collector_refs(run_meta, "audio")
+            if ref not in audio_refs:
+                audio_refs.append(ref)
+        if ref not in audio_store:
+            audio_store[ref] = []
+        audio_store[ref].append(
+            {
+                "waveform": audio["waveform"].detach().clone(),
+                "sample_rate": int(audio["sample_rate"]),
+            }
+        )
+        audio_collector["count"] = len(audio_store[ref])
+        mie_log(
+            f"LoopCollectAudio: loop_id={ctx['loop_id']}, run_id={ctx['run_id']}, ref={ref}, count={audio_collector['count']}"
+        )
+        return (ctx,)
+
+
+class MieLoopFinalizeAudio:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "loop_ctx": ("MIE_LOOP_CTX",),
+                "done": ("BOOLEAN", {"forceInput": True}),
+            }
+        }
+
+    RETURN_TYPES = ("AUDIO",)
+    RETURN_NAMES = ("audio",)
+    FUNCTION = "execute"
+    CATEGORY = MY_CATEGORY
+
+    def execute(self, loop_ctx, done):
+        ctx = copy.deepcopy(_validate_loop_ctx(loop_ctx))
+        if not bool(done):
+            return (EMPTY_AUDIO,)
+        ref = _ensure_collector_slot(ctx, "audio").get("ref")
+        if not ref:
+            return (EMPTY_AUDIO,)
+        items = _pop_collector_items("audio", ref)
+        run_meta = _ensure_runtime_meta(ctx.get("run_id", ""))
+        _remove_runtime_collector_ref(run_meta, "audio", ref)
+        if not items:
+            return (EMPTY_AUDIO,)
+        sample_rate = int(items[0]["sample_rate"])
+        waveforms = []
+        for idx, item in enumerate(items):
+            current_rate = int(item["sample_rate"])
+            if current_rate != sample_rate:
+                raise ValueError(
+                    f"audio sample rate mismatch at index {idx}: {current_rate} != {sample_rate}"
+                )
+            waveforms.append(item["waveform"])
+        merged = {
+            "waveform": torch.cat(waveforms, dim=-1),
+            "sample_rate": sample_rate,
+        }
+        mie_log(
+            f"LoopFinalizeAudio: loop_id={ctx['loop_id']}, run_id={ctx['run_id']}, ref={ref}, count={len(items)}"
+        )
+        return (merged,)
+
+
+class MieLoopCleanupAudio:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "loop_ctx": ("MIE_LOOP_CTX",),
+            }
+        }
+
+    RETURN_TYPES = ("MIE_LOOP_CTX", "BOOLEAN")
+    RETURN_NAMES = ("loop_ctx", "cleaned")
+    FUNCTION = "execute"
+    CATEGORY = MY_CATEGORY
+
+    def execute(self, loop_ctx):
+        ctx = copy.deepcopy(_validate_loop_ctx(loop_ctx))
+        ref = _ensure_collector_slot(ctx, "audio").get("ref")
+        if not ref:
+            return (ctx, False)
+        removed = _pop_collector_items("audio", ref)
+        run_meta = _ensure_runtime_meta(ctx.get("run_id", ""))
+        _remove_runtime_collector_ref(run_meta, "audio", ref)
+        cleaned = len(removed) > 0
+        ctx["collectors"]["audio"] = {"ref": None, "count": 0}
+        mie_log(
+            f"LoopCleanupAudio: loop_id={ctx['loop_id']}, run_id={ctx['run_id']}, ref={ref}, cleaned={cleaned}"
+        )
+        return (ctx, cleaned)
 
 
 class MieLoopFinalizeJSONList:
