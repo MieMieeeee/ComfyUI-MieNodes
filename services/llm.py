@@ -5,7 +5,10 @@ import numpy as np
 import cv2
 import torch
 
-from .utils import mie_log, load_plugin_config, resolve_token
+try:
+    from _mienodes_internal.core.utils import mie_log, load_plugin_config, resolve_token
+except ImportError:
+    from ..core.utils import mie_log, load_plugin_config, resolve_token
 
 MY_CATEGORY = "🐑 MieNodes/🐑 LLM Service Config"
 

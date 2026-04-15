@@ -10,7 +10,10 @@ from types import SimpleNamespace
 from deepdiff import DeepDiff
 
 import folder_paths
-from .utils import mie_log, any_typ, compute_hash, convert_size
+try:
+    from _mienodes_internal.core.utils import mie_log, any_typ, compute_hash, convert_size
+except ImportError:
+    from ...core.utils import mie_log, any_typ, compute_hash, convert_size
 
 MY_CATEGORY = "🐑 MieNodes/🐑 Common"
 

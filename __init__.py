@@ -1,27 +1,34 @@
-from .common import ShowAnythingMie, SaveAnythingAsFile, CompareFiles, GetAbsolutePath, GetFileInfo, \
-    GetDirectoryFilesInfo, CopyFiles, DeleteFiles, ClassicAspectRatio
-from .caption_file_operator import BatchRenameFiles, BatchDeleteFiles, BatchEditTextFiles, BatchSyncImageCaptionFiles, \
-    SummaryTextFiles, BatchConvertImageFiles, DedupImageFiles
-from .downloader import ModelDownloader, HFRepoDownloader
-from .translator import TextTranslator
-from .prompt_generator import PromptGenerator, KontextPromptGenerator, AddUserKontextPreset, RemoveUserKontextPreset, \
+import sys
+import types
+from pathlib import Path
+
+_INTERNAL_PACKAGE = "_mienodes_internal"
+_ROOT_DIR = Path(__file__).resolve().parent
+if _INTERNAL_PACKAGE not in sys.modules:
+    _pkg = types.ModuleType(_INTERNAL_PACKAGE)
+    _pkg.__path__ = [str(_ROOT_DIR)]
+    _pkg.__package__ = _INTERNAL_PACKAGE
+    sys.modules[_INTERNAL_PACKAGE] = _pkg
+
+from _mienodes_internal.nodes.common import ShowAnythingMie, SaveAnythingAsFile, CompareFiles, GetAbsolutePath, GetFileInfo, \
+    GetDirectoryFilesInfo, CopyFiles, DeleteFiles, ClassicAspectRatio, StringConcat
+from _mienodes_internal.nodes.files import BatchRenameFiles, BatchDeleteFiles, BatchEditTextFiles, BatchSyncImageCaptionFiles, \
+    SummaryTextFiles, BatchConvertImageFiles, DedupImageFiles, ModelDownloader, HFRepoDownloader
+from _mienodes_internal.nodes.llm import TextTranslator, PromptGenerator, KontextPromptGenerator, AddUserKontextPreset, RemoveUserKontextPreset, \
     FrameTransitionPromptGenerator, HunyuanVideoI2VPromptGenerator, HunyuanVideoT2VPromptGenerator, ZImagePromptGenerator, Flux2PromptGenerator, FluxKleinT2VPromptGenerator, LTX2PromptGenerator
-from .llm_service_connector import SetGeneralLLMServiceConnector, SetSiliconFlowLLMServiceConnector, \
+from _mienodes_internal.services.llm import SetGeneralLLMServiceConnector, SetSiliconFlowLLMServiceConnector, \
     SetGithubModelsLLMServiceConnector, SetZhiPuLLMServiceConnector, SetKimiLLMServiceConnector, \
     SetDeepSeekLLMServiceConnector, SetGeminiLLMServiceConnector, SetBailianLLMServiceConnector, \
     CheckLLMServiceConnectivity, CallLLMService
-from .audio_operator import WavConcat
-from .tts_generator import QwenTTSNode
-from .tts_service_connector import SetBailianTTSConnector
-from .string_operator import StringConcat
-from .image_operator import SingleImageToVideo, AddNumberWatermarkForImage
-from .loop import MieLoopStart, MieLoopResume, MieLoopBodyIn, MieLoopBodyOut, MieLoopEnd, MieLoopParamGetInt, MieLoopParamGetFloat, \
+from _mienodes_internal.nodes.media import WavConcat, QwenTTSNode, SingleImageToVideo, AddNumberWatermarkForImage
+from _mienodes_internal.services.tts import SetBailianTTSConnector
+from _mienodes_internal.nodes.loop import MieLoopStart, MieLoopResume, MieLoopBodyIn, MieLoopBodyOut, MieLoopEnd, MieLoopParamGetInt, MieLoopParamGetFloat, \
     MieLoopParamGetString, MieLoopParamGetBool, MieLoopStateGetInt, MieLoopStateGetFloat, MieLoopStateGetString, \
     MieLoopStateGetBool, MieLoopStateSet, MieImageSelectFrame, MieLoopStateSetImage, MieLoopStateGetImage, MieLoopStateCleanupImage, \
     MieLoopCollectImage, MieLoopFinalizeImages, MieLoopCleanupImages, MieImageGrid, \
     MieLoopCollectText, MieLoopFinalizeTextList, MieLoopCleanupText, MieLoopCollectJSON, MieLoopFinalizeJSONList, MieLoopCleanupJSON, \
     MieLoopCollectAudio, MieLoopFinalizeAudio, MieLoopCleanupAudio
-from .utils import add_suffix, add_emoji
+from _mienodes_internal.core.utils import add_suffix, add_emoji
 
 WEB_DIRECTORY = "./js"
 

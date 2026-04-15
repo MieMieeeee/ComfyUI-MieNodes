@@ -6,7 +6,10 @@ import os
 import re
 import subprocess
 from pathlib import Path
-from .utils import mie_log
+try:
+    from _mienodes_internal.core.utils import mie_log
+except ImportError:
+    from ...core.utils import mie_log
 
 MY_CATEGORY = "🐑 MieNodes/🐑 Image Operator"
 

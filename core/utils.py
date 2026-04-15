@@ -75,7 +75,7 @@ def is_image_file(file_path):
 
 
 def load_plugin_config(filename="mie_llm_keys.json"):
-    p = Path(__file__).parent / filename
+    p = Path(__file__).resolve().parents[1] / filename
     if not p.exists():
         return {}
     try:

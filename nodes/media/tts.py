@@ -6,9 +6,9 @@ import tempfile
 import torchaudio
 import torch
 try:
-    from .utils import mie_log
+    from _mienodes_internal.core.utils import mie_log
 except ImportError:
-    from utils import mie_log
+    from ...core.utils import mie_log
 
 MY_CATEGORY = "🐑 MieNodes/🐑 TTS Service"
 

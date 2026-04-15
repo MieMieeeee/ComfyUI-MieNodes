@@ -3,14 +3,17 @@ import os
 import json
 
 import folder_paths
-script_directory = os.path.dirname(os.path.abspath(__file__))
+script_directory = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 MY_CATEGORY = "🐑 MieNodes/🐑 Prompt Generator"
 
-from .utils import image_tensor_to_data_url
+try:
+    from _mienodes_internal.core.utils import image_tensor_to_data_url
+except ImportError:
+    from ...core.utils import image_tensor_to_data_url
 
 def get_user_presets_file():
-    base_dir = os.path.dirname(os.path.abspath(__file__))
+    base_dir = script_directory
     return os.path.join(base_dir, "user_kontext_presets.json")
 
 USER_PRESETS_FILE = get_user_presets_file()
