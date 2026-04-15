@@ -66,8 +66,8 @@ def _make_user_workflow_dynprompt():
     #3  KSampler(model:[16,0], positive:[6,0], negative:[7,0], latent_image:[32,1], steps:[35,0])
     #8  VAEDecode(samples:[3,0], vae:[17,0])
     #37 MieLoopCollectImage(loop_ctx:[32,0], image:[8,0])
-    #33 MieLoopBodyOut(loop_ctx:[37,0], value_image:[8,0])
-    #34 MieLoopEnd(loop_ctx:[33,0], value_image:[33,1])
+    #33 MieLoopBodyOut(loop_ctx:[37,0], state_json:"{}")
+    #34 MieLoopEnd(loop_ctx:[33,0], state_json:[33,1])
     """
     return {
         "13": {
@@ -133,13 +133,13 @@ def _make_user_workflow_dynprompt():
         },
         "33": {
             "class_type": "MieLoopBodyOut|Mie",
-            "inputs": {"loop_ctx": ["37", 0], "value_image": ["8", 0]},
+            "inputs": {"loop_ctx": ["37", 0], "state_json": "{}"},
         },
         "34": {
             "class_type": "MieLoopEnd|Mie",
             "inputs": {
                 "loop_ctx": ["33", 0],
-                "value_image": ["33", 1],
+                "state_json": ["33", 1],
                 "debug": True,
             },
         },
@@ -308,13 +308,12 @@ class TestBodyInAnchorPassthrough:
         model_input = ksampler["inputs"]["model"]
         assert model_input == ["16", 0], "model should remain as external link"
 
-    def test_bodyout_loop_ctx_from_resume_for_plain_collector_workflow(self, monkeypatch):
-        """Plain collector workflows should still use Resume for BodyOut.loop_ctx.
+    def test_bodyout_loop_ctx_preserves_collector_chain_for_plain_collector_workflow(self, monkeypatch):
+        """Plain collector workflows must keep the collector ctx chain on BodyOut.
 
-        When the upstream chain only carries ctx through BodyIn -> CollectImage,
-        BodyOut should not inherit the collector link because no state mutation
-        happened inside the body. Using Resume keeps index progression stable and
-        avoids reintroducing the historical infinite expand loop.
+        Otherwise End only depends on Resume -> BodyOut -> End, and cloned
+        business nodes like WanAnimateToVideo/KSampler/VAEDecode/CollectImage
+        never become part of the executed dependency chain.
         """
         monkeypatch.setattr(loop_module, "GraphBuilder", FakeGraphBuilder)
         dynprompt = _make_user_workflow_dynprompt()
@@ -325,24 +324,25 @@ class TestBodyInAnchorPassthrough:
             next_ctx, dynprompt, "32", "33", "34", detect
         )
 
-        # Find Resume node and BodyOut node
-        resume_node_id = None
+        # Find CollectImage node and BodyOut node
+        collect_node_id = None
         bodyout = None
         for nid, nd in result.items():
-            if nd["class_type"] == "MieLoopResume|Mie":
-                resume_node_id = nid
+            if nd["class_type"] == "MieLoopCollectImage|Mie":
+                collect_node_id = nid
             if nd["class_type"] == "MieLoopBodyOut|Mie":
                 bodyout = nd
-        assert resume_node_id is not None, "Resume node should exist in expand graph"
+        assert collect_node_id is not None, "CollectImage should be cloned in expand graph"
         assert bodyout is not None, "BodyOut should be cloned in expand graph"
 
-        # BodyOut.loop_ctx should point to Resume for the plain collector workflow.
+        # BodyOut.loop_ctx should point to the cloned CollectImage so End keeps a
+        # strong dependency on the current round's business chain.
         loop_ctx_input = bodyout["inputs"]["loop_ctx"]
         assert isinstance(loop_ctx_input, list), (
             f"BodyOut.loop_ctx should be a link, got {loop_ctx_input}"
         )
-        assert loop_ctx_input[0] == resume_node_id, (
-            f"BodyOut.loop_ctx should point to Resume node ({resume_node_id}), "
+        assert loop_ctx_input[0] == collect_node_id, (
+            f"BodyOut.loop_ctx should point to CollectImage node ({collect_node_id}), "
             f"got {loop_ctx_input}"
         )
 

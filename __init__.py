@@ -19,7 +19,8 @@ from .loop import MieLoopStart, MieLoopResume, MieLoopBodyIn, MieLoopBodyOut, Mi
     MieLoopParamGetString, MieLoopParamGetBool, MieLoopStateGetInt, MieLoopStateGetFloat, MieLoopStateGetString, \
     MieLoopStateGetBool, MieLoopStateSet, MieImageSelectFrame, MieLoopStateSetImage, MieLoopStateGetImage, MieLoopStateCleanupImage, \
     MieLoopCollectImage, MieLoopFinalizeImages, MieLoopCleanupImages, MieImageGrid, \
-    MieLoopCollectText, MieLoopFinalizeTextList, MieLoopCleanupText, MieLoopCollectJSON, MieLoopFinalizeJSONList, MieLoopCleanupJSON
+    MieLoopCollectText, MieLoopFinalizeTextList, MieLoopCleanupText, MieLoopCollectJSON, MieLoopFinalizeJSONList, MieLoopCleanupJSON, \
+    MieLoopCollectAudio, MieLoopFinalizeAudio, MieLoopCleanupAudio
 from .utils import add_suffix, add_emoji
 
 WEB_DIRECTORY = "./js"
@@ -99,6 +100,9 @@ NODE_CLASS_MAPPINGS = {
     add_suffix("MieLoopCollectJSON"): MieLoopCollectJSON,
     add_suffix("MieLoopFinalizeJSONList"): MieLoopFinalizeJSONList,
     add_suffix("MieLoopCleanupJSON"): MieLoopCleanupJSON,
+    add_suffix("MieLoopCollectAudio"): MieLoopCollectAudio,
+    add_suffix("MieLoopFinalizeAudio"): MieLoopFinalizeAudio,
+    add_suffix("MieLoopCleanupAudio"): MieLoopCleanupAudio,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -176,6 +180,9 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     add_suffix("MieLoopCollectJSON"): add_emoji("Mie Loop Collect JSON"),
     add_suffix("MieLoopFinalizeJSONList"): add_emoji("Mie Loop Finalize JSON List"),
     add_suffix("MieLoopCleanupJSON"): add_emoji("Mie Loop Cleanup JSON"),
+    add_suffix("MieLoopCollectAudio"): add_emoji("Mie Loop Collect Audio"),
+    add_suffix("MieLoopFinalizeAudio"): add_emoji("Mie Loop Finalize Audio"),
+    add_suffix("MieLoopCleanupAudio"): add_emoji("Mie Loop Cleanup Audio"),
 }
 
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS", "WEB_DIRECTORY"]

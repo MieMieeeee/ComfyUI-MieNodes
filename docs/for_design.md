@@ -482,6 +482,11 @@ RUNTIME_STORE["collectors"][kind]
   - `MieLoopCleanupJSON`
 
 ## 5. 工作流规范
+- 协议节点最小接口：
+  - `MieLoopBodyOut`：只传 `loop_ctx` 与 `state_json`
+  - `MieLoopEnd`：只接收 `loop_ctx`、`state_json`、`debug`
+  - 不再通过 `BodyOut/End` 传递 `value_image`、`value_string`、`value_any_*`
+  - 所有内容输出统一走 `collector -> finalize`
 - 图像：
   - `LoopStart -> BodyIn -> 业务节点 -> CollectImage -> BodyOut -> LoopEnd -> FinalizeImages(done) -> ImageGrid -> Preview/Save`
 - 文本：

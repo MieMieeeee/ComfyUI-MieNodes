@@ -265,7 +265,7 @@ def test_collect_loop_body_with_excluded():
 
     For a node to be in the body, it must be reachable from both BodyOut
     backward and BodyIn forward. So BodyOut must reference SaveImage via
-    an input link (e.g., value_any_1 -> SaveImage output).
+    an input link (e.g., state_json -> SaveImage output).
     """
     dynprompt = {
         "10": {
@@ -282,7 +282,7 @@ def test_collect_loop_body_with_excluded():
         },
         "20": {
             "class_type": "MieLoopBodyOut|Mie",
-            "inputs": {"loop_ctx": ["15", 0], "value_any_1": ["17", 0]},
+            "inputs": {"loop_ctx": ["15", 0], "state_json": ["17", 0]},
         },
     }
     filtered, debug = collect_loop_body("10", "20", dynprompt)
@@ -314,7 +314,7 @@ def test_collect_loop_body_with_collector():
         },
         "20": {
             "class_type": "MieLoopBodyOut|Mie",
-            "inputs": {"loop_ctx": ["15", 0], "value_any_1": ["18", 0]},
+            "inputs": {"loop_ctx": ["15", 0], "state_json": ["18", 0]},
         },
     }
     filtered, debug = collect_loop_body("10", "20", dynprompt)
@@ -445,7 +445,7 @@ def _make_simple_dynprompt():
         },
         "20": {
             "class_type": "MieLoopBodyOut|Mie",
-            "inputs": {"loop_ctx": ["15", 0], "value_any_1": "hello"},
+            "inputs": {"loop_ctx": ["15", 0], "state_json": "{}"},
         },
         "30": {
             "class_type": "MieLoopEnd|Mie",
@@ -546,11 +546,10 @@ def test_build_expand_graph_business_round_idx(monkeypatch):
     assert business_node["inputs"]["__mie_loop_round_idx__"] == 2
 
 
-def test_build_expand_graph_value_any_injected(monkeypatch):
-    """BodyOut's value_any inputs get replaced with values from next_ctx."""
+def test_build_expand_graph_preserves_bodyout_state_json_input(monkeypatch):
+    """BodyOut keeps explicit state_json wiring in the cloned graph."""
     monkeypatch.setattr(loop_module, "GraphBuilder", FakeGraphBuilder)
-    next_ctx = _make_next_ctx(value_any=["replaced_val", "second", None, None, None])
-    # BodyOut must have value_any_1 AND value_any_2 in its inputs for both to be injected
+    next_ctx = _make_next_ctx()
     dynprompt = {
         "10": {
             "class_type": "MieLoopBodyIn|Mie",
@@ -564,8 +563,7 @@ def test_build_expand_graph_value_any_injected(monkeypatch):
             "class_type": "MieLoopBodyOut|Mie",
             "inputs": {
                 "loop_ctx": ["15", 0],
-                "value_any_1": "hello",
-                "value_any_2": "world",
+                "state_json": '{"step": 1}',
             },
         },
         "30": {
@@ -584,8 +582,7 @@ def test_build_expand_graph_value_any_injected(monkeypatch):
             body_out_node = node_data
             break
     assert body_out_node is not None
-    assert body_out_node["inputs"]["value_any_1"] == "replaced_val"
-    assert body_out_node["inputs"]["value_any_2"] == "second"
+    assert body_out_node["inputs"]["state_json"] == '{"step": 1}'
 
 
 def test_build_expand_graph_cyclic_detection(monkeypatch):
@@ -718,17 +715,14 @@ def test_bug_m1_visiting_set_cleaned_on_error(monkeypatch):
 
 
 # ======================================================================
-# Bug M4: value_any default explicit
+# Bug M4: state_json default passthrough
 # ======================================================================
 
 
-def test_bug_m4_value_any_default_when_missing(monkeypatch):
-    """When value_any key is absent from next_ctx, defaults to [None]*5."""
+def test_bug_m4_bodyout_without_state_json_keeps_minimal_inputs(monkeypatch):
+    """BodyOut without explicit state_json keeps only the loop_ctx link."""
     monkeypatch.setattr(loop_module, "GraphBuilder", FakeGraphBuilder)
-    # Explicitly create ctx WITHOUT value_any key
     next_ctx = _make_next_ctx()
-    next_ctx.pop("value_any", None)
-    # BodyOut has value_any_1 in its inputs
     dynprompt = {
         "10": {
             "class_type": "MieLoopBodyIn|Mie",
@@ -740,7 +734,7 @@ def test_bug_m4_value_any_default_when_missing(monkeypatch):
         },
         "20": {
             "class_type": "MieLoopBodyOut|Mie",
-            "inputs": {"loop_ctx": ["15", 0], "value_any_1": "original"},
+            "inputs": {"loop_ctx": ["15", 0]},
         },
         "30": {
             "class_type": "MieLoopEnd|Mie",
@@ -758,8 +752,7 @@ def test_bug_m4_value_any_default_when_missing(monkeypatch):
             body_out = node_data
             break
     assert body_out is not None
-    # value_any_1 should be None (default) since next_ctx had no value_any
-    assert body_out["inputs"]["value_any_1"] is None
+    assert sorted(body_out["inputs"].keys()) == ["loop_ctx"]
 
 
 # ======================================================================
