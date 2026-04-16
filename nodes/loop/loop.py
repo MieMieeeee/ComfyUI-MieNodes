@@ -1,11 +1,14 @@
 import copy
 import json
 import math
+import os
+import tempfile
 import time
 import uuid
 from typing import Any
 
 import torch
+from pathlib import Path
 
 try:
     from _mienodes_internal.core.utils import any_typ, mie_log, add_suffix
@@ -365,6 +368,65 @@ def _ensure_runtime_collector_store(kind):
     return RUNTIME_STORE["collectors"][kind]
 
 
+def _is_disk_cache_item(item):
+    return isinstance(item, dict) and isinstance(item.get("disk_path"), str) and item.get("disk_path") != ""
+
+
+def _collect_disk_paths(items):
+    if not isinstance(items, list):
+        return []
+    paths = []
+    for item in items:
+        if _is_disk_cache_item(item):
+            paths.append(str(item["disk_path"]))
+    return paths
+
+
+def _cleanup_disk_cache_paths(paths):
+    if not paths:
+        return
+    for raw_path in paths:
+        try:
+            os.remove(str(raw_path))
+        except FileNotFoundError:
+            pass
+        except Exception:
+            pass
+
+
+def _cleanup_disk_cache_items(items):
+    _cleanup_disk_cache_paths(_collect_disk_paths(items))
+
+
+def _get_default_offload_dir():
+    try:
+        import folder_paths  # type: ignore
+
+        base = folder_paths.get_temp_directory()
+    except Exception:
+        base = tempfile.gettempdir()
+    return str(Path(base) / "mie_loop_offload")
+
+
+def _resolve_offload_dir(ctx, offload_dir):
+    raw = str(offload_dir or "").strip()
+    if raw:
+        return str(Path(raw))
+    run_id = str(ctx.get("run_id", "norun")).strip() or "norun"
+    safe_run = "".join([c if c.isalnum() or c in {"-", "_"} else "_" for c in run_id])
+    return str(Path(_get_default_offload_dir()) / safe_run)
+
+
+def _offload_payload_to_disk(kind, ctx, ref, payload, offload_dir):
+    base_dir = Path(_resolve_offload_dir(ctx, offload_dir))
+    base_dir.mkdir(parents=True, exist_ok=True)
+    suffix = uuid.uuid4().hex[:10]
+    safe_kind = "".join([c if c.isalnum() or c in {"-", "_"} else "_" for c in str(kind)])
+    path = base_dir / f"{safe_kind}_{suffix}.pt"
+    torch.save(payload, str(path))
+    return {"disk_path": str(path), "ref": str(ref)}
+
+
 def _ensure_state_object_store(kind):
     if "state_objects" not in RUNTIME_STORE or not isinstance(
         RUNTIME_STORE["state_objects"], dict
@@ -496,7 +558,8 @@ def _cleanup_runtime_for_run(run_id):
                 continue
             store = _ensure_runtime_collector_store(kind)
             for ref in list(refs):
-                store.pop(ref, None)
+                removed = store.pop(ref, None)
+                _cleanup_disk_cache_items(removed)
             collector_refs[kind] = []
     state_object_refs = run_meta.get("state_object_refs", {})
     if isinstance(state_object_refs, dict):
@@ -544,7 +607,8 @@ def _prune_runtime_store():
         live_refs = live_refs_by_kind.get(kind, set())
         for ref in list(store.keys()):
             if ref not in live_refs:
-                store.pop(ref, None)
+                removed = store.pop(ref, None)
+                _cleanup_disk_cache_items(removed)
     for kind, store in list(state_object_stores.items()):
         live_refs = live_state_object_refs_by_kind.get(kind, set())
         for ref in list(store.keys()):
@@ -1025,18 +1089,31 @@ def _merge_images_for_ctx(loop_ctx):
     ref = _ensure_collector_slot(ctx, "image").get("ref")
     if not ref:
         return EMPTY_IMAGES
-    batches = _pop_collector_items("image", ref)
+    raw_batches = _pop_collector_items("image", ref)
     run_meta = _ensure_runtime_meta(ctx.get("run_id", ""))
     _remove_runtime_collector_ref(run_meta, "image", ref)
-    if not batches:
+    if not raw_batches:
         return EMPTY_IMAGES
-    base_shape = tuple(batches[0].shape[1:])
-    for idx, item in enumerate(batches):
-        if tuple(item.shape[1:]) != base_shape:
-            raise ValueError(
-                f"MieLoopFinalizeImages: image shape mismatch at index {idx}: {tuple(item.shape[1:])} != {base_shape}"
-            )
-    return torch.cat(batches, dim=0)
+    disk_paths = _collect_disk_paths(raw_batches)
+    try:
+        batches = []
+        for item in raw_batches:
+            if _is_disk_cache_item(item):
+                loaded = torch.load(str(item["disk_path"]), map_location="cpu")
+                if not isinstance(loaded, torch.Tensor):
+                    raise ValueError("disk cached image is not a torch.Tensor")
+                batches.append(loaded)
+            else:
+                batches.append(item)
+        base_shape = tuple(batches[0].shape[1:])
+        for idx, item in enumerate(batches):
+            if tuple(item.shape[1:]) != base_shape:
+                raise ValueError(
+                    f"MieLoopFinalizeImages: image shape mismatch at index {idx}: {tuple(item.shape[1:])} != {base_shape}"
+                )
+        return torch.cat(batches, dim=0)
+    finally:
+        _cleanup_disk_cache_paths(disk_paths)
 
 
 def _grid_images(images, cols=2, pad=4):
@@ -1509,6 +1586,25 @@ class MieLoopEnd:
         return (ctx, done)
 
 
+class MieLoopGetIndex:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "loop_ctx": ("MIE_LOOP_CTX",),
+            }
+        }
+
+    RETURN_TYPES = ("INT",)
+    RETURN_NAMES = ("index",)
+    FUNCTION = "execute"
+    CATEGORY = MY_CATEGORY
+
+    def execute(self, loop_ctx):
+        ctx = _validate_loop_ctx(loop_ctx)
+        return (int(ctx.get("index", 0)),)
+
+
 class MieLoopParamGetInt:
     @classmethod
     def INPUT_TYPES(cls):
@@ -1876,7 +1972,11 @@ class MieLoopCollectImage:
             "required": {
                 "loop_ctx": ("MIE_LOOP_CTX",),
                 "image": ("IMAGE",),
-            }
+            },
+            "optional": {
+                "offload_to_disk": ("BOOLEAN", {"default": False}),
+                "offload_dir": ("STRING", {"default": ""}),
+            },
         }
 
     RETURN_TYPES = ("MIE_LOOP_CTX",)
@@ -1884,7 +1984,7 @@ class MieLoopCollectImage:
     FUNCTION = "execute"
     CATEGORY = MY_CATEGORY
 
-    def execute(self, loop_ctx, image):
+    def execute(self, loop_ctx, image, offload_to_disk=False, offload_dir=""):
         ctx = copy.deepcopy(_validate_loop_ctx(loop_ctx))
         run_meta = _ensure_runtime_meta(ctx.get("run_id", ""))
         images_collector = _ensure_collector_slot(ctx, "image")
@@ -1899,7 +1999,13 @@ class MieLoopCollectImage:
                 image_refs.append(ref)
         if ref not in image_store:
             image_store[ref] = []
-        image_store[ref].append(image.detach().clone())
+        if bool(offload_to_disk):
+            payload = image.detach().to("cpu")
+            image_store[ref].append(
+                _offload_payload_to_disk("image", ctx, ref, payload, offload_dir)
+            )
+        else:
+            image_store[ref].append(image.detach().clone())
         images_collector["count"] = len(image_store[ref])
         mie_log(
             f"LoopCollectImage: loop_id={ctx['loop_id']}, run_id={ctx['run_id']}, ref={ref}, count={images_collector['count']}"
@@ -1949,6 +2055,7 @@ class MieLoopCleanupImages:
         if not ref:
             return (ctx, False)
         removed = _pop_collector_items("image", ref)
+        _cleanup_disk_cache_items(removed)
         run_meta = _ensure_runtime_meta(ctx.get("run_id", ""))
         _remove_runtime_collector_ref(run_meta, "image", ref)
         ctx["collectors"]["image"] = {"ref": None, "count": 0}
@@ -2123,7 +2230,11 @@ class MieLoopCollectAudio:
             "required": {
                 "loop_ctx": ("MIE_LOOP_CTX",),
                 "audio": ("AUDIO",),
-            }
+            },
+            "optional": {
+                "offload_to_disk": ("BOOLEAN", {"default": False}),
+                "offload_dir": ("STRING", {"default": ""}),
+            },
         }
 
     RETURN_TYPES = ("MIE_LOOP_CTX",)
@@ -2131,7 +2242,7 @@ class MieLoopCollectAudio:
     FUNCTION = "execute"
     CATEGORY = MY_CATEGORY
 
-    def execute(self, loop_ctx, audio):
+    def execute(self, loop_ctx, audio, offload_to_disk=False, offload_dir=""):
         ctx = copy.deepcopy(_validate_loop_ctx(loop_ctx))
         run_meta = _ensure_runtime_meta(ctx.get("run_id", ""))
         audio_collector = _ensure_collector_slot(ctx, "audio")
@@ -2146,12 +2257,21 @@ class MieLoopCollectAudio:
                 audio_refs.append(ref)
         if ref not in audio_store:
             audio_store[ref] = []
-        audio_store[ref].append(
-            {
-                "waveform": audio["waveform"].detach().clone(),
+        if bool(offload_to_disk):
+            payload = {
+                "waveform": audio["waveform"].detach().to("cpu"),
                 "sample_rate": int(audio["sample_rate"]),
             }
-        )
+            audio_store[ref].append(
+                _offload_payload_to_disk("audio", ctx, ref, payload, offload_dir)
+            )
+        else:
+            audio_store[ref].append(
+                {
+                    "waveform": audio["waveform"].detach().clone(),
+                    "sample_rate": int(audio["sample_rate"]),
+                }
+            )
         audio_collector["count"] = len(audio_store[ref])
         mie_log(
             f"LoopCollectAudio: loop_id={ctx['loop_id']}, run_id={ctx['run_id']}, ref={ref}, count={audio_collector['count']}"
@@ -2181,28 +2301,41 @@ class MieLoopFinalizeAudio:
         ref = _ensure_collector_slot(ctx, "audio").get("ref")
         if not ref:
             return (EMPTY_AUDIO,)
-        items = _pop_collector_items("audio", ref)
+        raw_items = _pop_collector_items("audio", ref)
         run_meta = _ensure_runtime_meta(ctx.get("run_id", ""))
         _remove_runtime_collector_ref(run_meta, "audio", ref)
-        if not items:
+        if not raw_items:
             return (EMPTY_AUDIO,)
-        sample_rate = int(items[0]["sample_rate"])
-        waveforms = []
-        for idx, item in enumerate(items):
-            current_rate = int(item["sample_rate"])
-            if current_rate != sample_rate:
-                raise ValueError(
-                    f"audio sample rate mismatch at index {idx}: {current_rate} != {sample_rate}"
-                )
-            waveforms.append(item["waveform"])
-        merged = {
-            "waveform": torch.cat(waveforms, dim=-1),
-            "sample_rate": sample_rate,
-        }
-        mie_log(
-            f"LoopFinalizeAudio: loop_id={ctx['loop_id']}, run_id={ctx['run_id']}, ref={ref}, count={len(items)}"
-        )
-        return (merged,)
+        disk_paths = _collect_disk_paths(raw_items)
+        try:
+            items = []
+            for item in raw_items:
+                if _is_disk_cache_item(item):
+                    loaded = torch.load(str(item["disk_path"]), map_location="cpu")
+                    if not isinstance(loaded, dict):
+                        raise ValueError("disk cached audio is not an object")
+                    items.append(loaded)
+                else:
+                    items.append(item)
+            sample_rate = int(items[0]["sample_rate"])
+            waveforms = []
+            for idx, item in enumerate(items):
+                current_rate = int(item["sample_rate"])
+                if current_rate != sample_rate:
+                    raise ValueError(
+                        f"audio sample rate mismatch at index {idx}: {current_rate} != {sample_rate}"
+                    )
+                waveforms.append(item["waveform"])
+            merged = {
+                "waveform": torch.cat(waveforms, dim=-1),
+                "sample_rate": sample_rate,
+            }
+            mie_log(
+                f"LoopFinalizeAudio: loop_id={ctx['loop_id']}, run_id={ctx['run_id']}, ref={ref}, count={len(items)}"
+            )
+            return (merged,)
+        finally:
+            _cleanup_disk_cache_paths(disk_paths)
 
 
 class MieLoopCleanupAudio:
@@ -2225,6 +2358,7 @@ class MieLoopCleanupAudio:
         if not ref:
             return (ctx, False)
         removed = _pop_collector_items("audio", ref)
+        _cleanup_disk_cache_items(removed)
         run_meta = _ensure_runtime_meta(ctx.get("run_id", ""))
         _remove_runtime_collector_ref(run_meta, "audio", ref)
         cleaned = len(removed) > 0

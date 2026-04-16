@@ -22,7 +22,7 @@ from _mienodes_internal.services.llm import SetGeneralLLMServiceConnector, SetSi
     CheckLLMServiceConnectivity, CallLLMService
 from _mienodes_internal.nodes.media import WavConcat, QwenTTSNode, SingleImageToVideo, AddNumberWatermarkForImage
 from _mienodes_internal.services.tts import SetBailianTTSConnector
-from _mienodes_internal.nodes.loop import MieLoopStart, MieLoopResume, MieLoopBodyIn, MieLoopBodyOut, MieLoopEnd, MieLoopParamGetInt, MieLoopParamGetFloat, \
+from _mienodes_internal.nodes.loop import MieLoopStart, MieLoopResume, MieLoopBodyIn, MieLoopBodyOut, MieLoopEnd, MieLoopGetIndex, MieLoopParamGetInt, MieLoopParamGetFloat, \
     MieLoopParamGetString, MieLoopParamGetBool, MieLoopStateGetInt, MieLoopStateGetFloat, MieLoopStateGetString, \
     MieLoopStateGetBool, MieLoopStateSet, MieImageSelectFrame, MieLoopStateSetImage, MieLoopStateGetImage, MieLoopStateCleanupImage, \
     MieLoopCollectImage, MieLoopFinalizeImages, MieLoopCleanupImages, MieImageGrid, \
@@ -84,6 +84,7 @@ NODE_CLASS_MAPPINGS = {
     add_suffix("MieLoopBodyIn"): MieLoopBodyIn,
     add_suffix("MieLoopBodyOut"): MieLoopBodyOut,
     add_suffix("MieLoopEnd"): MieLoopEnd,
+    add_suffix("MieLoopGetIndex"): MieLoopGetIndex,
     add_suffix("MieLoopParamGetInt"): MieLoopParamGetInt,
     add_suffix("MieLoopParamGetFloat"): MieLoopParamGetFloat,
     add_suffix("MieLoopParamGetString"): MieLoopParamGetString,
@@ -164,6 +165,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     add_suffix("MieLoopBodyIn"): add_emoji("Mie Loop Body In"),
     add_suffix("MieLoopBodyOut"): add_emoji("Mie Loop Body Out"),
     add_suffix("MieLoopEnd"): add_emoji("Mie Loop End"),
+    add_suffix("MieLoopGetIndex"): add_emoji("Mie Loop Get Index"),
     add_suffix("MieLoopParamGetInt"): add_emoji("Mie Loop Param Get Int"),
     add_suffix("MieLoopParamGetFloat"): add_emoji("Mie Loop Param Get Float"),
     add_suffix("MieLoopParamGetString"): add_emoji("Mie Loop Param Get String"),
