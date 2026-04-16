@@ -1,5 +1,7 @@
 import pytest
 import torch
+import tempfile
+from pathlib import Path
 
 from loop import (
     _ensure_collectors,
@@ -112,3 +114,43 @@ def test_cleanup_audio_resets_slot_and_runtime_store():
     cleaned_ctx = cleanup.execute(ctx)[0]
     assert cleaned_ctx["collectors"]["audio"] == {"ref": None, "count": 0}
     assert ref not in RUNTIME_STORE["collectors"]["audio"]
+
+
+def test_offload_audio_to_disk_and_finalize_cleans_files():
+    ctx = _make_ctx()
+    collect = MieLoopCollectAudio()
+    finalize = MieLoopFinalizeAudio()
+
+    with tempfile.TemporaryDirectory() as td:
+        ctx = collect.execute(ctx, _make_audio(4), True, td)[0]
+        ctx = collect.execute(ctx, _make_audio(6), True, td)[0]
+        ref = ctx["collectors"]["audio"]["ref"]
+        stored = RUNTIME_STORE["collectors"]["audio"][ref]
+        assert len(stored) == 2
+        paths = [Path(x["disk_path"]) for x in stored]
+        assert all(p.exists() for p in paths)
+
+        merged = finalize.execute(ctx, True)[0]
+        assert merged["sample_rate"] == 24000
+        assert merged["waveform"].shape == (1, 2, 10)
+        assert ref not in RUNTIME_STORE["collectors"]["audio"]
+        assert all(not p.exists() for p in paths)
+
+
+def test_offload_audio_to_disk_and_cleanup_cleans_files():
+    ctx = _make_ctx()
+    collect = MieLoopCollectAudio()
+    cleanup = MieLoopCleanupAudio()
+
+    with tempfile.TemporaryDirectory() as td:
+        ctx = collect.execute(ctx, _make_audio(4), True, td)[0]
+        ref = ctx["collectors"]["audio"]["ref"]
+        stored = RUNTIME_STORE["collectors"]["audio"][ref]
+        paths = [Path(x["disk_path"]) for x in stored]
+        assert all(p.exists() for p in paths)
+
+        cleaned_ctx, cleaned = cleanup.execute(ctx)
+        assert cleaned is True
+        assert cleaned_ctx["collectors"]["audio"] == {"ref": None, "count": 0}
+        assert ref not in RUNTIME_STORE["collectors"]["audio"]
+        assert all(not p.exists() for p in paths)

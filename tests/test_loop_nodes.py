@@ -17,6 +17,7 @@ from loop import (
     MieLoopBodyIn,
     MieLoopBodyOut,
     MieLoopEnd,
+    MieLoopGetIndex,
     MieLoopParamGetInt,
     MieLoopParamGetFloat,
     MieLoopParamGetString,
@@ -482,6 +483,19 @@ class TestParamGetters:
         node = MieLoopParamGetBool()
         result = node.execute(loop_ctx=sample_loop_ctx, key="flag", default_value=False)
         assert result == (True,)
+
+
+class TestLoopGetIndex:
+    def test_get_index_zero_based(self, sample_loop_ctx):
+        node = MieLoopGetIndex()
+        result = node.execute(loop_ctx=sample_loop_ctx)
+        assert result == (0,)
+
+    def test_get_index_current_round(self, sample_loop_ctx):
+        sample_loop_ctx["index"] = 2
+        node = MieLoopGetIndex()
+        result = node.execute(loop_ctx=sample_loop_ctx)
+        assert result == (2,)
 
 
 # ---- State getters ----
