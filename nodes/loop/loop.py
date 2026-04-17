@@ -914,8 +914,12 @@ def _build_expand_graph_for_next_round(
     protocol_nodes = {str(body_out_id), str(end_id)}
     all_nodes = _get_all_nodes(dynprompt)
     graph = GraphBuilder()
+    resume_node_id = "__mie_loop_resume__"
+    while resume_node_id in all_nodes:
+        resume_node_id += "_"
     resume_node = graph.node(
         add_suffix("MieLoopResume"),
+        resume_node_id,
         loop_ctx_json=json.dumps(next_ctx, ensure_ascii=False),
     )
     built_nodes = {}
@@ -1909,6 +1913,35 @@ class MieLoopStateSetImage:
         ref = ctx.get("state", {}).get(_state_ref_key(key))
         mie_log(
             f"LoopStateSetImage: loop_id={ctx['loop_id']}, run_id={ctx['run_id']}, key={key}, ref={ref}"
+        )
+        return (ctx,)
+
+
+class MieLoopStateSetInt:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "loop_ctx": ("MIE_LOOP_CTX",),
+                "key": ("STRING", {"default": "feedback_int"}),
+                "value": ("INT", {"default": 0}),
+            }
+        }
+
+    RETURN_TYPES = ("MIE_LOOP_CTX",)
+    RETURN_NAMES = ("loop_ctx",)
+    FUNCTION = "execute"
+    CATEGORY = MY_CATEGORY
+
+    def execute(self, loop_ctx, key, value):
+        ctx = copy.deepcopy(_validate_loop_ctx(loop_ctx))
+        if not str(key).strip():
+            raise ValueError("key must not be empty")
+        if "state" not in ctx or not isinstance(ctx["state"], dict):
+            ctx["state"] = {}
+        ctx["state"][str(key)] = int(value)
+        mie_log(
+            f"LoopStateSetInt: loop_id={ctx['loop_id']}, run_id={ctx['run_id']}, key={key}, value={int(value)}"
         )
         return (ctx,)
 

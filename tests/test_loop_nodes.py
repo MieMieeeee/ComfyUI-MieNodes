@@ -27,6 +27,7 @@ from loop import (
     MieLoopStateGetString,
     MieLoopStateGetBool,
     MieLoopStateSet,
+    MieLoopStateSetInt,
     MieLoopCollectImage,
     MieLoopFinalizeImages,
     MieLoopCleanupImages,
@@ -566,6 +567,13 @@ class TestMieLoopStateSet:
         )
         parsed = json.loads(result[0])
         assert parsed["data"] == {"nested": True}
+
+
+class TestMieLoopStateSetInt:
+    def test_sets_int_in_loop_ctx_state(self, sample_loop_ctx):
+        node = MieLoopStateSetInt()
+        (ctx,) = node.execute(loop_ctx=sample_loop_ctx, key="k", value=42)
+        assert ctx["state"]["k"] == 42
 
 
 # ---- MieLoopCollectImage ----
