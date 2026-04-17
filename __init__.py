@@ -25,6 +25,7 @@ from _mienodes_internal.services.tts import SetBailianTTSConnector
 from _mienodes_internal.nodes.loop import MieLoopStart, MieLoopResume, MieLoopBodyIn, MieLoopBodyOut, MieLoopEnd, MieLoopGetIndex, MieLoopParamGetInt, MieLoopParamGetFloat, \
     MieLoopParamGetString, MieLoopParamGetBool, MieLoopStateGetInt, MieLoopStateGetFloat, MieLoopStateGetString, \
     MieLoopStateGetBool, MieLoopStateSet, MieImageSelectFrame, MieLoopStateSetImage, MieLoopStateGetImage, MieLoopStateCleanupImage, \
+    MieLoopStateSetInt, \
     MieLoopCollectImage, MieLoopFinalizeImages, MieLoopCleanupImages, MieImageGrid, \
     MieLoopCollectText, MieLoopFinalizeTextList, MieLoopCleanupText, MieLoopCollectJSON, MieLoopFinalizeJSONList, MieLoopCleanupJSON, \
     MieLoopCollectAudio, MieLoopFinalizeAudio, MieLoopCleanupAudio
@@ -96,6 +97,7 @@ NODE_CLASS_MAPPINGS = {
     add_suffix("MieLoopStateSet"): MieLoopStateSet,
     add_suffix("MieImageSelectFrame"): MieImageSelectFrame,
     add_suffix("MieLoopStateSetImage"): MieLoopStateSetImage,
+    add_suffix("MieLoopStateSetInt"): MieLoopStateSetInt,
     add_suffix("MieLoopStateGetImage"): MieLoopStateGetImage,
     add_suffix("MieLoopStateCleanupImage"): MieLoopStateCleanupImage,
     add_suffix("MieLoopCollectImage"): MieLoopCollectImage,
@@ -177,6 +179,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     add_suffix("MieLoopStateSet"): add_emoji("Mie Loop State Set"),
     add_suffix("MieImageSelectFrame"): add_emoji("Mie Image Select Frame"),
     add_suffix("MieLoopStateSetImage"): add_emoji("Mie Loop State Set Image"),
+    add_suffix("MieLoopStateSetInt"): add_emoji("Mie Loop State Set Int"),
     add_suffix("MieLoopStateGetImage"): add_emoji("Mie Loop State Get Image"),
     add_suffix("MieLoopStateCleanupImage"): add_emoji("Mie Loop State Cleanup Image"),
     add_suffix("MieLoopCollectImage"): add_emoji("Mie Loop Collect Image"),

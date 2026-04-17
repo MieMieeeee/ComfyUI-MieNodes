@@ -585,6 +585,46 @@ def test_build_expand_graph_preserves_bodyout_state_json_input(monkeypatch):
     assert body_out_node["inputs"]["state_json"] == '{"step": 1}'
 
 
+def test_build_expand_graph_resume_node_does_not_collide_with_end_id_1(monkeypatch):
+    monkeypatch.setattr(loop_module, "GraphBuilder", FakeGraphBuilder)
+    next_ctx = _make_next_ctx()
+    dynprompt = {
+        "3": {
+            "class_type": "MieLoopBodyIn|Mie",
+            "inputs": {"loop_ctx": ["2", 0]},
+        },
+        "15": {
+            "class_type": "KSampler|Mie",
+            "inputs": {"loop_ctx": ["3", 0], "steps": 20},
+        },
+        "4": {
+            "class_type": "MieLoopBodyOut|Mie",
+            "inputs": {"loop_ctx": ["15", 0], "state_json": "{}"},
+        },
+        "1": {
+            "class_type": "MieLoopEnd|Mie",
+            "inputs": {"loop_ctx": ["4", 0]},
+        },
+    }
+    detect_result = _make_detect_result(
+        business=["15"],
+        backward=["3", "15", "4"],
+        forward=["3", "15", "4"],
+    )
+    result, end_built_node = _build_expand_graph_for_next_round(
+        next_ctx, dynprompt, "3", "4", "1", detect_result
+    )
+    assert end_built_node is not None
+    assert end_built_node.class_type == "MieLoopEnd|Mie"
+    resume_ids = [
+        nid for nid, nd in result.items() if nd["class_type"] == "MieLoopResume|Mie"
+    ]
+    end_ids = [nid for nid, nd in result.items() if nd["class_type"] == "MieLoopEnd|Mie"]
+    assert len(resume_ids) == 1
+    assert len(end_ids) == 1
+    assert resume_ids[0] != end_ids[0]
+
+
 def test_build_expand_graph_cyclic_detection(monkeypatch):
     """Cycle in dynprompt via non-loop_ctx inputs raises ValueError('cyclic')."""
     monkeypatch.setattr(loop_module, "GraphBuilder", FakeGraphBuilder)
