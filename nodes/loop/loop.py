@@ -743,14 +743,21 @@ def _resolve_current_node_id(unique_id=None, dynprompt=None):
 
 def _should_record_protocol_node_id(existing_id, current_node_id):
     current = str(current_node_id or "")
-    existing = str(existing_id or "")
     if not current:
         return False
-    # Expand rounds use cloned ids like "48.0.0.50". Keep the original
-    # template protocol ids stable once they are known.
-    if existing and "." in current:
+    # Expand rounds use cloned ids like "48.0.0.50".
+    # Protocol template ids must always stay as original template ids.
+    # Never write cloned ids back to meta to avoid id drifting / recursive growth.
+    if "." in current:
         return False
     return True
+
+
+def _truncate_for_log(value, max_len=240):
+    text = str(value)
+    if len(text) <= max_len:
+        return text
+    return f"{text[:max_len]}...(len={len(text)})"
 
 
 def get_node(dynprompt, node_id):
@@ -904,7 +911,7 @@ def collect_loop_body(body_in_id, body_out_id, dynprompt, end_id=None):
 
 
 def _build_expand_graph_for_next_round(
-    next_ctx, dynprompt, body_in_id, body_out_id, end_id, detect_result
+    next_ctx, dynprompt, body_in_id, body_out_id, end_id, detect_result, debug=False
 ):
     if GraphBuilder is None:
         raise ValueError("GraphBuilder is unavailable in current ComfyUI runtime")
@@ -1069,22 +1076,22 @@ def _build_expand_graph_for_next_round(
     # 参考：execution.py lines 572-576, EasyUse whileLoopEnd.
     end_built_node = built_nodes.get(str(end_id))
     finalize_result = graph.finalize()
-    # Log detailed expand graph structure for debugging
-    expand_node_ids = sorted(finalize_result.keys())
-    mie_log(
-        f"ExpandGraphBuild: body_nodes_business={sorted(detect_result.get('body_nodes_business', []))}, "
-        f"collector_nodes={sorted(detect_result.get('collector_nodes', []))}, "
-        f"built_node_ids={sorted(built_nodes.keys())}, "
-        f"expand_node_ids={expand_node_ids}, "
-        f"expand_nodes={len(finalize_result)}"
-    )
-    # Log each node's inputs in expand graph for debugging
-    for nid in expand_node_ids:
-        node_data = finalize_result[nid]
-        inputs = node_data.get("inputs", {})
+    if debug:
+        # Log detailed expand graph structure only when debug is enabled.
+        expand_node_ids = sorted(finalize_result.keys())
         mie_log(
-            f"ExpandNode: id={nid}, class_type={node_data.get('class_type')}, inputs={inputs}"
+            f"ExpandGraphBuild: body_nodes_business={sorted(detect_result.get('body_nodes_business', []))}, "
+            f"collector_nodes={sorted(detect_result.get('collector_nodes', []))}, "
+            f"built_node_ids={sorted(built_nodes.keys())}, "
+            f"expand_node_ids={expand_node_ids}, "
+            f"expand_nodes={len(finalize_result)}"
         )
+        for nid in expand_node_ids:
+            node_data = finalize_result[nid]
+            inputs = node_data.get("inputs", {})
+            mie_log(
+                f"ExpandNode: id={nid}, class_type={node_data.get('class_type')}, inputs={inputs}"
+            )
     return finalize_result, end_built_node
 
 
@@ -1555,6 +1562,7 @@ class MieLoopEnd:
                 body_out_id=body_out_id,
                 end_id=ctx.get("meta", {}).get("end_id"),
                 detect_result=detect_result,
+                debug=bool(debug),
             )
             if end_built_node is None:
                 raise ValueError(
@@ -1563,7 +1571,7 @@ class MieLoopEnd:
             mie_log(
                 f"LoopEndExpand: loop_id={ctx['loop_id']}, run_id={ctx['run_id']}, "
                 f"next_index={ctx['index']}, expand_nodes={len(expand_graph)}, "
-                f"end_node_id={end_built_node.id}"
+                f"end_node_id={_truncate_for_log(end_built_node.id)}"
             )
             # result 必须包含 is_link() 值（指向 expand 图中克隆的 LoopEnd 节点输出）
             # 这样 ComfyUI 引擎才会为子图创建 strong_link 并执行 expand 图中的所有节点
