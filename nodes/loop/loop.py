@@ -1729,7 +1729,7 @@ class MieLoopStateGetInt:
         return {
             "required": {
                 "loop_ctx": ("MIE_LOOP_CTX",),
-                "key": ("STRING", {"default": "value"}),
+                "key": ("STRING", {"default": "feedback_int"}),
                 "default_value": ("INT", {"default": 0}),
             }
         }
@@ -1756,7 +1756,7 @@ class MieLoopStateGetFloat:
         return {
             "required": {
                 "loop_ctx": ("MIE_LOOP_CTX",),
-                "key": ("STRING", {"default": "value"}),
+                "key": ("STRING", {"default": "feedback_float"}),
                 "default_value": ("FLOAT", {"default": 0.0}),
             }
         }
@@ -1783,7 +1783,7 @@ class MieLoopStateGetString:
         return {
             "required": {
                 "loop_ctx": ("MIE_LOOP_CTX",),
-                "key": ("STRING", {"default": "value"}),
+                "key": ("STRING", {"default": "feedback_string"}),
                 "default_value": ("STRING", {"default": ""}),
             }
         }
@@ -1808,7 +1808,7 @@ class MieLoopStateGetBool:
         return {
             "required": {
                 "loop_ctx": ("MIE_LOOP_CTX",),
-                "key": ("STRING", {"default": "value"}),
+                "key": ("STRING", {"default": "feedback_bool"}),
                 "default_value": ("BOOLEAN", {"default": False}),
             }
         }
