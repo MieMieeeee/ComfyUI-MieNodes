@@ -1954,6 +1954,93 @@ class MieLoopStateSetInt:
         return (ctx,)
 
 
+class MieLoopStateSetFloat:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "loop_ctx": ("MIE_LOOP_CTX",),
+                "key": ("STRING", {"default": "feedback_float"}),
+                "value": ("FLOAT", {"default": 0.0}),
+            }
+        }
+
+    RETURN_TYPES = ("MIE_LOOP_CTX",)
+    RETURN_NAMES = ("loop_ctx",)
+    FUNCTION = "execute"
+    CATEGORY = MY_CATEGORY
+
+    def execute(self, loop_ctx, key, value):
+        ctx = copy.deepcopy(_validate_loop_ctx(loop_ctx))
+        if not str(key).strip():
+            raise ValueError("key must not be empty")
+        if "state" not in ctx or not isinstance(ctx["state"], dict):
+            ctx["state"] = {}
+        ctx["state"][str(key)] = float(value)
+        mie_log(
+            f"LoopStateSetFloat: loop_id={ctx['loop_id']}, run_id={ctx['run_id']}, key={key}, value={float(value)}"
+        )
+        return (ctx,)
+
+
+class MieLoopStateSetString:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "loop_ctx": ("MIE_LOOP_CTX",),
+                "key": ("STRING", {"default": "feedback_string"}),
+                "value": ("STRING", {"default": ""}),
+            }
+        }
+
+    RETURN_TYPES = ("MIE_LOOP_CTX",)
+    RETURN_NAMES = ("loop_ctx",)
+    FUNCTION = "execute"
+    CATEGORY = MY_CATEGORY
+
+    def execute(self, loop_ctx, key, value):
+        ctx = copy.deepcopy(_validate_loop_ctx(loop_ctx))
+        if not str(key).strip():
+            raise ValueError("key must not be empty")
+        if "state" not in ctx or not isinstance(ctx["state"], dict):
+            ctx["state"] = {}
+        ctx["state"][str(key)] = str(value)
+        mie_log(
+            f"LoopStateSetString: loop_id={ctx['loop_id']}, run_id={ctx['run_id']}, key={key}, value={str(value)[:80]}"
+        )
+        return (ctx,)
+
+
+class MieLoopStateSetBool:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "loop_ctx": ("MIE_LOOP_CTX",),
+                "key": ("STRING", {"default": "feedback_bool"}),
+                "value": ("BOOLEAN", {"default": False}),
+            }
+        }
+
+    RETURN_TYPES = ("MIE_LOOP_CTX",)
+    RETURN_NAMES = ("loop_ctx",)
+    FUNCTION = "execute"
+    CATEGORY = MY_CATEGORY
+
+    def execute(self, loop_ctx, key, value):
+        ctx = copy.deepcopy(_validate_loop_ctx(loop_ctx))
+        if not str(key).strip():
+            raise ValueError("key must not be empty")
+        if "state" not in ctx or not isinstance(ctx["state"], dict):
+            ctx["state"] = {}
+        ctx["state"][str(key)] = bool(value)
+        mie_log(
+            f"LoopStateSetBool: loop_id={ctx['loop_id']}, run_id={ctx['run_id']}, key={key}, value={bool(value)}"
+        )
+        return (ctx,)
+
+
 class MieLoopStateGetImage:
     @classmethod
     def INPUT_TYPES(cls):
