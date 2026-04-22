@@ -971,6 +971,7 @@ class HunyuanVideoI2VPromptGenerator(object):
         system_msg = HYVIDEO_I2V_SYSTEM_PROMPT.replace("{}", combined)
         messages = [
             {"role": "system", "content": system_msg},
+            {"role": "user", "content": combined or "请根据系统提示生成结果。"},
         ]
         out = llm_service_connector.invoke(messages, seed=seed, temperature=0.8, top_p=0.9)
         return out.strip(),
@@ -1008,6 +1009,7 @@ class ZImagePromptGenerator(object):
         system_msg = ZIMAGE_T2I_SYSTEM_PROMPT_TEMPLATE.replace("{prompt}", prompt.strip() or "")
         messages = [
             {"role": "system", "content": system_msg},
+            {"role": "user", "content": prompt.strip() or "请根据系统提示生成结果。"},
         ]
         out = llm_service_connector.invoke(messages, seed=seed, temperature=0.8, top_p=0.9)
         return out.strip(),

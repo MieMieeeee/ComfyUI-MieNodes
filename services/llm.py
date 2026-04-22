@@ -73,9 +73,9 @@ class GeneralLLMServiceConnector:
                     response_data = response.json()
                     try:
                         return response_data["choices"][0]["message"]["content"]
-                    except KeyError:
+                    except (KeyError, IndexError) as e:
                         raise ValueError(
-                            f"Unexpected response format: missing 'content'. Response: {response.text[:200]}...")
+                            f"Unexpected response format: {type(e).__name__}. Response: {response.text[:200]}...")
 
                 # 服务器错误（5xx）: 瞬时错误，尝试重试
                 elif 500 <= response.status_code < 600:
@@ -154,6 +154,13 @@ class ZhiPuConnectorGeneral(StandardOpenAICompatibleConnector):
         super().__init__(self.api_url, api_token, model, **kwargs)
 
 
+class ZhiPuCodeConnectorGeneral(StandardOpenAICompatibleConnector):
+    api_url = "https://open.bigmodel.cn/api/coding/paas/v4/chat/completions"
+
+    def __init__(self, api_token, model, **kwargs):
+        super().__init__(self.api_url, api_token, model, **kwargs)
+
+
 class KimiConnectorGeneral(StandardOpenAICompatibleConnector):
     api_url = "https://api.moonshot.cn/v1/chat/completions"
 
@@ -187,6 +194,13 @@ class BailianLLMServiceConnector(GeneralLLMServiceConnector):
 
 class DeepSeekConnectorGeneral(GeneralLLMServiceConnector):
     api_url = "https://api.deepseek.com/chat/completions"
+
+    def __init__(self, api_token, model, **kwargs):
+        super().__init__(self.api_url, api_token, model, **kwargs)
+
+
+class MiniMaxConnectorGeneral(StandardOpenAICompatibleConnector):
+    api_url = "https://api.minimaxi.com/v1/chat/completions"
 
     def __init__(self, api_token, model, **kwargs):
         super().__init__(self.api_url, api_token, model, **kwargs)
@@ -419,6 +433,12 @@ class SetZhiPuLLMServiceConnector(object):
                 "model_select": (
                     [
                         "GLM-4-Flash-250414",
+                        "GLM-4-Air-250414",
+                        "GLM-Z1-Flash",
+                        "GLM-Z1-Air",
+                        "glm-4-plus",
+                        "glm-4-long",
+                        "codegeex-4",
                         "Custom",
                     ],
                     {"default": "GLM-4-Flash-250414"},
@@ -449,6 +469,49 @@ class SetZhiPuLLMServiceConnector(object):
         if not model:
             model = "GLM-4-Flash-250414"  # 默认模型
         return (ZhiPuConnectorGeneral(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
+
+
+class SetZhiPuCodeLLMServiceConnector(object):
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "api_token": ("STRING", {"default": ""}),
+                "model_select": (
+                    [
+                        "GLM-5.1",
+                        "GLM-5",
+                        "GLM-4.7",
+                        "GLM-4.7-Flash",
+                        "Custom",
+                    ],
+                    {"default": "GLM-5.1"},
+                ),
+            },
+            "optional": {
+                "custom_model": (
+                    "STRING",
+                    {
+                        "default": "",
+                        "placeholder": "Enter custom model name (used when model_select is 'Custom')",
+                    },
+                ),
+                "config_file": ("STRING", {"default": "mie_llm_keys.json"}),
+                "config_key": ("STRING", {"default": "zhipu_code"}),
+                "prefer_local_config": ("BOOLEAN", {"default": True}),
+            },
+        }
+
+    RETURN_TYPES = ("LLMServiceConnector",)
+    RETURN_NAMES = ("llm_service_connector",)
+    FUNCTION = "execute"
+    CATEGORY = MY_CATEGORY
+
+    def execute(self, api_token, model_select, custom_model="", config_file="mie_llm_keys.json", config_key="zhipu_code", prefer_local_config=True):
+        model = model_select if model_select != "Custom" else custom_model
+        if not model:
+            model = "GLM-5.1"
+        return (ZhiPuCodeConnectorGeneral(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
 
 
 class SetKimiLLMServiceConnector(object):
@@ -541,6 +604,49 @@ class SetDeepSeekLLMServiceConnector(object):
         if not model:
             model = "deepseek-chat"  # 默认模型
         return (DeepSeekConnectorGeneral(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
+
+
+class SetMiniMaxLLMServiceConnector(object):
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "api_token": ("STRING", {"default": ""}),
+                "model_select": (
+                    [
+                        "MiniMax-M2.7",
+                        "MiniMax-M2.7-highspeed",
+                        "MiniMax-M2.5",
+                        "MiniMax-M2.5-highspeed",
+                        "Custom",
+                    ],
+                    {"default": "MiniMax-M2.7"},
+                ),
+            },
+            "optional": {
+                "custom_model": (
+                    "STRING",
+                    {
+                        "default": "",
+                        "placeholder": "Enter custom model name (used when model_select is 'Custom')",
+                    },
+                ),
+                "config_file": ("STRING", {"default": "mie_llm_keys.json"}),
+                "config_key": ("STRING", {"default": "minimax"}),
+                "prefer_local_config": ("BOOLEAN", {"default": True}),
+            },
+        }
+
+    RETURN_TYPES = ("LLMServiceConnector",)
+    RETURN_NAMES = ("llm_service_connector",)
+    FUNCTION = "execute"
+    CATEGORY = MY_CATEGORY
+
+    def execute(self, api_token, model_select, custom_model="", config_file="mie_llm_keys.json", config_key="minimax", prefer_local_config=True):
+        model = model_select if model_select != "Custom" else custom_model
+        if not model:
+            model = "MiniMax-M2.7"
+        return (MiniMaxConnectorGeneral(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
 
 
 class SetGeminiLLMServiceConnector(object):
