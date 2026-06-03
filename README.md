@@ -264,3 +264,15 @@ As the author is a content creator, the plugin will also include many practical 
 
 - **Bilibili**: [@黎黎原上咩](https://space.bilibili.com/449342345)  
 - **YouTube**: [@SweetValberry](https://www.youtube.com/@SweetValberry)  
+
+
+---
+
+## Acknowledgments
+
+Some features in this project are inspired by, or build directly on the work of, the following open-source projects. We are grateful to the original authors and contributors.
+
+- **[rgthree-comfy](https://github.com/rgthree/rgthree-comfy)** by [@rgthree](https://github.com/rgthree).
+  The SimpleText and RichText canvas annotation nodes (in [js/textNodes.js](js/textNodes.js) and [
+odes/common/text_nodes.py](nodes/common/text_nodes.py)) are a direct re-implementation of rgthree's Label node. The transparent LiteGraph shell, the LGraphCanvas.prototype.drawNode wrapper, the Canvas oundRect/draw(ctx) rendering, and the no-op INPUT_TYPES / 
+oop Python shell all follow rgthree's approach. RichText reuses the same idea and adds a DOM widget for sanitized Markdown rendering. Many thanks to rgthree for the clean reference implementation and for the years of work that have made ComfyUI's node ecosystem so much better.

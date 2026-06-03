@@ -265,3 +265,15 @@ ComfyUI-MieNodes 插件正在积极开发中，未来将进一步扩展功能。
 
 - **B站**: [@黎黎原上咩](https://space.bilibili.com/449342345)
 - **YouTube**: [@SweetValberry](https://www.youtube.com/@SweetValberry)
+
+
+---
+
+## 致谢
+
+本项目的部分功能借鉴了以下开源项目的工作（部分为直接复刻），在此向原作者与贡献者表示衷心的感谢。
+
+- **[rgthree-comfy](https://github.com/rgthree/rgthree-comfy)**（作者：[@rgthree](https://github.com/rgthree)）
+  本项目的 SimpleText 与 RichText 画布标注节点（实现见 [js/textNodes.js](js/textNodes.js) 与 [
+odes/common/text_nodes.py](nodes/common/text_nodes.py)）是 rgthree Label 节点的直接复刻：透明的 LiteGraph 外壳、LGraphCanvas.prototype.drawNode 的劫持包装、Canvas oundRect / draw(ctx) 渲染流程、以及 Python 端 no-op 的 INPUT_TYPES / 
+oop 壳层均沿用了 rgthree 的实现思路；RichText 在同一思路之上额外叠加了 DOM widget 以渲染经过清理的 Markdown。感谢 rgthree 提供了清晰、可学习的参考实现，也感谢其长期以来为 ComfyUI 节点生态所做出的贡献。
