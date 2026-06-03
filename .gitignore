@@ -4,6 +4,7 @@ mie_llm_keys.json
 .idea/
 .trae/
 .sisyphus/
+.omc/
 .ruff_cache/
 %TEMP%/
 
