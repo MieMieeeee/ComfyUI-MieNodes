@@ -11,7 +11,7 @@ if _INTERNAL_PACKAGE not in sys.modules:
     sys.modules[_INTERNAL_PACKAGE] = _pkg
 
 from _mienodes_internal.nodes.common import ShowAnythingMie, SaveAnythingAsFile, CompareFiles, GetAbsolutePath, GetFileInfo, \
-    GetDirectoryFilesInfo, CopyFiles, DeleteFiles, ClassicAspectRatio, StringConcat
+    GetDirectoryFilesInfo, CopyFiles, DeleteFiles, ClassicAspectRatio, StringConcat, SimpleTextNode, RichTextNode
 from _mienodes_internal.nodes.files import BatchRenameFiles, BatchDeleteFiles, BatchEditTextFiles, BatchSyncImageCaptionFiles, \
     SummaryTextFiles, BatchConvertImageFiles, DedupImageFiles, ModelDownloader, HFRepoDownloader
 from _mienodes_internal.nodes.llm import TextTranslator, PromptGenerator, KontextPromptGenerator, AddUserKontextPreset, RemoveUserKontextPreset, \
@@ -21,7 +21,7 @@ from _mienodes_internal.services.llm import SetGeneralLLMServiceConnector, SetSi
     SetDeepSeekLLMServiceConnector, SetGeminiLLMServiceConnector, SetBailianLLMServiceConnector, \
     SetMiniMaxLLMServiceConnector, \
     CheckLLMServiceConnectivity, CallLLMService
-from _mienodes_internal.nodes.media import WavConcat, QwenTTSNode, SingleImageToVideo, AddNumberWatermarkForImage
+from _mienodes_internal.nodes.media import WavConcat, QwenTTSNode, SingleImageToVideo, AddNumberWatermarkForImage, AddTextWatermarkForImage
 from _mienodes_internal.services.tts import SetBailianTTSConnector
 from _mienodes_internal.nodes.loop import MieLoopStart, MieLoopResume, MieLoopBodyIn, MieLoopBodyOut, MieLoopEnd, MieLoopGetIndex, MieLoopParamGetInt, MieLoopParamGetFloat, \
     MieLoopParamGetString, MieLoopParamGetBool, MieLoopStateGetInt, MieLoopStateGetFloat, MieLoopStateGetString, \
@@ -82,7 +82,10 @@ NODE_CLASS_MAPPINGS = {
     add_suffix("SetBailianTTSConnector"): SetBailianTTSConnector,
     add_suffix("SingleImageToVideo"): SingleImageToVideo,
     add_suffix("AddNumberWatermarkForImage"): AddNumberWatermarkForImage,
+    add_suffix("AddTextWatermarkForImage"): AddTextWatermarkForImage,
     add_suffix("ClassicAspectRatio"): ClassicAspectRatio,
+    add_suffix('SimpleTextNode'): SimpleTextNode,
+    add_suffix('RichTextNode'): RichTextNode,
     add_suffix("MieLoopStart"): MieLoopStart,
     add_suffix("MieLoopResume"): MieLoopResume,
     add_suffix("MieLoopBodyIn"): MieLoopBodyIn,
@@ -169,7 +172,10 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     add_suffix("SetBailianTTSConnector"): add_emoji("Set Bailian TTS Connector"),
     add_suffix("SingleImageToVideo"): add_emoji("Single Image To Video"),
     add_suffix("AddNumberWatermarkForImage"): add_emoji("Add Number Watermark For Image"),
+    add_suffix("AddTextWatermarkForImage"): add_emoji("Add Text Watermark For Image"),
     add_suffix("ClassicAspectRatio"): add_emoji("Classic Aspect Ratio"),
+    add_suffix('SimpleTextNode'): add_emoji('Simple Text'),
+    add_suffix('RichTextNode'): add_emoji('Rich Text'),
     add_suffix("MieLoopStart"): add_emoji("Mie Loop Start"),
     add_suffix("MieLoopResume"): add_emoji("Mie Loop Resume"),
     add_suffix("MieLoopBodyIn"): add_emoji("Mie Loop Body In"),

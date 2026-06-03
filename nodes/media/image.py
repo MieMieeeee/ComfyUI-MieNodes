@@ -258,3 +258,135 @@ class AddNumberWatermarkForImage:
         result = torch.stack(out_list, dim=0)
         return (result,)
 
+
+class AddTextWatermarkForImage:
+    # Candidate fonts: first one that exists on the system wins
+    _FONT_PATHS = [
+        "C:/Windows/Fonts/msyh.ttc",       # Microsoft YaHei (Windows)
+        "C:/Windows/Fonts/msyhbd.ttc",      # Microsoft YaHei Bold
+        "C:/Windows/Fonts/simhei.ttf",      # SimHei
+        "C:/Windows/Fonts/arial.ttf",       # Arial fallback
+    ]
+    _cached_font_path = None
+
+    @classmethod
+    def _find_font(cls):
+        if cls._cached_font_path is not None:
+            return cls._cached_font_path
+        for p in cls._FONT_PATHS:
+            if os.path.exists(p):
+                cls._cached_font_path = p
+                return p
+        cls._cached_font_path = ""
+        return ""
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "images": ("IMAGE",),
+                "text": ("STRING", {"default": "水印文字", "multiline": True}),
+                "font_size": ("INT", {"default": 48, "min": 8, "max": 512, "step": 1}),
+                "position_x": ("FLOAT", {"default": 50.0, "min": 0.0, "max": 100.0}),
+                "position_y": ("FLOAT", {"default": 95.0, "min": 0.0, "max": 100.0}),
+                "color_r": ("INT", {"default": 255, "min": 0, "max": 255}),
+                "color_g": ("INT", {"default": 255, "min": 0, "max": 255}),
+                "color_b": ("INT", {"default": 255, "min": 0, "max": 255}),
+                "outline": ("BOOLEAN", {"default": True}),
+                "outline_width": ("INT", {"default": 3, "min": 0, "max": 20}),
+                "align": (["left", "center", "right"], {"default": "center"}),
+            }
+        }
+
+    RETURN_TYPES = ("IMAGE",)
+    FUNCTION = "apply_watermark"
+    CATEGORY = MY_CATEGORY
+
+    def apply_watermark(self, images, text, font_size, position_x, position_y, color_r, color_g, color_b, outline, outline_width, align):
+        from PIL import Image, ImageDraw, ImageFont
+
+        if images is None or images.shape[0] == 0:
+            raise ValueError("No images provided to watermark.")
+
+        mie_log(f"Applying text watermark to {images.shape[0]} images. text={text!r}, font_size={font_size}, pos=({position_x}%, {position_y}%), align={align}")
+
+        device = images.device
+        dtype = images.dtype
+        batch = images.shape[0]
+        out_list = []
+
+        # Load font once
+        font_path = self._find_font()
+        if font_path:
+            try:
+                pil_font = ImageFont.truetype(font_path, font_size)
+            except Exception:
+                pil_font = ImageFont.load_default()
+        else:
+            pil_font = ImageFont.load_default()
+
+        text_color = (int(color_r), int(color_g), int(color_b))
+        outline_color = (0, 0, 0)
+
+        for i in range(batch):
+            # tensor -> PIL (RGB)
+            img_np = images[i].detach().cpu().numpy()
+            img_np = (np.clip(img_np, 0.0, 1.0) * 255.0).astype(np.uint8)
+            pil_img = Image.fromarray(img_np, "RGB")
+            draw = ImageDraw.Draw(pil_img)
+            w, h = pil_img.size
+
+            # Measure text bounding box (supports multiline)
+            lines = text.split("\n")
+            if len(lines) > 1:
+                bbox = draw.multiline_textbbox((0, 0), text, font=pil_font)
+            else:
+                bbox = draw.textbbox((0, 0), text, font=pil_font)
+            text_w = bbox[2] - bbox[0]
+            text_h = bbox[3] - bbox[1]
+
+            # Position
+            if align == "center":
+                x = int(position_x / 100.0 * w - text_w / 2)
+            elif align == "right":
+                x = int(position_x / 100.0 * w - text_w)
+            else:
+                x = int(position_x / 100.0 * w)
+            y = int(position_y / 100.0 * h - text_h / 2)
+
+            # Clamp to image bounds
+            x = max(0, min(x, w - text_w)) if text_w <= w else 0
+            y = max(0, min(y, h - text_h)) if text_h <= h else 0
+
+            # Draw outline (stroke) by drawing text multiple times with offset
+            multiline = len(lines) > 1
+
+            if multiline:
+                draw_kw = {"font": pil_font, "fill": outline_color, "align": align}
+            else:
+                draw_kw = {"font": pil_font, "fill": outline_color}
+
+            if outline and outline_width > 0:
+                for dx in range(-outline_width, outline_width + 1):
+                    for dy in range(-outline_width, outline_width + 1):
+                        if dx == 0 and dy == 0:
+                            continue
+                        if multiline:
+                            draw.multiline_text((x + dx, y + dy), text, **draw_kw)
+                        else:
+                            draw.text((x + dx, y + dy), text, **draw_kw)
+
+            # Draw main text
+            if multiline:
+                draw.multiline_text((x, y), text, font=pil_font, fill=text_color, align=align)
+            else:
+                draw.text((x, y), text, font=pil_font, fill=text_color)
+
+            # PIL -> tensor
+            out_np = np.array(pil_img).astype(np.float32) / 255.0
+            out_tensor = torch.from_numpy(out_np).to(device=device, dtype=dtype)
+            out_list.append(out_tensor)
+
+        result = torch.stack(out_list, dim=0)
+        return (result,)
+
