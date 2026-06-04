@@ -1,3 +1,4 @@
+import re
 import requests
 import time
 import base64
@@ -6,14 +7,76 @@ import cv2
 import torch
 
 try:
-    from _mienodes_internal.core.utils import mie_log, load_plugin_config, resolve_token
+    from _mienodes_internal.core.utils import (
+        mie_log,
+        load_plugin_config,
+        resolve_token,
+        image_tensor_to_data_url,
+        build_multimodal_user_content,
+    )
 except ImportError:
-    from ..core.utils import mie_log, load_plugin_config, resolve_token
+    from ..core.utils import (
+        mie_log,
+        load_plugin_config,
+        resolve_token,
+        image_tensor_to_data_url,
+        build_multimodal_user_content,
+    )
 
 MY_CATEGORY = "🐑 MieNodes/🐑 LLM Service Config"
 
 
 # 引入 time 模块用于在重试间增加延迟
+
+def _drop_image_detail_auto(messages):
+    """Drop `detail: "auto"` from any image_url content part.
+
+    The OpenAI image_url spec allows `auto` / `low` / `high`, but
+    MiniMax M-series vision models reject "auto" with HTTP 400
+    (`invalid params, invalid image detail: auto`). OpenAI treats
+    a missing `detail` field as "auto" internally, so removing the
+    key is safe for OpenAI-compat services too. Gemini uses a
+    different content shape (inline_data) and never sees this.
+
+    Returns the input unchanged when no `detail: "auto"` is present
+    (cheap fast path). When a change is needed, returns a new list
+    with selectively-copied dicts - never mutates the caller's
+    message structure, so the same list can be reused across calls
+    (e.g. retry loops, or sending the same prompt to multiple
+    providers in sequence).
+    """
+    if not messages:
+        return messages
+    new_messages = None
+    for mi, msg in enumerate(messages):
+        if not isinstance(msg, dict):
+            continue
+        content = msg.get("content")
+        if not isinstance(content, list):
+            continue
+        new_content = None
+        for pi, part in enumerate(content):
+            if not (
+                isinstance(part, dict)
+                and part.get("type") == "image_url"
+                and isinstance(part.get("image_url"), dict)
+                and part["image_url"].get("detail") == "auto"
+            ):
+                continue
+            if new_content is None:
+                new_content = list(content)
+            new_part = dict(part)
+            new_part["image_url"] = dict(part["image_url"])
+            del new_part["image_url"]["detail"]
+            new_content[pi] = new_part
+        if new_content is not None:
+            if new_messages is None:
+                new_messages = list(messages)
+            new_messages[mi] = dict(msg)
+            new_messages[mi]["content"] = new_content
+    return new_messages if new_messages is not None else messages
+
+
 class GeneralLLMServiceConnector:
     def __init__(self, api_url, manual_token, model, timeout=30, max_retries=3, retry_delay=5, 
                  config_file="mie_llm_keys.json", config_key=None, prefer_local_config=True):
@@ -37,6 +100,52 @@ class GeneralLLMServiceConnector:
             prefer_local=self.prefer_local_config
         )
 
+    def _provider_messages(self, messages):
+        """Hook for converting OpenAI-style multimodal messages into the
+        provider-native shape. Default is identity: OpenAI-compatible services
+        already understand `image_url` content parts, so the default no-op is
+        correct for them. `GeminiConnectorGeneral` overrides this to map
+        `image_url` -> `inline_data`.
+
+        Returning a fresh list is recommended so callers can safely mutate.
+        """
+        out = list(messages) if messages is not None else messages
+        return self._sanitize_image_detail(out)
+
+    def _sanitize_image_detail(self, messages):
+        """Hook for provider-specific image_url `detail` value sanitization.
+
+        Default is identity (preserves whatever the caller set). Some
+        providers reject the OpenAI-default `detail: "auto"` value;
+        override this in those connectors. Called from
+        `_provider_messages` so subclasses that fully override
+        `_provider_messages` (e.g. Gemini) opt out automatically.
+        """
+        return messages
+
+    # Strips reasoning / chain-of-thought blocks that some models (DeepSeek R1,
+    # GLM-Z, MiniMax M-series, etc.) emit before the final answer. Matches
+    # both `<think>...</think>` and `<thinking>...</thinking>`.
+    _THINK_BLOCK_RE = re.compile(
+        r"<think>[\s\S]*?</think>"
+        r"|<thinking>[\s\S]*?</thinking>",
+        re.IGNORECASE,
+    )
+
+    def _sanitize_response(self, text, preserve_thinking=False):
+        """Strip `<think>` / `<thinking>` reasoning blocks from `text`.
+
+        Several reasoning models emit their chain-of-thought inside the content
+        field before the actual answer. For prompt-rewriter use cases the
+        thinking is noise that pollutes downstream models' input, so we strip
+        it by default. Pass `preserve_thinking=True` to keep it (useful for
+        debug / `CheckLLMServiceConnectivity` style diagnostics).
+        """
+        if text is None or preserve_thinking:
+            return text
+        cleaned = self._THINK_BLOCK_RE.sub("", text)
+        return cleaned.strip()
+
     def generate_payload(self, messages, **kwargs):
         """
         生成标准的 OpenAI 兼容服务的 Payload。
@@ -44,7 +153,7 @@ class GeneralLLMServiceConnector:
         """
         return {
             "model": self.model,
-            "messages": messages,
+            "messages": self._provider_messages(messages),
             "stream": False,
             "response_format": {"type": "text"},
         }
@@ -54,6 +163,9 @@ class GeneralLLMServiceConnector:
         调用 LLM 服务，并实现针对瞬时错误的重试机制。
         重试包括：Timeout, ConnectionError, 和 5xx 状态码。
         """
+        # `preserve_thinking` is response-side, not payload-side; pop it
+        # before generate_payload so it cannot leak into the request body.
+        preserve_thinking = bool(kwargs.pop("preserve_thinking", False))
         payload = self.generate_payload(messages, **kwargs)
 
         headers = {
@@ -72,10 +184,11 @@ class GeneralLLMServiceConnector:
                 if response.status_code == 200:
                     response_data = response.json()
                     try:
-                        return response_data["choices"][0]["message"]["content"]
+                        content = response_data["choices"][0]["message"]["content"]
                     except (KeyError, IndexError) as e:
                         raise ValueError(
                             f"Unexpected response format: {type(e).__name__}. Response: {response.text[:200]}...")
+                    return self._sanitize_response(content, preserve_thinking=preserve_thinking)
 
                 # 服务器错误（5xx）: 瞬时错误，尝试重试
                 elif 500 <= response.status_code < 600:
@@ -127,7 +240,7 @@ class StandardOpenAICompatibleConnector(GeneralLLMServiceConnector):
         # 封装 OpenAI 兼容服务的通用参数
         return {
             "model": self.model,
-            "messages": messages,
+            "messages": self._provider_messages(messages),
             "stream": False,
             "max_tokens": kwargs.get("max_tokens", 512),
             "temperature": kwargs.get("temperature", 0.7),
@@ -148,6 +261,14 @@ class SiliconFlowConnectorGeneral(StandardOpenAICompatibleConnector):
 
 
 class ZhiPuConnectorGeneral(StandardOpenAICompatibleConnector):
+    """Standard ZhiPu BigModel connector (NOT the Coding / Token Plan tier).
+
+    Targets the public ZhiPu BigModel API at the standard
+    `/api/paas/v4/chat/completions` endpoint with regular `eyJ...`
+    API keys. For the Coding / Token Plan subscription
+    (`/api/coding/...` endpoint), use `ZhiPuCodeConnectorGeneral`
+    and `SetZhiPuCodeLLMServiceConnector` instead.
+    """
     api_url = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
 
     def __init__(self, api_token, model, **kwargs):
@@ -155,6 +276,14 @@ class ZhiPuConnectorGeneral(StandardOpenAICompatibleConnector):
 
 
 class ZhiPuCodeConnectorGeneral(StandardOpenAICompatibleConnector):
+    """ZhiPu Coding / Token Plan connector.
+
+    Targets the ZhiPu Coding Plan endpoint at `/api/coding/...`
+    with a Token Plan / Coding Plan subscription key. Distinct from
+    the standard ZhiPu BigModel API in URL, billing, and model
+    lineup (GLM-5 / GLM-4.7 series rather than GLM-4 / GLM-Z1).
+    Pair with `SetZhiPuCodeLLMServiceConnector`.
+    """
     api_url = "https://open.bigmodel.cn/api/coding/paas/v4/chat/completions"
 
     def __init__(self, api_token, model, **kwargs):
@@ -186,7 +315,7 @@ class BailianLLMServiceConnector(GeneralLLMServiceConnector):
         # 阿里百炼（通义千问）的 Payload 可能有所不同，这里保留其特殊性
         return {
             "model": self.model,
-            "messages": messages,
+            "messages": self._provider_messages(messages),
             "stream": False,
             # 可以根据需要添加其他参数
         }
@@ -200,10 +329,47 @@ class DeepSeekConnectorGeneral(GeneralLLMServiceConnector):
 
 
 class MiniMaxConnectorGeneral(StandardOpenAICompatibleConnector):
+    """Standard MiniMax Open Platform connector.
+
+    Targets the public MiniMax Open Platform API. Use with the
+    standard `eyJ...` (JWT) API key issued from the MiniMax
+    developer console. For the newer Token Plan / Coding Plan
+    (`sk-cp-...` prefixed) keys, use `MiniMaxTokenPlanConnectorGeneral`
+    and `SetMiniMaxTokenPlanLLMServiceConnector` instead.
+    """
     api_url = "https://api.minimaxi.com/v1/chat/completions"
 
     def __init__(self, api_token, model, **kwargs):
         super().__init__(self.api_url, api_token, model, **kwargs)
+
+    def _sanitize_image_detail(self, messages):
+        """Drop `detail: "auto"` from image_url parts. MiniMax rejects
+        the OpenAI default with HTTP 400 (`invalid image detail: auto`);
+        only `low` and `high` are accepted. OpenAI treats a missing
+        field as "auto" internally, so stripping is a no-op there.
+        """
+        return _drop_image_detail_auto(messages)
+
+
+class MiniMaxTokenPlanConnectorGeneral(StandardOpenAICompatibleConnector):
+    """MiniMax Token Plan / Coding Plan connector.
+
+    Targets the MiniMax Token Plan endpoint with `sk-cp-...` prefixed
+    API keys (the Token Plan / Coding Plan subscription). The endpoint
+    URL is shared with the Open Platform for now; the key prefix is
+    what distinguishes the two billing tracks. M3 ships first on the
+    Token Plan tier.
+    """
+    api_url = "https://api.minimaxi.com/v1/chat/completions"
+
+    def __init__(self, api_token, model, **kwargs):
+        super().__init__(self.api_url, api_token, model, **kwargs)
+
+    def _sanitize_image_detail(self, messages):
+        """Same as MiniMaxConnectorGeneral: drop `detail: "auto"`.
+        See `_drop_image_detail_auto` for the rationale.
+        """
+        return _drop_image_detail_auto(messages)
 
 
 class GeminiConnectorGeneral(GeneralLLMServiceConnector):
@@ -216,22 +382,68 @@ class GeminiConnectorGeneral(GeneralLLMServiceConnector):
         # 继承基类的 timeout, max_retries, retry_delay
         super().__init__(api_url, api_token, model, **kwargs)
 
+    # OpenAI `data:<mime>;base64,<data>` -> mime / payload groups
+    _DATA_URL_RE = re.compile(r"^data:([^;]+);base64,(.*)$", re.DOTALL)
+
+    def _provider_messages(self, messages):
+        """Convert OpenAI-style image_url data URLs into Gemini inline_data parts.
+
+        Gemini expects a different content shape from OpenAI - it uses
+        `parts` with `inline_data` for images and `text` for prose,
+        not the `type: image_url` part shape. We rewrite the user (and
+        model) messages in-place so the rest of `generate_payload` can
+        iterate the rewritten structure uniformly.
+
+        Non-data-URL `image_url` (e.g. `https://`) is left as-is and the
+        Gemini API will resolve it; if the Gemini endpoint rejects it, the
+        caller should pre-encode via `image_tensor_batch_to_data_urls`.
+        """
+        if not messages:
+            return messages
+        out = []
+        for msg in messages:
+            content = msg.get("content")
+            if not isinstance(content, list):
+                out.append(msg)
+                continue
+            new_parts = []
+            for p in content:
+                if not isinstance(p, dict):
+                    new_parts.append(p)
+                    continue
+                ptype = p.get("type")
+                if ptype == "text" and "text" in p:
+                    new_parts.append({"text": p["text"]})
+                elif ptype == "image_url":
+                    url = (p.get("image_url") or {}).get("url", "")
+                    m = self._DATA_URL_RE.match(url)
+                    if m:
+                        mime_type, b64 = m.group(1), m.group(2)
+                        new_parts.append({"inline_data": {"mime_type": mime_type, "data": b64}})
+                    elif url:
+                        # Remote URL: Gemini can fetch it directly via file_data
+                        new_parts.append({"file_data": {"mime_type": "image/jpeg", "file_uri": url}})
+                else:
+                    # Unknown part type - pass through unchanged so the API
+                    # surfaces a clear error rather than us silently losing it.
+                    new_parts.append(p)
+            new_msg = dict(msg)
+            new_msg["content"] = new_parts
+            out.append(new_msg)
+        return out
+
     def generate_payload(self, messages, **kwargs):
         contents = []
-        for msg in messages:
+        for msg in self._provider_messages(messages):
             role = "user" if msg.get("role") == "user" else "model"
-            parts = []
-            content = msg.get("content")
-            if isinstance(content, list):
-                for p in content:
-                    if isinstance(p, dict) and p.get("type") == "text" and "text" in p:
-                        parts.append({"text": p["text"]})
-            elif isinstance(content, str):
-                parts.append({"text": content})
-            contents.append({
-                "role": role,
-                "parts": parts if parts else [{"text": ""}]
-            })
+            parts = msg.get("content") or []
+            if not isinstance(parts, list):
+                parts = [{"text": str(parts)}]
+            # Drop any empty parts so Gemini does not error
+            parts = [p for p in parts if p]
+            if not parts:
+                parts = [{"text": ""}]
+            contents.append({"role": role, "parts": parts})
         return {
             "contents": contents,
             "generationConfig": {
@@ -252,6 +464,8 @@ class GeminiConnectorGeneral(GeneralLLMServiceConnector):
         由于认证方式（URL参数）和返回解析（candidates 列表）不同，
         最清晰的办法是重写整个 invoke，但利用基类的重试参数。
         """
+        # Same response-side flag as the base class; pop before payload build.
+        preserve_thinking = bool(kwargs.pop("preserve_thinking", False))
         payload = self.generate_payload(messages, **kwargs)
         headers = {"Content-Type": "application/json"}
         # Gemini 认证方式：Token 作为 URL 参数
@@ -268,7 +482,8 @@ class GeminiConnectorGeneral(GeneralLLMServiceConnector):
                     # 适配 Gemini 响应解析: candidates -> content -> parts -> text
                     if not response_data.get("candidates"):
                         raise ValueError(f"No candidates in response. Response: {response.text}")
-                    return response_data["candidates"][0]["content"]["parts"][0]["text"]
+                    text = response_data["candidates"][0]["content"]["parts"][0]["text"]
+                    return self._sanitize_response(text, preserve_thinking=preserve_thinking)
 
                 # 5xx 瞬时错误处理 (利用基类逻辑)
                 elif 500 <= response.status_code < 600:
@@ -607,6 +822,14 @@ class SetDeepSeekLLMServiceConnector(object):
 
 
 class SetMiniMaxLLMServiceConnector(object):
+    """Standard MiniMax Open Platform connector.
+
+    Use this node when you have a standard MiniMax Open Platform API key
+    (`eyJ...` JWT format) issued from the MiniMax developer console. For
+    the Token Plan / Coding Plan (`sk-cp-...` prefixed) keys, use
+    `SetMiniMaxTokenPlanLLMServiceConnector` instead.
+    """
+
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -632,6 +855,57 @@ class SetMiniMaxLLMServiceConnector(object):
                     },
                 ),
                 "config_file": ("STRING", {"default": "mie_llm_keys.json"}),
+                "config_key": ("STRING", {"default": "minimax_open_platform"}),
+                "prefer_local_config": ("BOOLEAN", {"default": True}),
+            },
+        }
+
+    RETURN_TYPES = ("LLMServiceConnector",)
+    RETURN_NAMES = ("llm_service_connector",)
+    FUNCTION = "execute"
+    CATEGORY = MY_CATEGORY
+
+    def execute(self, api_token, model_select, custom_model="", config_file="mie_llm_keys.json", config_key="minimax_open_platform", prefer_local_config=True):
+        model = model_select if model_select != "Custom" else custom_model
+        if not model:
+            model = "MiniMax-M2.7"
+        return (MiniMaxConnectorGeneral(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
+
+
+class SetMiniMaxTokenPlanLLMServiceConnector(object):
+    """MiniMax Token Plan / Coding Plan connector.
+
+    Use this node when you have a Token Plan / Coding Plan API key
+    (`sk-cp-...` prefix). M3 is the headline model on this tier; the
+    older M2.7 / M2.5 lineup is kept for back-compat.
+    """
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "api_token": ("STRING", {"default": ""}),
+                "model_select": (
+                    [
+                        "MiniMax-M3",
+                        "MiniMax-M2.7",
+                        "MiniMax-M2.7-highspeed",
+                        "MiniMax-M2.5",
+                        "MiniMax-M2.5-highspeed",
+                        "Custom",
+                    ],
+                    {"default": "MiniMax-M3"},
+                ),
+            },
+            "optional": {
+                "custom_model": (
+                    "STRING",
+                    {
+                        "default": "",
+                        "placeholder": "Enter custom model name (used when model_select is 'Custom')",
+                    },
+                ),
+                "config_file": ("STRING", {"default": "mie_llm_keys.json"}),
                 "config_key": ("STRING", {"default": "minimax"}),
                 "prefer_local_config": ("BOOLEAN", {"default": True}),
             },
@@ -645,8 +919,8 @@ class SetMiniMaxLLMServiceConnector(object):
     def execute(self, api_token, model_select, custom_model="", config_file="mie_llm_keys.json", config_key="minimax", prefer_local_config=True):
         model = model_select if model_select != "Custom" else custom_model
         if not model:
-            model = "MiniMax-M2.7"
-        return (MiniMaxConnectorGeneral(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
+            model = "MiniMax-M3"
+        return (MiniMaxTokenPlanConnectorGeneral(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
 
 
 class SetGeminiLLMServiceConnector(object):
@@ -785,35 +1059,33 @@ class CallLLMService(object):
     FUNCTION = "call"
     CATEGORY = MY_CATEGORY
 
-    def _image_to_data_url(self, image):
-        if image is None:
-            return None
-        t = image[0] if image.ndim == 4 else image
-        img_np = (np.clip(t.detach().cpu().numpy(), 0.0, 1.0) * 255.0).astype(np.uint8)
-        img_bgr = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
-        ok, buf = cv2.imencode('.jpg', img_bgr)
-        if not ok:
-            return None
-        return "data:image/jpeg;base64," + base64.b64encode(buf.tobytes()).decode("utf-8")
+    @staticmethod
+    def _single_image_data_url(image):
+        """Backward-compat shim: delegate to the shared `core.utils` helper."""
+        return image_tensor_to_data_url(image)
+
+    # Old private name kept as an alias for any external caller.
+    _image_to_data_url = _single_image_data_url
 
     def call(self, llm_service_connector, input_text, temperature=0.7, top_p=0.9, max_tokens=512, seed=None, image=None, image_detail="auto"):
         """
-        一个简单的通用节点，将纯文本包装为用户消息并调用任意 LLMServiceConnector 的 invoke 方法。
+        一个简单的通用节点，将纯文本 / 单图包装为用户消息并调用任意 LLMServiceConnector 的 invoke 方法。
         该节点不会改变底层 connector 的行为或 state。
+
+        文本-only 路径保留 `content: <str>` 形态以维持历史行为；只有带图时才
+        切到 `content: [<part>, ...]` 多模态形态。
         """
+        image_urls = []
         if image is not None:
-            parts = []
-            url = self._image_to_data_url(image)
+            url = image_tensor_to_data_url(image)
             if url:
-                parts.append({
-                    "type": "image_url",
-                    "image_url": {"url": url, "detail": image_detail}
-                })
-            if isinstance(input_text, str) and input_text != "":
-                parts.append({"type": "text", "text": input_text})
-            messages = [{"role": "user", "content": parts}]
+                image_urls.append(url)
+        if image_urls:
+            content = build_multimodal_user_content(input_text, image_urls, image_detail=image_detail)
+            messages = [{"role": "user", "content": content}]
         else:
-            messages = [{"role": "user", "content": input_text}]
+            # Text-only: keep content as a plain string for back-compat.
+            messages = [{"role": "user", "content": input_text if input_text is not None else ""}]
         # 将可选参数直接转发给 connector.invoke
         result = llm_service_connector.invoke(messages, seed=seed, temperature=temperature, top_p=top_p,
                                               max_tokens=max_tokens)

@@ -15,11 +15,11 @@ from _mienodes_internal.nodes.common import ShowAnythingMie, SaveAnythingAsFile,
 from _mienodes_internal.nodes.files import BatchRenameFiles, BatchDeleteFiles, BatchEditTextFiles, BatchSyncImageCaptionFiles, \
     SummaryTextFiles, BatchConvertImageFiles, DedupImageFiles, ModelDownloader, HFRepoDownloader
 from _mienodes_internal.nodes.llm import TextTranslator, PromptGenerator, KontextPromptGenerator, AddUserKontextPreset, RemoveUserKontextPreset, \
-    FrameTransitionPromptGenerator, HunyuanVideoI2VPromptGenerator, HunyuanVideoT2VPromptGenerator, ZImagePromptGenerator, Flux2PromptGenerator, FluxKleinT2VPromptGenerator, LTX2PromptGenerator
+    FrameTransitionPromptGenerator, HunyuanVideoI2VPromptGenerator, HunyuanVideoT2VPromptGenerator, ZImagePromptGenerator, Flux2PromptGenerator, FluxKleinT2VPromptGenerator, LTX2PromptGenerator, BerniniPromptGenerator
 from _mienodes_internal.services.llm import SetGeneralLLMServiceConnector, SetSiliconFlowLLMServiceConnector, \
     SetGithubModelsLLMServiceConnector, SetZhiPuLLMServiceConnector, SetZhiPuCodeLLMServiceConnector, SetKimiLLMServiceConnector, \
     SetDeepSeekLLMServiceConnector, SetGeminiLLMServiceConnector, SetBailianLLMServiceConnector, \
-    SetMiniMaxLLMServiceConnector, \
+    SetMiniMaxLLMServiceConnector, SetMiniMaxTokenPlanLLMServiceConnector, \
     CheckLLMServiceConnectivity, CallLLMService
 from _mienodes_internal.nodes.media import WavConcat, QwenTTSNode, SingleImageToVideo, AddNumberWatermarkForImage, AddTextWatermarkForImage
 from _mienodes_internal.services.tts import SetBailianTTSConnector
@@ -57,6 +57,7 @@ NODE_CLASS_MAPPINGS = {
     add_suffix("SetGeminiLLMServiceConnector"): SetGeminiLLMServiceConnector,
     add_suffix("SetBailianLLMServiceConnector"): SetBailianLLMServiceConnector,
     add_suffix("SetMiniMaxLLMServiceConnector"): SetMiniMaxLLMServiceConnector,
+    add_suffix("SetMiniMaxTokenPlanLLMServiceConnector"): SetMiniMaxTokenPlanLLMServiceConnector,
     add_suffix("CheckLLMServiceConnectivity"): CheckLLMServiceConnectivity,
     add_suffix("CallLLMService"): CallLLMService,
     add_suffix("Translator"): TextTranslator,
@@ -71,6 +72,7 @@ NODE_CLASS_MAPPINGS = {
     add_suffix("Flux2PromptGenerator"): Flux2PromptGenerator,
     add_suffix("FluxKleinT2VPromptGenerator"): FluxKleinT2VPromptGenerator,
     add_suffix("LTX2PromptGenerator"): LTX2PromptGenerator,
+    add_suffix("BerniniPromptGenerator"): BerniniPromptGenerator,
     add_suffix("GetAbsolutePath"): GetAbsolutePath,
     add_suffix("GetFileInfo"): GetFileInfo,
     add_suffix("GetDirectoryFilesInfo"): GetDirectoryFilesInfo,
@@ -138,13 +140,14 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     add_suffix("SetGeneralLLMServiceConnector"): add_emoji("Set General LLM Service Connector"),
     add_suffix("SetSiliconFlowLLMServiceConnector"): add_emoji("Set SiliconFlow LLM Service Connector"),
     add_suffix("SetGithubModelsLLMServiceConnector"): add_emoji("Set Github Models LLM Service Connector"),
-    add_suffix("SetZhiPuLLMServiceConnector"): add_emoji("Set ZhiPu LLM Service Connector"),
-    add_suffix("SetZhiPuCodeLLMServiceConnector"): add_emoji("Set ZhiPu Code LLM Service Connector"),
+    add_suffix("SetZhiPuLLMServiceConnector"): add_emoji("Set ZhiPu LLM Service Connector (not token plan)"),
+    add_suffix("SetZhiPuCodeLLMServiceConnector"): add_emoji("Set ZhiPu Code LLM Service Connector (Token Plan)"),
     add_suffix("SetKimiLLMServiceConnector"): add_emoji("Set Kimi LLM Service Connector"),
     add_suffix("SetDeepSeekLLMServiceConnector"): add_emoji("Set DeepSeek LLM Service Connector"),
     add_suffix("SetGeminiLLMServiceConnector"): add_emoji("Set Gemini LLM Service Connector"),
     add_suffix("SetBailianLLMServiceConnector"): add_emoji("Set Bailian LLM Service Connector"),
     add_suffix("SetMiniMaxLLMServiceConnector"): add_emoji("Set MiniMax LLM Service Connector"),
+    add_suffix("SetMiniMaxTokenPlanLLMServiceConnector"): add_emoji("Set MiniMax Token Plan LLM Service Connector"),
     add_suffix("CheckLLMServiceConnectivity"): add_emoji("Check LLM Service Connectivity"),
     add_suffix("CallLLMService"): add_emoji("Call LLM Service"),
     add_suffix("ModelDownloader"): add_emoji("Model Downloader"),
@@ -161,6 +164,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     add_suffix("Flux2PromptGenerator"): add_emoji("Flux2 Prompt Generator"),
     add_suffix("FluxKleinT2VPromptGenerator"): add_emoji("Flux Klein T2V Prompt Generator"),
     add_suffix("LTX2PromptGenerator"): add_emoji("LTX2 Prompt Generator"),
+    add_suffix("BerniniPromptGenerator"): add_emoji("Bernini Prompt Generator"),
     add_suffix("GetAbsolutePath"): add_emoji("Get Absolute Path"),
     add_suffix("GetFileInfo"): add_emoji("Get File Info"),
     add_suffix("GetDirectoryFilesInfo"): add_emoji("Get Directory Files Info"),
