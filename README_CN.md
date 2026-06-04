@@ -9,17 +9,19 @@
 ## 工作流
 
 当前支持以下服务：
-  - [智谱 ZhiPu](https://www.bigmodel.cn/glm-coding?ic=QCHZLYWEXV)
+  - [智谱 ZhiPu](https://www.bigmodel.cn/glm-coding?ic=QCHZLYWEXV) — 标准版 + 编程/Token Plan 双轨
   - [硅基流动 SiliconFlow](https://cloud.siliconflow.cn/i/PYyJkS9S)
   - [GitHub Models](https://github.com/marketplace?type=models)
   - [Kimi](https://platform.moonshot.cn)
   - [DeepSeek](https://platform.deepseek.com)
-  - [Gemini](https://ai.google.dev/gemini)
+  - [Gemini](https://ai.google.dev/gemini) — 支持多模态（图片按 inline_data 转发）
   - [Bailian 阿里云百炼](https://bailian.console.aliyun.com/)
+  - [MiniMax](https://api.minimaxi.com/) — 标准 Open Platform + Token Plan（`sk-cp-...` 密钥）双轨
+  - 任何 OpenAI 兼容端点可通过 `SetGeneralLLMServiceConnector` 接入（自定义 base URL + 模型）
 
 如果你希望使用其他无法通过 SetGeneralLLMServiceConnector 连接的大语言模型（LLM）服务，请提交 issue 或 pull request 进行反馈。
 
-其中智谱AI的 GLM-4-Flash-250414 和 硅基流动的 Qwen3-8B、GLM-Z1-9B-0414、GLN-4-9B-0414 是免费模型，只需要注册获取一个API Key（或Token）即可随意使用。
+其中智谱AI的 GLM-4-Flash-250414 和 硅基流动的 Qwen3-8B、GLM-Z1-9B-0414、GLM-4-9B-0414 是免费模型，只需要注册获取一个API Key（或Token）即可随意使用。
 
 ### 调用 LLM Service 工作流
 ![Image](images/CallLLMService.png)
@@ -57,6 +59,23 @@
 
 ---
 
+### Bernini 提示词生成器工作流
+
+![Image](images/BerniniPromptGenerator.png)
+
+该工作流把用户输入的提示词送入 [Bernini](https://bernini-ai.github.io/) 任务感知提示词增强器（bytedance/Bernini，Apache 2.0），把改写后的任务化提示词写回工作流。下拉框中支持的 12 种任务类型：
+
+- **t2i / t2v** — 文生图 / 文生视频
+- **i2i / i2v** — 图生图（图像编辑）/ 图生视频
+- **r2i / r2v** — 主体驱动生图 / 主体驱动生视频（需要主体参考图）
+- **v2v / mv2v** — 视频编辑 / 多源视频编辑
+- **vi2v** — 视频+参考图编辑
+- **rv2v / vrc2v** — 参考图引导视频编辑
+- **ads2v** — 视频植入视频
+
+参考图与源视频帧会作为 `image_url` 内容部分转发给大模型，让模型看到它要改写的内容。下拉标签采用双语（code + 中文），中文/英文环境都看得懂。
+
+---
 ## 当前功能
 
 ### 提示词增强功能
@@ -250,6 +269,41 @@
 
 ---
 
+### **SetMiniMaxLLMServiceConnector**（标准版，非 token plan）
+**功能：** 用标准 `eyJ...`（JWT）密钥接入 MiniMax Open Platform。
+**参数：**
+- `api_token`（str）：API 密钥，留空时使用 `mie_llm_keys.json` 里的 `minimax_open_platform` 条目。
+- `model_select`：`MiniMax-M2.7`（默认）/ `MiniMax-M2.7-highspeed` / `MiniMax-M2.5` / `MiniMax-M2.5-highspeed` / `Custom`。
+- `config_file` / `config_key` / `prefer_local_config`：标准配置项。
+
+### **SetMiniMaxTokenPlanLLMServiceConnector**（Token Plan）
+**功能：** 用 `sk-cp-...` 密钥接入 MiniMax Token Plan / 编程包端点。
+**参数：**
+- `api_token`（str）：Token Plan 密钥，留空时使用 `mie_llm_keys.json` 里的 `minimax` 条目。
+- `model_select`：`MiniMax-M3`（默认）/ `MiniMax-M2.7` / `MiniMax-M2.7-highspeed` / `MiniMax-M2.5` / `MiniMax-M2.5-highspeed` / `Custom`。
+- `config_file` / `config_key` / `prefer_local_config`：标准配置项。
+
+MiniMax 连接器在请求前会做一次 image_detail 清洗，把 `detail: "auto"` 从 `image_url` 中去掉——MiniMax API 拒绝该值（HTTP 400）。其他 OpenAI 兼容服务（SiliconFlow、智谱、Kimi 等）不受影响。
+
+### **BerniniPromptGenerator**
+**功能：** 用 Bernini 任务感知系统提示词改写用户提示词。可选地把单张参考图、参考图批次、源视频帧批次一起转给 LLM，让模型看到改写对象。
+**参数：**
+- `llm_service_connector`（`LLMServiceConnector`）：上面任一连接器。
+- `task_type`：12 种任务之一（下拉显示 `code - 中文`），默认 `t2i - 文生图`。
+- `user_prompt`（str）：原始提示词。
+- `single_image`（`IMAGE`，可选）：单张参考图，例如 `i2i` / `i2v` / `r2i` / `r2v`。
+- `reference_images`（`IMAGE`，可选）：参考图批次。
+- `source_video_frames`（`IMAGE`，可选）：`v2v` / `rv2v` / `ads2v` 等任务用的源视频帧批次。
+- `video_frames`（int，1-16）：采样并转发的源帧数，默认 3。
+- `image_detail`（`auto` / `low` / `high`）：OpenAI 风格的图片细节参数。
+- `temperature` / `top_p` / `max_tokens`：标准采样参数。
+
+路由细节：
+- `t2i`、`t2v` 使用专用中文系统提示词（`T2I_A14B_EN_SYS_PROMPT`、`T2V_A14B_EN_SYS_PROMPT`）。
+- 其余 10 个任务使用 `bernini_prompts.SYSTEM_PROMPTS` 里的任务系统提示词，并通过对应的 `*_TEMPLATE` 路由参考素材。
+- `r2i`、`r2v`、`rv2v`、`vrc2v` 输出 JSON 模式（`{"rewritten_text": "..."}`），节点解析 JSON 后只返回内层字符串。
+
+---
 ## 未来计划
 
 ComfyUI-MieNodes 插件正在积极开发中，未来将进一步扩展功能。规划中的新功能包括：
@@ -273,7 +327,11 @@ ComfyUI-MieNodes 插件正在积极开发中，未来将进一步扩展功能。
 
 本项目的部分功能借鉴了以下开源项目的工作（部分为直接复刻），在此向原作者与贡献者表示衷心的感谢。
 
+- **[Bernini](https://bernini-ai.github.io/)**（作者：ByteDance Bernini 团队 — 陈辰辰、刘俊逸、李磊、池路、孙明珍、李卓颖、付毅、郭若愚、吴易恒、白鸽、袁泽寰）。
+  本项目中 `BerniniPromptGenerator` 节点（实现见 [`nodes/llm/bernini_prompts.py`](nodes/llm/bernini_prompts.py) 与 [`nodes/llm/bernini_prompt_generator.py`](nodes/llm/bernini_prompt_generator.py)）所沿用的 12 套任务感知系统提示词与用户模板是上游 [bytedance/Bernini](https://github.com/bytedance/Bernini) 提示词库（Apache 2.0）的逐字复刻；任务路由逻辑是该仓库 `bernini.prompt_enhancer.PromptEnhancer` 的 ComfyUI 友好移植版本。感谢 Bernini 团队为多模态生成提示词工程公开的资产与实现参考。
+
 - **[rgthree-comfy](https://github.com/rgthree/rgthree-comfy)**（作者：[@rgthree](https://github.com/rgthree)）
   本项目的 SimpleText 与 RichText 画布标注节点（实现见 [js/textNodes.js](js/textNodes.js) 与 [
-odes/common/text_nodes.py](nodes/common/text_nodes.py)）是 rgthree Label 节点的直接复刻：透明的 LiteGraph 外壳、LGraphCanvas.prototype.drawNode 的劫持包装、Canvas oundRect / draw(ctx) 渲染流程、以及 Python 端 no-op 的 INPUT_TYPES / 
+odes/common/text_nodes.py](nodes/common/text_nodes.py)）是 rgthree Label 节点的直接复刻：透明的 LiteGraph 外壳、LGraphCanvas.prototype.drawNode 的劫持包装、Canvas 
+oundRect / draw(ctx) 渲染流程、以及 Python 端 no-op 的 INPUT_TYPES / 
 oop 壳层均沿用了 rgthree 的实现思路；RichText 在同一思路之上额外叠加了 DOM widget 以渲染经过清理的 Markdown。感谢 rgthree 提供了清晰、可学习的参考实现，也感谢其长期以来为 ComfyUI 节点生态所做出的贡献。

@@ -9,17 +9,19 @@
 ## Workflows
 
 Currently, the following services are supported:
-  - [ZhiPu 智谱](https://www.bigmodel.cn/glm-coding?ic=QCHZLYWEXV)
+  - [ZhiPu 智谱](https://www.bigmodel.cn/glm-coding?ic=QCHZLYWEXV) — standard + Coding/Token Plan tiers
   - [SiliconFlow 硅基流动](https://cloud.siliconflow.cn/i/PYyJkS9S)
   - [GitHub Models](https://github.com/marketplace?type=models)
   - [Kimi](https://platform.moonshot.cn)
   - [DeepSeek](https://platform.deepseek.com)
-  - [Gemini](https://ai.google.dev/gemini) 
+  - [Gemini](https://ai.google.dev/gemini) — multimodal-aware (image input is forwarded as inline data)
   - [Bailian 阿里云百炼](https://bailian.console.aliyun.com/)
+  - [MiniMax](https://api.minimaxi.com/) — standard Open Platform + Token Plan (`sk-cp-...` keys)
+  - Any OpenAI-compatible endpoint via `SetGeneralLLMServiceConnector` (custom base URL + model)
 
 If you wish to use other large language model (LLM) services that cannot be connected through SetGeneralLLMServiceConnector, please submit an issue or a pull request for feedback.
  
-Among them, Zhipu AI's GLM-4-Flash-250414 and SiliconFlow's Qwen3-8B, GLM-Z1-9B-0414, and GLN-4-9B-0414 are free models. You only need to register and obtain an API Key (or Token) to use them without restriction.
+Among them, Zhipu AI's GLM-4-Flash-250414 and SiliconFlow's Qwen3-8B, GLM-Z1-9B-0414, and GLM-4-9B-0414 are free models. You only need to register and obtain an API Key (or Token) to use them without restriction.
 
 ### Call LLM Service Workflow
 ![Image](images/CallLLMService.png)
@@ -57,6 +59,23 @@ This workflow focuses on generating an artistic prompt for an ethereal digital p
 
 ---
 
+### Bernini Prompt Generator Workflow
+
+![Image](images/BerniniPromptGenerator.png)
+
+This workflow routes a user prompt through the [Bernini](https://bernini-ai.github.io/) task-aware prompt enhancer (bytedance/Bernini, Apache 2.0) and writes an enriched, task-shaped prompt back into the graph. The 12 task types supported in the dropdown are:
+
+- **t2i / t2v** — text-to-image / text-to-video
+- **i2i / i2v** — image-to-image editing / image-to-video
+- **r2i / r2v** — subject-driven image / video generation (reference image of a subject)
+- **v2v / mv2v** — video-to-video editing / multi-source v2v
+- **vi2v** — video editing with a reference image
+- **rv2v / vrc2v** — reference-guided video editing
+- **ads2v** — ads insertion in video
+
+Reference images and source video frames are forwarded to the LLM as `image_url` content parts, so the model can see what it's rewriting about. The dropdown labels are bilingual (code + 中文) and stay readable in either language.
+
+---
 ## Current Features  
 
 ### Prompt Enhancement Features
@@ -249,6 +268,41 @@ After:
 
 ![Image](images/downloader.png)
 
+### **SetMiniMaxLLMServiceConnector** (standard, not token plan)
+**Function:** Connect to the MiniMax Open Platform API with a standard `eyJ...` (JWT) key.
+**Parameters:**
+- `api_token` (str): API key, or leave empty to use the `minimax_open_platform` entry in `mie_llm_keys.json`.
+- `model_select`: one of `MiniMax-M2.7`, `MiniMax-M2.7-highspeed`, `MiniMax-M2.5`, `MiniMax-M2.5-highspeed`, `Custom`. Default: `MiniMax-M2.7`.
+- `config_file` / `config_key` / `prefer_local_config`: standard config plumbing.
+
+### **SetMiniMaxTokenPlanLLMServiceConnector** (Token Plan)
+**Function:** Connect to the MiniMax Token Plan / Coding Plan endpoint with an `sk-cp-...` prefixed key.
+**Parameters:**
+- `api_token` (str): Token Plan API key, or leave empty to use the `minimax` entry in `mie_llm_keys.json`.
+- `model_select`: `MiniMax-M3` (default), `MiniMax-M2.7`, `MiniMax-M2.7-highspeed`, `MiniMax-M2.5`, `MiniMax-M2.5-highspeed`, `Custom`.
+- `config_file` / `config_key` / `prefer_local_config`: standard config plumbing.
+
+The MiniMax connectors share a per-connector image-detail sanitization step that drops `detail: "auto"` from `image_url` parts before sending — MiniMax rejects that value with HTTP 400. The OpenAI-compat services (SiliconFlow, ZhiPu, Kimi, etc.) are unaffected by this.
+
+### **BerniniPromptGenerator**
+**Function:** Rewrite a user prompt using a Bernini task-aware system prompt. Optionally forward one reference image, a batch of reference images, and/or a batch of source video frames to the LLM so it can see what it's rewriting about.
+**Parameters:**
+- `llm_service_connector` (`LLMServiceConnector`): any connector from the list above.
+- `task_type`: one of the 12 task types (dropdown shows `code - 中文` labels). Default: `t2i - 文生图`.
+- `user_prompt` (str): the raw instruction to rewrite.
+- `single_image` (`IMAGE`, optional): a single reference image, e.g. for `i2i` / `i2v` / `r2i` / `r2v`.
+- `reference_images` (`IMAGE`, optional): a batch of reference images.
+- `source_video_frames` (`IMAGE`, optional): a batch of source video frames for `v2v` / `rv2v` / `ads2v`.
+- `video_frames` (int, 1-16): how many source frames to sample and forward. Default: 3.
+- `image_detail` (`auto` / `low` / `high`): OpenAI-style image detail hint.
+- `temperature` / `top_p` / `max_tokens`: standard sampling parameters.
+
+Routing detail:
+- `t2i` and `t2v` use specialized Chinese system prompts (`T2I_A14B_EN_SYS_PROMPT`, `T2V_A14B_EN_SYS_PROMPT`).
+- The other 10 tasks use the per-task system prompt in `bernini_prompts.SYSTEM_PROMPTS` and route reference material through the appropriate `*_TEMPLATE`.
+- `r2i`, `r2v`, `rv2v`, `vrc2v` return JSON-mode outputs (`{"rewritten_text": "..."}`); the node parses the JSON and returns the inner string.
+
+---
 ## Future Plans  
 
 ComfyUI-MieNodes is under active development and will expand its features in future updates. Planned additions include:  
@@ -272,7 +326,10 @@ As the author is a content creator, the plugin will also include many practical 
 
 Some features in this project are inspired by, or build directly on the work of, the following open-source projects. We are grateful to the original authors and contributors.
 
+- **[Bernini](https://bernini-ai.github.io/)** by the Bernini Team at ByteDance (Chenchen Liu, Junyi Chen, Lei Li, Lu Chi, Mingzhen Sun, Zhuoying Li, Yi Fu, Ruoyu Guo, Yiheng Wu, Ge Bai, Zehuan Yuan). The 12 task-aware system prompts and user templates used by the `BerniniPromptGenerator` node (under [`nodes/llm/bernini_prompts.py`](nodes/llm/bernini_prompts.py)) are a verbatim copy of the upstream [bytedance/Bernini](https://github.com/bytedance/Bernini) prompt library (Apache 2.0). Routing logic in [`bernini_prompt_generator.py`](nodes/llm/bernini_prompt_generator.py) is a ComfyUI-friendly port of `bernini.prompt_enhancer.PromptEnhancer` from the same upstream repo.
+
 - **[rgthree-comfy](https://github.com/rgthree/rgthree-comfy)** by [@rgthree](https://github.com/rgthree).
   The SimpleText and RichText canvas annotation nodes (in [js/textNodes.js](js/textNodes.js) and [
-odes/common/text_nodes.py](nodes/common/text_nodes.py)) are a direct re-implementation of rgthree's Label node. The transparent LiteGraph shell, the LGraphCanvas.prototype.drawNode wrapper, the Canvas oundRect/draw(ctx) rendering, and the no-op INPUT_TYPES / 
+odes/common/text_nodes.py](nodes/common/text_nodes.py)) are a direct re-implementation of rgthree's Label node. The transparent LiteGraph shell, the LGraphCanvas.prototype.drawNode wrapper, the Canvas 
+oundRect/draw(ctx) rendering, and the no-op INPUT_TYPES / 
 oop Python shell all follow rgthree's approach. RichText reuses the same idea and adds a DOM widget for sanitized Markdown rendering. Many thanks to rgthree for the clean reference implementation and for the years of work that have made ComfyUI's node ecosystem so much better.
