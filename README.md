@@ -63,11 +63,12 @@ This workflow focuses on generating an artistic prompt for an ethereal digital p
 
 ![Image](images/BerniniPromptGenerator.png)
 
-This workflow routes a user prompt through the [Bernini](https://bernini-ai.github.io/) task-aware prompt enhancer (bytedance/Bernini, Apache 2.0) and writes an enriched, task-shaped prompt back into the graph. The 12 task types supported in the dropdown are:
+This workflow routes a user prompt through the [Bernini](https://bernini-ai.github.io/) task-aware prompt enhancer (bytedance/Bernini, Apache 2.0) and writes an enriched, task-shaped prompt back into the graph. The 13 task types supported in the dropdown are:
 
 - **t2i / t2v** — text-to-image / text-to-video
 - **i2i / i2v** — image-to-image editing / image-to-video
 - **r2i / r2v** — subject-driven image / video generation (reference image of a subject)
+- **ri2i** — reference-image-guided image editing (source image + reference image; MieNodes extension)
 - **v2v / mv2v** — video-to-video editing / multi-source v2v
 - **vi2v** — video editing with a reference image
 - **rv2v / vrc2v** — reference-guided video editing
@@ -288,9 +289,9 @@ The MiniMax connectors share a per-connector image-detail sanitization step that
 **Function:** Rewrite a user prompt using a Bernini task-aware system prompt. Optionally forward one reference image, a batch of reference images, and/or a batch of source video frames to the LLM so it can see what it's rewriting about.
 **Parameters:**
 - `llm_service_connector` (`LLMServiceConnector`): any connector from the list above.
-- `task_type`: one of the 12 task types (dropdown shows `code - 中文` labels). Default: `t2i - 文生图`.
+- `task_type`: one of the 13 task types (dropdown shows `code - 中文` labels). Default: `t2i - 文生图`. The `ri2i (扩展)` entry is a MieNodes extension task.
 - `user_prompt` (str): the raw instruction to rewrite.
-- `single_image` (`IMAGE`, optional): a single reference image, e.g. for `i2i` / `i2v` / `r2i` / `r2v`.
+- `single_image` (`IMAGE`, optional): a single reference image, e.g. for `i2i` / `i2v` / `r2i` / `r2v`; for `ri2i` it is the source image being edited (image0 in the template).
 - `reference_images` (`IMAGE`, optional): a batch of reference images.
 - `source_video_frames` (`IMAGE`, optional): a batch of source video frames for `v2v` / `rv2v` / `ads2v`.
 - `video_frames` (int, 1-16): how many source frames to sample and forward. Default: 3.
@@ -299,8 +300,8 @@ The MiniMax connectors share a per-connector image-detail sanitization step that
 
 Routing detail:
 - `t2i` and `t2v` use specialized Chinese system prompts (`T2I_A14B_EN_SYS_PROMPT`, `T2V_A14B_EN_SYS_PROMPT`).
-- The other 10 tasks use the per-task system prompt in `bernini_prompts.SYSTEM_PROMPTS` and route reference material through the appropriate `*_TEMPLATE`.
-- `r2i`, `r2v`, `rv2v`, `vrc2v` return JSON-mode outputs (`{"rewritten_text": "..."}`); the node parses the JSON and returns the inner string.
+- The other 11 tasks use the per-task system prompt in `bernini_prompts.SYSTEM_PROMPTS` and route reference material through the appropriate `*_TEMPLATE`.
+- `r2i`, `r2v`, `rv2v`, `vrc2v`, `ri2i` return JSON-mode outputs (`{"rewritten_text": "..."}`); the node parses the JSON and returns the inner string.
 
 ---
 ## Future Plans  

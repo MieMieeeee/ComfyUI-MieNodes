@@ -44,6 +44,7 @@ try:
         T2I_A14B_EN_SYS_PROMPT,
         R2V_TEMPLATE,
         R2I_TEMPLATE,
+        RI2I_TEMPLATE,
         VR2V_TEMPLATE,
         V2V_TEMPLATE,
         I2I_TEMPLATE,
@@ -62,6 +63,7 @@ except ImportError:
         T2I_A14B_EN_SYS_PROMPT,
         R2V_TEMPLATE,
         R2I_TEMPLATE,
+        RI2I_TEMPLATE,
         VR2V_TEMPLATE,
         V2V_TEMPLATE,
         I2I_TEMPLATE,
@@ -376,6 +378,17 @@ class BerniniPromptEnhancer:
                 image_num=max(image_num, 1), original_text=user_prompt
             )
             return self._chat(base_sys, text, ref_urls, json_mode=True, image_detail=image_detail) or user_prompt
+        if code == "ri2i":
+            # image0 = source (the image to edit), image1..N = references.
+            # If the user only wired `reference_images` (no `single_image`),
+            # we treat its first frame as the source.
+            if not ref_urls:
+                return user_prompt
+            ref_num = max(len(ref_urls) - 1, 0)
+            text = RI2I_TEMPLATE.format(
+                ref_num=ref_num, original_text=user_prompt
+            )
+            return self._chat(base_sys, text, ref_urls, json_mode=True, image_detail=image_detail) or user_prompt
         if code in ("rv2v", "vrc2v"):
             text = VR2V_TEMPLATE.format(
                 image_num=max(image_num, 1), original_text=user_prompt
@@ -395,7 +408,11 @@ class BerniniPromptGenerator:
     """ComfyUI node that rewrites a user prompt with a Bernini task template.
 
     Selectable modes:
-      t2i, t2v, i2i, r2i, i2v, v2v, mv2v, r2v, vi2v, rv2v, vrc2v, ads2v
+      t2i, t2v, i2i, r2i, ri2i, i2v, v2v, mv2v, r2v, vi2v, rv2v, vrc2v, ads2v
+
+    Note: `ri2i` is a MieNodes extension task (not part of the upstream
+    bytedance/Bernini 12-task set) that fills the symmetric gap between
+    `i2i` (single source image) and `r2i` (reference-driven new image).
     """
 
     @classmethod

@@ -30,6 +30,7 @@ TASK_TYPES = (
     "t2v - 文生视频",
     "i2i - 图像编辑",
     "r2i - 参考主体生图",
+    "ri2i (扩展) - 参考图引导图像编辑",
     "i2v - 图生视频",
     "v2v - 视频编辑",
     "mv2v - 多源视频编辑",
@@ -43,7 +44,7 @@ TASK_TYPES = (
 # The original short codes, in display order. Useful for iterating
 # or for sanity checks against the dropdown contents.
 TASK_CODES = (
-    "t2i", "t2v", "i2i", "r2i", "i2v", "v2v",
+    "t2i", "t2v", "i2i", "r2i", "ri2i", "i2v", "v2v",
     "mv2v", "r2v", "vi2v", "rv2v", "vrc2v", "ads2v",
 )
 
@@ -63,7 +64,7 @@ def parse_task_code(task_type):
 
 # Tasks that are expected to return a JSON object with a single
 # "rewritten_text" key, which the caller must parse out.
-JSON_MODE_TASKS = frozenset({"r2i", "r2v", "rv2v", "vrc2v"})
+JSON_MODE_TASKS = frozenset({"r2i", "r2v", "rv2v", "vrc2v", "ri2i"})
 
 # --------------------------------------------------------------------------- #
 # System prompts per task type
@@ -74,6 +75,7 @@ SYSTEM_PROMPTS = {
     "t2v": "You are a helpful assistant specialized in text-to-video generation.",
     "i2i": "You are a helpful assistant specialized in image editing.",
     "r2i": "You are a helpful assistant specialized in subject-to-image generation.",
+    "ri2i": "You are a helpful assistant specialized in reference-guided image editing.",
     "i2v": "You are a helpful assistant specialized in image-to-video generation.",
     "v2v": "You are a helpful assistant specialized in video editing.",
     "r2v": "You are a helpful assistant specialized in subject-to-video generation.",
@@ -383,3 +385,43 @@ I'm providing 3 uniformly sampled frames of the source video for context.
 只输出最终的英文 prompt，不要其它说明。
 """
 
+
+
+# --------------------------------------------------------------------------- #
+# ri2i - Reference-image-guided image editing (MieNodes extension)
+# --------------------------------------------------------------------------- #
+# This task is NOT part of the upstream bytedance/Bernini 12-task set; it
+# fills the symmetric gap between `i2i` (single source image) and `r2i`
+# (reference-driven new image generation). Mirrors the structure of
+# `VR2V_TEMPLATE` but for the still-image domain.
+RI2I_TEMPLATE = """You are an expert at writing prompts for reference-image-guided image editing. I'm providing you with:
+1. The first image is the **source image** that will be edited (referred to as image0).
+2. The next {ref_num} image(s) are **reference image(s)** that should guide the editing (referred to as image1, image2, ... in order).
+3. An original editing instruction (which may be in Chinese).
+
+The reference image(s) may serve different roles depending on the editing task — for example, providing the target object/character for a replacement or addition, indicating a target visual style, or guiding attribute-level edits. Infer the role of the reference image(s) from the original instruction.
+
+Your task: Rewrite and enhance the original editing instruction into a detailed, precise English prompt for a reference-image-guided image editing model. The output is a single paragraph in the format: **editing instruction + detailed description of the target edited image**, concatenated together.
+
+Follow these rules strictly:
+
+1. **Output format**: an editing instruction sentence followed by a detailed description of what the target image should look like, written as one continuous paragraph.
+2. **Match the edit type**: use the verb that matches the actual intent — "Replace...", "Remove...", "Add...", "Restyle... in the style of...", "Change the ... of ...", etc. Do NOT force every task into a "replace" framing.
+3. **Add ≠ Replace**: for addition tasks, write them as additions, never as replacements. Do not change the existing elements in the source image that are not being modified.
+4. **Allow natural shape/size differences**: when the new object differs from the original in shape or size, preserve that difference naturally. Do NOT instruct the model to keep the shape or size identical.
+5. **Describe the target image directly**: do not use phrases like "after editing..." or "in the edited image...". Describe the resulting image as if it is the final result.
+6. **Faithful reference appearance**: when the reference image provides a person, object, or subject to be added or substituted in, the appearance, color, material, and identifying features in the prompt must match what is actually visible in the reference image. Do not hallucinate details that are not present in the reference image.
+7. **Preserve unchanged elements explicitly**: for localized edits, explicitly state which aspects of the source image remain unchanged — composition, lighting, background, other objects, shadows/reflections, etc.
+8. **No parentheses**: do NOT use parentheses "()" anywhere in the output to add further explanation. Integrate all clarifications into the main sentence flow.
+9. **English only**: the output must be entirely in English. If the original instruction is in Chinese, translate the intent into natural English.
+10. **Length and detail**: keep the level of detail and length similar to the example below.
+
+Example output for a replacement task:
+
+"Replace the blue ceramic vase on the wooden table with the potted plant from the reference image, matching the original vase's position and orientation, and preserving the table texture, lighting, shadows, background, framing, and all other objects unchanged. A bright modern dining room in soft daylight with a light-oak rectangular dining table: the tabletop centerpiece area now holds a small terracotta pot with a lush green succulent featuring thick, pointed leaves, resting naturally on the wood surface with realistic contact shadow. Behind the table, large matte taupe built-in wall panels create a clean geometric look; a wall-mounted TV with a light stone-like frame sits above a floating wooden console. The camera angle, focus, and all other scene elements remain exactly the same."
+
+Return ONLY a JSON object with one key: "rewritten_text". The value should be the full rewritten editing prompt as one string. No extra text.
+
+Original instruction:
+{original_text}
+"""

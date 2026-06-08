@@ -63,11 +63,12 @@
 
 ![Image](images/BerniniPromptGenerator.png)
 
-该工作流把用户输入的提示词送入 [Bernini](https://bernini-ai.github.io/) 任务感知提示词增强器（bytedance/Bernini，Apache 2.0），把改写后的任务化提示词写回工作流。下拉框中支持的 12 种任务类型：
+该工作流把用户输入的提示词送入 [Bernini](https://bernini-ai.github.io/) 任务感知提示词增强器（bytedance/Bernini，Apache 2.0），把改写后的任务化提示词写回工作流。下拉框中支持的 13 种任务类型：
 
 - **t2i / t2v** — 文生图 / 文生视频
 - **i2i / i2v** — 图生图（图像编辑）/ 图生视频
 - **r2i / r2v** — 主体驱动生图 / 主体驱动生视频（需要主体参考图）
+- **ri2i** — 参考图引导图像编辑（源图 + 参考图；MieNodes 扩展任务）
 - **v2v / mv2v** — 视频编辑 / 多源视频编辑
 - **vi2v** — 视频+参考图编辑
 - **rv2v / vrc2v** — 参考图引导视频编辑
@@ -289,9 +290,9 @@ MiniMax 连接器在请求前会做一次 image_detail 清洗，把 `detail: "au
 **功能：** 用 Bernini 任务感知系统提示词改写用户提示词。可选地把单张参考图、参考图批次、源视频帧批次一起转给 LLM，让模型看到改写对象。
 **参数：**
 - `llm_service_connector`（`LLMServiceConnector`）：上面任一连接器。
-- `task_type`：12 种任务之一（下拉显示 `code - 中文`），默认 `t2i - 文生图`。
+- `task_type`：13 种任务之一（下拉显示 `code - 中文`），默认 `t2i - 文生图`。`ri2i (扩展)` 是 MieNodes 扩展任务。
 - `user_prompt`（str）：原始提示词。
-- `single_image`（`IMAGE`，可选）：单张参考图，例如 `i2i` / `i2v` / `r2i` / `r2v`。
+- `single_image`（`IMAGE`，可选）：单张参考图，例如 `i2i` / `i2v` / `r2i` / `r2v`；对 `ri2i` 而言它是被编辑的源图（模板中的 image0）。
 - `reference_images`（`IMAGE`，可选）：参考图批次。
 - `source_video_frames`（`IMAGE`，可选）：`v2v` / `rv2v` / `ads2v` 等任务用的源视频帧批次。
 - `video_frames`（int，1-16）：采样并转发的源帧数，默认 3。
@@ -300,8 +301,8 @@ MiniMax 连接器在请求前会做一次 image_detail 清洗，把 `detail: "au
 
 路由细节：
 - `t2i`、`t2v` 使用专用中文系统提示词（`T2I_A14B_EN_SYS_PROMPT`、`T2V_A14B_EN_SYS_PROMPT`）。
-- 其余 10 个任务使用 `bernini_prompts.SYSTEM_PROMPTS` 里的任务系统提示词，并通过对应的 `*_TEMPLATE` 路由参考素材。
-- `r2i`、`r2v`、`rv2v`、`vrc2v` 输出 JSON 模式（`{"rewritten_text": "..."}`），节点解析 JSON 后只返回内层字符串。
+- 其余 11 个任务使用 `bernini_prompts.SYSTEM_PROMPTS` 里的任务系统提示词，并通过对应的 `*_TEMPLATE` 路由参考素材。
+- `r2i`、`r2v`、`rv2v`、`vrc2v`、`ri2i` 输出 JSON 模式（`{"rewritten_text": "..."}`），节点解析 JSON 后只返回内层字符串。
 
 ---
 ## 未来计划
