@@ -1,5 +1,9 @@
 import os
 import json
+import datetime
+import logging
+from logging.handlers import RotatingFileHandler
+from threading import Lock
 import toml
 import glob
 import hashlib
@@ -14,6 +18,86 @@ try:
     from _mienodes_internal.core.utils import mie_log, any_typ, compute_hash, convert_size
 except ImportError:
     from ...core.utils import mie_log, any_typ, compute_hash, convert_size
+
+def _plugin_root_dir():
+    """Return the on-disk directory of the installed plugin.
+
+    ``general.py`` lives at ``<plugin>/nodes/common/general.py``; walking up
+    three levels reaches the plugin root no matter how the user installed
+    it (clone, symlink, embedded venv, etc.).
+    """
+    here = os.path.abspath(__file__)
+    return os.path.dirname(os.path.dirname(os.path.dirname(here)))
+
+
+def _safe_repr(value, limit=2000):
+    """Return ``str(value)`` clamped to ``limit`` characters."""
+    s = "" if value is None else str(value)
+    if len(s) > limit:
+        s = s[:limit] + "... <truncated %d chars>" % (len(s) - limit)
+    return s
+
+
+def _extract_upstream(extra_pnginfo, unique_id):
+    """Best-effort lookup of the upstream node connected to ``anything``.
+
+    Returns a dict with optional keys: ``node_id``, ``node_title``,
+    ``node_type``, ``upstream_id``, ``upstream_title``, ``upstream_type``.
+    Missing values are simply absent from the dict.
+    """
+    info = {}
+    if not extra_pnginfo or not isinstance(extra_pnginfo, dict):
+        return info
+    workflow = extra_pnginfo.get("workflow")
+    if not isinstance(workflow, dict):
+        return info
+    nodes = workflow.get("nodes") or []
+    links = workflow.get("links") or []
+    if not isinstance(nodes, list) or not isinstance(links, list):
+        return info
+    me = None
+    for n in nodes:
+        if isinstance(n, dict) and str(n.get("id")) == str(unique_id):
+            me = n
+            break
+    if me is None:
+        return info
+    info["node_id"] = me.get("id")
+    info["node_title"] = me.get("title")
+    info["node_type"] = me.get("type")
+    # locate the ``anything`` input connection (declared first on this node)
+    inputs = me.get("inputs") or []
+    target = None
+    for inp in inputs:
+        if isinstance(inp, dict) and inp.get("name") == "anything":
+            target = inp
+            break
+    if target is None:
+        for inp in inputs:
+            if isinstance(inp, dict) and inp.get("link") is not None:
+                target = inp
+                break
+    if target is None:
+        return info
+    link = target.get("link")
+    if isinstance(link, list) and link:
+        link = link[0]
+    if link is None:
+        return info
+    for entry in links:
+        if not (isinstance(entry, list) and len(entry) >= 4):
+            continue
+        if entry[0] != link:
+            continue
+        src_id = entry[1]
+        for sn in nodes:
+            if isinstance(sn, dict) and sn.get("id") == src_id:
+                info["upstream_id"] = src_id
+                info["upstream_title"] = sn.get("title")
+                info["upstream_type"] = sn.get("type")
+                return info
+    return info
+
 
 MY_CATEGORY = "🐑 MieNodes/🐑 Common"
 
@@ -53,6 +137,138 @@ class ShowAnythingMie(object):
         mie_log(f"ShowAnythingMie: {text}")
 
         return {"ui": {"text": text}, "result": (text,)}
+
+
+class ShowAndSaveAnythingMie(object):
+    """Like ``ShowAnythingMie`` but also appends a structured log line.
+
+    The log entry is JSON-Lines and captures timestamp, the current node's
+    id / title / type, the upstream node wired into ``anything`` (id /
+    title / type), and
+    the result. Files rotate on size and live in ``<plugin>/logs/``; the
+    user picks the file name.
+    """
+
+    LOG_DIR_NAME = "logs"
+    LOG_DEFAULT_NAME = "show_anything.log"
+    LOG_MAX_BYTES = 25 * 1024 * 1024  # 25 MB per file (4 files total = 100 MB cap)
+    LOG_BACKUP_COUNT = 3
+
+    _LOGGER_CACHE = {}
+    _LOGGER_LOCK = Lock()
+
+    def __init__(self):
+        pass
+
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "anything": (any_typ,),
+                "save_to_log": ("BOOLEAN", {"default": True}),
+            },
+            "optional": {
+                "log_file_name": ("STRING", {"default": "show_anything.log"}),
+            },
+            "hidden": {
+                "unique_id": "UNIQUE_ID",
+                "extra_pnginfo": "EXTRA_PNGINFO",
+            },
+        }
+
+    RETURN_TYPES = ("STRING",)
+    FUNCTION = "execute"
+    OUTPUT_NODE = True
+
+    CATEGORY = MY_CATEGORY
+
+    def execute(self, anything, save_to_log=True, log_file_name="",
+                unique_id=None, extra_pnginfo=None):
+        """
+        以字符形式打印输入的内容，同时将时间、上游节点信息与结果写入日志文件。
+
+        参数：
+        - anything (*): 输入的内容
+        - save_to_log (bool): 是否写入日志（默认 True）
+        - log_file_name (str): 日志文件名（仅文件名，不含路径），留空使用 show_anything.log
+        """
+
+        text = str(anything)
+        mie_log(f"ShowAndSaveAnythingMie: {text}")
+
+        if save_to_log:
+            self._write_log_entry(
+                anything, text, log_file_name, unique_id, extra_pnginfo
+            )
+
+        return {"ui": {"text": text}, "result": (text,)}
+
+    @classmethod
+    def _plugin_log_dir(cls):
+        log_dir = os.path.join(_plugin_root_dir(), cls.LOG_DIR_NAME)
+        os.makedirs(log_dir, exist_ok=True)
+        return log_dir
+
+    @classmethod
+    def _resolve_log_path(cls, log_file_name):
+        """Resolve a log file path inside the plugin's ``logs/`` folder.
+
+        The user supplies a *file name* (no directory). Empty / whitespace
+        falls back to ``show_anything.log``. Any directory components the
+        user may have included are stripped via ``os.path.basename`` to
+        keep the result inside the plugin's ``logs/`` directory.
+        """
+        name = (log_file_name or "").strip() or cls.LOG_DEFAULT_NAME
+        name = os.path.basename(name)
+        return os.path.join(cls._plugin_log_dir(), name)
+
+    @classmethod
+    def _get_logger(cls, log_file_path):
+        """Return a cached logger that size-rotates ``log_file_path``."""
+        with cls._LOGGER_LOCK:
+            cached = cls._LOGGER_CACHE.get(log_file_path)
+            if cached is not None:
+                return cached
+            os.makedirs(os.path.dirname(log_file_path) or ".", exist_ok=True)
+            logger = logging.getLogger("MieShowAndSave:" + log_file_path)
+            logger.setLevel(logging.INFO)
+            logger.propagate = False
+            for h in list(logger.handlers):
+                logger.removeHandler(h)
+            handler = RotatingFileHandler(
+                log_file_path,
+                maxBytes=cls.LOG_MAX_BYTES,
+                backupCount=cls.LOG_BACKUP_COUNT,
+                encoding="utf-8",
+                delay=True,
+            )
+            handler.setFormatter(logging.Formatter("%(message)s"))
+            logger.addHandler(handler)
+            cls._LOGGER_CACHE[log_file_path] = logger
+            return logger
+
+    @classmethod
+    def _write_log_entry(cls, anything, text, log_file_name,
+                         unique_id, extra_pnginfo):
+        try:
+            log_path = cls._resolve_log_path(log_file_name)
+            meta = _extract_upstream(extra_pnginfo, unique_id)
+            ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            upstream_title = (
+                meta.get("upstream_title")
+                or meta.get("upstream_type")
+                or "(unknown)"
+            )
+            entry = {
+                "ts": ts,
+                "upstream_title": str(upstream_title),
+                "result": _safe_repr(text),
+            }
+            logger = cls._get_logger(log_path)
+            logger.info(json.dumps(entry, ensure_ascii=False))
+            mie_log(f"ShowAndSaveAnythingMie: log written to {log_path}")
+        except Exception as e:
+            mie_log(f"ShowAndSaveAnythingMie: failed to write log: {e}")
 
 
 class SaveAnythingAsFile(object):

@@ -80,6 +80,7 @@ def test_plugin_root_import_keeps_representative_nodes_available():
     expected_nodes = {
         "BatchRenameFiles|Mie",
         "ShowAnything|Mie",
+        "ShowAndSaveAnything|Mie",
         "PromptGenerator|Mie",
         "SetGeneralLLMServiceConnector|Mie",
         "WavConcat|Mie",

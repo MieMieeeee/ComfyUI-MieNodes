@@ -10,7 +10,7 @@ if _INTERNAL_PACKAGE not in sys.modules:
     _pkg.__package__ = _INTERNAL_PACKAGE
     sys.modules[_INTERNAL_PACKAGE] = _pkg
 
-from _mienodes_internal.nodes.common import ShowAnythingMie, SaveAnythingAsFile, CompareFiles, GetAbsolutePath, GetFileInfo, \
+from _mienodes_internal.nodes.common import ShowAnythingMie, ShowAndSaveAnythingMie, SaveAnythingAsFile, CompareFiles, GetAbsolutePath, GetFileInfo, \
     GetDirectoryFilesInfo, CopyFiles, DeleteFiles, ClassicAspectRatio, StringConcat, SimpleTextNode, RichTextNode
 from _mienodes_internal.nodes.files import BatchRenameFiles, BatchDeleteFiles, BatchEditTextFiles, BatchSyncImageCaptionFiles, \
     SummaryTextFiles, BatchConvertImageFiles, DedupImageFiles, ModelDownloader, HFRepoDownloader
@@ -43,6 +43,7 @@ NODE_CLASS_MAPPINGS = {
     add_suffix("BatchConvertImageFiles"): BatchConvertImageFiles,
     add_suffix("DedupImageFiles"): DedupImageFiles,
     add_suffix("ShowAnything"): ShowAnythingMie,
+    add_suffix("ShowAndSaveAnything"): ShowAndSaveAnythingMie,
     add_suffix("SaveAnythingAsFile"): SaveAnythingAsFile,
     add_suffix("CompareFiles"): CompareFiles,
     add_suffix("ModelDownloader"): ModelDownloader,
@@ -135,6 +136,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     add_suffix("BatchConvertImageFiles"): add_emoji("Batch Convert Image Files"),
     add_suffix("DedupImageFiles"): add_emoji("Dedup Image Files"),
     add_suffix("ShowAnything"): add_emoji("Show Anything"),
+    add_suffix("ShowAndSaveAnything"): add_emoji("Show And Save Anything"),
     add_suffix("SaveAnythingAsFile"): add_emoji("Save Anything As File"),
     add_suffix("CompareFiles"): add_emoji("Compare Files"),
     add_suffix("SetGeneralLLMServiceConnector"): add_emoji("Set General LLM Service Connector"),

@@ -14,6 +14,7 @@ class.
 import hashlib
 import json
 import re
+import time
 
 import torch
 
@@ -22,12 +23,14 @@ try:
         image_tensor_to_data_url,
         image_tensor_batch_to_data_urls,
         build_multimodal_user_content,
+        mie_log,
     )
 except ImportError:
     from ...core.utils import (
         image_tensor_to_data_url,
         image_tensor_batch_to_data_urls,
         build_multimodal_user_content,
+        mie_log,
     )
 
 try:
@@ -173,6 +176,39 @@ def _build_messages(system_prompt, user_text, image_urls, image_detail="auto"):
 # --------------------------------------------------------------------------- #
 # Enhancer
 # --------------------------------------------------------------------------- #
+
+
+def _image_tensor_summary(t):
+    """Return a small dict describing ``t`` for diagnostic logging.
+
+    Returns ``None`` for ``None`` / non-tensor inputs. For IMAGE tensors
+    (3D HWC or 4D NHWC) it reports the frame count, height, width, and total
+    pixel count - cheap to compute and very useful when figuring out why a
+    request blew up in size.
+    """
+    if t is None or not isinstance(t, torch.Tensor):
+        return None
+    if t.ndim == 4:
+        n, h, w = int(t.shape[0]), int(t.shape[1]), int(t.shape[2])
+    elif t.ndim == 3:
+        n, h, w = 1, int(t.shape[0]), int(t.shape[1])
+    else:
+        return {"shape": list(t.shape)}
+    return {
+        "count": n,
+        "h": h,
+        "w": w,
+        "pixels": n * h * w,
+        "dtype": str(t.dtype).replace("torch.", ""),
+    }
+
+
+def _url_bytes(urls):
+    """Sum the byte length of every data URL prefix. Cheap and good enough
+    for an at-a-glance size estimate in the log."""
+    return sum(len(u) for u in urls or [])
+
+
 class BerniniPromptEnhancer:
     """Task-aware prompt enhancer that talks to the project's LLMServiceConnector.
 
@@ -188,26 +224,61 @@ class BerniniPromptEnhancer:
         temperature=0.7,
         top_p=0.9,
         max_tokens=8192,
+        timeout=None,
     ):
         self.llm = llm_service_connector
         self.video_frames = max(1, int(video_frames))
         self.temperature = temperature
         self.top_p = top_p
         self.max_tokens = max_tokens
+        # Per-call timeout override (seconds). ``None`` means keep whatever
+        # the connector already has. When set, ``_chat`` saves and restores
+        # the connector's ``timeout`` around ``invoke`` so the connector
+        # object is safe to share with other nodes.
+        self._timeout_override = int(timeout) if timeout else None
 
     def _chat(self, system_prompt, user_text, image_urls, json_mode=False, image_detail="auto"):
         messages = _build_messages(system_prompt, user_text, image_urls, image_detail=image_detail)
-        out = self.llm.invoke(
-            messages,
-            temperature=self.temperature,
-            top_p=self.top_p,
-            max_tokens=self.max_tokens,
+        model_name = getattr(self.llm, "model", "?")
+        img_bytes = _url_bytes(image_urls)
+        mie_log(
+            f"Bernini _chat: model={model_name} json_mode={json_mode} image_detail={image_detail} "
+            f"images={len(image_urls)} img_bytes={img_bytes} (~{img_bytes / 1024:.1f} KB) "
+            f"system_chars={len(system_prompt or '')} user_chars={len(user_text or '')}"
         )
+        t0 = time.perf_counter()
+        # Save and restore the connector's timeout so the override only
+        # applies to this single call. Skip the dance entirely when the
+        # override matches the connector's current value (or is unset).
+        original_timeout = None
+        timeout_restore_needed = (
+            self._timeout_override is not None
+            and getattr(self.llm, "timeout", None) != self._timeout_override
+        )
+        if timeout_restore_needed:
+            original_timeout = self.llm.timeout
+            self.llm.timeout = self._timeout_override
+        try:
+            out = self.llm.invoke(
+                messages,
+                temperature=self.temperature,
+                top_p=self.top_p,
+                max_tokens=self.max_tokens,
+            )
+        finally:
+            if timeout_restore_needed:
+                self.llm.timeout = original_timeout
+        elapsed = time.perf_counter() - t0
         if out is None:
+            mie_log(f"Bernini _chat: model={model_name} returned None after {elapsed:.2f}s")
             return None
         out = out.strip()
         if not out:
+            mie_log(f"Bernini _chat: model={model_name} returned empty after {elapsed:.2f}s")
             return None
+        mie_log(
+            f"Bernini _chat: model={model_name} ok in {elapsed:.2f}s response_chars={len(out)}"
+        )
         return _extract_json_text(out) if json_mode else out
 
     def __call__(
@@ -227,6 +298,21 @@ class BerniniPromptEnhancer:
         if not user_prompt or not user_prompt.strip():
             return user_prompt
 
+        code = parse_task_code(task_type)
+        summary = {
+            "single": _image_tensor_summary(single_image),
+            "ref": _image_tensor_summary(reference_images),
+            "frames": _image_tensor_summary(source_video_frames),
+        }
+        model_name = getattr(self.llm, "model", "?")
+        video_frames = getattr(self, "video_frames", None)
+        max_tokens = getattr(self, "max_tokens", None)
+        mie_log(
+            f"Bernini: task={code} model={model_name} prompt_chars={len(user_prompt)} "
+            f"video_frames_setting={video_frames} max_tokens={max_tokens} "
+            f"single={summary['single']} ref={summary['ref']} frames={summary['frames']}"
+        )
+
         ref_urls = []
         single_url = _tensor_to_url(single_image)
         if single_url:
@@ -238,10 +324,16 @@ class BerniniPromptEnhancer:
             image_tensor_batch_to_data_urls(source_video_frames), self.video_frames
         )
 
+        total_img_bytes = _url_bytes(ref_urls) + _url_bytes(frame_urls)
+        mie_log(
+            f"Bernini: built request: ref_urls={len(ref_urls)} ref_kb={_url_bytes(ref_urls) / 1024:.1f} "
+            f"frame_urls={len(frame_urls)} frame_kb={_url_bytes(frame_urls) / 1024:.1f} "
+            f"total_img_kb={total_img_bytes / 1024:.1f}"
+        )
+
         # Strip the " - 中文" display suffix to get the short code used
         # for routing and prompt lookups. Bare codes (legacy saved
         # workflows) pass through unchanged.
-        code = parse_task_code(task_type)
         base_sys = SYSTEM_PROMPTS.get(code, SYSTEM_PROMPTS["default"])
         json_mode = code in JSON_MODE_TASKS
 
@@ -344,6 +436,12 @@ class BerniniPromptGenerator:
                     "INT",
                     {"default": 8192, "min": 64, "max": 32768},
                 ),
+                # Per-call timeout override (seconds). Replaces the
+                # connector's own `timeout` for this call only and is
+                # restored on return. Defaults to 30s to match the
+                # connector default; bump to 60/120/300 for heavy
+                # vision tasks (e.g. rv2v with many frames on M3).
+                "timeout": ([30, 60, 120, 300], {"default": 30}),
             },
         }
 
@@ -366,6 +464,7 @@ class BerniniPromptGenerator:
         temperature=0.7,
         top_p=0.9,
         max_tokens=8192,
+        timeout=30,
     ):
         enhancer = BerniniPromptEnhancer(
             llm_service_connector,
@@ -373,6 +472,7 @@ class BerniniPromptGenerator:
             temperature=temperature,
             top_p=top_p,
             max_tokens=max_tokens,
+            timeout=timeout,
         )
         out = enhancer(
             task_type,
@@ -398,6 +498,7 @@ class BerniniPromptGenerator:
         temperature=0.7,
         top_p=0.9,
         max_tokens=8192,
+        timeout=30,
     ):
         h = hashlib.md5()
         h.update((task_type or "").encode("utf-8"))
@@ -408,6 +509,7 @@ class BerniniPromptGenerator:
         h.update(str(temperature).encode("utf-8"))
         h.update(str(top_p).encode("utf-8"))
         h.update(str(max_tokens).encode("utf-8"))
+        h.update(str(timeout).encode("utf-8"))
         try:
             h.update(llm_service_connector.get_state().encode("utf-8"))
         except AttributeError:
