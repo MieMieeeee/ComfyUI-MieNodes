@@ -546,11 +546,13 @@ function configureAnnotationShell(node) {
   node.flags = node.flags || {};
   node.flags.shadow = false;
 
-  // Annotation nodes are shrink-to-fit; manual resizing would just add empty
-  // space around the text and break the visual "centered" appearance that
-  // equal padding produces. The user can still grow the node by raising the
-  // padding / font_size / line count.
-  node.resizable = false;
+  // Users can drag the bottom-right resize handle to make the box bigger
+  // (handy for laying out annotations alongside other nodes, or for giving
+  // RichText extra breathing room around rendered Markdown). The draw
+  // methods below enforce a "grow-only" floor: if the user drags the box
+  // smaller than the natural content size, the next frame snaps it back up
+  // so text is never clipped.
+  node.resizable = true;
 }
 
 // ---------------------------------------------------------------------------
