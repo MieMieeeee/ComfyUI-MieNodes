@@ -286,15 +286,14 @@ After:
 The MiniMax connectors share a per-connector image-detail sanitization step that drops `detail: "auto"` from `image_url` parts before sending — MiniMax rejects that value with HTTP 400. The OpenAI-compat services (SiliconFlow, ZhiPu, Kimi, etc.) are unaffected by this.
 
 ### **BerniniPromptGenerator**
-**Function:** Rewrite a user prompt using a Bernini task-aware system prompt. Optionally forward one reference image, a batch of reference images, and/or a batch of source video frames to the LLM so it can see what it's rewriting about.
+**Function:** Rewrite a user prompt using a Bernini task-aware system prompt. Optionally forward media (1 source image or a batch of source video frames, plus 0+ reference images) so the LLM can see what it's rewriting about.
 **Parameters:**
 - `llm_service_connector` (`LLMServiceConnector`): any connector from the list above.
 - `task_type`: one of the 13 task types (dropdown shows `code - 中文` labels). Default: `t2i - 文生图`. The `ri2i (扩展)` entry is a MieNodes extension task.
 - `user_prompt` (str): the raw instruction to rewrite.
-- `single_image` (`IMAGE`, optional): a single reference image, e.g. for `i2i` / `i2v` / `r2i` / `r2v`; for `ri2i` it is the source image being edited (image0 in the template).
-- `reference_images` (`IMAGE`, optional): a batch of reference images.
-- `source_video_frames` (`IMAGE`, optional): a batch of source video frames for `v2v` / `rv2v` / `ads2v`.
-- `video_frames` (int, 1-16): how many source frames to sample and forward. Default: 3.
+- `source_images` (`IMAGE`, optional): the thing being operated on. For image-source tasks (`i2i` / `ri2i` / `i2v`) pass a single image; for video-source tasks (`v2v` / `mv2v` / `vi2v` / `rv2v` / `vrc2v` / `ads2v`) pass a batch of video frames. Unused by `r2i` / `r2v`.
+- `reference_images` (`IMAGE`, optional): 0+ reference images. The subject for `r2i` / `r2v`, the guidance material for `ri2i` / `vi2v` / `rv2v` / `vrc2v`, extra context for `i2i` / `i2v`.
+- `video_frames` (int, 1-16): how many of `source_images` to forward when the task treats it as video frames (ignored for image-source tasks). Default: 3.
 - `image_detail` (`auto` / `low` / `high`): OpenAI-style image detail hint.
 - `temperature` / `top_p` / `max_tokens`: standard sampling parameters.
 

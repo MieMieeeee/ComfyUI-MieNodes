@@ -287,48 +287,62 @@ class BerniniPromptEnhancer:
         self,
         task_type,
         user_prompt,
-        single_image=None,
+        source_images=None,
         reference_images=None,
-        source_video_frames=None,
         image_detail="auto",
     ):
         """Build a request for ``task_type`` and return the rewritten prompt.
 
-        Returns the original ``user_prompt`` unchanged if the LLM fails or the
-        call is empty, matching the upstream's graceful-degradation behavior.
+        Media inputs:
+          - `source_images`: the thing being operated on. 1 image for
+            image-source tasks (i2i / ri2i / i2v), or a batch of video
+            frames for video-source tasks (v2v / mv2v / vi2v / rv2v /
+            vrc2v / ads2v). Unused for r2i / r2v (subject-driven new
+            image / video generation).
+          - `reference_images`: 0+ reference images. The subject for
+            r2i / r2v, the guidance material for ri2i / vi2v / rv2v /
+            vrc2v, extra visual context for i2i / i2v.
+
+        Returns the original ``user_prompt`` unchanged if the LLM fails
+        or the call is empty, matching the upstream's graceful-
+        degradation behavior. Tasks that strictly require a source
+        image (i2i / ri2i) also fall back to ``user_prompt`` when
+        ``source_images`` is empty.
         """
         if not user_prompt or not user_prompt.strip():
             return user_prompt
 
         code = parse_task_code(task_type)
+
+        # Convert both IMAGE tensors to data URLs up front.
+        # `image_tensor_batch_to_data_urls` handles 3D (HWC) and 4D
+        # (NHWC) tensors uniformly; an empty / None tensor yields [].
+        source_urls = image_tensor_batch_to_data_urls(source_images)
+        ref_urls = image_tensor_batch_to_data_urls(reference_images)
+
         summary = {
-            "single": _image_tensor_summary(single_image),
+            "source": _image_tensor_summary(source_images),
             "ref": _image_tensor_summary(reference_images),
-            "frames": _image_tensor_summary(source_video_frames),
         }
         model_name = getattr(self.llm, "model", "?")
-        video_frames = getattr(self, "video_frames", None)
+        video_frames_setting = getattr(self, "video_frames", None)
         max_tokens = getattr(self, "max_tokens", None)
         mie_log(
             f"Bernini: task={code} model={model_name} prompt_chars={len(user_prompt)} "
-            f"video_frames_setting={video_frames} max_tokens={max_tokens} "
-            f"single={summary['single']} ref={summary['ref']} frames={summary['frames']}"
+            f"video_frames_setting={video_frames_setting} max_tokens={max_tokens} "
+            f"source={summary['source']} ref={summary['ref']}"
         )
 
-        ref_urls = []
-        single_url = _tensor_to_url(single_image)
-        if single_url:
-            ref_urls.append(single_url)
-        ref_urls += image_tensor_batch_to_data_urls(reference_images)
-        image_num = len(ref_urls)
+        # For video-source tasks the routing branches below will use
+        # `frame_urls` (sampled from source_urls). For image-source
+        # tasks the routing branches use source_urls[:1] directly and
+        # ignore `frame_urls`.
+        frame_urls = _sample_urls(source_urls, self.video_frames)
 
-        frame_urls = _sample_urls(
-            image_tensor_batch_to_data_urls(source_video_frames), self.video_frames
-        )
-
-        total_img_bytes = _url_bytes(ref_urls) + _url_bytes(frame_urls)
+        total_img_bytes = _url_bytes(source_urls) + _url_bytes(ref_urls)
         mie_log(
-            f"Bernini: built request: ref_urls={len(ref_urls)} ref_kb={_url_bytes(ref_urls) / 1024:.1f} "
+            f"Bernini: built request: source_urls={len(source_urls)} source_kb={_url_bytes(source_urls) / 1024:.1f} "
+            f"ref_urls={len(ref_urls)} ref_kb={_url_bytes(ref_urls) / 1024:.1f} "
             f"frame_urls={len(frame_urls)} frame_kb={_url_bytes(frame_urls) / 1024:.1f} "
             f"total_img_kb={total_img_bytes / 1024:.1f}"
         )
@@ -339,6 +353,7 @@ class BerniniPromptEnhancer:
         base_sys = SYSTEM_PROMPTS.get(code, SYSTEM_PROMPTS["default"])
         json_mode = code in JSON_MODE_TASKS
 
+        # ---- pure text tasks (no media) ----
         if code == "t2v":
             return (
                 self._chat(T2V_A14B_EN_SYS_PROMPT, user_prompt, [], json_mode=False)
@@ -349,49 +364,70 @@ class BerniniPromptEnhancer:
                 self._chat(T2I_A14B_EN_SYS_PROMPT, user_prompt, [], json_mode=False)
                 or user_prompt
             )
-        if code in ("v2v", "mv2v"):
-            text = V2V_TEMPLATE.format(user_prompt=user_prompt)
-            return self._chat(base_sys, text, frame_urls, json_mode=False, image_detail=image_detail) or user_prompt
-        if code == "i2i":
-            text = I2I_TEMPLATE.format(user_prompt=user_prompt)
-            return self._chat(base_sys, text, ref_urls, json_mode=False, image_detail=image_detail) or user_prompt
-        if code == "i2v":
-            imgs = ref_urls if ref_urls else frame_urls[:1]
-            text = I2V_TEMPLATE.format(user_prompt=user_prompt, image_num=len(imgs))
-            return self._chat(base_sys, text, imgs, json_mode=False, image_detail=image_detail) or user_prompt
-        if code == "ads2v":
-            text = ADS2V_TEMPLATE.format(user_prompt=user_prompt)
-            return self._chat(base_sys, text, frame_urls, json_mode=False, image_detail=image_detail) or user_prompt
-        if code == "vi2v":
-            text = VI2V_TEMPLATE.format(user_prompt=user_prompt, image_num=image_num)
-            return (
-                self._chat(base_sys, text, frame_urls + ref_urls, json_mode=False)
-                or user_prompt
-            )
+
+        # ---- subject-driven generation (source is unused) ----
         if code == "r2v":
             text = R2V_TEMPLATE.format(
-                image_num=max(image_num, 1), original_text=user_prompt
+                image_num=max(len(ref_urls), 1), original_text=user_prompt
             )
             return self._chat(base_sys, text, ref_urls, json_mode=True, image_detail=image_detail) or user_prompt
         if code == "r2i":
             text = R2I_TEMPLATE.format(
-                image_num=max(image_num, 1), original_text=user_prompt
+                image_num=max(len(ref_urls), 1), original_text=user_prompt
             )
             return self._chat(base_sys, text, ref_urls, json_mode=True, image_detail=image_detail) or user_prompt
+
+        # ---- image-source tasks (take first of source_urls) ----
+        if code == "i2i":
+            if not source_urls:
+                return user_prompt
+            text = I2I_TEMPLATE.format(user_prompt=user_prompt)
+            return self._chat(base_sys, text, source_urls[:1], json_mode=False, image_detail=image_detail) or user_prompt
+        if code == "i2v":
+            # Prefer source_images[0] as anchor; fall back to ref_urls[0]
+            # if only references are wired (matches the legacy i2v
+            # behavior where the first video frame was used as anchor).
+            if source_urls:
+                imgs = source_urls[:1]
+            elif ref_urls:
+                imgs = ref_urls[:1]
+            else:
+                return user_prompt
+            text = I2V_TEMPLATE.format(user_prompt=user_prompt, image_num=len(imgs))
+            return self._chat(base_sys, text, imgs, json_mode=False, image_detail=image_detail) or user_prompt
         if code == "ri2i":
             # image0 = source (the image to edit), image1..N = references.
-            # If the user only wired `reference_images` (no `single_image`),
-            # we treat its first frame as the source.
-            if not ref_urls:
+            # If no explicit source is wired, treat ref_urls[0] as the
+            # source so the user can still feed a 1+ image batch.
+            if source_urls:
+                imgs = source_urls + ref_urls
+                ref_num = len(ref_urls)
+            elif ref_urls:
+                imgs = ref_urls
+                ref_num = max(len(ref_urls) - 1, 0)
+            else:
                 return user_prompt
-            ref_num = max(len(ref_urls) - 1, 0)
             text = RI2I_TEMPLATE.format(
                 ref_num=ref_num, original_text=user_prompt
             )
-            return self._chat(base_sys, text, ref_urls, json_mode=True, image_detail=image_detail) or user_prompt
+            return self._chat(base_sys, text, imgs, json_mode=True, image_detail=image_detail) or user_prompt
+
+        # ---- video-source tasks (sampled frames + optional refs) ----
+        if code in ("v2v", "mv2v"):
+            text = V2V_TEMPLATE.format(user_prompt=user_prompt)
+            return self._chat(base_sys, text, frame_urls, json_mode=False, image_detail=image_detail) or user_prompt
+        if code == "ads2v":
+            text = ADS2V_TEMPLATE.format(user_prompt=user_prompt)
+            return self._chat(base_sys, text, frame_urls, json_mode=False, image_detail=image_detail) or user_prompt
+        if code == "vi2v":
+            text = VI2V_TEMPLATE.format(user_prompt=user_prompt, image_num=len(ref_urls))
+            return (
+                self._chat(base_sys, text, frame_urls + ref_urls, json_mode=False)
+                or user_prompt
+            )
         if code in ("rv2v", "vrc2v"):
             text = VR2V_TEMPLATE.format(
-                image_num=max(image_num, 1), original_text=user_prompt
+                image_num=max(len(ref_urls), 1), original_text=user_prompt
             )
             return (
                 self._chat(base_sys, text, frame_urls + ref_urls, json_mode=True)
@@ -433,9 +469,18 @@ class BerniniPromptGenerator:
                 ),
             },
             "optional": {
-                "single_image": ("IMAGE",),
+                # The thing being operated on. For image-source tasks
+                # (i2i / ri2i / i2v) the first image is used. For
+                # video-source tasks (v2v / mv2v / vi2v / rv2v / vrc2v
+                # / ads2v) the batch is sampled to `video_frames` by
+                # index. For r2i / r2v (subject-driven generation)
+                # this is unused - the subject lives in `reference_images`.
+                "source_images": ("IMAGE",),
                 "reference_images": ("IMAGE",),
-                "source_video_frames": ("IMAGE",),
+                # How many of `source_images` to forward when the task
+                # treats it as video frames. Ignored for image-source
+                # tasks. Default 3 matches the upstream Bernini v2v/vi2v
+                # templates. Range 1-16.
                 "video_frames": (
                     "INT",
                     {"default": DEFAULT_VIDEO_FRAMES, "min": 1, "max": 16},
@@ -473,9 +518,8 @@ class BerniniPromptGenerator:
         task_type,
         user_prompt,
         seed=None,
-        single_image=None,
+        source_images=None,
         reference_images=None,
-        source_video_frames=None,
         video_frames=DEFAULT_VIDEO_FRAMES,
         image_detail="auto",
         temperature=0.7,
@@ -494,9 +538,8 @@ class BerniniPromptGenerator:
         out = enhancer(
             task_type,
             user_prompt,
-            single_image=single_image,
+            source_images=source_images,
             reference_images=reference_images,
-            source_video_frames=source_video_frames,
             image_detail=image_detail,
         )
         return (out,)
@@ -507,9 +550,8 @@ class BerniniPromptGenerator:
         task_type,
         user_prompt,
         seed,
-        single_image=None,
+        source_images=None,
         reference_images=None,
-        source_video_frames=None,
         video_frames=DEFAULT_VIDEO_FRAMES,
         image_detail="auto",
         temperature=0.7,
@@ -535,7 +577,7 @@ class BerniniPromptGenerator:
             h.update(str(llm_service_connector.model).encode("utf-8"))
         # A short signature of the media inputs is enough to detect change;
         # the full data URL is large and changes the hash too aggressively.
-        for src in (single_image, reference_images, source_video_frames):
+        for src in (source_images, reference_images):
             url = _tensor_to_url(src) or ""
             h.update(url[:64].encode("utf-8"))
         return h.hexdigest()

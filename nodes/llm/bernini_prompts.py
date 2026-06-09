@@ -22,6 +22,8 @@ build a chat request per task type. Data only - no I/O, no LLM client.
 The mode-specific response parsing and media-frame handling live in
 `bernini_prompt_generator.py`; this module is the prompt library."""
 
+import re
+
 # Display strings shown in the task_type dropdown. Format: "code - 中文".
 # The short code is what routing / JSON_MODE_TASKS / SYSTEM_PROMPTS use,
 # extracted via parse_task_code() at call time.
@@ -52,15 +54,24 @@ TASK_CODES = (
 def parse_task_code(task_type):
     """Extract the short task code from a display string.
 
-    Accepts both new display strings like ``"i2v - 图生视频"`` and the
-    legacy bare code ``"i2v"`` (saved workflows from before the
-    bilingual labels). For display strings, returns the substring
-    before the first ``" - "``; for bare codes, returns the input
-    unchanged. Empty / None input passes through untouched.
+    Accepts:
+      - new display strings like ``"i2v - 图生视频"``
+      - extension display strings like ``"ri2i (扩展) - 参考图引导图像编辑"``
+      - the legacy bare code ``"i2v"`` (saved workflows from before the
+        bilingual labels)
+      - None / empty (passed through unchanged)
+
+    For display strings, splits on the first ``" - "`` and strips an
+    optional parenthesized tag (e.g. ``"(扩展)"``) from the leading
+    code, returning just the short code. Bare codes pass through
+    unchanged.
     """
     if not task_type:
         return task_type
-    return task_type.split(" - ", 1)[0].strip()
+    head = task_type.split(" - ", 1)[0]
+    # Strip optional parenthesized suffix like " (扩展)" off the head.
+    head = re.sub(r"\s*\(.*?\)\s*", "", head)
+    return head.strip()
 
 # Tasks that are expected to return a JSON object with a single
 # "rewritten_text" key, which the caller must parse out.
