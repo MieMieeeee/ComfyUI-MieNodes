@@ -287,14 +287,15 @@
 MiniMax 连接器在请求前会做一次 image_detail 清洗，把 `detail: "auto"` 从 `image_url` 中去掉——MiniMax API 拒绝该值（HTTP 400）。其他 OpenAI 兼容服务（SiliconFlow、智谱、Kimi 等）不受影响。
 
 ### **BerniniPromptGenerator**
-**功能：** 用 Bernini 任务感知系统提示词改写用户提示词。可选地把源媒体（1 张源图或一批源视频帧）和参考图（0+ 张）一起转给 LLM，让模型看到改写对象。
+**功能：** 用 Bernini 任务感知系统提示词改写用户提示词。可选地把源媒体（1 张源图或一批源视频帧）、0+ 张图像参考以及 0+ 张视频参考帧一起转给 LLM，让模型看到改写对象。
 **参数：**
 - `llm_service_connector`（`LLMServiceConnector`）：上面任一连接器。
 - `task_type`：13 种任务之一（下拉显示 `code - 中文`），默认 `t2i - 文生图`。`ri2i (扩展)` 是 MieNodes 扩展任务。
 - `user_prompt`（str）：原始提示词。
-- `source_images`（`IMAGE`，可选）：被操作的对象。图源任务（`i2i` / `ri2i` / `i2v`）传 1 张图；视频源任务（`v2v` / `mv2v` / `vi2v` / `rv2v` / `vrc2v` / `ads2v`）传一批视频帧；`r2i` / `r2v` 不用此参数。
-- `reference_images`（`IMAGE`，可选）：0+ 张参考图。`r2i` / `r2v` 传主体图；`ri2i` / `vi2v` / `rv2v` / `vrc2v` 传引导素材；`i2i` / `i2v` 可选附加视觉上下文。
-- `video_frames`（int，1-16）：当任务把 `source_images` 当视频帧处理时，采样并转发的帧数（图源任务忽略此参数）。默认 3。
+- `source`（`IMAGE`，可选）：被操作的对象。图源任务（`i2i` / `ri2i` / `i2v`）传 1 张图；视频源任务（`v2v` / `mv2v` / `vi2v` / `rv2v` / `vrc2v` / `ads2v`）传一批视频帧；`r2i` / `r2v` 不用此参数。
+- `reference_images`（`IMAGE`，可选）：0+ 张图像参考。`r2i` / `r2v` 传主体图；`ri2i` / `vi2v` / `rv2v` / `vrc2v` 传引导素材；`i2v` 无 source 时可作为铆点回退。
+- `reference_video`（`IMAGE`，可选）：0+ 视频参考帧。`ads2v` 用以插入广告视频；`vrc2v` 用以提供参考视频内容。全部转发，LLM 自己选择相关帧。
+- `video_frames`（int，1-16）：当任务把 `source` 当视频帧处理时，采样并转发的帧数（图源任务忽略此参数）。默认 3。
 - `image_detail`（`auto` / `low` / `high`）：OpenAI 风格的图片细节参数。
 - `temperature` / `top_p` / `max_tokens`：标准采样参数。
 
