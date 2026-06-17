@@ -9,19 +9,20 @@
 ## 工作流
 
 当前支持以下服务：
-  - [智谱 ZhiPu](https://www.bigmodel.cn/glm-coding?ic=QCHZLYWEXV) — 标准版 + 编程/Token Plan 双轨
-  - [硅基流动 SiliconFlow](https://cloud.siliconflow.cn/i/PYyJkS9S)
-  - [GitHub Models](https://github.com/marketplace?type=models)
-  - [Kimi](https://platform.moonshot.cn)
-  - [DeepSeek](https://platform.deepseek.com)
-  - [Gemini](https://ai.google.dev/gemini) — 支持多模态（图片按 inline_data 转发）
-  - [Bailian 阿里云百炼](https://bailian.console.aliyun.com/)
-  - [MiniMax](https://api.minimaxi.com/) — 标准 Open Platform + Token Plan（`sk-cp-...` 密钥）双轨
-  - 任何 OpenAI 兼容端点可通过 `SetGeneralLLMServiceConnector` 接入（自定义 base URL + 模型）
+  - [智谱 ZhiPu](https://www.bigmodel.cn/glm-coding?ic=QCHZLYWEXV) — [标准 Open Platform](https://bigmodel.cn/)（`zhipu` 密钥）+ [编程 / Token Plan](https://www.bigmodel.cn/glm-coding)（`zhipu_code` 密钥）双轨
+  - [硅基流动 SiliconFlow](https://cloud.siliconflow.cn/i/PYyJkS9S)（`siliconflow` 密钥）
+  - [GitHub Models](https://github.com/marketplace?type=models)（`github_models` 密钥，建议用 fine-grained PAT）
+  - [Kimi 月之暗面](https://platform.moonshot.cn/)（`kimi` 密钥）
+  - [DeepSeek](https://platform.deepseek.com/)（`deepseek` 密钥）
+  - [Gemini](https://ai.google.dev/gemini) — 支持多模态（图片按 inline_data 转发）（`gemini` 密钥）
+  - [Bailian 阿里云百炼](https://bailian.console.aliyun.com/)（`bailian` 密钥）
+  - [MiniMax](https://api.minimaxi.com/) — 标准 Open Platform（`sk-...` 密钥，`minimax_open_platform`）+ [Token Plan / Coding Plan](https://api.minimaxi.com/)（`sk-cp-...` 密钥，`minimax`）双轨
+  - [小米 MiMo](https://mimo.mi.com/) — 标准 Open Platform（`sk-...` 密钥，`mimo`）+ [Token Plan / Coding Plan](https://mimo.mi.com/)（`tp-...` 密钥，`mimo_token_plan`）双轨
+  - 任何 OpenAI 兼容端点可通过 `SetGeneralLLMServiceConnector` 接入（自定义 base URL + 模型，`openai_compatible` 密钥）
 
 如果你希望使用其他无法通过 SetGeneralLLMServiceConnector 连接的大语言模型（LLM）服务，请提交 issue 或 pull request 进行反馈。
 
-其中智谱AI的 GLM-4-Flash-250414 和 硅基流动的 Qwen3-8B、GLM-Z1-9B-0414、GLM-4-9B-0414 是免费模型，只需要注册获取一个API Key（或Token）即可随意使用。
+部分服务商（以智谱、硅基流动为主）会提供免费额度模型。免费名单变动较快，请查看服务商官网获取当前免费的模型，然后把模型 id 填入连接器的 `custom_model` 字段。
 
 ### 调用 LLM Service 工作流
 ![Image](images/CallLLMService.png)
@@ -270,6 +271,36 @@
 
 ---
 
+### LLM 配置文件（`mie_llm_keys.json`）
+
+每个 `Set*LLMServiceConnector` 节点都可以从本地 JSON 文件里拿密钥，而不必手工填到节点的 `api_token` 输入框里。把 [mie_llm_keys.json.example](mie_llm_keys.json.example) 复制成 `mie_llm_keys.json` 放到本 README 同目录，只填你要用的服务，不用的留空即可。该文件由 `core.utils.load_plugin_config` 读取，项目里 **不会** 提交，所以每个安装 / clone 都能各自保留自己的密钥。
+
+每个连接器的 `config_key` 默认值与示例文件里的 JSON 键名一致。默认不动就读对应的条目；也可以在节点上改成其它键名，从同一个文件里读另一个条目。
+
+| `config_key`（默认） | 连接器 | 服务商 / 资质 | 密钥格式示例 |
+| --- | --- | --- | --- |
+| `openai_compatible` | `SetGeneralLLMServiceConnector` | 任意 OpenAI 兼容端点（自定义 base URL） | 随服务商 |
+| `github_models` | `SetGithubModelsLLMServiceConnector` | [GitHub Models](https://github.com/marketplace?type=models) | `ghp_...`（建议 fine-grained PAT） |
+| `siliconflow` | `SetSiliconFlowLLMServiceConnector` | [硅基流动 SiliconFlow](https://cloud.siliconflow.cn/i/PYyJkS9S) | `sk-...` |
+| `zhipu` | `SetZhiPuLLMServiceConnector` | [智谱 ZhiPu Open Platform](https://bigmodel.cn/) | `... .xxx` |
+| `zhipu_code` | `SetZhiPuCodeLLMServiceConnector` | [智谱 ZhiPu Coding / Token Plan](https://www.bigmodel.cn/glm-coding) | `... .xxx` |
+| `kimi` | `SetKimiLLMServiceConnector` | [Kimi 月之暗面](https://platform.moonshot.cn/) | `sk-...` |
+| `deepseek` | `SetDeepSeekLLMServiceConnector` | [DeepSeek](https://platform.deepseek.com/) | `sk-...` |
+| `minimax_open_platform` | `SetMiniMaxLLMServiceConnector` | [MiniMax Open Platform](https://api.minimaxi.com/) | `eyJ...`（JWT） |
+| `minimax` | `SetMiniMaxTokenPlanLLMServiceConnector` | MiniMax Token Plan / Coding Plan | `sk-cp-...` |
+| `mimo` | `SetMiMoLLMServiceConnector` | [小米 MiMo Open Platform](https://mimo.mi.com/) | `sk-...` |
+| `mimo_token_plan` | `SetMiMoTokenPlanLLMServiceConnector` | 小米 MiMo Token Plan / Coding Plan | `tp-...` |
+| `gemini` | `SetGeminiLLMServiceConnector` | [Google Gemini](https://ai.google.dev/gemini) | `AIza...` |
+| `bailian` | `SetBailianLLMServiceConnector` | [Bailian 阿里云百炼](https://bailian.console.aliyun.com/) | `sk-...` |
+
+**解析规则**（与 `core.utils.resolve_token` 一致）：
+
+1. 连接器从 `config_file` 指定的路径读取 JSON（默认：插件根目录下的 `mie_llm_keys.json`，与本 README 同目录）。
+2. 按 `config_key` 查找对应条目（默认值见上表），也可以在节点上改成其它键名。
+3. `prefer_local_config=True`（默认）时，JSON 文件里的值优先；只有当文件不存在或条目为空时才会用节点 `api_token` 输入框里的值。切到 `False` 则让节点输入框优先——适合在文件里保留个占位符，但按工作流个别覆盖密钥的场景。
+
+想用另一个配置文件（比如团队公用、存在插件外部的那种），把节点上的 `config_file` 改成它的绝对路径即可。
+
 ### **SetMiniMaxLLMServiceConnector**（标准版，非 token plan）
 **功能：** 用标准 `eyJ...`（JWT）密钥接入 MiniMax Open Platform。
 **参数：**
@@ -285,6 +316,22 @@
 - `config_file` / `config_key` / `prefer_local_config`：标准配置项。
 
 MiniMax 连接器在请求前会做一次 image_detail 清洗，把 `detail: "auto"` 从 `image_url` 中去掉——MiniMax API 拒绝该值（HTTP 400）。其他 OpenAI 兼容服务（SiliconFlow、智谱、Kimi 等）不受影响。
+
+### **SetMiMoLLMServiceConnector**（标准版，非 token plan）
+**功能：** 用标准 `sk-...` API 密钥接入小米 MiMo Open Platform（`https://api.xiaomimimo.com/v1`）。
+**参数：**
+- `api_token`（str）：API 密钥，留空时使用 `mie_llm_keys.json` 里的 `mimo` 条目。
+- `model_select`：`mimo-v2.5-pro`（默认，Pro / 深度思考，1M 上下文，128K 输出）／`mimo-v2.5`（Omni / 全模态，1M 上下文）／`mimo-v2-omni`（Omni，256K 上下文）／`mimo-v2-flash`（Flash / 低成本，256K 上下文）／`mimo-v2-pro`（Pro，旧版）／`Custom`。
+- `config_file` / `config_key` / `prefer_local_config`：标准配置项。
+
+### **SetMiMoTokenPlanLLMServiceConnector**（Token Plan）
+**功能：** 用 `tp-...` API 密钥接入 MiMo Token Plan / 编程包端点（`https://token-plan-cn.xiaomimimo.com/v1`）。Token Plan 是固定费用的订阅制，base URL 、计费方式都与标准版独立；可用模型列表与标准版共享。
+**参数：**
+- `api_token`（str）：Token Plan 密钥，留空时使用 `mie_llm_keys.json` 里的 `mimo_token_plan` 条目。
+- `model_select`：同标准版，默认 `mimo-v2.5-pro`。
+- `config_file` / `config_key` / `prefer_local_config`：标准配置项。
+
+MiMo 连接器发送的是 OpenAI 兼容端点 `/v1/chat/completions`，但参数使用 `max_completion_tokens`（非旧版 `max_tokens`），并从 payload 中去掉 `top_k` / `n` / `response_format`（MiMo 文档仍未出现这些字段，发送往往会 400）。默认参数：`temperature=1.0`、`top_p=0.95`。image_detail 清洗与 MiniMax 一致：去除 `detail: "auto"`，明确传入的 `low` / `high` 会保留。
 
 ### **BerniniPromptGenerator**
 **功能：** 用 Bernini 任务感知系统提示词改写用户提示词。可选地把源媒体（1 张源图或一批源视频帧）、0+ 张图像参考以及 0+ 张视频参考帧一起转给 LLM，让模型看到改写对象。

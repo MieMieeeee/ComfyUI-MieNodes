@@ -9,19 +9,20 @@
 ## Workflows
 
 Currently, the following services are supported:
-  - [ZhiPu 智谱](https://www.bigmodel.cn/glm-coding?ic=QCHZLYWEXV) — standard + Coding/Token Plan tiers
-  - [SiliconFlow 硅基流动](https://cloud.siliconflow.cn/i/PYyJkS9S)
-  - [GitHub Models](https://github.com/marketplace?type=models)
-  - [Kimi](https://platform.moonshot.cn)
-  - [DeepSeek](https://platform.deepseek.com)
-  - [Gemini](https://ai.google.dev/gemini) — multimodal-aware (image input is forwarded as inline data)
-  - [Bailian 阿里云百炼](https://bailian.console.aliyun.com/)
-  - [MiniMax](https://api.minimaxi.com/) — standard Open Platform + Token Plan (`sk-cp-...` keys)
-  - Any OpenAI-compatible endpoint via `SetGeneralLLMServiceConnector` (custom base URL + model)
+  - [ZhiPu 智谱](https://www.bigmodel.cn/glm-coding?ic=QCHZLYWEXV) — [Open Platform](https://bigmodel.cn/) (`zhipu` key) + [Coding / Token Plan](https://www.bigmodel.cn/glm-coding) (`zhipu_code` key)
+  - [SiliconFlow 硅基流动](https://cloud.siliconflow.cn/i/PYyJkS9S) (`siliconflow` key)
+  - [GitHub Models](https://github.com/marketplace?type=models) (`github_models` key, fine-grained PAT recommended)
+  - [Kimi 月之暗面](https://platform.moonshot.cn/) (`kimi` key)
+  - [DeepSeek](https://platform.deepseek.com/) (`deepseek` key)
+  - [Gemini](https://ai.google.dev/gemini) — multimodal-aware (image input is forwarded as inline data) (`gemini` key)
+  - [Bailian 阿里云百炼](https://bailian.console.aliyun.com/) (`bailian` key)
+  - [MiniMax](https://api.minimaxi.com/) — standard Open Platform (`sk-...` key, `minimax_open_platform`) + [Token Plan / Coding Plan](https://api.minimaxi.com/) (`sk-cp-...` key, `minimax`)
+  - [Xiaomi MiMo](https://mimo.mi.com/) — standard Open Platform (`sk-...` key, `mimo`) + [Token Plan / Coding Plan](https://mimo.mi.com/) (`tp-...` key, `mimo_token_plan`)
+  - Any OpenAI-compatible endpoint via `SetGeneralLLMServiceConnector` (custom base URL + model, `openai_compatible` key)
 
 If you wish to use other large language model (LLM) services that cannot be connected through SetGeneralLLMServiceConnector, please submit an issue or a pull request for feedback.
- 
-Among them, Zhipu AI's GLM-4-Flash-250414 and SiliconFlow's Qwen3-8B, GLM-Z1-9B-0414, and GLM-4-9B-0414 are free models. You only need to register and obtain an API Key (or Token) to use them without restriction.
+
+Several providers (notably ZhiPu and SiliconFlow) offer free-tier models. The free lineup changes often, so check the provider's website for what is currently free and enter the model id into the connector's `custom_model` field.
 
 ### Call LLM Service Workflow
 ![Image](images/CallLLMService.png)
@@ -269,6 +270,36 @@ After:
 
 ![Image](images/downloader.png)
 
+### LLM configuration file (`mie_llm_keys.json`)
+
+Every `Set*LLMServiceConnector` node can pull its API key from a local JSON file instead of being typed into the node's `api_token` input. Copy [mie_llm_keys.json.example](mie_llm_keys.json.example) to `mie_llm_keys.json` next to this README and fill in only the services you use; unused keys can stay empty. The file is read by `core.utils.load_plugin_config` and is intentionally **not** committed, so each install / clone keeps its own secrets.
+
+The default `config_key` for each connector matches the JSON key in the example file. Leave it at the default to read the matching entry, or set a custom value to read a different entry from the same file.
+
+| `config_key` (default) | Connector | Platform / tier | Typical key format |
+| --- | --- | --- | --- |
+| `openai_compatible` | `SetGeneralLLMServiceConnector` | Any OpenAI-compatible endpoint (custom base URL) | varies |
+| `github_models` | `SetGithubModelsLLMServiceConnector` | [GitHub Models](https://github.com/marketplace?type=models) | `ghp_...` (fine-grained PAT recommended) |
+| `siliconflow` | `SetSiliconFlowLLMServiceConnector` | [SiliconFlow 硅基流动](https://cloud.siliconflow.cn/i/PYyJkS9S) | `sk-...` |
+| `zhipu` | `SetZhiPuLLMServiceConnector` | [ZhiPu 智谱 Open Platform](https://bigmodel.cn/) | `... .xxx` |
+| `zhipu_code` | `SetZhiPuCodeLLMServiceConnector` | [ZhiPu 智谱 Coding / Token Plan](https://www.bigmodel.cn/glm-coding) | `... .xxx` |
+| `kimi` | `SetKimiLLMServiceConnector` | [Kimi 月之暗面](https://platform.moonshot.cn/) | `sk-...` |
+| `deepseek` | `SetDeepSeekLLMServiceConnector` | [DeepSeek](https://platform.deepseek.com/) | `sk-...` |
+| `minimax_open_platform` | `SetMiniMaxLLMServiceConnector` | [MiniMax Open Platform](https://api.minimaxi.com/) | `eyJ...` (JWT) |
+| `minimax` | `SetMiniMaxTokenPlanLLMServiceConnector` | MiniMax Token Plan / Coding Plan | `sk-cp-...` |
+| `mimo` | `SetMiMoLLMServiceConnector` | [Xiaomi MiMo Open Platform](https://mimo.mi.com/) | `sk-...` |
+| `mimo_token_plan` | `SetMiMoTokenPlanLLMServiceConnector` | Xiaomi MiMo Token Plan / Coding Plan | `tp-...` |
+| `gemini` | `SetGeminiLLMServiceConnector` | [Google Gemini](https://ai.google.dev/gemini) | `AIza...` |
+| `bailian` | `SetBailianLLMServiceConnector` | [Bailian 阿里云百炼](https://bailian.console.aliyun.com/) | `sk-...` |
+
+**Resolution rules** (matches `core.utils.resolve_token`):
+
+1. The connector loads the JSON at the path given by `config_file` (default: `mie_llm_keys.json` in the plugin root — the same folder as this README).
+2. It looks up the entry named by `config_key` (default per the table above; override on the node to read a different entry).
+3. With `prefer_local_config=True` (default), the JSON file wins. The `api_token` node input is used only when the file is missing or the entry is empty. Flip to `False` to make the node input win — useful when you keep a placeholder in the file but want to override the key per workflow.
+
+To use a different config file (for example, a shared team config kept outside the plugin folder), set `config_file` on the node to its absolute path.
+
 ### **SetMiniMaxLLMServiceConnector** (standard, not token plan)
 **Function:** Connect to the MiniMax Open Platform API with a standard `eyJ...` (JWT) key.
 **Parameters:**
@@ -284,6 +315,22 @@ After:
 - `config_file` / `config_key` / `prefer_local_config`: standard config plumbing.
 
 The MiniMax connectors share a per-connector image-detail sanitization step that drops `detail: "auto"` from `image_url` parts before sending — MiniMax rejects that value with HTTP 400. The OpenAI-compat services (SiliconFlow, ZhiPu, Kimi, etc.) are unaffected by this.
+
+### **SetMiMoLLMServiceConnector** (standard, not token plan)
+**Function:** Connect to the Xiaomi MiMo Open Platform API with a standard `sk-...` API key.
+**Parameters:**
+- `api_token` (str): API key, or leave empty to use the `mimo` entry in `mie_llm_keys.json`.
+- `model_select`: `mimo-v2.5-pro` (default, Pro / deep thinking, 1M context, 128K output), `mimo-v2.5` (Omni / full modality, 1M context), `mimo-v2-omni` (Omni, 256K context), `mimo-v2-flash` (Flash / low cost, 256K context), `mimo-v2-pro` (Pro, older), `Custom`.
+- `config_file` / `config_key` / `prefer_local_config`: standard config plumbing.
+
+### **SetMiMoTokenPlanLLMServiceConnector** (Token Plan)
+**Function:** Connect to the Xiaomi MiMo Token Plan / Coding Plan endpoint with a `tp-...` prefixed API key. The Token Plan is a fixed-fee subscription with its own base URL (`token-plan-cn.xiaomimimo.com`) and billing; the model lineup is shared with the standard tier.
+**Parameters:**
+- `api_token` (str): Token Plan API key, or leave empty to use the `mimo_token_plan` entry in `mie_llm_keys.json`.
+- `model_select`: same list as the standard connector, default `mimo-v2.5-pro`.
+- `config_file` / `config_key` / `prefer_local_config`: standard config plumbing.
+
+The MiMo connectors post to the OpenAI-compatible `/v1/chat/completions` endpoint but use `max_completion_tokens` (not the legacy `max_tokens`) and drop `top_k` / `n` / `response_format` from the payload — the MiMo docs never show these and they are likely to 400. Defaults are `temperature=1.0`, `top_p=0.95`. The image-detail sanitization is the same as MiniMax: `detail: "auto"` is stripped from `image_url` parts; explicit `low` / `high` from the caller is preserved.
 
 ### **BerniniPromptGenerator**
 **Function:** Rewrite a user prompt using a Bernini task-aware system prompt. Optionally forward media (1 source image or a batch of source video frames, plus 0+ image references and 0+ video-reference frames) so the LLM can see what it's rewriting about.

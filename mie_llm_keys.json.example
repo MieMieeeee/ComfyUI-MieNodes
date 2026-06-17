@@ -1,0 +1,16 @@
+{
+  "_comment": "复制为 mie_llm_keys.json，填入用到的服务密钥；不用的留空。键名必须与对应 Set*LLMServiceConnector 节点的 config_key 默认值完全一致。\nCopy to mie_llm_keys.json and fill in the keys for the services you use; leave empty for services you do not use. Key names must match the config_key default of the corresponding Set*LLMServiceConnector node.\n\n支持平台（Support platforms）: 通用 OpenAI 兼容端点（openai_compatible）、GitHub Models（github_models）、硅基流动 SiliconFlow（siliconflow）、智谱 ZhiPu Open Platform（zhipu）、智谱 ZhiPu Token Plan（zhipu_code）、Kimi 月之暗面（kimi）、DeepSeek（deepseek）、MiniMax Open Platform（minimax_open_platform）、MiniMax Token Plan（minimax）、小米 MiMo Open Platform（mimo）、小米 MiMo Token Plan（mimo_token_plan）、Google Gemini（gemini）、阿里云百炼 Bailian（bailian）",
+  "openai_compatible": "",
+  "github_models": "",
+  "siliconflow": "",
+  "zhipu": "",
+  "zhipu_code": "",
+  "kimi": "",
+  "deepseek": "",
+  "minimax_open_platform": "",
+  "minimax": "",
+  "mimo": "",
+  "mimo_token_plan": "",
+  "gemini": "",
+  "bailian": ""
+}
