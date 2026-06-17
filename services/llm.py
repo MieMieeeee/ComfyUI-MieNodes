@@ -405,6 +405,83 @@ class MiniMaxTokenPlanConnectorGeneral(StandardOpenAICompatibleConnector):
         return _drop_image_detail_auto(messages)
 
 
+class MiMoConnectorGeneral(StandardOpenAICompatibleConnector):
+    """Standard Xiaomi MiMo Open Platform connector.
+
+    Targets the public Xiaomi MiMo API at
+    `https://api.xiaomimimo.com/v1/chat/completions` with `sk-xxxxx`
+    API keys. For the Token Plan / Coding Plan (`tp-xxxxx` keys), use
+    `MiMoTokenPlanConnectorGeneral` and `SetMiMoTokenPlanLLMServiceConnector`
+    instead.
+
+    Key differences from the generic OpenAI-compat shape:
+      - Uses `max_completion_tokens` (newer OpenAI standard) instead of
+        `max_tokens`; the MiMo docs only show the `max_completion_tokens`
+        spelling.
+      - Drops `top_k`, `n`, and `response_format` from the payload; the
+        MiMo docs never show these and they are likely to 400.
+      - Uses MiMo-friendly defaults: `temperature=1.0`, `top_p=0.95`.
+      - Drops `detail: "auto"` from `image_url` parts (the MiMo image
+        understanding docs do not include a `detail` field; the OpenAI
+        default `"auto"` is known to be rejected by some providers).
+    """
+
+    api_url = "https://api.xiaomimimo.com/v1/chat/completions"
+
+    def __init__(self, api_token, model, **kwargs):
+        super().__init__(self.api_url, api_token, model, **kwargs)
+
+    def generate_payload(self, messages, **kwargs):
+        return {
+            "model": self.model,
+            "messages": self._provider_messages(messages),
+            "stream": False,
+            "max_completion_tokens": kwargs.get("max_tokens", 512),
+            "temperature": kwargs.get("temperature", 1.0),
+            "top_p": kwargs.get("top_p", 0.95),
+        }
+
+    def _sanitize_image_detail(self, messages):
+        """Drop `detail: "auto"` from image_url parts. The MiMo image
+        understanding docs never include a `detail` field; only `low` /
+        `high` are forwarded when the caller sets them explicitly. See
+        `_drop_image_detail_auto` for the rationale.
+        """
+        return _drop_image_detail_auto(messages)
+
+
+class MiMoTokenPlanConnectorGeneral(StandardOpenAICompatibleConnector):
+    """Xiaomi MiMo Token Plan / Coding Plan connector.
+
+    Targets the MiMo Token Plan endpoint at
+    `https://token-plan-cn.xiaomimimo.com/v1/chat/completions` with
+    `tp-xxxxx` API keys. Distinct from the standard tier in base URL,
+    billing model, and API key format. The model lineup is shared with
+    the standard tier. Pair with `SetMiMoTokenPlanLLMServiceConnector`.
+    """
+
+    api_url = "https://token-plan-cn.xiaomimimo.com/v1/chat/completions"
+
+    def __init__(self, api_token, model, **kwargs):
+        super().__init__(self.api_url, api_token, model, **kwargs)
+
+    def generate_payload(self, messages, **kwargs):
+        return {
+            "model": self.model,
+            "messages": self._provider_messages(messages),
+            "stream": False,
+            "max_completion_tokens": kwargs.get("max_tokens", 512),
+            "temperature": kwargs.get("temperature", 1.0),
+            "top_p": kwargs.get("top_p", 0.95),
+        }
+
+    def _sanitize_image_detail(self, messages):
+        """Same as `MiMoConnectorGeneral`: drop `detail: "auto"`.
+        See `_drop_image_detail_auto` for the rationale.
+        """
+        return _drop_image_detail_auto(messages)
+
+
 class GeminiConnectorGeneral(GeneralLLMServiceConnector):
     base_url = "https://generativelanguage.googleapis.com/v1beta/models"
 
@@ -604,6 +681,16 @@ class SetGithubModelsLLMServiceConnector(object):
                 "model_select": (
                     [
                         "openai/gpt-4.1",
+                        "openai/gpt-4.1-mini",
+                        "openai/gpt-4.1-nano",
+                        "openai/gpt-5-chat",
+                        "openai/gpt-5-mini",
+                        "openai/o4-mini",
+                        "deepseek/deepseek-v3-0324",
+                        "deepseek/deepseek-r1-0528",
+                        "meta/llama-4-maverick-17b-128e-instruct-fp8",
+                        "meta/llama-4-scout-17b-16e-instruct",
+                        "meta/llama-3.3-70b-instruct",
                         "Custom",
                     ],
                     {"default": "openai/gpt-4.1"},
@@ -644,18 +731,24 @@ class SetSiliconFlowLLMServiceConnector(object):
                 "api_token": ("STRING", {"default": ""}),
                 "model_select": (
                     [
-                        "deepseek-ai/DeepSeek-V3",
+                        "deepseek-ai/DeepSeek-V4-Pro",
+                        "deepseek-ai/DeepSeek-V4-Flash",
+                        "deepseek-ai/DeepSeek-V3.2",
+                        "Pro/deepseek-ai/DeepSeek-V3.2",
                         "deepseek-ai/DeepSeek-V3.1-Terminus",
-                        "deepseek-ai/DeepSeek-V3.2-Exp",
-                        "THUDM/GLM-Z1-9B-0414",
+                        "deepseek-ai/DeepSeek-V3",
+                        "Pro/zai-org/GLM-5.1",
                         "THUDM/GLM-4-32B-0414",
                         "zai-org/GLM-4.5V",
+                        "Pro/moonshotai/Kimi-K2.6",
+                        "Qwen/Qwen3.6-35B-A3B",
+                        "Qwen/Qwen3.5-397B-A17B",
+                        "Qwen/Qwen3-VL-32B-Instruct",
+                        "Qwen/Qwen3-Coder-30B-A3B-Instruct",
                         "Qwen/Qwen3-8B",
-                        "Qwen/Qwen3-235B-A22B-Thinking-2507",
-                        "moonshotai/Kimi-K2-Instruct",
                         "Custom",
                     ],
-                    {"default": "THUDM/GLM-4-32B-0414"},
+                    {"default": "deepseek-ai/DeepSeek-V4-Flash"},
                 ),
             },
             "optional": {
@@ -681,7 +774,7 @@ class SetSiliconFlowLLMServiceConnector(object):
         # 确定最终使用的模型
         model = model_select if model_select != "Custom" else custom_model
         if not model:
-            model = "THUDM/GLM-4-32B-0414"  # 默认模型
+            model = "deepseek-ai/DeepSeek-V4-Flash"  # 默认模型
         return (SiliconFlowConnectorGeneral(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
 
 
@@ -693,16 +786,17 @@ class SetZhiPuLLMServiceConnector(object):
                 "api_token": ("STRING", {"default": ""}),
                 "model_select": (
                     [
-                        "GLM-4-Flash-250414",
-                        "GLM-4-Air-250414",
-                        "GLM-Z1-Flash",
-                        "GLM-Z1-Air",
-                        "glm-4-plus",
-                        "glm-4-long",
-                        "codegeex-4",
+                        "glm-5.2",
+                        "glm-5.1",
+                        "glm-5-turbo",
+                        "glm-5",
+                        "glm-4.7",
+                        "glm-4.6",
+                        "glm-4.5",
+                        "glm-4.5-air",
                         "Custom",
                     ],
-                    {"default": "GLM-4-Flash-250414"},
+                    {"default": "glm-5.1"},
                 ),
             },
             "optional": {
@@ -728,7 +822,7 @@ class SetZhiPuLLMServiceConnector(object):
         # 确定最终使用的模型
         model = model_select if model_select != "Custom" else custom_model
         if not model:
-            model = "GLM-4-Flash-250414"  # 默认模型
+            model = "glm-5.1"  # 默认模型
         return (ZhiPuConnectorGeneral(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
 
 
@@ -740,13 +834,17 @@ class SetZhiPuCodeLLMServiceConnector(object):
                 "api_token": ("STRING", {"default": ""}),
                 "model_select": (
                     [
-                        "GLM-5.1",
-                        "GLM-5",
-                        "GLM-4.7",
-                        "GLM-4.7-Flash",
+                        "glm-5.2",
+                        "glm-5.1",
+                        "glm-5-turbo",
+                        "glm-5",
+                        "glm-4.7",
+                        "glm-4.6",
+                        "glm-4.5",
+                        "glm-4.5-air",
                         "Custom",
                     ],
-                    {"default": "GLM-5.1"},
+                    {"default": "glm-5.1"},
                 ),
             },
             "optional": {
@@ -771,7 +869,7 @@ class SetZhiPuCodeLLMServiceConnector(object):
     def execute(self, api_token, model_select, custom_model="", config_file="mie_llm_keys.json", config_key="zhipu_code", prefer_local_config=True):
         model = model_select if model_select != "Custom" else custom_model
         if not model:
-            model = "GLM-5.1"
+            model = "glm-5.1"
         return (ZhiPuCodeConnectorGeneral(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
 
 
@@ -783,19 +881,20 @@ class SetKimiLLMServiceConnector(object):
                 "api_token": ("STRING", {"default": ""}),
                 "model_select": (
                     [
-                        "kimi-k2-0711-preview",
-                        "moonshot-v1-8k",
-                        "moonshot-v1-32k",
+                        "kimi-k2.7-code",
+                        "kimi-k2.7-code-highspeed",
+                        "kimi-k2.6",
+                        "kimi-k2.5",
                         "moonshot-v1-128k",
-                        "moonshot-v1-auto",
-                        "kimi-latest",
-                        "moonshot-v1-8k-vision-preview",
-                        "moonshot-v1-32k-vision-preview",
                         "moonshot-v1-128k-vision-preview",
-                        "kimi-thinking-preview",
+                        "moonshot-v1-32k",
+                        "moonshot-v1-32k-vision-preview",
+                        "moonshot-v1-8k",
+                        "moonshot-v1-8k-vision-preview",
+                        "moonshot-v1-auto",
                         "Custom",
                     ],
-                    {"default": "kimi-k2-0711-preview"},
+                    {"default": "kimi-k2.6"},
                 ),
             },
             "optional": {
@@ -821,7 +920,7 @@ class SetKimiLLMServiceConnector(object):
         # 确定最终使用的模型
         model = model_select if model_select != "Custom" else custom_model
         if not model:
-            model = "kimi-k2-0711-preview"  # 默认模型
+            model = "kimi-k2.6"  # 默认模型
         return (KimiConnectorGeneral(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
 
 
@@ -833,11 +932,11 @@ class SetDeepSeekLLMServiceConnector(object):
                 "api_token": ("STRING", {"default": ""}),
                 "model_select": (
                     [
-                        "deepseek-chat",
-                        "deepseek-reasoner",
+                        "deepseek-v4-pro",
+                        "deepseek-v4-flash",
                         "Custom",
                     ],
-                    {"default": "deepseek-chat"},
+                    {"default": "deepseek-v4-flash"},
                 ),
             },
             "optional": {
@@ -863,7 +962,7 @@ class SetDeepSeekLLMServiceConnector(object):
         # 确定最终使用的模型
         model = model_select if model_select != "Custom" else custom_model
         if not model:
-            model = "deepseek-chat"  # 默认模型
+            model = "deepseek-v4-flash"  # 默认模型
         return (DeepSeekConnectorGeneral(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
 
 
@@ -887,6 +986,9 @@ class SetMiniMaxLLMServiceConnector(object):
                         "MiniMax-M2.7-highspeed",
                         "MiniMax-M2.5",
                         "MiniMax-M2.5-highspeed",
+                        "MiniMax-M2.1",
+                        "MiniMax-M2.1-highspeed",
+                        "MiniMax-M2",
                         "Custom",
                     ],
                     {"default": "MiniMax-M2.7"},
@@ -938,6 +1040,9 @@ class SetMiniMaxTokenPlanLLMServiceConnector(object):
                         "MiniMax-M2.7-highspeed",
                         "MiniMax-M2.5",
                         "MiniMax-M2.5-highspeed",
+                        "MiniMax-M2.1",
+                        "MiniMax-M2.1-highspeed",
+                        "MiniMax-M2",
                         "Custom",
                     ],
                     {"default": "MiniMax-M3"},
@@ -969,6 +1074,110 @@ class SetMiniMaxTokenPlanLLMServiceConnector(object):
         return (MiniMaxTokenPlanConnectorGeneral(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
 
 
+class SetMiMoLLMServiceConnector(object):
+    """Standard Xiaomi MiMo Open Platform connector.
+
+    Use this node when you have a standard MiMo API key (`sk-xxxxx`
+    format) issued from the MiMo developer console. For the Token Plan
+    / Coding Plan (`tp-xxxxx` prefixed) keys, use
+    `SetMiMoTokenPlanLLMServiceConnector` instead.
+    """
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "api_token": ("STRING", {"default": ""}),
+                "model_select": (
+                    [
+                        "mimo-v2.5-pro",
+                        "mimo-v2.5",
+                        "mimo-v2-omni",
+                        "mimo-v2-flash",
+                        "mimo-v2-pro",
+                        "Custom",
+                    ],
+                    {"default": "mimo-v2.5-pro"},
+                ),
+            },
+            "optional": {
+                "custom_model": (
+                    "STRING",
+                    {
+                        "default": "",
+                        "placeholder": "Enter custom model name (used when model_select is 'Custom')",
+                    },
+                ),
+                "config_file": ("STRING", {"default": "mie_llm_keys.json"}),
+                "config_key": ("STRING", {"default": "mimo"}),
+                "prefer_local_config": ("BOOLEAN", {"default": True}),
+            },
+        }
+
+    RETURN_TYPES = ("LLMServiceConnector",)
+    RETURN_NAMES = ("llm_service_connector",)
+    FUNCTION = "execute"
+    CATEGORY = MY_CATEGORY
+
+    def execute(self, api_token, model_select, custom_model="", config_file="mie_llm_keys.json", config_key="mimo", prefer_local_config=True):
+        model = model_select if model_select != "Custom" else custom_model
+        if not model:
+            model = "mimo-v2.5-pro"
+        return (MiMoConnectorGeneral(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
+
+
+class SetMiMoTokenPlanLLMServiceConnector(object):
+    """Xiaomi MiMo Token Plan / Coding Plan connector.
+
+    Use this node when you have a Token Plan / Coding Plan API key
+    (`tp-xxxxx` prefix). The Token Plan is a fixed-fee subscription
+    with its own base URL and billing; the model lineup is shared
+    with the standard tier.
+    """
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "api_token": ("STRING", {"default": ""}),
+                "model_select": (
+                    [
+                        "mimo-v2.5-pro",
+                        "mimo-v2.5",
+                        "mimo-v2-omni",
+                        "mimo-v2-flash",
+                        "mimo-v2-pro",
+                        "Custom",
+                    ],
+                    {"default": "mimo-v2.5-pro"},
+                ),
+            },
+            "optional": {
+                "custom_model": (
+                    "STRING",
+                    {
+                        "default": "",
+                        "placeholder": "Enter custom model name (used when model_select is 'Custom')",
+                    },
+                ),
+                "config_file": ("STRING", {"default": "mie_llm_keys.json"}),
+                "config_key": ("STRING", {"default": "mimo_token_plan"}),
+                "prefer_local_config": ("BOOLEAN", {"default": True}),
+            },
+        }
+
+    RETURN_TYPES = ("LLMServiceConnector",)
+    RETURN_NAMES = ("llm_service_connector",)
+    FUNCTION = "execute"
+    CATEGORY = MY_CATEGORY
+
+    def execute(self, api_token, model_select, custom_model="", config_file="mie_llm_keys.json", config_key="mimo_token_plan", prefer_local_config=True):
+        model = model_select if model_select != "Custom" else custom_model
+        if not model:
+            model = "mimo-v2.5-pro"
+        return (MiMoTokenPlanConnectorGeneral(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
+
+
 class SetGeminiLLMServiceConnector(object):
     @classmethod
     def INPUT_TYPES(cls):
@@ -977,13 +1186,16 @@ class SetGeminiLLMServiceConnector(object):
                 "api_token": ("STRING", {"default": ""}),
                 "model_select": (
                     [
-                        "gemini-1.5-pro",
-                        "gemini-1.5-flash",
+                        "gemini-3.1-pro",
+                        "gemini-3.1-pro-preview",
+                        "gemini-3-flash",
+                        "gemini-3.1-flash-lite",
                         "gemini-2.5-pro",
                         "gemini-2.5-flash",
+                        "gemini-2.5-flash-lite",
                         "Custom",
                     ],
-                    {"default": "gemini-2.5-pro"},
+                    {"default": "gemini-3.1-pro"},
                 ),
             },
             "optional": {
@@ -1008,7 +1220,7 @@ class SetGeminiLLMServiceConnector(object):
     def execute(self, api_token, model_select, custom_model="", config_file="mie_llm_keys.json", config_key="gemini", prefer_local_config=True):
         model = model_select if model_select != "Custom" else custom_model
         if not model:
-            model = "gemini-2.5-pro"
+            model = "gemini-3.1-pro"
         return (GeminiConnectorGeneral(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
 
 
@@ -1020,14 +1232,25 @@ class SetBailianLLMServiceConnector(object):
                 "api_token": ("STRING", {"default": ""}),
                 "model_select": (
                     [
+                        "qwen3.7-max",
+                        "qwen3.7-plus",
+                        "qwen3.6-flash",
+                        "qwen3.6-plus",
+                        "qwen3.5-flash",
+                        "qwen3.5-plus",
                         "qwen-plus",
                         "qwen-max",
                         "qwen-flash",
                         "qwen-turbo",
                         "qwen-long",
+                        "glm-5.2",
+                        "glm-5.1",
+                        "glm-5",
+                        "kimi-k2.6",
+                        "deepseek-v4-pro",
                         "Custom",
                     ],
-                    {"default": "qwen-flash"},
+                    {"default": "qwen3.7-max"},
                 ),
             },
             "optional": {
@@ -1052,7 +1275,7 @@ class SetBailianLLMServiceConnector(object):
     def execute(self, api_token, model_select, custom_model="", config_file="mie_llm_keys.json", config_key="bailian", prefer_local_config=True):
         model = model_select if model_select != "Custom" else custom_model
         if not model:
-            model = "qwen-flash"
+            model = "qwen3.7-max"
         return (BailianLLMServiceConnector(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
 
 
