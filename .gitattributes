@@ -1,0 +1,5 @@
+# Prompt text/data files: enforce LF so byte-level snapshot tests stay stable
+# across Windows/Linux checkouts. The loader reads with universal newlines;
+# this keeps the committed bytes canonical (no CRLF surprise diffs).
+nodes/llm/prompts/**/*.txt text eol=lf
+nodes/llm/prompts/**/*.json text eol=lf

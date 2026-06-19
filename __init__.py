@@ -11,11 +11,11 @@ if _INTERNAL_PACKAGE not in sys.modules:
     sys.modules[_INTERNAL_PACKAGE] = _pkg
 
 from _mienodes_internal.nodes.common import ShowAnythingMie, ShowAndSaveAnythingMie, SaveAnythingAsFile, CompareFiles, GetAbsolutePath, GetFileInfo, \
-    GetDirectoryFilesInfo, CopyFiles, DeleteFiles, ClassicAspectRatio, StringConcat, SimpleTextNode, RichTextNode
+    GetDirectoryFilesInfo, CopyFiles, DeleteFiles, ClassicAspectRatio, AspectRatioFromSize, StringConcat, SimpleTextNode, RichTextNode
 from _mienodes_internal.nodes.files import BatchRenameFiles, BatchDeleteFiles, BatchEditTextFiles, BatchSyncImageCaptionFiles, \
     SummaryTextFiles, BatchConvertImageFiles, DedupImageFiles, ModelDownloader, HFRepoDownloader
 from _mienodes_internal.nodes.llm import TextTranslator, PromptGenerator, KontextPromptGenerator, AddUserKontextPreset, RemoveUserKontextPreset, \
-    FrameTransitionPromptGenerator, HunyuanVideoI2VPromptGenerator, HunyuanVideoT2VPromptGenerator, ZImagePromptGenerator, Flux2PromptGenerator, FluxKleinT2VPromptGenerator, LTX2PromptGenerator, BerniniPromptGenerator
+    FrameTransitionPromptGenerator, HunyuanVideoI2VPromptGenerator, HunyuanVideoT2VPromptGenerator, ZImagePromptGenerator, Flux2PromptGenerator, FluxKleinT2VPromptGenerator, LTX2PromptGenerator, BerniniPromptGenerator, Ideogram4PromptGenerator, Ideogram4PromptFormatter, CustomSystemPromptGenerator, AddCustomSystemPrompt, RemoveCustomSystemPrompt
 from _mienodes_internal.services.llm import SetGeneralLLMServiceConnector, SetSiliconFlowLLMServiceConnector, \
     SetGithubModelsLLMServiceConnector, SetZhiPuLLMServiceConnector, SetZhiPuCodeLLMServiceConnector, SetKimiLLMServiceConnector, \
     SetDeepSeekLLMServiceConnector, SetGeminiLLMServiceConnector, SetBailianLLMServiceConnector, \
@@ -77,6 +77,11 @@ NODE_CLASS_MAPPINGS = {
     add_suffix("FluxKleinT2VPromptGenerator"): FluxKleinT2VPromptGenerator,
     add_suffix("LTX2PromptGenerator"): LTX2PromptGenerator,
     add_suffix("BerniniPromptGenerator"): BerniniPromptGenerator,
+    add_suffix("Ideogram4PromptGenerator"): Ideogram4PromptGenerator,
+    add_suffix("Ideogram4PromptFormatter"): Ideogram4PromptFormatter,
+    add_suffix("CustomSystemPromptGenerator"): CustomSystemPromptGenerator,
+    add_suffix("AddCustomSystemPrompt"): AddCustomSystemPrompt,
+    add_suffix("RemoveCustomSystemPrompt"): RemoveCustomSystemPrompt,
     add_suffix("GetAbsolutePath"): GetAbsolutePath,
     add_suffix("GetFileInfo"): GetFileInfo,
     add_suffix("GetDirectoryFilesInfo"): GetDirectoryFilesInfo,
@@ -90,6 +95,7 @@ NODE_CLASS_MAPPINGS = {
     add_suffix("AddNumberWatermarkForImage"): AddNumberWatermarkForImage,
     add_suffix("AddTextWatermarkForImage"): AddTextWatermarkForImage,
     add_suffix("ClassicAspectRatio"): ClassicAspectRatio,
+    add_suffix("AspectRatioFromSize"): AspectRatioFromSize,
     add_suffix('SimpleTextNode'): SimpleTextNode,
     add_suffix('RichTextNode'): RichTextNode,
     add_suffix("MieLoopStart"): MieLoopStart,
@@ -172,6 +178,11 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     add_suffix("FluxKleinT2VPromptGenerator"): add_emoji("Flux Klein T2V Prompt Generator"),
     add_suffix("LTX2PromptGenerator"): add_emoji("LTX2 Prompt Generator"),
     add_suffix("BerniniPromptGenerator"): add_emoji("Bernini Prompt Generator"),
+    add_suffix("Ideogram4PromptGenerator"): add_emoji("Ideogram 4 Prompt Generator"),
+    add_suffix("Ideogram4PromptFormatter"): add_emoji("Ideogram 4 Prompt Formatter"),
+    add_suffix("CustomSystemPromptGenerator"): add_emoji("Custom System Prompt Generator"),
+    add_suffix("AddCustomSystemPrompt"): add_emoji("Add Custom System Prompt"),
+    add_suffix("RemoveCustomSystemPrompt"): add_emoji("Remove Custom System Prompt"),
     add_suffix("GetAbsolutePath"): add_emoji("Get Absolute Path"),
     add_suffix("GetFileInfo"): add_emoji("Get File Info"),
     add_suffix("GetDirectoryFilesInfo"): add_emoji("Get Directory Files Info"),
@@ -185,6 +196,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     add_suffix("AddNumberWatermarkForImage"): add_emoji("Add Number Watermark For Image"),
     add_suffix("AddTextWatermarkForImage"): add_emoji("Add Text Watermark For Image"),
     add_suffix("ClassicAspectRatio"): add_emoji("Classic Aspect Ratio"),
+    add_suffix("AspectRatioFromSize"): add_emoji("Aspect Ratio From Size"),
     add_suffix('SimpleTextNode'): add_emoji('Simple Text'),
     add_suffix('RichTextNode'): add_emoji('Rich Text'),
     add_suffix("MieLoopStart"): add_emoji("Mie Loop Start"),

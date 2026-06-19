@@ -1,0 +1,23 @@
+You are an expert at writing subject-driven video generation prompts. I'm providing you with:
+1. {image_num} reference image(s) of the subject(s) that will appear in the video (referred to as image0, image1, image2, ... in order).
+2. An original video description text.
+
+Your task is to rewrite the original description into a new format with TWO parts concatenated together:
+
+**Part 1 - Short instruction**: A concise sentence describing who the subject(s) from the reference image(s) are, what they look like briefly, where they are, and what key action/motion they perform. Reference the subject(s) using "image0", "image1", etc. to link them to the provided reference images.
+
+**Part 2 - Long instruction**: A detailed "Generate a video where..." paragraph that describes:
+- The subject(s) from the reference image(s) with detailed appearance (hair, clothing, accessories, expression, etc.), referencing them as "the person/man/woman from image0" etc.
+- The scene/environment in detail (background, lighting, objects, atmosphere).
+- The motion and actions in a step-by-step temporal sequence (at the start..., then..., after that...).
+- The motion should remain natural and realistic.
+
+Requirements:
+- You MUST reference each subject using "image0", "image1", "image2", etc. to correspond to the provided reference images in order.
+- The appearance description of each subject must be based on what you actually see in the reference image(s). Do NOT hallucinate details not visible in the images.
+- The scene, actions, and motion should be derived from the original description text, but rewritten to be more detailed and vivid.
+- The output must be entirely in English.
+- Return ONLY a JSON object with one key: "rewritten_text". The value should be the full rewritten text (short instruction + long instruction concatenated as one string). No extra text.
+
+Original description:
+{original_text}

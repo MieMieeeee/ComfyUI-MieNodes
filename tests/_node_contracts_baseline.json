@@ -1,0 +1,1767 @@
+{
+  "AddNumberWatermarkForImage|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Image Operator",
+    "function": "apply_watermark",
+    "hidden": [],
+    "optional": [],
+    "required": [
+      "color_b",
+      "color_g",
+      "color_r",
+      "font_scale",
+      "images",
+      "outline",
+      "outline_thickness",
+      "position_x",
+      "position_y",
+      "start_number",
+      "thickness"
+    ],
+    "return_names": [],
+    "return_types": [
+      "IMAGE"
+    ]
+  },
+  "AddTextWatermarkForImage|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Image Operator",
+    "function": "apply_watermark",
+    "hidden": [],
+    "optional": [],
+    "required": [
+      "align",
+      "color_b",
+      "color_g",
+      "color_r",
+      "font_size",
+      "images",
+      "outline",
+      "outline_width",
+      "position_x",
+      "position_y",
+      "text"
+    ],
+    "return_names": [],
+    "return_types": [
+      "IMAGE"
+    ]
+  },
+  "AddUserKontextPreset|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Prompt Generator",
+    "function": "add_preset",
+    "hidden": [],
+    "optional": [],
+    "required": [
+      "preset_name",
+      "system_prompt"
+    ],
+    "return_names": [
+      "success",
+      "log"
+    ],
+    "return_types": [
+      "BOOLEAN",
+      "STRING"
+    ]
+  },
+  "AspectRatioFromSize|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Common",
+    "function": "convert",
+    "hidden": [],
+    "optional": [],
+    "required": [
+      "height",
+      "width"
+    ],
+    "return_names": [
+      "aspect_ratio"
+    ],
+    "return_types": [
+      "STRING"
+    ]
+  },
+  "BatchConvertImageFiles|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Caption Tools",
+    "function": "convert_image_files",
+    "hidden": [],
+    "optional": [
+      "trigger_signal"
+    ],
+    "required": [
+      "directory",
+      "save_original",
+      "target_format"
+    ],
+    "return_names": [
+      "converted_file_count",
+      "log"
+    ],
+    "return_types": [
+      "INT",
+      "STRING"
+    ]
+  },
+  "BatchDeleteFiles|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Caption Tools",
+    "function": "batch_delete_files",
+    "hidden": [],
+    "optional": [
+      "prefix",
+      "trigger_signal"
+    ],
+    "required": [
+      "directory",
+      "file_extension"
+    ],
+    "return_names": [
+      "deleted_file_count",
+      "log"
+    ],
+    "return_types": [
+      "INT",
+      "STRING"
+    ]
+  },
+  "BatchEditTextFiles|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Caption Tools",
+    "function": "edit_text_file",
+    "hidden": [],
+    "optional": [
+      "file_extension",
+      "new_text",
+      "target_text",
+      "trigger_signal"
+    ],
+    "required": [
+      "directory",
+      "operation"
+    ],
+    "return_names": [
+      "updated_file_count",
+      "log"
+    ],
+    "return_types": [
+      "INT",
+      "STRING"
+    ]
+  },
+  "BatchRenameFiles|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Caption Tools",
+    "function": "batch_rename_files",
+    "hidden": [],
+    "optional": [
+      "prefix",
+      "trigger_signal"
+    ],
+    "required": [
+      "directory",
+      "file_extension",
+      "numbering_format",
+      "update_caption_as_well"
+    ],
+    "return_names": [
+      "updated_file_count",
+      "log"
+    ],
+    "return_types": [
+      "INT",
+      "STRING"
+    ]
+  },
+  "BatchSyncImageCaptionFiles|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Caption Tools",
+    "function": "sync_image_caption_files",
+    "hidden": [],
+    "optional": [
+      "trigger_signal"
+    ],
+    "required": [
+      "caption_content",
+      "directory"
+    ],
+    "return_names": [
+      "log"
+    ],
+    "return_types": [
+      "STRING"
+    ]
+  },
+  "BerniniPromptGenerator|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Prompt Generator",
+    "function": "generate",
+    "hidden": [],
+    "optional": [
+      "image_detail",
+      "max_tokens",
+      "reference_images",
+      "reference_video",
+      "reference_video_frames",
+      "source",
+      "temperature",
+      "timeout",
+      "top_p",
+      "video_frames"
+    ],
+    "required": [
+      "llm_service_connector",
+      "seed",
+      "task_type",
+      "user_prompt"
+    ],
+    "return_names": [
+      "bernini_prompt"
+    ],
+    "return_types": [
+      "STRING"
+    ]
+  },
+  "CallLLMService|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 LLM Service Config",
+    "function": "call",
+    "hidden": [],
+    "optional": [
+      "image",
+      "image_detail",
+      "max_tokens",
+      "seed",
+      "temperature",
+      "top_p"
+    ],
+    "required": [
+      "input_text",
+      "llm_service_connector"
+    ],
+    "return_names": [
+      "response"
+    ],
+    "return_types": [
+      "STRING"
+    ]
+  },
+  "CheckLLMServiceConnectivity|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 LLM Service Config",
+    "function": "execute",
+    "hidden": [],
+    "optional": [],
+    "required": [
+      "llm_service_connector"
+    ],
+    "return_names": [
+      "log"
+    ],
+    "return_types": [
+      "STRING"
+    ]
+  },
+  "ClassicAspectRatio|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Common",
+    "function": "get_size",
+    "hidden": [],
+    "optional": [],
+    "required": [
+      "ratio",
+      "resolution"
+    ],
+    "return_names": [
+      "width",
+      "height"
+    ],
+    "return_types": [
+      "INT",
+      "INT"
+    ]
+  },
+  "CompareFiles|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Common",
+    "function": "compare_files",
+    "hidden": [],
+    "optional": [],
+    "required": [
+      "file1_path",
+      "file2_path",
+      "file_format"
+    ],
+    "return_names": [],
+    "return_types": [
+      "STRING"
+    ]
+  },
+  "CopyFiles|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 File Operations",
+    "function": "copy_files",
+    "hidden": [],
+    "optional": [],
+    "required": [
+      "delete_origin",
+      "destination_directory",
+      "mock",
+      "pattern",
+      "source_directory"
+    ],
+    "return_names": [
+      "copied_file_count",
+      "log"
+    ],
+    "return_types": [
+      "INT",
+      "STRING"
+    ]
+  },
+  "DedupImageFiles|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Caption Tools",
+    "function": "dedup_image_files",
+    "hidden": [],
+    "optional": [
+      "trigger_signal"
+    ],
+    "required": [
+      "directory",
+      "max_distance_threshold"
+    ],
+    "return_names": [
+      "deleted_file_count",
+      "log"
+    ],
+    "return_types": [
+      "INT",
+      "STRING"
+    ]
+  },
+  "DeleteFiles|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 File Operations",
+    "function": "delete_files",
+    "hidden": [],
+    "optional": [],
+    "required": [
+      "mock",
+      "path"
+    ],
+    "return_names": [
+      "log"
+    ],
+    "return_types": [
+      "STRING"
+    ]
+  },
+  "Flux2PromptGenerator|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Prompt Generator",
+    "function": "generate_flux2_prompt",
+    "hidden": [],
+    "optional": [],
+    "required": [
+      "input_text",
+      "llm_service_connector",
+      "seed"
+    ],
+    "return_names": [
+      "flux2_prompt_json"
+    ],
+    "return_types": [
+      "STRING"
+    ]
+  },
+  "FluxKleinT2VPromptGenerator|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Prompt Generator",
+    "function": "generate_flux_klein_t2v_prompt",
+    "hidden": [],
+    "optional": [],
+    "required": [
+      "input_text",
+      "llm_service_connector",
+      "seed"
+    ],
+    "return_names": [
+      "flux_klein_t2v_prompt"
+    ],
+    "return_types": [
+      "STRING"
+    ]
+  },
+  "FrameTransitionPromptGenerator|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Prompt Generator",
+    "function": "generate_transition_prompt",
+    "hidden": [],
+    "optional": [],
+    "required": [
+      "end_image_description",
+      "llm_service_connector",
+      "model",
+      "seed",
+      "start_image_description"
+    ],
+    "return_names": [
+      "transition_prompt"
+    ],
+    "return_types": [
+      "STRING"
+    ]
+  },
+  "GetAbsolutePath|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Common",
+    "function": "execute",
+    "hidden": [],
+    "optional": [],
+    "required": [
+      "relative_path"
+    ],
+    "return_names": [
+      "absolute_path"
+    ],
+    "return_types": [
+      "STRING"
+    ]
+  },
+  "GetDirectoryFilesInfo|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Common",
+    "function": "execute",
+    "hidden": [],
+    "optional": [],
+    "required": [
+      "directory_path",
+      "hash_algorithm",
+      "pattern"
+    ],
+    "return_names": [
+      "directory_files_info"
+    ],
+    "return_types": [
+      "STRING"
+    ]
+  },
+  "GetFileInfo|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Common",
+    "function": "execute",
+    "hidden": [],
+    "optional": [],
+    "required": [
+      "file_path",
+      "hash_algorithm"
+    ],
+    "return_names": [
+      "file_info"
+    ],
+    "return_types": [
+      "DICT"
+    ]
+  },
+  "HFRepoDownloader|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Downloader",
+    "function": "download_repo",
+    "hidden": [],
+    "optional": [
+      "allow_patterns",
+      "exclude_patterns",
+      "hf_token",
+      "revision",
+      "trigger_signal"
+    ],
+    "required": [
+      "save_path",
+      "url_or_repo_id",
+      "use_hf_mirror"
+    ],
+    "return_names": [
+      "log"
+    ],
+    "return_types": [
+      "STRING"
+    ]
+  },
+  "HunyuanVideoI2VPromptGenerator|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Prompt Generator",
+    "function": "generate_hyvideo_i2v_prompt",
+    "hidden": [],
+    "optional": [],
+    "required": [
+      "image_description",
+      "input_text",
+      "llm_service_connector",
+      "seed"
+    ],
+    "return_names": [
+      "hyvideo_i2v_prompt"
+    ],
+    "return_types": [
+      "STRING"
+    ]
+  },
+  "HunyuanVideoT2VPromptGenerator|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Prompt Generator",
+    "function": "generate_hyvideo_t2v_prompt",
+    "hidden": [],
+    "optional": [],
+    "required": [
+      "input_text",
+      "llm_service_connector",
+      "seed"
+    ],
+    "return_names": [
+      "hyvideo_t2v_prompt"
+    ],
+    "return_types": [
+      "STRING"
+    ]
+  },
+  "Ideogram4PromptFormatter|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Prompt Generator",
+    "function": "format",
+    "hidden": [],
+    "optional": [],
+    "required": [
+      "raw_prompt"
+    ],
+    "return_names": [
+      "ideogram4_prompt",
+      "format_log"
+    ],
+    "return_types": [
+      "STRING",
+      "STRING"
+    ]
+  },
+  "Ideogram4PromptGenerator|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Prompt Generator",
+    "function": "generate",
+    "hidden": [],
+    "optional": [
+      "aspect_ratio",
+      "temperature",
+      "timeout"
+    ],
+    "required": [
+      "llm_service_connector",
+      "prompt_profile",
+      "seed",
+      "user_prompt"
+    ],
+    "return_names": [
+      "ideogram4_prompt"
+    ],
+    "return_types": [
+      "STRING"
+    ]
+  },
+  "KontextPromptGenerator|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Prompt Generator",
+    "function": "generate_kontext_prompt",
+    "hidden": [],
+    "optional": [],
+    "required": [
+      "edit_instruction",
+      "image1_description",
+      "image2_description",
+      "llm_service_connector",
+      "preset",
+      "seed"
+    ],
+    "return_names": [
+      "kontext_prompt"
+    ],
+    "return_types": [
+      "STRING"
+    ]
+  },
+  "LTX2PromptGenerator|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Prompt Generator",
+    "function": "generate_ltx2_prompt",
+    "hidden": [],
+    "optional": [],
+    "required": [
+      "input_text",
+      "llm_service_connector",
+      "seed"
+    ],
+    "return_names": [
+      "ltx2_prompt"
+    ],
+    "return_types": [
+      "STRING"
+    ]
+  },
+  "MieImageGrid|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Loop",
+    "function": "execute",
+    "hidden": [],
+    "optional": [],
+    "required": [
+      "cols",
+      "images",
+      "pad"
+    ],
+    "return_names": [
+      "grid"
+    ],
+    "return_types": [
+      "IMAGE"
+    ]
+  },
+  "MieImageSelectFrame|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Loop",
+    "function": "execute",
+    "hidden": [],
+    "optional": [],
+    "required": [
+      "images",
+      "index"
+    ],
+    "return_names": [
+      "image"
+    ],
+    "return_types": [
+      "IMAGE"
+    ]
+  },
+  "MieLoopBodyIn|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Loop",
+    "function": "execute",
+    "hidden": [
+      "dynprompt",
+      "unique_id"
+    ],
+    "optional": [
+      "anchor"
+    ],
+    "required": [
+      "loop_ctx"
+    ],
+    "return_names": [
+      "loop_ctx",
+      "anchor"
+    ],
+    "return_types": [
+      "MIE_LOOP_CTX",
+      "*"
+    ]
+  },
+  "MieLoopBodyOut|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Loop",
+    "function": "execute",
+    "hidden": [
+      "dynprompt",
+      "unique_id"
+    ],
+    "optional": [
+      "state_json"
+    ],
+    "required": [
+      "loop_ctx"
+    ],
+    "return_names": [
+      "loop_ctx",
+      "state_json"
+    ],
+    "return_types": [
+      "MIE_LOOP_CTX",
+      "STRING"
+    ]
+  },
+  "MieLoopCleanupAudio|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Loop",
+    "function": "execute",
+    "hidden": [],
+    "optional": [],
+    "required": [
+      "loop_ctx"
+    ],
+    "return_names": [
+      "loop_ctx",
+      "cleaned"
+    ],
+    "return_types": [
+      "MIE_LOOP_CTX",
+      "BOOLEAN"
+    ]
+  },
+  "MieLoopCleanupImages|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Loop",
+    "function": "execute",
+    "hidden": [],
+    "optional": [],
+    "required": [
+      "loop_ctx"
+    ],
+    "return_names": [
+      "loop_ctx",
+      "cleaned"
+    ],
+    "return_types": [
+      "MIE_LOOP_CTX",
+      "BOOLEAN"
+    ]
+  },
+  "MieLoopCleanupJSON|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Loop",
+    "function": "execute",
+    "hidden": [],
+    "optional": [],
+    "required": [
+      "loop_ctx"
+    ],
+    "return_names": [
+      "loop_ctx",
+      "cleaned"
+    ],
+    "return_types": [
+      "MIE_LOOP_CTX",
+      "BOOLEAN"
+    ]
+  },
+  "MieLoopCleanupText|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Loop",
+    "function": "execute",
+    "hidden": [],
+    "optional": [],
+    "required": [
+      "loop_ctx"
+    ],
+    "return_names": [
+      "loop_ctx",
+      "cleaned"
+    ],
+    "return_types": [
+      "MIE_LOOP_CTX",
+      "BOOLEAN"
+    ]
+  },
+  "MieLoopCollectAudio|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Loop",
+    "function": "execute",
+    "hidden": [],
+    "optional": [
+      "offload_dir",
+      "offload_to_disk"
+    ],
+    "required": [
+      "audio",
+      "loop_ctx"
+    ],
+    "return_names": [
+      "loop_ctx"
+    ],
+    "return_types": [
+      "MIE_LOOP_CTX"
+    ]
+  },
+  "MieLoopCollectImage|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Loop",
+    "function": "execute",
+    "hidden": [],
+    "optional": [
+      "offload_dir",
+      "offload_to_disk"
+    ],
+    "required": [
+      "image",
+      "loop_ctx"
+    ],
+    "return_names": [
+      "loop_ctx"
+    ],
+    "return_types": [
+      "MIE_LOOP_CTX"
+    ]
+  },
+  "MieLoopCollectJSON|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Loop",
+    "function": "execute",
+    "hidden": [],
+    "optional": [],
+    "required": [
+      "item_json",
+      "loop_ctx"
+    ],
+    "return_names": [
+      "loop_ctx"
+    ],
+    "return_types": [
+      "MIE_LOOP_CTX"
+    ]
+  },
+  "MieLoopCollectText|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Loop",
+    "function": "execute",
+    "hidden": [],
+    "optional": [],
+    "required": [
+      "loop_ctx",
+      "text"
+    ],
+    "return_names": [
+      "loop_ctx"
+    ],
+    "return_types": [
+      "MIE_LOOP_CTX"
+    ]
+  },
+  "MieLoopEnd|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Loop",
+    "function": "execute",
+    "hidden": [
+      "dynprompt",
+      "extra_pnginfo",
+      "unique_id"
+    ],
+    "optional": [
+      "debug",
+      "state_json"
+    ],
+    "required": [
+      "loop_ctx"
+    ],
+    "return_names": [
+      "loop_ctx",
+      "done"
+    ],
+    "return_types": [
+      "MIE_LOOP_CTX",
+      "BOOLEAN"
+    ]
+  },
+  "MieLoopFinalizeAudio|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Loop",
+    "function": "execute",
+    "hidden": [],
+    "optional": [],
+    "required": [
+      "done",
+      "loop_ctx"
+    ],
+    "return_names": [
+      "audio"
+    ],
+    "return_types": [
+      "AUDIO"
+    ]
+  },
+  "MieLoopFinalizeImages|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Loop",
+    "function": "execute",
+    "hidden": [],
+    "optional": [],
+    "required": [
+      "done",
+      "loop_ctx"
+    ],
+    "return_names": [
+      "images"
+    ],
+    "return_types": [
+      "IMAGE"
+    ]
+  },
+  "MieLoopFinalizeJSONList|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Loop",
+    "function": "execute",
+    "hidden": [],
+    "optional": [],
+    "required": [
+      "done",
+      "loop_ctx"
+    ],
+    "return_names": [
+      "json_list"
+    ],
+    "return_types": [
+      "STRING"
+    ]
+  },
+  "MieLoopFinalizeTextList|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Loop",
+    "function": "execute",
+    "hidden": [],
+    "optional": [],
+    "required": [
+      "done",
+      "loop_ctx"
+    ],
+    "return_names": [
+      "text_list_json"
+    ],
+    "return_types": [
+      "STRING"
+    ]
+  },
+  "MieLoopGetIndex|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Loop",
+    "function": "execute",
+    "hidden": [],
+    "optional": [],
+    "required": [
+      "loop_ctx"
+    ],
+    "return_names": [
+      "index"
+    ],
+    "return_types": [
+      "INT"
+    ]
+  },
+  "MieLoopParamGetBool|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Loop",
+    "function": "execute",
+    "hidden": [],
+    "optional": [],
+    "required": [
+      "default_value",
+      "key",
+      "loop_ctx"
+    ],
+    "return_names": [],
+    "return_types": [
+      "BOOLEAN"
+    ]
+  },
+  "MieLoopParamGetFloat|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Loop",
+    "function": "execute",
+    "hidden": [],
+    "optional": [],
+    "required": [
+      "default_value",
+      "key",
+      "loop_ctx"
+    ],
+    "return_names": [],
+    "return_types": [
+      "FLOAT"
+    ]
+  },
+  "MieLoopParamGetInt|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Loop",
+    "function": "execute",
+    "hidden": [],
+    "optional": [],
+    "required": [
+      "default_value",
+      "key",
+      "loop_ctx"
+    ],
+    "return_names": [],
+    "return_types": [
+      "INT"
+    ]
+  },
+  "MieLoopParamGetString|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Loop",
+    "function": "execute",
+    "hidden": [],
+    "optional": [],
+    "required": [
+      "default_value",
+      "key",
+      "loop_ctx"
+    ],
+    "return_names": [],
+    "return_types": [
+      "STRING"
+    ]
+  },
+  "MieLoopResume|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Loop/_internal",
+    "function": "execute",
+    "hidden": [],
+    "optional": [],
+    "required": [
+      "loop_ctx_json"
+    ],
+    "return_names": [
+      "loop_ctx"
+    ],
+    "return_types": [
+      "MIE_LOOP_CTX"
+    ]
+  },
+  "MieLoopStart|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Loop",
+    "function": "execute",
+    "hidden": [],
+    "optional": [
+      "float_list",
+      "float_range_end",
+      "float_range_start",
+      "float_range_step",
+      "initial_state_json",
+      "int_list",
+      "int_range_end",
+      "int_range_start",
+      "int_range_step",
+      "json_list",
+      "meta_json",
+      "resume_loop_ctx",
+      "string_list"
+    ],
+    "required": [
+      "loop_id",
+      "param_mode",
+      "param_type"
+    ],
+    "return_names": [
+      "loop_ctx",
+      "index",
+      "count",
+      "is_last"
+    ],
+    "return_types": [
+      "MIE_LOOP_CTX",
+      "INT",
+      "INT",
+      "BOOLEAN"
+    ]
+  },
+  "MieLoopStateCleanupImage|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Loop",
+    "function": "execute",
+    "hidden": [],
+    "optional": [],
+    "required": [
+      "key",
+      "loop_ctx"
+    ],
+    "return_names": [
+      "loop_ctx",
+      "cleaned"
+    ],
+    "return_types": [
+      "MIE_LOOP_CTX",
+      "BOOLEAN"
+    ]
+  },
+  "MieLoopStateGetBool|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Loop",
+    "function": "execute",
+    "hidden": [],
+    "optional": [],
+    "required": [
+      "default_value",
+      "key",
+      "loop_ctx"
+    ],
+    "return_names": [],
+    "return_types": [
+      "BOOLEAN"
+    ]
+  },
+  "MieLoopStateGetFloat|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Loop",
+    "function": "execute",
+    "hidden": [],
+    "optional": [],
+    "required": [
+      "default_value",
+      "key",
+      "loop_ctx"
+    ],
+    "return_names": [],
+    "return_types": [
+      "FLOAT"
+    ]
+  },
+  "MieLoopStateGetImage|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Loop",
+    "function": "execute",
+    "hidden": [],
+    "optional": [
+      "fallback_image"
+    ],
+    "required": [
+      "key",
+      "loop_ctx"
+    ],
+    "return_names": [
+      "image",
+      "found"
+    ],
+    "return_types": [
+      "IMAGE",
+      "BOOLEAN"
+    ]
+  },
+  "MieLoopStateGetInt|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Loop",
+    "function": "execute",
+    "hidden": [],
+    "optional": [],
+    "required": [
+      "default_value",
+      "key",
+      "loop_ctx"
+    ],
+    "return_names": [],
+    "return_types": [
+      "INT"
+    ]
+  },
+  "MieLoopStateGetString|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Loop",
+    "function": "execute",
+    "hidden": [],
+    "optional": [],
+    "required": [
+      "default_value",
+      "key",
+      "loop_ctx"
+    ],
+    "return_names": [],
+    "return_types": [
+      "STRING"
+    ]
+  },
+  "MieLoopStateSetBool|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Loop",
+    "function": "execute",
+    "hidden": [],
+    "optional": [],
+    "required": [
+      "key",
+      "loop_ctx",
+      "value"
+    ],
+    "return_names": [
+      "loop_ctx"
+    ],
+    "return_types": [
+      "MIE_LOOP_CTX"
+    ]
+  },
+  "MieLoopStateSetFloat|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Loop",
+    "function": "execute",
+    "hidden": [],
+    "optional": [],
+    "required": [
+      "key",
+      "loop_ctx",
+      "value"
+    ],
+    "return_names": [
+      "loop_ctx"
+    ],
+    "return_types": [
+      "MIE_LOOP_CTX"
+    ]
+  },
+  "MieLoopStateSetImage|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Loop",
+    "function": "execute",
+    "hidden": [],
+    "optional": [],
+    "required": [
+      "image",
+      "key",
+      "loop_ctx"
+    ],
+    "return_names": [
+      "loop_ctx"
+    ],
+    "return_types": [
+      "MIE_LOOP_CTX"
+    ]
+  },
+  "MieLoopStateSetInt|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Loop",
+    "function": "execute",
+    "hidden": [],
+    "optional": [],
+    "required": [
+      "key",
+      "loop_ctx",
+      "value"
+    ],
+    "return_names": [
+      "loop_ctx"
+    ],
+    "return_types": [
+      "MIE_LOOP_CTX"
+    ]
+  },
+  "MieLoopStateSetString|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Loop",
+    "function": "execute",
+    "hidden": [],
+    "optional": [],
+    "required": [
+      "key",
+      "loop_ctx",
+      "value"
+    ],
+    "return_names": [
+      "loop_ctx"
+    ],
+    "return_types": [
+      "MIE_LOOP_CTX"
+    ]
+  },
+  "MieLoopStateSet|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Loop",
+    "function": "execute",
+    "hidden": [],
+    "optional": [
+      "base_state_json",
+      "key1",
+      "key2",
+      "key3",
+      "value1_json",
+      "value2_json",
+      "value3_json"
+    ],
+    "required": [],
+    "return_names": [
+      "state_json"
+    ],
+    "return_types": [
+      "STRING"
+    ]
+  },
+  "ModelDownloader|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Downloader",
+    "function": "download",
+    "hidden": [],
+    "optional": [
+      "hf_token",
+      "rename_to",
+      "skip_ssl_verify",
+      "timeout",
+      "trigger_signal"
+    ],
+    "required": [
+      "override",
+      "save_path",
+      "url",
+      "use_hf_mirror"
+    ],
+    "return_names": [
+      "log"
+    ],
+    "return_types": [
+      "STRING"
+    ]
+  },
+  "PromptGenerator|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Prompt Generator",
+    "function": "generate_prompt",
+    "hidden": [],
+    "optional": [],
+    "required": [
+      "input_text",
+      "llm_service_connector",
+      "mode",
+      "seed"
+    ],
+    "return_names": [
+      "prompt"
+    ],
+    "return_types": [
+      "STRING"
+    ]
+  },
+  "QwenTTSNode|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 TTS Service",
+    "function": "execute",
+    "hidden": [],
+    "optional": [
+      "api_key",
+      "tts_connector"
+    ],
+    "required": [
+      "language_type",
+      "model",
+      "text",
+      "voice"
+    ],
+    "return_names": [
+      "audio"
+    ],
+    "return_types": [
+      "AUDIO"
+    ]
+  },
+  "RemoveUserKontextPreset|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Prompt Generator",
+    "function": "remove_preset",
+    "hidden": [],
+    "optional": [],
+    "required": [
+      "preset_name"
+    ],
+    "return_names": [
+      "success",
+      "log"
+    ],
+    "return_types": [
+      "BOOLEAN",
+      "STRING"
+    ]
+  },
+  "RichTextNode|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Extra",
+    "function": "noop",
+    "hidden": [],
+    "optional": [],
+    "required": [],
+    "return_names": [],
+    "return_types": []
+  },
+  "SaveAnythingAsFile|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Common",
+    "function": "save_data",
+    "hidden": [],
+    "optional": [],
+    "required": [
+      "data",
+      "directory",
+      "file_name",
+      "save_format"
+    ],
+    "return_names": [],
+    "return_types": []
+  },
+  "SetBailianLLMServiceConnector|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 LLM Service Config",
+    "function": "execute",
+    "hidden": [],
+    "optional": [
+      "config_file",
+      "config_key",
+      "custom_model",
+      "prefer_local_config"
+    ],
+    "required": [
+      "api_token",
+      "model_select"
+    ],
+    "return_names": [
+      "llm_service_connector"
+    ],
+    "return_types": [
+      "LLMServiceConnector"
+    ]
+  },
+  "SetBailianTTSConnector|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 TTS Service Config",
+    "function": "execute",
+    "hidden": [],
+    "optional": [
+      "config_file",
+      "config_key",
+      "prefer_local_config"
+    ],
+    "required": [
+      "api_token"
+    ],
+    "return_names": [
+      "tts_connector"
+    ],
+    "return_types": [
+      "TTSConnector"
+    ]
+  },
+  "SetDeepSeekLLMServiceConnector|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 LLM Service Config",
+    "function": "execute",
+    "hidden": [],
+    "optional": [
+      "config_file",
+      "config_key",
+      "custom_model",
+      "prefer_local_config"
+    ],
+    "required": [
+      "api_token",
+      "model_select"
+    ],
+    "return_names": [
+      "llm_service_connector"
+    ],
+    "return_types": [
+      "LLMServiceConnector"
+    ]
+  },
+  "SetGeminiLLMServiceConnector|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 LLM Service Config",
+    "function": "execute",
+    "hidden": [],
+    "optional": [
+      "config_file",
+      "config_key",
+      "custom_model",
+      "prefer_local_config"
+    ],
+    "required": [
+      "api_token",
+      "model_select"
+    ],
+    "return_names": [
+      "llm_service_connector"
+    ],
+    "return_types": [
+      "LLMServiceConnector"
+    ]
+  },
+  "SetGeneralLLMServiceConnector|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 LLM Service Config",
+    "function": "execute",
+    "hidden": [],
+    "optional": [
+      "config_file",
+      "config_key",
+      "prefer_local_config"
+    ],
+    "required": [
+      "api_token",
+      "api_url",
+      "model_select"
+    ],
+    "return_names": [
+      "llm_service_connector"
+    ],
+    "return_types": [
+      "LLMServiceConnector"
+    ]
+  },
+  "SetGithubModelsLLMServiceConnector|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 LLM Service Config",
+    "function": "execute",
+    "hidden": [],
+    "optional": [
+      "config_file",
+      "config_key",
+      "custom_model",
+      "prefer_local_config"
+    ],
+    "required": [
+      "api_token",
+      "model_select"
+    ],
+    "return_names": [
+      "llm_service_connector"
+    ],
+    "return_types": [
+      "LLMServiceConnector"
+    ]
+  },
+  "SetKimiLLMServiceConnector|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 LLM Service Config",
+    "function": "execute",
+    "hidden": [],
+    "optional": [
+      "config_file",
+      "config_key",
+      "custom_model",
+      "prefer_local_config"
+    ],
+    "required": [
+      "api_token",
+      "model_select"
+    ],
+    "return_names": [
+      "llm_service_connector"
+    ],
+    "return_types": [
+      "LLMServiceConnector"
+    ]
+  },
+  "SetMiMoLLMServiceConnector|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 LLM Service Config",
+    "function": "execute",
+    "hidden": [],
+    "optional": [
+      "config_file",
+      "config_key",
+      "custom_model",
+      "prefer_local_config"
+    ],
+    "required": [
+      "api_token",
+      "model_select"
+    ],
+    "return_names": [
+      "llm_service_connector"
+    ],
+    "return_types": [
+      "LLMServiceConnector"
+    ]
+  },
+  "SetMiMoTokenPlanLLMServiceConnector|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 LLM Service Config",
+    "function": "execute",
+    "hidden": [],
+    "optional": [
+      "config_file",
+      "config_key",
+      "custom_model",
+      "prefer_local_config"
+    ],
+    "required": [
+      "api_token",
+      "model_select"
+    ],
+    "return_names": [
+      "llm_service_connector"
+    ],
+    "return_types": [
+      "LLMServiceConnector"
+    ]
+  },
+  "SetMiniMaxLLMServiceConnector|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 LLM Service Config",
+    "function": "execute",
+    "hidden": [],
+    "optional": [
+      "config_file",
+      "config_key",
+      "custom_model",
+      "prefer_local_config"
+    ],
+    "required": [
+      "api_token",
+      "model_select"
+    ],
+    "return_names": [
+      "llm_service_connector"
+    ],
+    "return_types": [
+      "LLMServiceConnector"
+    ]
+  },
+  "SetMiniMaxTokenPlanLLMServiceConnector|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 LLM Service Config",
+    "function": "execute",
+    "hidden": [],
+    "optional": [
+      "config_file",
+      "config_key",
+      "custom_model",
+      "prefer_local_config"
+    ],
+    "required": [
+      "api_token",
+      "model_select"
+    ],
+    "return_names": [
+      "llm_service_connector"
+    ],
+    "return_types": [
+      "LLMServiceConnector"
+    ]
+  },
+  "SetSiliconFlowLLMServiceConnector|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 LLM Service Config",
+    "function": "execute",
+    "hidden": [],
+    "optional": [
+      "config_file",
+      "config_key",
+      "custom_model",
+      "prefer_local_config"
+    ],
+    "required": [
+      "api_token",
+      "model_select"
+    ],
+    "return_names": [
+      "llm_service_connector"
+    ],
+    "return_types": [
+      "LLMServiceConnector"
+    ]
+  },
+  "SetZhiPuCodeLLMServiceConnector|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 LLM Service Config",
+    "function": "execute",
+    "hidden": [],
+    "optional": [
+      "config_file",
+      "config_key",
+      "custom_model",
+      "prefer_local_config"
+    ],
+    "required": [
+      "api_token",
+      "model_select"
+    ],
+    "return_names": [
+      "llm_service_connector"
+    ],
+    "return_types": [
+      "LLMServiceConnector"
+    ]
+  },
+  "SetZhiPuLLMServiceConnector|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 LLM Service Config",
+    "function": "execute",
+    "hidden": [],
+    "optional": [
+      "config_file",
+      "config_key",
+      "custom_model",
+      "prefer_local_config"
+    ],
+    "required": [
+      "api_token",
+      "model_select"
+    ],
+    "return_names": [
+      "llm_service_connector"
+    ],
+    "return_types": [
+      "LLMServiceConnector"
+    ]
+  },
+  "ShowAndSaveAnything|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Common",
+    "function": "execute",
+    "hidden": [
+      "extra_pnginfo",
+      "unique_id"
+    ],
+    "optional": [
+      "log_file_name"
+    ],
+    "required": [
+      "anything",
+      "save_to_log"
+    ],
+    "return_names": [],
+    "return_types": [
+      "STRING"
+    ]
+  },
+  "ShowAnything|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Common",
+    "function": "execute",
+    "hidden": [],
+    "optional": [],
+    "required": [
+      "anything"
+    ],
+    "return_names": [],
+    "return_types": [
+      "STRING"
+    ]
+  },
+  "SimpleTextNode|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Extra",
+    "function": "noop",
+    "hidden": [],
+    "optional": [],
+    "required": [],
+    "return_names": [],
+    "return_types": []
+  },
+  "SingleImageToVideo|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Image Operator",
+    "function": "create_video_from_images",
+    "hidden": [],
+    "optional": [],
+    "required": [
+      "duration",
+      "filename_prefix",
+      "fps",
+      "images",
+      "save_output",
+      "scale",
+      "translation_x",
+      "translation_y"
+    ],
+    "return_names": [
+      "video_path"
+    ],
+    "return_types": [
+      "STRING"
+    ]
+  },
+  "StringConcat|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 String Operator",
+    "function": "execute",
+    "hidden": [],
+    "optional": [
+      "delimiter"
+    ],
+    "required": [
+      "str1",
+      "str2"
+    ],
+    "return_names": [
+      "result"
+    ],
+    "return_types": [
+      "STRING"
+    ]
+  },
+  "SummaryTextFiles|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Caption Tools",
+    "function": "summary_txt_files",
+    "hidden": [],
+    "optional": [
+      "file_extension",
+      "summary_file_name",
+      "trigger_signal"
+    ],
+    "required": [
+      "add_separator",
+      "directory",
+      "save_to_file"
+    ],
+    "return_names": [
+      "log"
+    ],
+    "return_types": [
+      "STRING"
+    ]
+  },
+  "Translator|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Translator",
+    "function": "translate_text",
+    "hidden": [],
+    "optional": [],
+    "required": [
+      "llm_service_connector",
+      "target_language",
+      "text"
+    ],
+    "return_names": [
+      "translated_text"
+    ],
+    "return_types": [
+      "STRING"
+    ]
+  },
+  "WavConcat|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Audio Operator",
+    "function": "execute",
+    "hidden": [],
+    "optional": [
+      "audio2",
+      "end_spacer",
+      "middle_spacer",
+      "mute_audio1",
+      "mute_audio2",
+      "start_spacer"
+    ],
+    "required": [
+      "audio1"
+    ],
+    "return_names": [
+      "concatenated_audio"
+    ],
+    "return_types": [
+      "AUDIO"
+    ]
+  },
+  "ZImagePromptGenerator|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Prompt Generator",
+    "function": "generate_zimage_prompt",
+    "hidden": [],
+    "optional": [],
+    "required": [
+      "llm_service_connector",
+      "prompt",
+      "seed"
+    ],
+    "return_names": [
+      "zimage_prompt"
+    ],
+    "return_types": [
+      "STRING"
+    ]
+  }
+}

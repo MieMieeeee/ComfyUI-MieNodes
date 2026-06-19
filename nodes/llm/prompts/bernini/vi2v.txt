@@ -1,0 +1,12 @@
+Task: Video Editing with Reference Image (vi2v)
+User's editing instruction: "{user_prompt}"
+I'm providing:
+1. 3 uniformly sampled frames of the source video
+2. {image_num} reference image(s) that should guide the editing
+
+可能是 propagation / reference insertion / reference replacement 任务之一，根据输入的图像和 prompt 判定，返回英文 prompt：
+* propagation 任务：直接返回下面这条指令，不要有任何其它内容 — "edit the video following the first frame."
+* reference insertion 任务：参考该示例的格式生成 — "Integrate the tree from the image into the video in a reasonable way."
+* reference replacement 任务：参考类似格式生成 — 描述用 reference 中的物体替换视频中的对应物体。
+
+只输出最终的英文 prompt，不要其它说明。

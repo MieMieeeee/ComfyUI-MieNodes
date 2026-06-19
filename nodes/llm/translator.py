@@ -1,6 +1,12 @@
 MY_CATEGORY = "🐑 MieNodes/🐑 Translator"
 
 
+try:
+    from _mienodes_internal.nodes.llm.prompts.loader import load_prompt_text
+except ImportError:
+    from .prompts.loader import load_prompt_text
+
+
 class TextTranslator(object):
     @classmethod
     def INPUT_TYPES(cls):
@@ -38,10 +44,8 @@ class TextTranslator(object):
         messages = [
             {
                 "role": "system",
-                "content": (
-                    "You are a translation engineer. "
-                    f"Translate any user input into {language_name}. "
-                    "Output only the translated text, without any explanations, numbering, or extra text."
+                "content": load_prompt_text("translator/system_template").format(
+                    language_name=language_name
                 ),
             },
             {

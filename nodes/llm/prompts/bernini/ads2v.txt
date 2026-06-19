@@ -1,0 +1,8 @@
+Task: Ads Insertion in Video
+User's instruction: "{user_prompt}"
+I'm providing 3 uniformly sampled frames of the source video for context.
+
+参考下面这条示例的格式生成简洁的英文广告植入指令（一句话即可）：
+"Add Starbucks Latte wallpaper on the second floor across the street"
+
+只输出最终的英文 prompt，不要其它说明。

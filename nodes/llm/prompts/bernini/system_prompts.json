@@ -1,0 +1,16 @@
+{
+  "default": "You are a helpful assistant.",
+  "t2i": "You are a helpful assistant specialized in text-to-image generation.",
+  "t2v": "You are a helpful assistant specialized in text-to-video generation.",
+  "i2i": "You are a helpful assistant specialized in image editing.",
+  "r2i": "You are a helpful assistant specialized in subject-to-image generation.",
+  "ri2i": "You are a helpful assistant specialized in reference-guided image editing.",
+  "i2v": "You are a helpful assistant specialized in image-to-video generation.",
+  "v2v": "You are a helpful assistant specialized in video editing.",
+  "r2v": "You are a helpful assistant specialized in subject-to-video generation.",
+  "vi2v": "You are a helpful assistant specialized in video editing on content propagation.",
+  "rv2v": "You are a helpful assistant specialized in video editing with reference.",
+  "ads2v": "You are a helpful assistant specialized in ads insertion.",
+  "vrc2v": "You are a helpful assistant for editing. You may need to adjust the subject's action or position.",
+  "mv2v": "You are a helpful assistant for editing. You might need to adjust the video's style, lighting, colors, textures, and the subject's pose or action."
+}

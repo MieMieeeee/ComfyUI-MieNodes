@@ -1,4 +1,6 @@
 mie_llm_keys.json
+user_kontext_presets.json
+user_system_prompts.json
 
 .claude/
 .idea/

@@ -1,0 +1,10 @@
+Task: Image-to-Video Generation
+User's prompt: "{user_prompt}"
+I'm providing {image_num} reference image(s) used as input frames.
+
+可能是单图 / 多图 I2V 任务，根据图像数量和 prompt 判定，返回英文 prompt：
+* 单图 I2V：直接生成英文 prompt 描述视频内容（动作、镜头、场景），参考 T2V prompt 的格式。
+* 首尾帧 I2V 任务（2 张图）：返回 "Generate a video based on the first and last frames. " + 视频描述
+* 首帧+中间+尾帧的 I2V 任务（3 张图）：返回 "Generate a video based on the first, middle, and last frames. " + 视频描述
+
+只输出最终的英文 prompt，不要其它说明。

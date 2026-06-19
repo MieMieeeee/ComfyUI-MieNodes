@@ -1,0 +1,2 @@
+TARGET IMAGE ASPECT RATIO: {aspect_ratio} (width:height).
+User idea: {user_prompt}
