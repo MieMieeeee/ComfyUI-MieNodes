@@ -23,6 +23,7 @@ to 3 so a large batch doesn't blow up the request size:
 import hashlib
 import json
 import os
+import time
 
 try:
     from _mienodes_internal.nodes.llm.prompts.loader import (
@@ -36,11 +37,13 @@ try:
     from _mienodes_internal.core.utils import (
         build_multimodal_user_content,
         image_tensor_batch_to_data_urls,
+        mie_log,
     )
 except ImportError:
     from ...core.utils import (
         build_multimodal_user_content,
         image_tensor_batch_to_data_urls,
+        mie_log,
     )
 
 MY_CATEGORY = "🐑 MieNodes/🐑 Prompt Generator"
@@ -152,6 +155,7 @@ class CustomSystemPromptGenerator(object):
                 "reference_video_frames": ("INT", {"default": 3, "min": 0, "max": 16, "tooltip": "Frames sampled from reference_video. Default 3 samples 3; 0 = forward all (legacy)."}),
                 "image_detail": (["auto", "low", "high"], {"default": "auto"}),
                 "temperature": ("FLOAT", {"default": 0.8, "min": 0.0, "max": 2.0, "step": 0.05}),
+                "max_tokens": ("INT", {"default": 8192, "min": 64, "max": 32768, "tooltip": "Max output tokens. Raise if enhanced prompts get cut off."}),
             },
         }
 
@@ -173,6 +177,7 @@ class CustomSystemPromptGenerator(object):
         reference_video_frames=3,
         image_detail="auto",
         temperature=0.8,
+        max_tokens=8192,
     ):
         all_prompts = get_all_custom_system_prompts()
         sys_text = all_prompts.get(system_prompt_name)
@@ -192,8 +197,42 @@ class CustomSystemPromptGenerator(object):
             {"role": "system", "content": sys_text},
             {"role": "user", "content": user_content},
         ]
-        out = llm_service_connector.invoke(messages, seed=seed, temperature=temperature, top_p=0.9)
-        return out.strip(),
+        model_name = getattr(llm_service_connector, "model", "?")
+        media_bytes = sum(len(u) for u in media_urls)
+        mie_log(
+            f"CustomSystemPrompt generate: model={model_name} prompt={system_prompt_name!r} "
+            f"media={len(media_urls)} img_bytes={media_bytes} "
+            f"system_chars={len(sys_text)} user_chars={len(user_msg)}"
+        )
+        t0 = time.perf_counter()
+        try:
+            out = llm_service_connector.invoke(messages, seed=seed, temperature=temperature, top_p=0.9, max_tokens=max_tokens)
+        except Exception as exc:  # noqa: BLE001
+            elapsed = time.perf_counter() - t0
+            mie_log(
+                f"CustomSystemPrompt generate: invoke FAILED after {elapsed:.2f}s: "
+                f"{type(exc).__name__}: {exc}"
+            )
+            raise
+        elapsed = time.perf_counter() - t0
+        if out is None:
+            mie_log(f"CustomSystemPrompt generate: model={model_name} returned None after {elapsed:.2f}s")
+            return ("",)
+        if not isinstance(out, str):
+            mie_log(
+                f"CustomSystemPrompt generate: model={model_name} returned non-str "
+                f"{type(out).__name__} after {elapsed:.2f}s: {str(out)[:200]!r}"
+            )
+            out = str(out)
+        out = out.strip()
+        if not out:
+            mie_log(f"CustomSystemPrompt generate: model={model_name} returned empty after {elapsed:.2f}s")
+            return ("",)
+        mie_log(
+            f"CustomSystemPrompt generate: model={model_name} ok in {elapsed:.2f}s "
+            f"response_chars={len(out)}"
+        )
+        return (out,)
 
     def is_changed(
         self,
@@ -208,6 +247,7 @@ class CustomSystemPromptGenerator(object):
         reference_video_frames=3,
         image_detail="auto",
         temperature=0.8,
+        max_tokens=8192,
     ):
         hasher = hashlib.md5()
         hasher.update(input_text.encode("utf-8"))
@@ -218,6 +258,7 @@ class CustomSystemPromptGenerator(object):
         hasher.update(str(reference_video_frames).encode("utf-8"))
         hasher.update(str(image_detail).encode("utf-8"))
         hasher.update(str(temperature).encode("utf-8"))
+        hasher.update(str(max_tokens).encode("utf-8"))
         for tensor in (source, reference_images, reference_video):
             urls = image_tensor_batch_to_data_urls(tensor)
             hasher.update("".join(u[:64] for u in urls).encode("utf-8"))

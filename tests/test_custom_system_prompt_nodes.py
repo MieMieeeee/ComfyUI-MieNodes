@@ -18,9 +18,11 @@ from test_plugin_imports import load_plugin_module, PACKAGE_NAME  # noqa: E402
 class _FakeConnector:
     def __init__(self):
         self.captured = None
+        self.captured_kwargs = None
 
     def invoke(self, messages, **kwargs):
         self.captured = messages
+        self.captured_kwargs = kwargs
         return "ok"
 
     def get_state(self):
@@ -210,3 +212,23 @@ def test_generator_source_uses_video_frames(csm):
     )
     img_parts = [p for p in conn.captured[1]["content"] if p.get("type") == "image_url"]
     assert len(img_parts) == 2  # source sampled by video_frames, not reference_video_frames
+
+
+def test_generator_passes_max_tokens(csm):
+    conn = _FakeConnector()
+    csm.CustomSystemPromptGenerator().generate(
+        llm_service_connector=conn, input_text="x", system_prompt_name="hunyuan/t2v", seed=1,
+        max_tokens=2048,
+    )
+    assert conn.captured_kwargs.get("max_tokens") == 2048
+
+
+def test_generator_returns_empty_when_invoke_none(csm):
+    class _NoneConn(_FakeConnector):
+        def invoke(self, messages, **kwargs):
+            return None
+
+    out = csm.CustomSystemPromptGenerator().generate(
+        llm_service_connector=_NoneConn(), input_text="x", system_prompt_name="hunyuan/t2v", seed=1
+    )
+    assert out == ("",)  # graceful empty instead of crashing on None
