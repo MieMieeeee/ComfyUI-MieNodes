@@ -1,13 +1,12 @@
 """Ideogram 4 prompt templates for MieNodes.
 
-Profiles (``prompt_profile`` on ``Ideogram4PromptGenerator``):
+Uses official ``ideogram4_magic_prompt_v1.txt`` as the single system prompt base.
+``composition_mode`` on ``Ideogram4PromptGenerator`` selects bbox strategy:
 
-- ``official_v1`` — official ``ideogram4_magic_prompt_v1.txt`` system prompt (strong LLMs).
-- ``full_palette`` — v1 content strategy + full-schema ``style_description`` / ``color_palette``.
-- ``compact`` — short prompt for light LLMs; still KJ/Formatter compatible.
+- ``simple`` — scene/collage/interior: positional desc, omit bbox (official slim path).
+- ``complex`` — typography-dense poster: bbox on every element (Flow-style).
 
-All profiles emit JSON that ``Ideogram4PromptFormatter`` can normalize for sampling and
-``Ideogram4PromptBuilderKJ`` ``import_json``.
+LLM output is validated and normalized by ``format_ideogram4_caption`` inside the generator.
 """
 
 from __future__ import annotations
@@ -30,36 +29,42 @@ _MAGIC_V1_FILE = _PROMPT_DIR / "prompts" / "ideogram4" / "magic_prompt_v1.txt"
 
 USER_TEMPLATE_MAGIC_V1 = load_prompt_text("ideogram4/user_template_magic_v1")
 
-PROMPT_PROFILES: tuple[str, ...] = ("official_v1", "full_palette", "compact")
+COMPOSITION_MODES: tuple[str, ...] = ("simple", "complex")
 
-PROMPT_PROFILE_TOOLTIPS: dict[str, str] = {
-    "official_v1": (
-        "Official Ideogram magic prompt v1 (~7k tokens). Best with Opus-class LLMs. "
-        "Emits aspect_ratio + HLD + compositional_deconstruction; Formatter strips aspect_ratio."
+COMPOSITION_MODE_TOOLTIPS: dict[str, str] = {
+    "simple": (
+        "Scene/collage/interior/magazine hero — slim JSON, positional desc, omit bbox "
+        "(matches most official Ideogram examples)."
     ),
-    "full_palette": (
-        "Official v1 content rules + structured style_description and color_palette fields. "
-        "For medium/strong LLMs when you need palette steering."
-    ),
-    "compact": (
-        "Short schema + core rules (~2k tokens). For light/cheap LLMs; optional style_description."
+    "complex": (
+        "Typography-dense poster — bbox on every element for precise multi-zone layout "
+        "(Flow / T-Rex style)."
     ),
 }
 
-COMFYUI_V1_USER_SUFFIX = (
+COMFYUI_PIPELINE_SUFFIX = (
     "\n\nCOMFYUI PIPELINE: Final pixel width/height come from an external Resolution Selector. "
     "Still emit top-level aspect_ratio exactly as required above — it drives bbox planning. "
-    "A downstream Formatter may remove aspect_ratio before Ideogram sampling."
+    "The generator strips aspect_ratio before Ideogram sampling."
 )
 
+COMPOSITION_SIMPLE_SUFFIX = load_prompt_text("ideogram4/composition_simple")
+COMPOSITION_COMPLEX_SUFFIX = load_prompt_text("ideogram4/composition_complex")
+
+_COMPOSITION_SUFFIX = {
+    "simple": COMPOSITION_SIMPLE_SUFFIX,
+    "complex": COMPOSITION_COMPLEX_SUFFIX,
+}
+
+# Deprecated aliases kept for local test scripts / backward compatibility.
+PROMPT_PROFILES: tuple[str, ...] = ("official_v1", "full_palette", "compact")
+FULL_PALETTE_APPENDIX = load_prompt_text("ideogram4/full_palette_appendix")
+COMPACT_SYSTEM_PROMPT = load_prompt_text("ideogram4/compact_system")
+COMFYUI_V1_USER_SUFFIX = COMFYUI_PIPELINE_SUFFIX
 COMFYUI_FULL_PALETTE_USER_SUFFIX = (
     "\n\nCOMFYUI PIPELINE: Final pixel width/height come from an external Resolution Selector. "
     "Use the aspect-ratio hint for bbox planning only — do NOT emit aspect_ratio in JSON."
 )
-
-FULL_PALETTE_APPENDIX = load_prompt_text("ideogram4/full_palette_appendix")
-
-COMPACT_SYSTEM_PROMPT = load_prompt_text("ideogram4/compact_system")
 
 
 def resolve_aspect_ratio(value: str, *, fallback: str = "1:1") -> str:
@@ -97,14 +102,82 @@ def load_magic_v1_sections() -> dict[str, str]:
     return sections
 
 
-def _magic_v1_user_content(user_prompt: str, aspect_ratio: str, *, suffix: str = "") -> str:
+def _magic_v1_user_content(
+    user_prompt: str,
+    aspect_ratio: str,
+    *,
+    composition_mode: str = "simple",
+) -> str:
     sections = load_magic_v1_sections()
     template = sections.get("user") or USER_TEMPLATE_MAGIC_V1
     user = (
         template.replace("{{aspect_ratio}}", aspect_ratio)
         .replace("{{original_prompt}}", user_prompt)
     )
-    return user + suffix
+    mode = (composition_mode or "simple").strip().lower()
+    if mode not in COMPOSITION_MODES:
+        raise ValueError(
+            f"Unknown composition_mode {composition_mode!r}; "
+            f"expected one of {', '.join(COMPOSITION_MODES)}"
+        )
+    return user + COMFYUI_PIPELINE_SUFFIX + _COMPOSITION_SUFFIX[mode]
+
+
+def build_official_v1_messages(
+    user_prompt: str,
+    aspect_ratio: str,
+    *,
+    composition_mode: str = "simple",
+) -> list[dict]:
+    """Official Ideogram magic prompt v1 + ComfyUI pipeline + composition mode."""
+    sections = load_magic_v1_sections()
+    return [
+        {"role": "system", "content": sections["system"]},
+        {
+            "role": "user",
+            "content": _magic_v1_user_content(
+                user_prompt, aspect_ratio, composition_mode=composition_mode
+            ),
+        },
+    ]
+
+
+def build_ideogram4_messages(
+    user_prompt: str,
+    aspect_ratio: str,
+    *,
+    composition_mode: str = "simple",
+    prompt_profile: str | None = None,
+) -> list[dict]:
+    """Build LLM messages for Ideogram 4 caption generation.
+
+    ``prompt_profile`` is deprecated; only ``official_v1`` is supported and maps to
+    ``composition_mode`` when provided alone.
+    """
+    if prompt_profile is not None:
+        profile = prompt_profile.strip().lower()
+        if profile not in ("official_v1", ""):
+            raise ValueError(
+                f"prompt_profile {prompt_profile!r} is deprecated; "
+                f"use composition_mode={composition_mode!r} with official v1 only."
+            )
+    return build_official_v1_messages(
+        user_prompt, aspect_ratio, composition_mode=composition_mode
+    )
+
+
+def build_magic_v1_messages(user_prompt: str, aspect_ratio: str) -> list[dict]:
+    """Legacy alias without ComfyUI suffix (tests / direct API use)."""
+    sections = load_magic_v1_sections()
+    template = sections.get("user") or USER_TEMPLATE_MAGIC_V1
+    user = (
+        template.replace("{{aspect_ratio}}", aspect_ratio)
+        .replace("{{original_prompt}}", user_prompt)
+    )
+    return [
+        {"role": "system", "content": sections["system"]},
+        {"role": "user", "content": user},
+    ]
 
 
 def _full_palette_user_content(user_prompt: str, aspect_ratio: str) -> str:
@@ -129,22 +202,8 @@ def _compact_user_content(user_prompt: str, aspect_ratio: str) -> str:
     return f"{ar_note}\n\nUser idea: {user_prompt}"
 
 
-def build_official_v1_messages(user_prompt: str, aspect_ratio: str) -> list[dict]:
-    """Official Ideogram magic prompt v1 + ComfyUI pipeline user note."""
-    sections = load_magic_v1_sections()
-    return [
-        {"role": "system", "content": sections["system"]},
-        {
-            "role": "user",
-            "content": _magic_v1_user_content(
-                user_prompt, aspect_ratio, suffix=COMFYUI_V1_USER_SUFFIX
-            ),
-        },
-    ]
-
-
 def build_full_palette_messages(user_prompt: str, aspect_ratio: str) -> list[dict]:
-    """Official v1 content strategy + structured style_description / color_palette."""
+    """Deprecated — kept for local comparison scripts only."""
     sections = load_magic_v1_sections()
     system = sections["system"] + "\n\n" + FULL_PALETTE_APPENDIX.strip()
     return [
@@ -154,43 +213,13 @@ def build_full_palette_messages(user_prompt: str, aspect_ratio: str) -> list[dic
 
 
 def build_compact_messages(user_prompt: str, aspect_ratio: str) -> list[dict]:
-    """Short prompt for light LLMs; Formatter/KJ compatible."""
+    """Deprecated — kept for local comparison scripts only."""
     return [
         {"role": "system", "content": COMPACT_SYSTEM_PROMPT},
         {"role": "user", "content": _compact_user_content(user_prompt, aspect_ratio)},
     ]
 
 
-def build_ideogram4_messages(
-    user_prompt: str,
-    aspect_ratio: str,
-    *,
-    prompt_profile: str = "official_v1",
-) -> list[dict]:
-    """Build LLM messages for the selected Ideogram 4 caption profile."""
-    profile = (prompt_profile or "official_v1").strip().lower()
-    if profile not in PROMPT_PROFILES:
-        raise ValueError(
-            f"Unknown prompt_profile {prompt_profile!r}; "
-            f"expected one of {', '.join(PROMPT_PROFILES)}"
-        )
-    builders = {
-        "official_v1": build_official_v1_messages,
-        "full_palette": build_full_palette_messages,
-        "compact": build_compact_messages,
-    }
-    return builders[profile](user_prompt, aspect_ratio)
-
-
-def build_magic_v1_messages(user_prompt: str, aspect_ratio: str) -> list[dict]:
-    """Legacy alias without ComfyUI suffix (tests / direct API use)."""
-    sections = load_magic_v1_sections()
-    return [
-        {"role": "system", "content": sections["system"]},
-        {"role": "user", "content": _magic_v1_user_content(user_prompt, aspect_ratio)},
-    ]
-
-
 def build_full_schema_messages(user_prompt: str, aspect_ratio: str) -> list[dict]:
-    """Backward-compatible alias → ``full_palette`` profile."""
+    """Backward-compatible alias → deprecated ``full_palette``."""
     return build_full_palette_messages(user_prompt, aspect_ratio)

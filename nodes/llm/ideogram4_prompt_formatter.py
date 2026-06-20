@@ -1,8 +1,7 @@
-"""Format and validate Ideogram 4 JSON captions from LLM or external sources."""
+"""Parse, validate, and normalize Ideogram 4 JSON captions (used by Ideogram4PromptGenerator)."""
 
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 
@@ -10,9 +9,6 @@ try:
     from _mienodes_internal.nodes.llm.ideogram4_caption_verifier import CaptionVerifier
 except ImportError:
     from .ideogram4_caption_verifier import CaptionVerifier
-
-
-MY_CATEGORY = "\ud83d\udc11 MieNodes/\ud83d\udc11 Prompt Generator"
 
 # ComfyUI full-schema workflow: drop stray aspect_ratio (size is external), keep bboxes.
 _STRIP_ASPECT_RATIO = True
@@ -284,7 +280,7 @@ def format_ideogram4_caption(raw_text: str) -> tuple[str, str]:
     caption, parse_fixes = parse_caption_dict(raw_text)
     if caption is None:
         raise ValueError(
-            "Ideogram4PromptFormatter: cannot parse JSON from LLM output "
+            "Ideogram 4 caption: cannot parse JSON from LLM output "
             "(tried fence removal, comma repair, and object extraction)"
         )
 
@@ -298,7 +294,7 @@ def format_ideogram4_caption(raw_text: str) -> tuple[str, str]:
     if fatal:
         detail = "\n".join(f"  - {w}" for w in fatal)
         raise ValueError(
-            "Ideogram4PromptFormatter: caption failed schema validation:\n" + detail
+            "Ideogram 4 caption: failed schema validation:\n" + detail
         )
 
     log_lines = []
@@ -313,28 +309,3 @@ def format_ideogram4_caption(raw_text: str) -> tuple[str, str]:
 
     return raw_compact, "\n".join(log_lines)
 
-
-class Ideogram4PromptFormatter:
-    """Validate and normalize Ideogram 4 full-schema JSON captions."""
-
-    @classmethod
-    def INPUT_TYPES(cls):
-        return {
-            "required": {
-                "raw_prompt": ("STRING", {"default": "", "multiline": True, "forceInput": True}),
-            },
-        }
-
-    RETURN_TYPES = ("STRING", "STRING")
-    RETURN_NAMES = ("ideogram4_prompt", "format_log")
-    FUNCTION = "format"
-    CATEGORY = MY_CATEGORY
-
-    def format(self, raw_prompt):
-        prompt, log = format_ideogram4_caption(raw_prompt)
-        return (prompt, log)
-
-    def is_changed(self, raw_prompt):
-        h = hashlib.md5()
-        h.update((raw_prompt or "").encode("utf-8"))
-        return h.hexdigest()

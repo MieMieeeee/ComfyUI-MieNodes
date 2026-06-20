@@ -1,0 +1,6 @@
+
+COMPOSITION MODE (simple): Default for scenes, interiors, collages, portraits, landscapes, and magazine covers with a hero subject.
+- Omit bbox on elements unless the user explicitly requests precise pixel placement.
+- Use positional language in desc instead (e.g. top center, lower left quadrant, upper-right corner).
+- For horizontal magazine/poster titles: describe wide horizontal placement in desc; do NOT use tall narrow vertical text-column bboxes.
+- For cutout/sticker requests in ComfyUI: use a solid chroma-blue (#0000FF) or chroma-green (#00FF00) background shell — do NOT use transparent background.

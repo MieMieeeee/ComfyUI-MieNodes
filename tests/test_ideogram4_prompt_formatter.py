@@ -1,4 +1,4 @@
-"""Tests for Ideogram4PromptFormatter."""
+"""Tests for Ideogram 4 caption formatting helpers."""
 
 import json
 import sys
@@ -73,15 +73,9 @@ def test_normalize_hex_and_reorder(fmt_module):
     assert "normalized" in log or "reordered" in log
 
 
-def test_formatter_node_registered():
+def test_formatter_node_not_registered():
     plugin = load_plugin_module()
-    assert "Ideogram4PromptFormatter|Mie" in plugin.NODE_CLASS_MAPPINGS
-
-
-def test_formatter_input_types(fmt_module):
-    inputs = fmt_module.Ideogram4PromptFormatter.INPUT_TYPES()
-    assert "raw_prompt" in inputs["required"]
-    assert "optional" not in inputs or not inputs["optional"]
+    assert "Ideogram4PromptFormatter|Mie" not in plugin.NODE_CLASS_MAPPINGS
 
 
 def test_removes_stray_aspect_ratio_keeps_bbox(fmt_module):

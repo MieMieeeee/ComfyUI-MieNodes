@@ -1,9 +1,8 @@
 """Ideogram 4 structured-caption prompt generator.
 
-Expands a plain user idea into Ideogram 4 JSON via LLM. Output passes through
-``Ideogram4PromptFormatter`` for ComfyUI sampling and ``Ideogram4PromptBuilderKJ`` import.
-Aspect ratio is supplied externally (``AspectRatioFromSize``); ``aspect_ratio`` in JSON is
-stripped by Formatter when present.
+Expands a plain user idea into validated, compact Ideogram 4 JSON via LLM.
+Formatting and schema validation are built in — invalid LLM output raises ``ValueError``,
+consistent with other MieNodes prompt generator nodes.
 """
 
 from __future__ import annotations
@@ -21,13 +20,15 @@ except ImportError:
 
 try:
     from _mienodes_internal.nodes.llm.ideogram4_prompts import (
-        PROMPT_PROFILES,
+        COMPOSITION_MODES,
+        COMPOSITION_MODE_TOOLTIPS,
         build_ideogram4_messages,
         resolve_aspect_ratio,
     )
 except ImportError:
     from .ideogram4_prompts import (
-        PROMPT_PROFILES,
+        COMPOSITION_MODES,
+        COMPOSITION_MODE_TOOLTIPS,
         build_ideogram4_messages,
         resolve_aspect_ratio,
     )
@@ -35,47 +36,21 @@ except ImportError:
 
 MY_CATEGORY = "\ud83d\udc11 MieNodes/\ud83d\udc11 Prompt Generator"
 
-_STRIP_ASPECT_RATIO = True
-_STRIP_BBOXES = False
 _MAX_TOKENS = 16384
 
 
 try:
-    from _mienodes_internal.nodes.llm.ideogram4_prompt_formatter import (
-        compact_caption,
-        format_ideogram4_caption,
-        parse_caption_dict,
-        strip_code_fences,
-    )
+    from _mienodes_internal.nodes.llm.ideogram4_prompt_formatter import format_ideogram4_caption
 except ImportError:
-    from .ideogram4_prompt_formatter import (
-        compact_caption,
-        format_ideogram4_caption,
-        parse_caption_dict,
-        strip_code_fences,
-    )
+    from .ideogram4_prompt_formatter import format_ideogram4_caption
 
 
 def postprocess_caption(raw_text: str) -> str:
-    """Parse LLM output into compact JSON for sampling / KJ import."""
-    try:
-        prompt, _log = format_ideogram4_caption(raw_text)
-        return prompt
-    except ValueError:
-        mie_log("[Ideogram4PromptGenerator] validation failed; best-effort compact output")
-        text = strip_code_fences(raw_text)
-        data, _ = parse_caption_dict(text)
-        if data is None:
-            return text.strip()
-        if _STRIP_ASPECT_RATIO:
-            data.pop("aspect_ratio", None)
-        if _STRIP_BBOXES:
-            elements = data.get("compositional_deconstruction", {}).get("elements", [])
-            if isinstance(elements, list):
-                for element in elements:
-                    if isinstance(element, dict):
-                        element.pop("bbox", None)
-        return compact_caption(data)
+    """Parse and validate LLM output into compact JSON. Raises on parse/validation failure."""
+    prompt, log = format_ideogram4_caption(raw_text)
+    if log and log != "OK: no fixes needed":
+        mie_log(f"[Ideogram4PromptGenerator] {log}")
+    return prompt
 
 
 class Ideogram4PromptEnhancer:
@@ -87,12 +62,12 @@ class Ideogram4PromptEnhancer:
         *,
         temperature: float = 1.0,
         timeout: int = 120,
-        prompt_profile: str = "official_v1",
+        composition_mode: str = "simple",
     ):
         self.llm = llm_service_connector
         self.temperature = temperature
         self.timeout = timeout
-        self.prompt_profile = prompt_profile
+        self.composition_mode = composition_mode
 
     def _invoke(self, messages: list[dict], seed=None) -> str:
         prev_timeout = getattr(self.llm, "timeout", None)
@@ -120,29 +95,30 @@ class Ideogram4PromptEnhancer:
             raise ValueError("user_prompt is empty")
 
         ar = resolve_aspect_ratio(aspect_ratio)
-        messages = build_ideogram4_messages(prompt, ar, prompt_profile=self.prompt_profile)
+        messages = build_ideogram4_messages(
+            prompt, ar, composition_mode=self.composition_mode
+        )
         raw = self._invoke(messages, seed=seed)
         return postprocess_caption(raw)
 
 
 class Ideogram4PromptGenerator:
-    """ComfyUI node: plain text → Ideogram 4 JSON caption via LLM."""
+    """ComfyUI node: plain text → validated Ideogram 4 JSON caption via LLM."""
 
     @classmethod
     def INPUT_TYPES(cls):
+        tooltips = " | ".join(
+            f"{mode}: {COMPOSITION_MODE_TOOLTIPS[mode]}" for mode in COMPOSITION_MODES
+        )
         return {
             "required": {
                 "llm_service_connector": ("LLMServiceConnector",),
                 "user_prompt": ("STRING", {"default": "", "multiline": True}),
-                "prompt_profile": (
-                    PROMPT_PROFILES,
+                "composition_mode": (
+                    COMPOSITION_MODES,
                     {
-                        "default": "official_v1",
-                        "tooltip": (
-                            "official_v1: Ideogram magic prompt (strong LLM). "
-                            "full_palette: v1 rules + structured color palettes (medium+). "
-                            "compact: short prompt (light LLM)."
-                        ),
+                        "default": "simple",
+                        "tooltip": tooltips,
                     },
                 ),
                 "seed": (
@@ -184,7 +160,7 @@ class Ideogram4PromptGenerator:
         self,
         llm_service_connector,
         user_prompt,
-        prompt_profile="official_v1",
+        composition_mode="simple",
         seed=None,
         aspect_ratio="1:1",
         temperature=1.0,
@@ -194,7 +170,7 @@ class Ideogram4PromptGenerator:
             llm_service_connector,
             temperature=temperature,
             timeout=timeout,
-            prompt_profile=prompt_profile,
+            composition_mode=composition_mode,
         )
         effective_ar = resolve_aspect_ratio((aspect_ratio or "").strip() or "1:1")
         out = enhancer(user_prompt, aspect_ratio=effective_ar, seed=seed)
@@ -204,7 +180,7 @@ class Ideogram4PromptGenerator:
         self,
         llm_service_connector,
         user_prompt,
-        prompt_profile="official_v1",
+        composition_mode="simple",
         seed=None,
         aspect_ratio="1:1",
         temperature=1.0,
@@ -213,7 +189,7 @@ class Ideogram4PromptGenerator:
         h = hashlib.md5()
         for part in (
             user_prompt,
-            prompt_profile,
+            composition_mode,
             str(seed),
             aspect_ratio,
             str(temperature),

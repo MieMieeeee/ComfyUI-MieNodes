@@ -19,9 +19,9 @@ def ideogram4_modules():
     return prompts, gen
 
 
-def test_build_official_v1_messages(ideogram4_modules):
+def test_build_official_v1_messages_simple(ideogram4_modules):
     prompts, _ = ideogram4_modules
-    messages = prompts.build_official_v1_messages("a red apple", "16:9")
+    messages = prompts.build_official_v1_messages("a red apple", "16:9", composition_mode="simple")
     system = messages[0]["content"]
     user = messages[1]["content"]
     assert messages[0]["role"] == "system"
@@ -32,38 +32,50 @@ def test_build_official_v1_messages(ideogram4_modules):
     assert "aspect_ratio" in system
     assert "COMFYUI PIPELINE" in user
     assert "Resolution Selector" in user
+    assert "COMPOSITION MODE (simple)" in user
+    assert "Omit bbox" in user
 
 
-def test_build_full_palette_messages(ideogram4_modules):
+def test_build_official_v1_messages_complex(ideogram4_modules):
+    prompts, _ = ideogram4_modules
+    messages = prompts.build_official_v1_messages("jazz poster", "2:3", composition_mode="complex")
+    user = messages[1]["content"]
+    assert "COMPOSITION MODE (complex)" in user
+    assert "Every element must have a bbox" in user
+
+
+def test_build_ideogram4_messages_mode_dispatch(ideogram4_modules):
+    prompts, _ = ideogram4_modules
+    for mode in prompts.COMPOSITION_MODES:
+        msgs = prompts.build_ideogram4_messages("test", "1:1", composition_mode=mode)
+        assert len(msgs) == 2
+        assert f"COMPOSITION MODE ({mode})" in msgs[1]["content"]
+    with pytest.raises(ValueError, match="Unknown composition_mode"):
+        prompts.build_ideogram4_messages("test", "1:1", composition_mode="nope")
+
+
+def test_deprecated_prompt_profile_rejects_non_v1(ideogram4_modules):
+    prompts, _ = ideogram4_modules
+    with pytest.raises(ValueError, match="deprecated"):
+        prompts.build_ideogram4_messages("test", "1:1", prompt_profile="full_palette")
+
+
+def test_build_full_palette_messages_deprecated(ideogram4_modules):
     prompts, _ = ideogram4_modules
     messages = prompts.build_full_palette_messages("a red apple", "16:9")
     system = messages[0]["content"]
     user = messages[1]["content"]
     assert "FULL SCHEMA EXTENSION" in system
-    assert "style_description" in system
-    assert "color_palette" in system
-    assert "OUTPUT CONTRACT" in system  # v1 base retained
     assert "16:9" in user
-    assert "do not emit aspect_ratio" in user.lower()
 
 
-def test_build_compact_messages(ideogram4_modules):
+def test_build_compact_messages_deprecated(ideogram4_modules):
     prompts, _ = ideogram4_modules
     messages = prompts.build_compact_messages("a red apple", "1:1")
     system = messages[0]["content"]
     user = messages[1]["content"]
     assert "compositional_deconstruction" in system
-    assert "aspect_ratio" not in system or "no top-level" in system
     assert "1:1" in user
-
-
-def test_build_ideogram4_messages_profile_dispatch(ideogram4_modules):
-    prompts, _ = ideogram4_modules
-    for profile in prompts.PROMPT_PROFILES:
-        msgs = prompts.build_ideogram4_messages("test", "1:1", prompt_profile=profile)
-        assert len(msgs) == 2
-    with pytest.raises(ValueError, match="Unknown prompt_profile"):
-        prompts.build_ideogram4_messages("test", "1:1", prompt_profile="nope")
 
 
 def test_build_full_schema_messages_alias(ideogram4_modules):
@@ -94,6 +106,18 @@ def test_postprocess_repair_trailing_comma(ideogram4_modules):
     assert data["high_level_description"] == "x"
 
 
+def test_postprocess_raises_on_invalid_json(ideogram4_modules):
+    _, gen = ideogram4_modules
+    with pytest.raises(ValueError, match="cannot parse JSON"):
+        gen.postprocess_caption("not json at all")
+
+
+def test_postprocess_raises_on_schema_error(ideogram4_modules):
+    _, gen = ideogram4_modules
+    with pytest.raises(ValueError, match="compositional_deconstruction"):
+        gen.postprocess_caption('{"high_level_description":"only this"}')
+
+
 def test_node_registered_in_plugin():
     plugin = load_plugin_module()
     assert "Ideogram4PromptGenerator|Mie" in plugin.NODE_CLASS_MAPPINGS
@@ -104,7 +128,6 @@ def test_input_types(ideogram4_modules):
     inputs = gen.Ideogram4PromptGenerator.INPUT_TYPES()
     assert "user_prompt" in inputs["required"]
     assert "llm_service_connector" in inputs["required"]
-    assert "prompt_profile" in inputs["required"]
+    assert "composition_mode" in inputs["required"]
+    assert "prompt_profile" not in inputs["required"]
     assert "aspect_ratio" in inputs["optional"]
-    assert "strip_aspect_ratio" not in inputs.get("optional", {})
-    assert "strip_bboxes" not in inputs.get("optional", {})

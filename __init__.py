@@ -15,7 +15,7 @@ from _mienodes_internal.nodes.common import ShowAnythingMie, ShowAndSaveAnything
 from _mienodes_internal.nodes.files import BatchRenameFiles, BatchDeleteFiles, BatchEditTextFiles, BatchSyncImageCaptionFiles, \
     SummaryTextFiles, BatchConvertImageFiles, DedupImageFiles, ModelDownloader, HFRepoDownloader
 from _mienodes_internal.nodes.llm import TextTranslator, PromptGenerator, KontextPromptGenerator, AddUserKontextPreset, RemoveUserKontextPreset, \
-    FrameTransitionPromptGenerator, HunyuanVideoI2VPromptGenerator, HunyuanVideoT2VPromptGenerator, ZImagePromptGenerator, Flux2PromptGenerator, FluxKleinT2VPromptGenerator, LTX2PromptGenerator, BerniniPromptGenerator, Ideogram4PromptGenerator, Ideogram4PromptFormatter, CustomSystemPromptGenerator, AddCustomSystemPrompt, RemoveCustomSystemPrompt
+    FrameTransitionPromptGenerator, HunyuanVideoI2VPromptGenerator, HunyuanVideoT2VPromptGenerator, ZImagePromptGenerator, Flux2PromptGenerator, FluxKleinT2VPromptGenerator, LTX2PromptGenerator, BerniniPromptGenerator, Ideogram4PromptGenerator, CustomSystemPromptGenerator, AddCustomSystemPrompt, RemoveCustomSystemPrompt
 from _mienodes_internal.services.llm import SetGeneralLLMServiceConnector, SetSiliconFlowLLMServiceConnector, \
     SetGithubModelsLLMServiceConnector, SetZhiPuLLMServiceConnector, SetZhiPuCodeLLMServiceConnector, SetKimiLLMServiceConnector, \
     SetDeepSeekLLMServiceConnector, SetGeminiLLMServiceConnector, SetBailianLLMServiceConnector, \
@@ -78,7 +78,6 @@ NODE_CLASS_MAPPINGS = {
     add_suffix("LTX2PromptGenerator"): LTX2PromptGenerator,
     add_suffix("BerniniPromptGenerator"): BerniniPromptGenerator,
     add_suffix("Ideogram4PromptGenerator"): Ideogram4PromptGenerator,
-    add_suffix("Ideogram4PromptFormatter"): Ideogram4PromptFormatter,
     add_suffix("CustomSystemPromptGenerator"): CustomSystemPromptGenerator,
     add_suffix("AddCustomSystemPrompt"): AddCustomSystemPrompt,
     add_suffix("RemoveCustomSystemPrompt"): RemoveCustomSystemPrompt,
@@ -179,7 +178,6 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     add_suffix("LTX2PromptGenerator"): add_emoji("LTX2 Prompt Generator"),
     add_suffix("BerniniPromptGenerator"): add_emoji("Bernini Prompt Generator"),
     add_suffix("Ideogram4PromptGenerator"): add_emoji("Ideogram 4 Prompt Generator"),
-    add_suffix("Ideogram4PromptFormatter"): add_emoji("Ideogram 4 Prompt Formatter"),
     add_suffix("CustomSystemPromptGenerator"): add_emoji("Custom System Prompt Generator"),
     add_suffix("AddCustomSystemPrompt"): add_emoji("Add Custom System Prompt"),
     add_suffix("RemoveCustomSystemPrompt"): add_emoji("Remove Custom System Prompt"),
