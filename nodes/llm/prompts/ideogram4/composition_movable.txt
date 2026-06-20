@@ -1,0 +1,5 @@
+
+COMPOSITION MODE (movable): Editable layout — bbox is the SOLE position authority.
+- Every element MUST have a bbox [y1, x1, y2, x2].
+- Do NOT describe placement in desc or high_level_description; the renderer reads position only from bbox.
+- This lets you move any element by editing its bbox with zero textual conflict.

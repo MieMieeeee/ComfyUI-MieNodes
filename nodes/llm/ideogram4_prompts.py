@@ -29,7 +29,7 @@ _MAGIC_V1_FILE = _PROMPT_DIR / "prompts" / "ideogram4" / "magic_prompt_v1.txt"
 
 USER_TEMPLATE_MAGIC_V1 = load_prompt_text("ideogram4/user_template_magic_v1")
 
-COMPOSITION_MODES: tuple[str, ...] = ("simple", "complex")
+COMPOSITION_MODES: tuple[str, ...] = ("simple", "complex", "movable")
 
 COMPOSITION_MODE_TOOLTIPS: dict[str, str] = {
     "simple": (
@@ -39,6 +39,11 @@ COMPOSITION_MODE_TOOLTIPS: dict[str, str] = {
     "complex": (
         "Typography-dense poster — bbox on every element for precise multi-zone layout "
         "(Flow / T-Rex style)."
+    ),
+    "movable": (
+        "Editable layout — bbox is the sole position authority. desc and "
+        "high_level_description carry NO placement words, so you can move any "
+        "element by editing its bbox alone."
     ),
 }
 
@@ -50,10 +55,13 @@ COMFYUI_PIPELINE_SUFFIX = (
 
 COMPOSITION_SIMPLE_SUFFIX = load_prompt_text("ideogram4/composition_simple")
 COMPOSITION_COMPLEX_SUFFIX = load_prompt_text("ideogram4/composition_complex")
+COMPOSITION_MOVABLE_SUFFIX = load_prompt_text("ideogram4/composition_movable")
+MOVABLE_SYSTEM_OVERRIDE = load_prompt_text("ideogram4/movable_system_override")
 
 _COMPOSITION_SUFFIX = {
     "simple": COMPOSITION_SIMPLE_SUFFIX,
     "complex": COMPOSITION_COMPLEX_SUFFIX,
+    "movable": COMPOSITION_MOVABLE_SUFFIX,
 }
 
 # Deprecated aliases kept for local test scripts / backward compatibility.
@@ -129,10 +137,18 @@ def build_official_v1_messages(
     *,
     composition_mode: str = "simple",
 ) -> list[dict]:
-    """Official Ideogram magic prompt v1 + ComfyUI pipeline + composition mode."""
+    """Official Ideogram magic prompt v1 + ComfyUI pipeline + composition mode.
+
+    In ``movable`` mode, a system-level override is appended so the renderer
+    reads position only from bbox (desc / high_level_description stay free of
+    placement words, letting elements move by editing bbox alone).
+    """
     sections = load_magic_v1_sections()
+    system = sections["system"]
+    if (composition_mode or "simple").strip().lower() == "movable":
+        system = system + "\n\n" + MOVABLE_SYSTEM_OVERRIDE.strip()
     return [
-        {"role": "system", "content": sections["system"]},
+        {"role": "system", "content": system},
         {
             "role": "user",
             "content": _magic_v1_user_content(

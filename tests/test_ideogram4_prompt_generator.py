@@ -44,6 +44,26 @@ def test_build_official_v1_messages_complex(ideogram4_modules):
     assert "Every element must have a bbox" in user
 
 
+def test_build_official_v1_messages_movable(ideogram4_modules):
+    prompts, _ = ideogram4_modules
+    simple = prompts.build_official_v1_messages("a red apple", "16:9", composition_mode="simple")
+    movable = prompts.build_official_v1_messages("knit lamb", "1:1", composition_mode="movable")
+    system = movable[0]["content"]
+    user = movable[1]["content"]
+    # user-side suffix mirrors the simple/complex pattern
+    assert "COMPOSITION MODE (movable)" in user
+    assert "SOLE position authority" in user
+    # system-level override is appended only in movable mode
+    assert "MOVABLE" in system
+    assert "BBOX-ONLY" in system
+    assert "OVERRIDES" in system
+    assert "IGNORE the earlier" in system
+    # the override makes the movable system strictly longer than simple's
+    assert len(system) > len(simple[0]["content"])
+    # simple mode is unchanged — no override leaked into it
+    assert "MOVABLE" not in simple[0]["content"]
+
+
 def test_build_ideogram4_messages_mode_dispatch(ideogram4_modules):
     prompts, _ = ideogram4_modules
     for mode in prompts.COMPOSITION_MODES:
