@@ -191,6 +191,137 @@ def reorder_caption_keys(caption: dict) -> tuple[dict, bool]:
     return out, changed
 
 
+def _collect_text_literals(caption: dict) -> list[str]:
+    cd = caption.get("compositional_deconstruction")
+    if not isinstance(cd, dict):
+        return []
+    elements = cd.get("elements")
+    if not isinstance(elements, list):
+        return []
+    literals: list[str] = []
+    for elem in elements:
+        if isinstance(elem, dict) and elem.get("type") == "text":
+            text = elem.get("text")
+            if isinstance(text, str) and text.strip():
+                literals.append(text.strip())
+    return literals
+
+
+def _scrub_text_literals_from_prose(prose: str, literals: list[str]) -> str:
+    if not prose or not literals:
+        return prose
+    out = prose
+    for lit in literals:
+        esc = re.escape(lit)
+        patterns = (
+            (rf"\bthe phrase\s+['\"]{esc}['\"]", ""),
+            (rf"\btext\s+['\"]{esc}['\"]", ""),
+            (rf"with\s+['\"]{esc}['\"]\s+text\b", ""),
+            (rf"and\s+['\"]{esc}['\"]\s+text\b", ""),
+            (rf"['\"]{esc}['\"]\s+text\b", ""),
+            (rf"with\s+['\"]{esc}['\"]\s+in\b", ""),
+            (rf"['\"]{esc}['\"]", ""),
+        )
+        for pat, repl in patterns:
+            out = re.sub(pat, repl, out, flags=re.IGNORECASE)
+    return _cleanup_prose(out)
+
+
+def _cleanup_prose(text: str) -> str:
+    out = re.sub(r"\s{2,}", " ", text)
+    out = re.sub(r"\s+,", ",", out)
+    out = re.sub(r",\s*,", ",", out)
+    out = re.sub(r"\s+\.", ".", out)
+    return out.strip(" ,;.")
+
+
+def _scrub_overlay_semantics_from_prose(prose: str) -> str:
+    """Remove title/headline/signage hints from prose when text elements own all copy."""
+    if not prose:
+        return prose
+    patterns = (
+        r",?\s*with\s+(?:a\s+)?(?:short\s+)?(?:friendly\s+)?title\b[^.]*",
+        r",?\s*with\s+[^.]*\b(?:lettering|headline|caption|slogan)\b[^.]*",
+        r",?\s*with\s+[^.]*\btext\s+in\s+the\b[^.]*",
+        r",?\s*featuring\s+(?:a\s+)?(?:[^.]*\b)?(?:sign|headline|caption)\b[^.]*",
+        r",?\s*and\s+(?:a\s+)?(?:short\s+)?(?:friendly\s+)?title\b[^.]*",
+        r"\b(?:friendly|short)\s+title\s+in\s+the\s+[^.]*",
+        r"\b(?:sky|upper-right|upper right)\s+title\b[^.]*",
+    )
+    out = prose
+    for pat in patterns:
+        out = re.sub(pat, "", out, flags=re.IGNORECASE)
+    out = re.sub(
+        r"\b(?:friendly\s+)?title\s+in\s+the\s+[^,.\n]+,?\s*",
+        "",
+        out,
+        flags=re.IGNORECASE,
+    )
+    return _cleanup_prose(out)
+
+
+def _scrub_text_role_words_from_desc(desc: str) -> str:
+    if not desc:
+        return desc
+    out = desc
+    out = re.sub(
+        r"^(?:the\s+)?(?:phrase\s+)?['\"][^'\"]+['\"]\s+in\s+the\s+[^,]+,?\s*",
+        "",
+        out,
+        flags=re.IGNORECASE,
+    )
+    out = re.sub(
+        r"^(?:friendly\s+)?title\s+in\s+the\s+[^,]+,?\s*",
+        "",
+        out,
+        flags=re.IGNORECASE,
+    )
+    out = re.sub(r"^set\s+in\s+(?:a\s+)?", "", out, flags=re.IGNORECASE)
+    out = re.sub(r"^rendered\s+in\s+(?:a\s+)?", "", out, flags=re.IGNORECASE)
+    return _cleanup_prose(out)
+
+
+def _dedupe_text_literals(caption: dict) -> list[str]:
+    """Strip readable copy from prose when it already lives in text elements."""
+    fixes: list[str] = []
+    literals = _collect_text_literals(caption)
+    if not literals:
+        return fixes
+
+    hld = caption.get("high_level_description")
+    if isinstance(hld, str):
+        new_hld = _scrub_text_literals_from_prose(hld, literals)
+        new_hld = _scrub_overlay_semantics_from_prose(new_hld)
+        if new_hld != hld:
+            caption["high_level_description"] = new_hld
+            fixes.append("removed duplicated text literal from high_level_description")
+
+    cd = caption.get("compositional_deconstruction")
+    if isinstance(cd, dict):
+        bg = cd.get("background")
+        if isinstance(bg, str):
+            new_bg = _scrub_text_literals_from_prose(bg, literals)
+            new_bg = _scrub_overlay_semantics_from_prose(new_bg)
+            if new_bg != bg:
+                cd["background"] = new_bg
+                fixes.append("removed duplicated text literal from background")
+        elements = cd.get("elements")
+        if isinstance(elements, list):
+            for i, elem in enumerate(elements):
+                if not isinstance(elem, dict):
+                    continue
+                desc = elem.get("desc")
+                if isinstance(desc, str):
+                    new_desc = _scrub_text_literals_from_prose(desc, literals)
+                    if elem.get("type") == "text":
+                        new_desc = _scrub_text_role_words_from_desc(new_desc)
+                        new_desc = _scrub_overlay_semantics_from_prose(new_desc)
+                    if new_desc != desc:
+                        elem["desc"] = new_desc
+                        fixes.append(f"removed duplicated text literal from elements[{i}].desc")
+    return fixes
+
+
 def _repair_missing_text_field(elem: dict) -> bool:
     """If LLM put literal copy only in ``desc``, try to extract a quoted ``text`` value."""
     if elem.get("type") != "text" or "text" in elem:
@@ -260,6 +391,9 @@ def normalize_caption(caption: dict) -> tuple[dict, list[str]]:
                     if pal_changed:
                         elem["color_palette"] = pal
                         fixes.append(f"normalized elements[{i}].color_palette")
+
+    dedupe_fixes = _dedupe_text_literals(data)
+    fixes.extend(dedupe_fixes)
 
     data, reordered = reorder_caption_keys(data)
     if reordered:

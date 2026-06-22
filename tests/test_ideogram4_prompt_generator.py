@@ -32,16 +32,18 @@ def test_build_official_v1_messages_simple(ideogram4_modules):
     assert "aspect_ratio" in system
     assert "COMFYUI PIPELINE" in user
     assert "Resolution Selector" in user
-    assert "COMPOSITION MODE (simple)" in user
-    assert "Omit bbox" in user
+    assert "COMPOSITION MODE (simple)" in system
+    assert "Omit bbox" in system
+    assert "Single source of truth for characters" in system
+    assert "No readable copy in HLD" in system
 
 
 def test_build_official_v1_messages_complex(ideogram4_modules):
     prompts, _ = ideogram4_modules
     messages = prompts.build_official_v1_messages("jazz poster", "2:3", composition_mode="complex")
-    user = messages[1]["content"]
-    assert "COMPOSITION MODE (complex)" in user
-    assert "Every element must have a bbox" in user
+    system = messages[0]["content"]
+    assert "COMPOSITION MODE (complex)" in system
+    assert "Every element must have a bbox" in system
 
 
 def test_build_official_v1_messages_movable(ideogram4_modules):
@@ -50,15 +52,16 @@ def test_build_official_v1_messages_movable(ideogram4_modules):
     movable = prompts.build_official_v1_messages("knit lamb", "1:1", composition_mode="movable")
     system = movable[0]["content"]
     user = movable[1]["content"]
-    # user-side suffix mirrors the simple/complex pattern
-    assert "COMPOSITION MODE (movable)" in user
-    assert "SOLE position authority" in user
-    # system-level override is appended only in movable mode
+    # the movable directive is fully in the system message now
     assert "MOVABLE" in system
     assert "BBOX-ONLY" in system
     assert "OVERRIDES" in system
     assert "IGNORE the earlier" in system
-    # the override makes the movable system strictly longer than simple's
+    assert "SOLE position authority" in system
+    # user content carries no mode directive
+    assert "COMPOSITION MODE" not in user
+    assert "SOLE position authority" not in user
+    # the movable system (long override) is strictly longer than simple's
     assert len(system) > len(simple[0]["content"])
     # simple mode is unchanged — no override leaked into it
     assert "MOVABLE" not in simple[0]["content"]
@@ -69,41 +72,9 @@ def test_build_ideogram4_messages_mode_dispatch(ideogram4_modules):
     for mode in prompts.COMPOSITION_MODES:
         msgs = prompts.build_ideogram4_messages("test", "1:1", composition_mode=mode)
         assert len(msgs) == 2
-        assert f"COMPOSITION MODE ({mode})" in msgs[1]["content"]
+        assert f"COMPOSITION MODE ({mode})" in msgs[0]["content"]
     with pytest.raises(ValueError, match="Unknown composition_mode"):
         prompts.build_ideogram4_messages("test", "1:1", composition_mode="nope")
-
-
-def test_deprecated_prompt_profile_rejects_non_v1(ideogram4_modules):
-    prompts, _ = ideogram4_modules
-    with pytest.raises(ValueError, match="deprecated"):
-        prompts.build_ideogram4_messages("test", "1:1", prompt_profile="full_palette")
-
-
-def test_build_full_palette_messages_deprecated(ideogram4_modules):
-    prompts, _ = ideogram4_modules
-    messages = prompts.build_full_palette_messages("a red apple", "16:9")
-    system = messages[0]["content"]
-    user = messages[1]["content"]
-    assert "FULL SCHEMA EXTENSION" in system
-    assert "16:9" in user
-
-
-def test_build_compact_messages_deprecated(ideogram4_modules):
-    prompts, _ = ideogram4_modules
-    messages = prompts.build_compact_messages("a red apple", "1:1")
-    system = messages[0]["content"]
-    user = messages[1]["content"]
-    assert "compositional_deconstruction" in system
-    assert "1:1" in user
-
-
-def test_build_full_schema_messages_alias(ideogram4_modules):
-    prompts, _ = ideogram4_modules
-    legacy = prompts.build_full_schema_messages("x", "4:5")
-    modern = prompts.build_full_palette_messages("x", "4:5")
-    assert legacy[0]["content"] == modern[0]["content"]
-    assert legacy[1]["content"] == modern[1]["content"]
 
 
 def test_postprocess_strips_aspect_ratio_keeps_bbox(ideogram4_modules):

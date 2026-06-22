@@ -119,6 +119,71 @@ def test_repair_text_from_quoted_desc(fmt_module):
     assert "inferred elements[0].text" in log
 
 
+def test_dedupe_semantic_title_from_hld(fmt_module):
+    raw = {
+        "high_level_description": (
+            "A 3D animated-style illustration of a cute girl gazing at a golden sunset "
+            "over a calm ocean, with a short friendly title in the upper right corner"
+        ),
+        "compositional_deconstruction": {
+            "background": "Calm ocean at sunset.",
+            "elements": [
+                {"type": "obj", "desc": "Cute girl at the shore."},
+                {
+                    "type": "text",
+                    "bbox": [60, 680, 210, 950],
+                    "text": "Nice Day",
+                    "desc": (
+                        "Friendly title in the upper-right corner, set in a rounded "
+                        "sans-serif typeface in warm white with a subtle soft halo"
+                    ),
+                },
+            ],
+        },
+    }
+    out, log = fmt_module.format_ideogram4_caption(json.dumps(raw))
+    data = json.loads(out)
+    hld = data["high_level_description"]
+    desc = data["compositional_deconstruction"]["elements"][1]["desc"]
+    assert "title" not in hld.lower()
+    assert "Nice Day" not in hld
+    assert "title" not in desc.lower()
+    assert "upper-right" not in desc.lower()
+    assert data["compositional_deconstruction"]["elements"][1]["text"] == "Nice Day"
+    assert "removed duplicated text literal" in log or "overlay" in log.lower() or len(log) > 0
+
+
+def test_dedupe_text_literal_from_hld_and_desc(fmt_module):
+    raw = {
+        "high_level_description": (
+            "A cute girl at sunset with 'Nice Day' text in the upper right corner."
+        ),
+        "compositional_deconstruction": {
+            "background": "Calm ocean at sunset.",
+            "elements": [
+                {"type": "obj", "desc": "Cute girl in white dress at the shore."},
+                {
+                    "type": "text",
+                    "bbox": [60, 600, 200, 950],
+                    "text": "Nice Day",
+                    "desc": (
+                        "The phrase 'Nice Day' in the upper right corner, "
+                        "soft rounded sans-serif in warm white."
+                    ),
+                },
+            ],
+        },
+    }
+    out, log = fmt_module.format_ideogram4_caption(json.dumps(raw))
+    data = json.loads(out)
+    hld = data["high_level_description"]
+    desc = data["compositional_deconstruction"]["elements"][1]["desc"]
+    assert "Nice Day" not in hld
+    assert "Nice Day" not in desc
+    assert data["compositional_deconstruction"]["elements"][1]["text"] == "Nice Day"
+    assert "removed duplicated text literal" in log
+
+
 def test_fail_text_without_literal_or_quotes(fmt_module):
     raw = {
         "compositional_deconstruction": {

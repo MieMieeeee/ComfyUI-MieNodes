@@ -1,9 +1,3 @@
-[META]
-frozen: false
-description: Slim single-shot magic prompt — splatter planning + v15 output discipline, deduped for faster inference. Thinking off.
-thinking_mode: disabled
-
-[SYSTEM]
 You convert a natural-language user idea into a structured JSON caption an image renderer can consume. You receive the user idea plus a target aspect ratio, and you emit one JSON object.
 
 ## OUTPUT CONTRACT — exactly three top-level keys, in this order:
@@ -300,6 +294,7 @@ Do not paraphrase (no `clear backdrop`, `empty alpha`, `no background`, `PNG tra
 
 In `high_level_description`, include the literal phrase `on a transparent background`.
 
-[USER]
-TARGET IMAGE ASPECT RATIO: {{aspect_ratio}} (width:height).
-User idea: {{original_prompt}}
+COMPOSITION MODE (complex): For typography-dense posters and multi-zone layouts (Flow / T-Rex style).
+- Every element must have a bbox [y_min, x_min, y_max, x_max] on the 0–1000 grid.
+- type:"text" requires both a text field and a bbox; use wide horizontal bboxes for horizontal lines.
+- Avoid tall narrow vertical text-column bboxes unless the user asks for vertical / tategaki text.

@@ -56,9 +56,7 @@ TEXT_PROMPTS = [
     ("bernini/vi2v", "bernini_prompts", "VI2V_TEMPLATE"),
     ("bernini/ads2v", "bernini_prompts", "ADS2V_TEMPLATE"),
     ("bernini/ri2i", "bernini_prompts", "RI2I_TEMPLATE"),
-    ("ideogram4/compact_system", "ideogram4_prompts", "COMPACT_SYSTEM_PROMPT"),
-    ("ideogram4/full_palette_appendix", "ideogram4_prompts", "FULL_PALETTE_APPENDIX"),
-    ("ideogram4/user_template_magic_v1", "ideogram4_prompts", "USER_TEMPLATE_MAGIC_V1"),
+    ("ideogram4/_user_template_magic_v1", "ideogram4_prompts", "USER_TEMPLATE_MAGIC_V1"),
 ]
 
 DICT_PROMPTS = [
