@@ -70,6 +70,86 @@ def test_loop_end_expand_result_uses_only_two_outputs(monkeypatch):
     assert len(result["result"]) == 2
 
 
+def test_expand_root_lazy_init(monkeypatch):
+    """Plan A: execute pins expand_root into the ctx that flows to the next round.
+
+    execute deep-copies the input ctx and serializes the copy into the expand
+    graph's Resume node (loop_ctx_json). expand_root must be present there —
+    lazily initialized to end_id on first expand — so the flat prefix stays
+    stable for the whole run_id lifetime, including across resume.
+    """
+    monkeypatch.setattr(loop_module, "GraphBuilder", FakeGraphBuilder)
+    ctx = _make_ctx()
+    assert "expand_root" not in ctx["meta"], "precondition: no expand_root yet"
+    end = MieLoopEnd()
+    result = end.execute(ctx, "{}", dynprompt=_make_dynprompt(), unique_id="30")
+    expand_graph = result["expand"]
+    resume = next(
+        d for d in expand_graph.values() if d["class_type"] == "MieLoopResume|Mie"
+    )
+    carried_ctx = json.loads(resume["inputs"]["loop_ctx_json"])
+    assert carried_ctx["meta"].get("expand_root") == "30", (
+        f"expand_root should be lazily initialized to end_id '30' and carried into "
+        f"the next-round ctx, got {carried_ctx['meta'].get('expand_root')}"
+    )
+
+
+def test_resume_preserves_expand_root(monkeypatch):
+    """Plan A: Start.resume_loop_ctx keeps expand_root; next End expand uses same prefix.
+
+    Simulates a mid-run interrupt: the saved loop_ctx already carries a pinned
+    expand_root from an earlier expand. After resume, flat node ids must stay on
+    that root (not re-init from end_id or drift to nested .0.0. paths).
+    """
+    monkeypatch.setattr(loop_module, "GraphBuilder", FakeGraphBuilder)
+    start = loop_module.MieLoopStart()
+    end = MieLoopEnd()
+    dynprompt = _make_dynprompt()
+
+    def _resume_and_expand(expand_root: str):
+        saved_ctx = _make_ctx(
+            index=5,
+            count=49,
+            is_last=False,
+            params_list=[{"value": i} for i in range(49)],
+            current_params={"value": 5},
+        )
+        saved_ctx["meta"]["expand_root"] = expand_root
+        resume_json = json.dumps(saved_ctx)
+
+        resumed_ctx, index, count, _ = start.execute(
+            loop_id="final_arch_loop",
+            params_mode="int_list",
+            int_list="",
+            string_list="",
+            json_list="[]",
+            initial_state_json="{}",
+            resume_loop_ctx=resume_json,
+        )
+        assert index == 5
+        assert count == 49
+        assert resumed_ctx["meta"]["expand_root"] == expand_root
+
+        result = end.execute(resumed_ctx, "{}", dynprompt=dynprompt, unique_id="30")
+        expand_graph = result["expand"]
+        assert expand_graph, "expected expand graph after resume"
+        expected_prefix = f"{expand_root}.r6."
+        for nid in expand_graph:
+            assert nid.startswith(expected_prefix), (
+                f"resumed expand must keep expand_root={expand_root!r}, got {nid}"
+            )
+        resume_node = next(
+            d for d in expand_graph.values() if d["class_type"] == "MieLoopResume|Mie"
+        )
+        carried = json.loads(resume_node["inputs"]["loop_ctx_json"])
+        assert carried["meta"]["expand_root"] == expand_root
+
+    # Default: expand_root equals template end_id (typical first-run pin).
+    _resume_and_expand("30")
+    # Explicit root differs from end_id — must not be overwritten on resume expand.
+    _resume_and_expand("999")
+
+
 def test_finalize_images_and_text_are_independent():
     image = torch.ones((1, 4, 4, 3))
     ctx = _make_ctx(count=1, is_last=True, params_list=[{"value": 1}], current_params={"value": 1})

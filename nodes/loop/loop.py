@@ -983,7 +983,18 @@ def _build_expand_graph_for_next_round(
     forward_set = {str(x) for x in detect_result.get("forward_set", [])}
     protocol_nodes = {str(body_out_id), str(end_id)}
     all_nodes = _get_all_nodes(dynprompt)
-    graph = GraphBuilder()
+    # Plan A (Flat Prefix): build with an explicit prefix so execution depth and
+    # round count decouple. ComfyUI's engine registers expand-graph node ids as-is
+    # (execution.py: add_ephemeral_node(node_id, ...)); the default GraphBuilder()
+    # prefix derives from the executing (nested) End id, which is what stacks
+    # 453.0.0.453... every round. An explicit "{expand_root}.r{round}." prefix is
+    # used as-is, so ids stay flat (e.g. 453.r5.369) regardless of depth.
+    # expand_root is pinned for the whole run_id lifetime by MieLoopEnd.execute;
+    # fall back to end_id for old loop_ctx / fixtures that never set it.
+    expand_root = str(next_ctx.get("meta", {}).get("expand_root") or end_id)
+    round_idx = int(next_ctx.get("index", 0))
+    flat_prefix = f"{expand_root}.r{round_idx}."
+    graph = GraphBuilder(prefix=flat_prefix)
     resume_node_id = "__mie_loop_resume__"
     while resume_node_id in all_nodes:
         resume_node_id += "_"
@@ -1640,6 +1651,12 @@ class MieLoopEnd:
                 raise ValueError(
                     f"LoopEnd.detect failed: body_nodes_business empty, debug={detect_result}"
                 )
+            # Plan A: pin expand_root on first expand so the flat prefix is stable
+            # for the whole run_id lifetime (incl. resume). Old loop_ctx / saved
+            # workflows never set it, so lazily initialize from end_id (guaranteed
+            # present — the enclosing expand guard checks it is truthy).
+            if "expand_root" not in ctx.get("meta", {}):
+                ctx["meta"]["expand_root"] = str(ctx.get("meta", {}).get("end_id"))
             expand_graph, end_built_node = _build_expand_graph_for_next_round(
                 next_ctx=ctx,
                 dynprompt=dynprompt,

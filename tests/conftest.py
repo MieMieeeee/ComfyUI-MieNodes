@@ -266,10 +266,12 @@ class FakeGraphBuilder:
     - finalize() → dict of node_id → serialized node
     """
 
-    def __init__(self):
+    def __init__(self, prefix=None):
+        # Mirror real GraphBuilder.__init__(prefix=None): explicit prefix wins,
+        # otherwise default (here the static "fake." stand-in for alloc_prefix()).
         self.nodes = {}
         self.id_gen = 1
-        self.prefix = "fake."
+        self.prefix = prefix if prefix is not None else "fake."
 
     def node(self, class_type, node_id=None, **kwargs):
         if node_id is None:

@@ -88,7 +88,15 @@ MieLoop 使用 expand 图递归执行下一轮。为避免 ID 漂移：
 - 协议模板 ID（`body_out_id`, `end_id`）一旦确定必须保持模板值。
 - 克隆轮次 ID（包含 `.`）不会回写到 `meta`。
 
-这可以避免类似 `240.0.0.240.0.0...` 的递归拼接问题。
+### Expand 运行时 ID（v1.2+ 扁平化）
+日志中看到的执行 ID 是**扁平化**的，属正常现象，无需任何用户操作：
+- **用户保存的 workflow 仍用模板 id**（如 `453`、`369`）。画布编号、连线、JSON 完全不变。
+- 运行时每轮 expand 节点的 id 形如 `453.r5.369` —— `{end_id}.r{轮次}.{模板id}`，深度与轮数解耦。
+- 循环关闭节点（End / BodyOut）在 expand 图内使用固定内部 id（`__mie_loop_recurse_end__` / `__mie_loop_recurse_bodyout__`），避免每轮把模板 id 重复叠进路径。
+- `override_display_id` 保证 UI 上仍显示模板编号（如 `453`），与扁平化前的观感一致。
+- `ctx.meta.expand_root` 在首次 expand 时由 End 写入（等于 `end_id`），整个 run_id 生命周期（含 resume）不变；旧 workflow / 旧 loop_ctx 无此字段会自动回填。
+
+这样彻底消除了早期版本长跑循环里 `453.0.0.453.0.0.453...` 式的嵌套拼接，长循环（如 49 轮）的节点 id 长度保持在 O(1) 量级。
 
 ## 日志与 debug
 常规（`debug=false`）日志只保留关键流程：
