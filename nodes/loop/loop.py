@@ -162,6 +162,52 @@ def _parse_float_range(start, end, step):
     return values
 
 
+def _parse_int_decrement(total, step):
+    """Drain ``total`` in fixed ``step`` chunks: total=5, step=2 -> [2, 2, 1].
+
+    Mirrors the spec from the user: each round subtracts a fixed value from
+    the remaining balance until nothing is left. The number of rounds is
+    ``ceil(total / step)``; the last round may be smaller than ``step`` if
+    the total does not divide evenly.
+    """
+    total = int(total)
+    step = int(step)
+    if total < 0:
+        raise ValueError("int_decrement_total must be >= 0")
+    if step <= 0:
+        raise ValueError("int_decrement_step must be > 0")
+    if total == 0:
+        return []
+    n = (total + step - 1) // step  # ceil division
+    return [{"value": step} for _ in range(n - 1)] + [
+        {"value": total - step * (n - 1)}
+    ]
+
+
+def _parse_float_decrement(total, step):
+    """Float counterpart of :func:`_parse_int_decrement`.
+
+    total=5.0, step=2.0 -> [2.0, 2.0, 1.0]
+    total=1.0, step=0.4 -> [0.4, 0.4, 0.2]
+    """
+    total = float(total)
+    step = float(step)
+    if not math.isfinite(total) or not math.isfinite(step):
+        raise ValueError("float_decrement values must be finite numbers")
+    if total < 0:
+        raise ValueError("float_decrement_total must be >= 0")
+    if step <= 0:
+        raise ValueError("float_decrement_step must be > 0")
+    if total == 0:
+        return []
+    n = int(math.ceil(total / step))
+    # last value is whatever balance remains after (n-1) full steps
+    last = total - step * (n - 1)
+    # guard against floating-point drift pushing the last value negative
+    if last < 0:
+        last = 0.0
+    values = [_normalize_float_value(step)] * (n - 1) + [_normalize_float_value(last)]
+    return [{"value": v} for v in values]
 def _resolve_param_selection(param_type, param_mode, params_mode=None):
     legacy_modes = {
         "int_list": ("int", "list"),
@@ -180,7 +226,7 @@ def _resolve_param_selection(param_type, param_mode, params_mode=None):
     pm = str(param_mode)
     if pt not in {"int", "float", "string", "json"}:
         raise ValueError(f"Unknown param_type: {param_type}")
-    if pm not in {"list", "range"}:
+    if pm not in {"list", "range", "decrement"}:
         raise ValueError(f"Unknown param_mode: {param_mode}")
     return pt, pm
 
@@ -198,6 +244,10 @@ def _parse_params_list(
     float_range_start=0.0,
     float_range_end=0.0,
     float_range_step=1.0,
+    int_decrement_total=5,
+    int_decrement_step=2,
+    float_decrement_total=5.0,
+    float_decrement_step=2.0,
     params_mode=None,
 ):
     param_type, param_mode = _resolve_param_selection(
@@ -207,12 +257,16 @@ def _parse_params_list(
         return _parse_int_list(int_list)
     if param_type == "int" and param_mode == "range":
         return _parse_int_range(int_range_start, int_range_end, int_range_step)
+    if param_type == "int" and param_mode == "decrement":
+        return _parse_int_decrement(int_decrement_total, int_decrement_step)
     if param_type == "float" and param_mode == "list":
         return _parse_float_list(float_list)
     if param_type == "float" and param_mode == "range":
         return _parse_float_range(
             float_range_start, float_range_end, float_range_step
         )
+    if param_type == "float" and param_mode == "decrement":
+        return _parse_float_decrement(float_decrement_total, float_decrement_step)
     if param_type == "string" and param_mode == "list":
         return _parse_string_list(string_list)
     if param_type == "json" and param_mode == "list":
@@ -1167,7 +1221,7 @@ class MieLoopStart:
                     {"default": "int"},
                 ),
                 "param_mode": (
-                    ["list", "range"],
+                    ["list", "range", "decrement"],
                     {"default": "list"},
                 ),
             },
@@ -1192,6 +1246,10 @@ class MieLoopStart:
                 "float_range_start": ("FLOAT", {"default": 0.1}),
                 "float_range_end": ("FLOAT", {"default": 0.3}),
                 "float_range_step": ("FLOAT", {"default": 0.1}),
+                "int_decrement_total": ("INT", {"default": 5, "min": 0}),
+                "int_decrement_step": ("INT", {"default": 2, "min": 1}),
+                "float_decrement_total": ("FLOAT", {"default": 5.0, "min": 0.0}),
+                "float_decrement_step": ("FLOAT", {"default": 2.0, "min": 1e-9}),
                 "meta_json": ("STRING", {"default": "{}"}),
                 "resume_loop_ctx": ("STRING", {"default": ""}),
             },
@@ -1218,6 +1276,10 @@ class MieLoopStart:
         float_range_start=0.0,
         float_range_end=0.0,
         float_range_step=1.0,
+        int_decrement_total=5,
+        int_decrement_step=2,
+        float_decrement_total=5.0,
+        float_decrement_step=2.0,
         meta_json="{}",
         resume_loop_ctx="",
         params_mode=None,
@@ -1253,6 +1315,10 @@ class MieLoopStart:
             float_range_start=float_range_start,
             float_range_end=float_range_end,
             float_range_step=float_range_step,
+            int_decrement_total=int_decrement_total,
+            int_decrement_step=int_decrement_step,
+            float_decrement_total=float_decrement_total,
+            float_decrement_step=float_decrement_step,
         )
         initial_state = _parse_json_object(initial_state_json, "initial_state_json")
         meta = _parse_json_object(meta_json, "meta_json")
@@ -1617,6 +1683,136 @@ class MieLoopGetIndex:
         return (int(ctx.get("index", 0)),)
 
 
+class MieLoopIfCurrentIdx:
+    """Route one of two values based on the current loop index.
+
+    Compares ``ctx['index']`` against ``compare_value`` using the chosen
+    ``operator`` and returns whichever of ``then_value`` / ``else_value``
+    the caller wired up. The output is the selected branch only -- the
+    boolean decision itself is not exposed (use the routed value to infer
+    it, e.g. by passing ``True`` / ``False`` as the two branches).
+
+    ``then_value`` and ``else_value`` are declared as ``any_typ`` so any
+    data type (image, string, dict, loop_ctx, ...) can flow through.
+    Unconnected branches fall back to ``None``.
+    """
+
+    OPERATORS = ("==", "!=", "<", "<=", ">", ">=")
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "loop_ctx": ("MIE_LOOP_CTX",),
+                "operator": (
+                    list(cls.OPERATORS),
+                    {"default": "=="},
+                ),
+                "compare_value": ("INT", {"default": 0}),
+            },
+            "optional": {
+                "then_value": (any_typ,),
+                "else_value": (any_typ,),
+            },
+        }
+
+    RETURN_TYPES = ("MIE_LOOP_CTX", any_typ)
+    RETURN_NAMES = ("loop_ctx", "value")
+    FUNCTION = "execute"
+    CATEGORY = MY_CATEGORY
+
+    _OPS = {
+        "==": lambda a, b: a == b,
+        "!=": lambda a, b: a != b,
+        "<":  lambda a, b: a <  b,
+        "<=": lambda a, b: a <= b,
+        ">":  lambda a, b: a >  b,
+        ">=": lambda a, b: a >= b,
+    }
+
+    def execute(self, loop_ctx, operator, compare_value, then_value=None, else_value=None):
+        ctx = _validate_loop_ctx(loop_ctx)
+        op = self._OPS.get(str(operator))
+        if op is None:
+            raise ValueError(
+                f"operator must be one of {self.OPERATORS}, got {operator!r}"
+            )
+        idx = int(ctx.get("index", 0))
+        try:
+            cmp = int(compare_value)
+        except (TypeError, ValueError) as e:
+            raise ValueError(
+                f"compare_value must be an integer, got {compare_value!r}"
+            ) from e
+        chosen = then_value if bool(op(idx, cmp)) else else_value
+        return (ctx, chosen)
+
+class MieLoopIfIsFirst:
+    """Route one of two values based on whether this is the first round.
+
+    Returns ``then_value`` when ``ctx['index'] == 0`` and ``else_value``
+    otherwise. The output is the selected branch only -- the boolean
+    decision itself is not exposed (the routed value carries it implicitly).
+    ``then_value`` / ``else_value`` are any-typ so any data type can flow
+    through; unconnected branches fall back to ``None``.
+    """
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "loop_ctx": ("MIE_LOOP_CTX",),
+            },
+            "optional": {
+                "then_value": (any_typ,),
+                "else_value": (any_typ,),
+            },
+        }
+
+    RETURN_TYPES = ("MIE_LOOP_CTX", any_typ)
+    RETURN_NAMES = ("loop_ctx", "value")
+    FUNCTION = "execute"
+    CATEGORY = MY_CATEGORY
+
+    def execute(self, loop_ctx, then_value=None, else_value=None):
+        ctx = _validate_loop_ctx(loop_ctx)
+        is_first = int(ctx.get("index", 0)) == 0
+        chosen = then_value if is_first else else_value
+        return (ctx, chosen)
+
+class MieLoopIfIsLast:
+    """Route one of two values based on whether this is the last round.
+
+    Returns ``then_value`` when ``ctx['is_last']`` is True and
+    ``else_value`` otherwise. The output is the selected branch only --
+    the boolean decision itself is not exposed. ``then_value`` /
+    ``else_value`` are any-typ so any data type can flow through;
+    unconnected branches fall back to ``None``.
+    """
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "loop_ctx": ("MIE_LOOP_CTX",),
+            },
+            "optional": {
+                "then_value": (any_typ,),
+                "else_value": (any_typ,),
+            },
+        }
+
+    RETURN_TYPES = ("MIE_LOOP_CTX", any_typ)
+    RETURN_NAMES = ("loop_ctx", "value")
+    FUNCTION = "execute"
+    CATEGORY = MY_CATEGORY
+
+    def execute(self, loop_ctx, then_value=None, else_value=None):
+        ctx = _validate_loop_ctx(loop_ctx)
+        is_last = bool(ctx.get("is_last", False))
+        chosen = then_value if is_last else else_value
+        return (ctx, chosen)
+
 class MieLoopParamGetInt:
     @classmethod
     def INPUT_TYPES(cls):
@@ -1923,6 +2119,120 @@ class MieLoopStateSetImage:
             f"LoopStateSetImage: loop_id={ctx['loop_id']}, run_id={ctx['run_id']}, key={key}, ref={ref}"
         )
         return (ctx,)
+
+
+class MieLoopStateSetImageBatch:
+
+    """Store an image batch in the loop state and report its frame count.
+
+
+
+    This mirrors :class:`MieLoopStateSetImage` but is intended for an IMAGE
+
+    tensor whose batch dimension (``shape[0]``) is greater than 1. The whole
+
+    tensor is stored under a single key so a downstream
+
+    :class:`MieLoopStateGetImage` (or any other image consumer) can read the
+
+    full batch back in one go.
+
+
+
+    The default key (``feedback_image_batch``) is intentionally distinct from
+
+    the single-image setter's default (``feedback_image``) so both nodes can
+
+    coexist in the same workflow without one overwriting the other.
+
+
+
+    The ``count`` output surfaces the batch dimension immediately, so callers
+
+    do not need to fetch the tensor just to learn how many frames they stored.
+
+    """
+
+
+
+    @classmethod
+
+    def INPUT_TYPES(cls):
+
+        return {
+
+            "required": {
+
+                "loop_ctx": ("MIE_LOOP_CTX",),
+
+                "key": (
+
+                    "STRING",
+
+                    {"default": "feedback_image_batch"},
+
+                ),
+
+                "image": ("IMAGE",),
+
+            }
+
+        }
+
+
+
+    RETURN_TYPES = ("MIE_LOOP_CTX", "INT")
+
+    RETURN_NAMES = ("loop_ctx", "count")
+
+    FUNCTION = "execute"
+
+    CATEGORY = MY_CATEGORY
+
+
+
+    def execute(self, loop_ctx, key, image):
+
+        ctx = _state_object_put_image(loop_ctx, key, image)
+
+        ref = ctx.get("state", {}).get(_state_ref_key(key))
+
+        # IMAGE tensors in ComfyUI are always [B, H, W, C]; a single image is
+
+        # just a batch of size 1. Fall back to 1 if the tensor shape is
+
+        # unavailable (e.g. the caller passed a numpy array or list) so the
+
+        # node still completes the workflow.
+
+        shape = getattr(image, "shape", None)
+
+        if shape is not None and len(shape) >= 1:
+
+            try:
+
+                count = int(shape[0])
+
+            except (TypeError, ValueError):
+
+                count = 1
+
+        else:
+
+            count = 1
+
+        mie_log(
+
+            f"LoopStateSetImageBatch: loop_id={ctx['loop_id']}, run_id={ctx['run_id']}, "
+
+            f"key={key}, ref={ref}, count={count}"
+
+        )
+
+        return (ctx, count)
+
+
+
 
 
 class MieLoopStateSetInt:

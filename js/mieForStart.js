@@ -4,10 +4,12 @@ import { app } from "../../scripts/app.js";
  * MieLoopStart 前端扩展
  *
  * 根据 param_type + param_mode 切换可见的参数输入框：
- *   - int/list   → int_list
- *   - int/range  → int_range_*
- *   - float/list → float_list
- *   - float/range→ float_range_*
+ *   - int/list      → int_list
+ *   - int/range     → int_range_*
+ *   - int/decrement → int_decrement_total, int_decrement_step
+ *   - float/list      → float_list
+ *   - float/range     → float_range_*
+ *   - float/decrement → float_decrement_total, float_decrement_step
  *   - string     → string_list
  *   - json       → json_list
  *
@@ -52,8 +54,10 @@ app.registerExtension({
             const paramMode = modeWidget.value;
             const showIntList = paramType === "int" && paramMode === "list";
             const showIntRange = paramType === "int" && paramMode === "range";
+            const showIntDecrement = paramType === "int" && paramMode === "decrement";
             const showFloatList = paramType === "float" && paramMode === "list";
             const showFloatRange = paramType === "float" && paramMode === "range";
+            const showFloatDecrement = paramType === "float" && paramMode === "decrement";
             const showStringList = paramType === "string";
             const showJsonList = paramType === "json";
             const rangeSupported = paramType === "int" || paramType === "float";
@@ -68,6 +72,10 @@ app.registerExtension({
             setWidgetVisible(getWidget(node, "float_range_start"), showFloatRange);
             setWidgetVisible(getWidget(node, "float_range_end"), showFloatRange);
             setWidgetVisible(getWidget(node, "float_range_step"), showFloatRange);
+            setWidgetVisible(getWidget(node, "int_decrement_total"), showIntDecrement);
+            setWidgetVisible(getWidget(node, "int_decrement_step"), showIntDecrement);
+            setWidgetVisible(getWidget(node, "float_decrement_total"), showFloatDecrement);
+            setWidgetVisible(getWidget(node, "float_decrement_step"), showFloatDecrement);
             setWidgetVisible(getWidget(node, "initial_state_json"), false);
             setWidgetVisible(getWidget(node, "resume_loop_ctx"), false);
             setWidgetVisible(getWidget(node, "meta_json"), false);

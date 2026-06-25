@@ -1,6 +1,7 @@
 from .general import *
 from .string_ops import *
 from .aspect_ratio import *
+from .number_ops import *
 
 # SimpleText and RichText are frontend-only annotation nodes; their Python
 # classes are no-op shells registered here for the menu and workflow save/load.

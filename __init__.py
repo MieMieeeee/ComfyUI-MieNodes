@@ -11,7 +11,7 @@ if _INTERNAL_PACKAGE not in sys.modules:
     sys.modules[_INTERNAL_PACKAGE] = _pkg
 
 from _mienodes_internal.nodes.common import ShowAnythingMie, ShowAndSaveAnythingMie, SaveAnythingAsFile, CompareFiles, GetAbsolutePath, GetFileInfo, \
-    GetDirectoryFilesInfo, CopyFiles, DeleteFiles, ClassicAspectRatio, AspectRatioFromSize, StringConcat, SimpleTextNode, RichTextNode
+    GetDirectoryFilesInfo, CopyFiles, DeleteFiles, ClassicAspectRatio, AspectRatioFromSize, RoundToMultiple, StringConcat, SimpleTextNode, RichTextNode
 from _mienodes_internal.nodes.files import BatchRenameFiles, BatchDeleteFiles, BatchEditTextFiles, BatchSyncImageCaptionFiles, \
     SummaryTextFiles, BatchConvertImageFiles, DedupImageFiles, ModelDownloader, HFRepoDownloader
 from _mienodes_internal.nodes.llm import TextTranslator, PromptGenerator, KontextPromptGenerator, AddUserKontextPreset, RemoveUserKontextPreset, \
@@ -24,9 +24,9 @@ from _mienodes_internal.services.llm import SetGeneralLLMServiceConnector, SetSi
     CheckLLMServiceConnectivity, CallLLMService
 from _mienodes_internal.nodes.media import WavConcat, QwenTTSNode, SingleImageToVideo, AddNumberWatermarkForImage, AddTextWatermarkForImage
 from _mienodes_internal.services.tts import SetBailianTTSConnector
-from _mienodes_internal.nodes.loop import MieLoopStart, MieLoopResume, MieLoopBodyIn, MieLoopBodyOut, MieLoopEnd, MieLoopGetIndex, MieLoopParamGetInt, MieLoopParamGetFloat, \
+from _mienodes_internal.nodes.loop import MieLoopStart, MieLoopResume, MieLoopBodyIn, MieLoopBodyOut, MieLoopEnd, MieLoopGetIndex, MieLoopIfCurrentIdx, MieLoopIfIsFirst, MieLoopIfIsLast, MieLoopParamGetInt, MieLoopParamGetFloat, \
     MieLoopParamGetString, MieLoopParamGetBool, MieLoopStateGetInt, MieLoopStateGetFloat, MieLoopStateGetString, \
-    MieLoopStateGetBool, MieLoopStateSet, MieImageSelectFrame, MieLoopStateSetImage, MieLoopStateGetImage, MieLoopStateCleanupImage, \
+    MieLoopStateGetBool, MieLoopStateSet, MieImageSelectFrame, MieLoopStateSetImage, MieLoopStateSetImageBatch, MieLoopStateGetImage, MieLoopStateCleanupImage, \
     MieLoopStateSetInt, MieLoopStateSetFloat, MieLoopStateSetString, MieLoopStateSetBool, \
     MieLoopCollectImage, MieLoopFinalizeImages, MieLoopCleanupImages, MieImageGrid, \
     MieLoopCollectText, MieLoopFinalizeTextList, MieLoopCleanupText, MieLoopCollectJSON, MieLoopFinalizeJSONList, MieLoopCleanupJSON, \
@@ -95,6 +95,7 @@ NODE_CLASS_MAPPINGS = {
     add_suffix("AddTextWatermarkForImage"): AddTextWatermarkForImage,
     add_suffix("ClassicAspectRatio"): ClassicAspectRatio,
     add_suffix("AspectRatioFromSize"): AspectRatioFromSize,
+    add_suffix("RoundToMultiple"): RoundToMultiple,
     add_suffix('SimpleTextNode'): SimpleTextNode,
     add_suffix('RichTextNode'): RichTextNode,
     add_suffix("MieLoopStart"): MieLoopStart,
@@ -103,6 +104,9 @@ NODE_CLASS_MAPPINGS = {
     add_suffix("MieLoopBodyOut"): MieLoopBodyOut,
     add_suffix("MieLoopEnd"): MieLoopEnd,
     add_suffix("MieLoopGetIndex"): MieLoopGetIndex,
+    add_suffix("MieLoopIfCurrentIdx"): MieLoopIfCurrentIdx,
+    add_suffix("MieLoopIfIsFirst"): MieLoopIfIsFirst,
+    add_suffix("MieLoopIfIsLast"): MieLoopIfIsLast,
     add_suffix("MieLoopParamGetInt"): MieLoopParamGetInt,
     add_suffix("MieLoopParamGetFloat"): MieLoopParamGetFloat,
     add_suffix("MieLoopParamGetString"): MieLoopParamGetString,
@@ -114,6 +118,7 @@ NODE_CLASS_MAPPINGS = {
     add_suffix("MieLoopStateSet"): MieLoopStateSet,
     add_suffix("MieImageSelectFrame"): MieImageSelectFrame,
     add_suffix("MieLoopStateSetImage"): MieLoopStateSetImage,
+    add_suffix("MieLoopStateSetImageBatch"): MieLoopStateSetImageBatch,
     add_suffix("MieLoopStateSetInt"): MieLoopStateSetInt,
     add_suffix("MieLoopStateSetFloat"): MieLoopStateSetFloat,
     add_suffix("MieLoopStateSetString"): MieLoopStateSetString,
@@ -195,6 +200,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     add_suffix("AddTextWatermarkForImage"): add_emoji("Add Text Watermark For Image"),
     add_suffix("ClassicAspectRatio"): add_emoji("Classic Aspect Ratio"),
     add_suffix("AspectRatioFromSize"): add_emoji("Aspect Ratio From Size"),
+    add_suffix("RoundToMultiple"): add_emoji("Round To Multiple"),
     add_suffix('SimpleTextNode'): add_emoji('Simple Text'),
     add_suffix('RichTextNode'): add_emoji('Rich Text'),
     add_suffix("MieLoopStart"): add_emoji("Mie Loop Start"),
@@ -203,6 +209,9 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     add_suffix("MieLoopBodyOut"): add_emoji("Mie Loop Body Out"),
     add_suffix("MieLoopEnd"): add_emoji("Mie Loop End"),
     add_suffix("MieLoopGetIndex"): add_emoji("Mie Loop Get Index"),
+    add_suffix("MieLoopIfCurrentIdx"): add_emoji("Mie Loop If Current Idx"),
+    add_suffix("MieLoopIfIsFirst"): add_emoji("Mie Loop If Is First"),
+    add_suffix("MieLoopIfIsLast"): add_emoji("Mie Loop If Is Last"),
     add_suffix("MieLoopParamGetInt"): add_emoji("Mie Loop Param Get Int"),
     add_suffix("MieLoopParamGetFloat"): add_emoji("Mie Loop Param Get Float"),
     add_suffix("MieLoopParamGetString"): add_emoji("Mie Loop Param Get String"),
@@ -214,6 +223,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     add_suffix("MieLoopStateSet"): add_emoji("Mie Loop State Set"),
     add_suffix("MieImageSelectFrame"): add_emoji("Mie Image Select Frame"),
     add_suffix("MieLoopStateSetImage"): add_emoji("Mie Loop State Set Image"),
+    add_suffix("MieLoopStateSetImageBatch"): add_emoji("Mie Loop State Set Image Batch"),
     add_suffix("MieLoopStateSetInt"): add_emoji("Mie Loop State Set Int"),
     add_suffix("MieLoopStateSetFloat"): add_emoji("Mie Loop State Set Float"),
     add_suffix("MieLoopStateSetString"): add_emoji("Mie Loop State Set String"),

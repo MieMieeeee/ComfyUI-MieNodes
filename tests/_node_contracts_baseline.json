@@ -1,4 +1,22 @@
 {
+  "AddCustomSystemPrompt|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Prompt Generator",
+    "function": "add_prompt",
+    "hidden": [],
+    "optional": [],
+    "required": [
+      "prompt_name",
+      "system_prompt"
+    ],
+    "return_names": [
+      "success",
+      "log"
+    ],
+    "return_types": [
+      "BOOLEAN",
+      "STRING"
+    ]
+  },
   "AddNumberWatermarkForImage|Mie": {
     "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Image Operator",
     "function": "apply_watermark",
@@ -303,6 +321,33 @@
     ],
     "return_types": [
       "INT",
+      "STRING"
+    ]
+  },
+  "CustomSystemPromptGenerator|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Prompt Generator",
+    "function": "generate",
+    "hidden": [],
+    "optional": [
+      "image_detail",
+      "max_tokens",
+      "reference_images",
+      "reference_video",
+      "reference_video_frames",
+      "source",
+      "temperature",
+      "video_frames"
+    ],
+    "required": [
+      "input_text",
+      "llm_service_connector",
+      "seed",
+      "system_prompt_name"
+    ],
+    "return_names": [
+      "custom_prompt"
+    ],
+    "return_types": [
       "STRING"
     ]
   },
@@ -878,6 +923,68 @@
       "INT"
     ]
   },
+  "MieLoopIfCurrentIdx|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Loop",
+    "function": "execute",
+    "hidden": [],
+    "optional": [
+      "else_value",
+      "then_value"
+    ],
+    "required": [
+      "compare_value",
+      "loop_ctx",
+      "operator"
+    ],
+    "return_names": [
+      "loop_ctx",
+      "value"
+    ],
+    "return_types": [
+      "MIE_LOOP_CTX",
+      "*"
+    ]
+  },
+  "MieLoopIfIsFirst|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Loop",
+    "function": "execute",
+    "hidden": [],
+    "optional": [
+      "else_value",
+      "then_value"
+    ],
+    "required": [
+      "loop_ctx"
+    ],
+    "return_names": [
+      "loop_ctx",
+      "value"
+    ],
+    "return_types": [
+      "MIE_LOOP_CTX",
+      "*"
+    ]
+  },
+  "MieLoopIfIsLast|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Loop",
+    "function": "execute",
+    "hidden": [],
+    "optional": [
+      "else_value",
+      "then_value"
+    ],
+    "required": [
+      "loop_ctx"
+    ],
+    "return_names": [
+      "loop_ctx",
+      "value"
+    ],
+    "return_types": [
+      "MIE_LOOP_CTX",
+      "*"
+    ]
+  },
   "MieLoopParamGetBool|Mie": {
     "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Loop",
     "function": "execute",
@@ -958,11 +1065,15 @@
     "function": "execute",
     "hidden": [],
     "optional": [
+      "float_decrement_step",
+      "float_decrement_total",
       "float_list",
       "float_range_end",
       "float_range_start",
       "float_range_step",
       "initial_state_json",
+      "int_decrement_step",
+      "int_decrement_total",
       "int_list",
       "int_range_end",
       "int_range_start",
@@ -1122,6 +1233,25 @@
       "MIE_LOOP_CTX"
     ]
   },
+  "MieLoopStateSetImageBatch|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Loop",
+    "function": "execute",
+    "hidden": [],
+    "optional": [],
+    "required": [
+      "image",
+      "key",
+      "loop_ctx"
+    ],
+    "return_names": [
+      "loop_ctx",
+      "count"
+    ],
+    "return_types": [
+      "MIE_LOOP_CTX",
+      "INT"
+    ]
+  },
   "MieLoopStateSetImage|Mie": {
     "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Loop",
     "function": "execute",
@@ -1257,6 +1387,23 @@
       "AUDIO"
     ]
   },
+  "RemoveCustomSystemPrompt|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Prompt Generator",
+    "function": "remove_preset",
+    "hidden": [],
+    "optional": [],
+    "required": [
+      "preset_name"
+    ],
+    "return_names": [
+      "success",
+      "log"
+    ],
+    "return_types": [
+      "BOOLEAN",
+      "STRING"
+    ]
+  },
   "RemoveUserKontextPreset|Mie": {
     "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Prompt Generator",
     "function": "remove_preset",
@@ -1282,6 +1429,25 @@
     "required": [],
     "return_names": [],
     "return_types": []
+  },
+  "RoundToMultiple|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Common",
+    "function": "round",
+    "hidden": [],
+    "optional": [],
+    "required": [
+      "multiple",
+      "rounding",
+      "value"
+    ],
+    "return_names": [
+      "float",
+      "int"
+    ],
+    "return_types": [
+      "FLOAT",
+      "INT"
+    ]
   },
   "SaveAnythingAsFile|Mie": {
     "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Common",
