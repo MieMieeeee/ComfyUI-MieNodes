@@ -83,6 +83,10 @@ End.loop_ctx/done -> Finalize*
 适用场景：
 - 长轮次、大分辨率图片或长音频，降低峰值显存/内存。
 
+长跑建议（如 SCAIL 数十段）：
+- **强烈建议** `offload_to_disk=true`：生成阶段把每段结果落盘，避免 collect list 持有全部 tensor。
+- `FinalizeImages` / `FinalizeAudio` 采用**增量合并**（逐段 load → cat → 释放），load 阶段峰值显著低于一次性全量载入；合并失败时磁盘缓存**保留**，便于手动救回（见下「Finalize 崩溃后手动合并」）。
+
 ## Expand 与协议 ID 约束
 MieLoop 使用 expand 图递归执行下一轮。为避免 ID 漂移：
 - 协议模板 ID（`body_out_id`, `end_id`）一旦确定必须保持模板值。
@@ -128,6 +132,13 @@ MieLoop 使用 expand 图递归执行下一轮。为避免 ID 漂移：
 ### 日志体积异常增长
 - 先确认 `debug` 是否误开。
 - 确认使用的是最新版本（包含协议 ID 冻结与日志截断修复）。
+
+### Finalize 崩溃后手动合并
+`FinalizeImages` / `FinalizeAudio` 合并失败时（如超大批次触发原生崩溃），**不会删除**磁盘缓存，日志会打印 `LoopFinalizeMergeFailed: ... cache_dir=... disk_files_preserved=true`。
+- 缓存目录：`{ComfyUI temp}/mie_loop_offload/{run_id}/`（或你指定的 `offload_dir`），形如 `image_*.pt` / `audio_*.pt`。
+- 手动救回：按 mtime 排序文件，逐个 `torch.load` + 增量 `torch.cat`（image 沿 `dim=0`，audio 波形沿 `dim=-1`）。
+- 救回后可自行删除该 `{run_id}` 目录释放空间。
+- 注意：若工作流内同一文件被多路 LoadVideo 引用（如 SCAIL 双视频路径不一致），collector 可能混入不属于本循环的段，需结合业务链判断要跳过的前若干文件——这是 workflow 层问题，Finalize 无法自动识别。
 
 ## 推荐最小示例（文本收集）
 ```text
