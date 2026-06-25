@@ -211,6 +211,33 @@ def test_finalize_audio_sample_rate_mismatch_preserves_cache(tmp_path):
     assert all(p.exists() for p in paths), "audio disk cache must be preserved on rate mismatch"
 
 
+def test_finalize_audio_many_disk_batches_matches_one_shot(tmp_path):
+    """Audio: 20 disk batches merge to one-shot cat (dim=-1); success cleans files."""
+    collect = MieLoopCollectAudio()
+    finalize = MieLoopFinalizeAudio()
+    ctx = {
+        "version": 3, "loop_id": "audio_many", "run_id": "audio_many_run",
+        "mode": "for_each", "index": 0, "count": 20, "is_last": False,
+        "params_list": [{}] * 20, "current_params": {}, "state": {},
+        "collectors": {"audio": {"ref": None, "count": 0}},
+        "meta": {"body_in_id": "10", "body_out_id": "20", "end_id": "30"},
+    }
+    expected = []
+    for _ in range(20):
+        a = _make_audio(3)
+        expected.append(a["waveform"])
+        ctx = collect.execute(ctx, a, True, str(tmp_path))[0]
+    ref = ctx["collectors"]["audio"]["ref"]
+    paths = [Path(x["disk_path"]) for x in RUNTIME_STORE["collectors"]["audio"][ref]]
+
+    merged = finalize.execute(ctx, True)[0]
+
+    assert torch.equal(merged["waveform"], torch.cat(expected, dim=-1))
+    assert merged["waveform"].shape == (1, 2, 60)  # 20 * 3
+    assert merged["sample_rate"] == 24000
+    assert all(not p.exists() for p in paths), "audio success must clean disk cache"
+
+
 # ----------------------------------------------------------------------
 # Logging
 # ----------------------------------------------------------------------
@@ -225,3 +252,27 @@ def test_finalize_logs_cache_dir_on_start(sample_loop_ctx, tmp_path, capsys):
     assert "LoopFinalizeMergeStart" in out
     assert str(tmp_path) in out  # cache_dir
     assert sample_loop_ctx["run_id"] in out
+
+
+def test_finalize_logs_failed_preserves_files_on_error(sample_loop_ctx, monkeypatch, tmp_path, capsys):
+    """On merge failure, a LoopFinalizeMergeFailed log names the cache_dir and files are kept."""
+    collect = MieLoopCollectImage()
+    finalize = MieLoopFinalizeImages()
+    ctx = collect.execute(sample_loop_ctx, torch.rand(1, 4, 4, 3), True, str(tmp_path))[0]
+    ctx = collect.execute(ctx, torch.rand(1, 4, 4, 3), True, str(tmp_path))[0]
+    ref = ctx["collectors"]["image"]["ref"]
+    paths = [Path(x["disk_path"]) for x in RUNTIME_STORE["collectors"]["image"][ref]]
+
+    def boom_load(*args, **kwargs):
+        raise RuntimeError("simulated load failure")
+
+    monkeypatch.setattr(loop_module.torch, "load", boom_load)
+
+    with pytest.raises(RuntimeError):
+        finalize.execute(ctx, True)
+
+    out = capsys.readouterr().out
+    assert "LoopFinalizeMergeFailed" in out
+    assert "disk_files_preserved=true" in out
+    assert str(tmp_path) in out  # cache_dir printed for manual recovery
+    assert all(p.exists() for p in paths)

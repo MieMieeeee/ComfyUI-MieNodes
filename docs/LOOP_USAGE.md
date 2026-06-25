@@ -78,7 +78,7 @@ End.loop_ctx/done -> Finalize*
 
 行为：
 - 开启后，收集阶段写 `.pt` 到临时目录，内存里只保留 `disk_path` 元信息。
-- `Finalize*` / `Cleanup*` / 运行时清理会自动删除对应磁盘缓存。
+- `Cleanup*` 与运行时清理会自动删除对应磁盘缓存；`Finalize*` **仅合并成功**时删除，失败时保留以便手动救回（见下「Finalize 崩溃后手动合并」）。
 
 适用场景：
 - 长轮次、大分辨率图片或长音频，降低峰值显存/内存。
@@ -86,6 +86,7 @@ End.loop_ctx/done -> Finalize*
 长跑建议（如 SCAIL 数十段）：
 - **强烈建议** `offload_to_disk=true`：生成阶段把每段结果落盘，避免 collect list 持有全部 tensor。
 - `FinalizeImages` / `FinalizeAudio` 采用**增量合并**（逐段 load → cat → 释放），load 阶段峰值显著低于一次性全量载入；合并失败时磁盘缓存**保留**，便于手动救回（见下「Finalize 崩溃后手动合并」）。
+- 增量合并的降峰值收益主要在 `offload_to_disk=true`（逐段从盘载入）；`offload_to_disk=false` 时 collect list 仍持有全部 tensor，Finalize 峰值与改前相近——长跑请务必开启 offload。
 
 ## Expand 与协议 ID 约束
 MieLoop 使用 expand 图递归执行下一轮。为避免 ID 漂移：
