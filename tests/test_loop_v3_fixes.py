@@ -361,25 +361,32 @@ class TestBodyInAnchorPassthrough:
             next_ctx, dynprompt, "32", "33", "34", detect
         )
 
-        # Find End node and BodyOut node
+        # Find End node and BodyOut node (resolve actual clone keys from the graph)
         end_node = None
-        bodyout_node = None
+        end_nid = None
+        bodyout_nid = None
         for nid, nd in result.items():
             if nd["class_type"] == "MieLoopEnd|Mie":
                 end_node = nd
+                end_nid = nid
             if nd["class_type"] == "MieLoopBodyOut|Mie":
-                bodyout_node = nd
+                bodyout_nid = nid
         assert end_node is not None, "MieLoopEnd should be cloned in expand graph"
-        assert bodyout_node is not None, "MieLoopBodyOut should be cloned in expand graph"
+        assert bodyout_nid is not None, "MieLoopBodyOut should be cloned in expand graph"
 
-        # End.loop_ctx must point to current cloned BodyOut
+        # Plan B: BodyOut clone uses the Recurse sentinel id, but still reports the
+        # template id ("33") as its override_display_id for the UI.
+        assert "__mie_loop_recurse_bodyout__" in bodyout_nid
+        assert result[bodyout_nid].get("override_display_id") == "33"
+
+        # End.loop_ctx must point to current cloned BodyOut (whatever its clone key is)
         loop_ctx_input = end_node["inputs"]["loop_ctx"]
         assert isinstance(loop_ctx_input, list), (
             f"End.loop_ctx should be a link, got {loop_ctx_input}"
         )
-        assert loop_ctx_input[0] == "fake.33", (
-            "End.loop_ctx should point to the current cloned BodyOut (fake.33), "
-            f"got {loop_ctx_input}"
+        assert loop_ctx_input[0] == bodyout_nid, (
+            "End.loop_ctx should point to the current cloned BodyOut "
+            f"({bodyout_nid}), got {loop_ctx_input}"
         )
 
 

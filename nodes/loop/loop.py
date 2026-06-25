@@ -43,6 +43,15 @@ RUNTIME_STORE = {
 _MAX_RUNTIME_STORE_AGE = 3600  # seconds = 1 hour
 _runtime_store_timestamps = {}
 
+# Fixed internal ids used when cloning the loop-closing protocol nodes (End/BodyOut)
+# inside the expand graph. Using a stable sentinel (instead of the template node id)
+# prevents the nested execution id from stacking the template id every round
+# (e.g. 453.0.0.453.0.0.453...). Mirrors ComfyUI's official while_loop_close, which
+# keys its close node on the fixed id "Recurse". UI still shows the template id via
+# set_override_display_id(), so saved workflows and the canvas are unaffected.
+RECURSE_END_ID = "__mie_loop_recurse_end__"
+RECURSE_BODY_OUT_ID = "__mie_loop_recurse_bodyout__"
+
 
 def _require_dict(value: Any, name: str):
     if not isinstance(value, dict):
@@ -1094,7 +1103,17 @@ def _build_expand_graph_for_next_round(
                 new_inputs["state_json"] = body_out_node.out(1)
             if oid in business_set:
                 new_inputs["__mie_loop_round_idx__"] = int(next_ctx.get("index", 0))
-            new_node = graph.node(_get_class_type(old_node), oid, **new_inputs)
+            # Plan B: protocol close-nodes (End/BodyOut) are keyed by a fixed Recurse
+            # sentinel so repeated nesting doesn't stack the template id in the path.
+            # All other nodes (business/intermediate) keep their template id as the
+            # clone id. built_nodes stays keyed by the template oid; the UI still
+            # shows the template id via override_display_id below.
+            clone_id = oid
+            if is_loop_end_node:
+                clone_id = RECURSE_END_ID
+            elif is_body_out_node:
+                clone_id = RECURSE_BODY_OUT_ID
+            new_node = graph.node(_get_class_type(old_node), clone_id, **new_inputs)
             new_node.set_override_display_id(oid)
             built_nodes[oid] = new_node
         finally:

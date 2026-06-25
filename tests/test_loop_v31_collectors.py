@@ -66,9 +66,12 @@ def test_expand_end_only_depends_on_bodyout_loop_ctx_and_state_json(monkeypatch)
     }
     graph, _ = _build_expand_graph_for_next_round(_make_ctx(), dynprompt, "10", "20", "30", detect_result)
     end = next(node for node in graph.values() if node["class_type"] == "MieLoopEnd|Mie")
+    # Resolve the BodyOut clone key dynamically (Plan B: it is a Recurse sentinel,
+    # not the template id "20"); End must wire to whichever key BodyOut actually has.
+    bodyout_key = next(nid for nid, node in graph.items() if node["class_type"] == "MieLoopBodyOut|Mie")
     assert sorted(end["inputs"].keys()) == ["loop_ctx", "state_json"]
-    assert end["inputs"]["loop_ctx"] == ["fake.20", 0]
-    assert end["inputs"]["state_json"] == ["fake.20", 1]
+    assert end["inputs"]["loop_ctx"] == [bodyout_key, 0]
+    assert end["inputs"]["state_json"] == [bodyout_key, 1]
 
 
 def test_expand_preserves_bodyout_loop_ctx_chain_for_feedback_nodes(monkeypatch):
@@ -101,11 +104,14 @@ def test_expand_preserves_bodyout_loop_ctx_chain_for_feedback_nodes(monkeypatch)
     graph, _ = _build_expand_graph_for_next_round(_make_ctx(), dynprompt, "10", "20", "30", detect_result)
 
     bodyout = next(node for node in graph.values() if node["class_type"] == "MieLoopBodyOut|Mie")
-    collect = next(node for node in graph.values() if node["class_type"] == "MieLoopCollectImage|Mie")
+    bodyout_key = next(nid for nid, node in graph.items() if node["class_type"] == "MieLoopBodyOut|Mie")
+    collect_key = next(nid for nid, node in graph.items() if node["class_type"] == "MieLoopCollectImage|Mie")
     end = next(node for node in graph.values() if node["class_type"] == "MieLoopEnd|Mie")
 
-    assert bodyout["inputs"]["loop_ctx"] == [collect.get("override_display_id", "fake.59"), 0] or bodyout["inputs"]["loop_ctx"] == ["fake.59", 0]
-    assert end["inputs"]["loop_ctx"] == ["fake.20", 0]
+    # BodyOut.loop_ctx must come from the cloned collector (whatever its flat-prefixed
+    # key is), proving the stateful feedback chain is preserved across expand.
+    assert bodyout["inputs"]["loop_ctx"] == [collect_key, 0]
+    assert end["inputs"]["loop_ctx"] == [bodyout_key, 0]
 
 
 def test_expand_preserves_bodyout_loop_ctx_chain_for_plain_collector_nodes(monkeypatch):
@@ -131,6 +137,7 @@ def test_expand_preserves_bodyout_loop_ctx_chain_for_plain_collector_nodes(monke
     graph, _ = _build_expand_graph_for_next_round(_make_ctx(), dynprompt, "10", "20", "30", detect_result)
 
     bodyout = next(node for node in graph.values() if node["class_type"] == "MieLoopBodyOut|Mie")
-    collect = next(node for node in graph.values() if node["class_type"] == "MieLoopCollectImage|Mie")
+    collect_key = next(nid for nid, node in graph.items() if node["class_type"] == "MieLoopCollectImage|Mie")
 
-    assert bodyout["inputs"]["loop_ctx"] == [collect.get("override_display_id", "fake.59"), 0] or bodyout["inputs"]["loop_ctx"] == ["fake.59", 0]
+    # BodyOut.loop_ctx must come from the cloned collector (flat-prefixed key).
+    assert bodyout["inputs"]["loop_ctx"] == [collect_key, 0]

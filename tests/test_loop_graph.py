@@ -623,6 +623,82 @@ def test_build_expand_graph_resume_node_does_not_collide_with_end_id_1(monkeypat
     assert len(resume_ids) == 1
     assert len(end_ids) == 1
     assert resume_ids[0] != end_ids[0]
+    # Plan B: End uses the fixed Recurse sentinel id; Resume uses its own sentinel.
+    # They must remain distinct even though both are fixed internal ids.
+    assert "__mie_loop_recurse_end__" in end_ids[0]
+    assert "__mie_loop_resume__" in resume_ids[0]
+
+
+def test_expand_recurse_end_id(monkeypatch):
+    """Plan B: the cloned End is keyed by the Recurse sentinel, not the template end_id.
+
+    This is what stops the nested execution id from stacking the template end_id
+    every round (453.0.0.453.0.0.453...). The UI still shows the template id via
+    override_display_id, so saved workflows and the canvas are unaffected.
+    """
+    monkeypatch.setattr(loop_module, "GraphBuilder", FakeGraphBuilder)
+    next_ctx = _make_next_ctx()
+    dynprompt = _make_simple_dynprompt()  # end_id == "30"
+    detect_result = _make_detect_result()
+    result, end_built_node = _build_expand_graph_for_next_round(
+        next_ctx, dynprompt, "10", "20", "30", detect_result
+    )
+    end_items = [
+        (nid, nd) for nid, nd in result.items() if nd["class_type"] == "MieLoopEnd|Mie"
+    ]
+    assert len(end_items) == 1
+    end_nid, end_nd = end_items[0]
+    # Clone key carries the Recurse sentinel, NOT the template end_id "30".
+    assert "__mie_loop_recurse_end__" in end_nid
+    assert not end_nid.endswith(".30")
+    # UI display id is still the original template id.
+    assert end_nd.get("override_display_id") == "30"
+
+
+def test_expand_recurse_bodyout_id(monkeypatch):
+    """Plan B: the cloned BodyOut is keyed by the Recurse sentinel, not the template id."""
+    monkeypatch.setattr(loop_module, "GraphBuilder", FakeGraphBuilder)
+    next_ctx = _make_next_ctx()
+    dynprompt = _make_simple_dynprompt()  # body_out_id == "20"
+    detect_result = _make_detect_result()
+    result, _ = _build_expand_graph_for_next_round(
+        next_ctx, dynprompt, "10", "20", "30", detect_result
+    )
+    bodyout_items = [
+        (nid, nd)
+        for nid, nd in result.items()
+        if nd["class_type"] == "MieLoopBodyOut|Mie"
+    ]
+    assert len(bodyout_items) == 1
+    bo_nid, bo_nd = bodyout_items[0]
+    assert "__mie_loop_recurse_bodyout__" in bo_nid
+    assert not bo_nid.endswith(".20")
+    assert bo_nd.get("override_display_id") == "20"
+
+
+def test_expand_no_template_end_id_as_clone_key(monkeypatch):
+    """Plan B: no End node in the expand graph is keyed by the bare template end_id.
+
+    Under ComfyUI's real prefix mechanism, an End keyed by its template id is what
+    makes the parent path stack `.0.0.{end_id}` every round. Plan B breaks that at
+    the source by remapping the clone id, so the template end_id never appears as an
+    End clone key. (Full `.0.0.` flattening is Plan A; this is the Plan B unit check.)
+    """
+    monkeypatch.setattr(loop_module, "GraphBuilder", FakeGraphBuilder)
+    next_ctx = _make_next_ctx()
+    dynprompt = _make_simple_dynprompt()  # end_id == "30"
+    detect_result = _make_detect_result()
+    result, _ = _build_expand_graph_for_next_round(
+        next_ctx, dynprompt, "10", "20", "30", detect_result
+    )
+    end_keys = [
+        nid for nid, nd in result.items() if nd["class_type"] == "MieLoopEnd|Mie"
+    ]
+    assert end_keys, "expected an End node in the expand graph"
+    for nid in end_keys:
+        # The End clone key must not be the old template-id form (e.g. "fake.30").
+        assert not nid.endswith(".30")
+        assert "__mie_loop_recurse_end__" in nid
 
 
 def test_build_expand_graph_cyclic_detection(monkeypatch):
