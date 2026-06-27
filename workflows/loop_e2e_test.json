@@ -1,0 +1,530 @@
+{
+  "_comment": "Comprehensive E2E test workflow for MieLoop — API prompt format.\n\nFour independent loops covering ALL 39 manually-testable MieLoop nodes\n(MieLoopResume is expand-internal and excluded), PLUS disk-offload features.\n\nLoop A (string_list, 4 rounds) — Text/JSON chain + conditions + state int:\n  Start(string), BodyIn, GetIndex, ParamGetString, IfIsFirst/IsLast/CurrentIdx(routed),\n  StateGetInt/SetInt, StringConcat, CollectText, CollectJSON, BodyOut, End,\n  FinalizeTextList, FinalizeJSONList, CleanupText, CleanupJSON, ShowAnything\n\nLoop B (int_range 0..2, 3 rounds) — Image chain + state image:\n  Start(int_range), BodyIn, GetIndex, ParamGetInt, IfIsFirst(routed),\n  StateGetImage, StateSetImage, StateSetImageBatch, StateCleanupImage,\n  CollectImage(offload_to_disk=true, custom dir), ImageSelectFrame, ImageGrid,\n  BodyOut, End, FinalizeImages, CleanupImages, SaveImage\n\nLoop C (json_list, 3 rounds) — Full param/state type coverage + audio offload:\n  Start(json), BodyIn, GetIndex, ParamGetFloat/Bool/String,\n  StateGetFloat/String/Bool, StateSetFloat/String/Bool, StateSet(batch builder),\n  CollectText/JSON, CollectAudio(offload_to_disk=true, custom dir), EmptyAudio, BodyOut, End,\n  FinalizeTextList, FinalizeJSONList, FinalizeAudio, CleanupAudio, ShowAnything\n\nLoop D (int_range 0..11, 12 rounds) — Disk stress: incremental merge (>=10 batches):\n  Start(int_range 0..11), BodyIn, GetIndex, EmptyImage(4x4),\n  CollectImage(offload_to_disk=true, custom dir), BodyOut, End,\n  FinalizeImages(triggers incremental merge with progress log), SaveImage\n\nDisk features tested:\n  - offload_to_disk=true (Image + Audio)\n  - custom offload_dir ('e2e_loop_test/image_offload', 'e2e_loop_test/audio_offload')\n  - .pt cache creation + reload on Finalize\n  - incremental merge (>=10 batches triggers LoopFinalizeMergeProgress log)\n  - .pt cleanup on Finalize success",
+  "1": {
+    "inputs": {
+      "loop_id": "loop_a_string",
+      "param_type": "string",
+      "param_mode": "list",
+      "initial_state_json": "{}",
+      "int_list": "",
+      "float_list": "",
+      "string_list": "round_0\nround_1\nround_2\nround_3",
+      "json_list": "[]",
+      "int_range_start": 0,
+      "int_range_end": 0,
+      "int_range_step": 1,
+      "float_range_start": 0.0,
+      "float_range_end": 0.0,
+      "float_range_step": 0.1,
+      "int_decrement_total": 5,
+      "int_decrement_step": 2,
+      "float_decrement_total": 5.0,
+      "float_decrement_step": 2.0,
+      "meta_json": "{}",
+      "resume_loop_ctx": ""
+    },
+    "class_type": "MieLoopStart|Mie",
+    "_meta": { "title": "A: Start (string_list)" }
+  },
+  "2": {
+    "inputs": { "loop_ctx": ["1", 0] },
+    "class_type": "MieLoopBodyIn|Mie",
+    "_meta": { "title": "A: BodyIn" }
+  },
+  "3": {
+    "inputs": { "loop_ctx": ["2", 0] },
+    "class_type": "MieLoopGetIndex|Mie",
+    "_meta": { "title": "A: GetIndex" }
+  },
+  "4": {
+    "inputs": { "loop_ctx": ["2", 0], "key": "value", "default_value": "" },
+    "class_type": "MieLoopParamGetString|Mie",
+    "_meta": { "title": "A: ParamGetString" }
+  },
+  "5": {
+    "inputs": { "anything": ["3", 0] },
+    "class_type": "ShowAnything|Mie",
+    "_meta": { "title": "A: Show Index" }
+  },
+  "6": {
+    "inputs": { "anything": ["4", 0] },
+    "class_type": "ShowAnything|Mie",
+    "_meta": { "title": "A: Show Param" }
+  },
+  "7": {
+    "inputs": { "loop_ctx": ["2", 0], "key": "sum", "default_value": 0 },
+    "class_type": "MieLoopStateGetInt|Mie",
+    "_meta": { "title": "A: StateGetInt(sum)" }
+  },
+  "8": {
+    "inputs": { "loop_ctx": ["2", 0], "key": "sum", "value": 1 },
+    "class_type": "MieLoopStateSetInt|Mie",
+    "_meta": { "title": "A: StateSetInt(sum+=1)" }
+  },
+  "9": {
+    "inputs": { "loop_ctx": ["2", 0], "then_value": "FIRST_ROUND", "else_value": "NOT_FIRST" },
+    "class_type": "MieLoopIfIsFirst|Mie",
+    "_meta": { "title": "A: IfIsFirst(routed)" }
+  },
+  "10": {
+    "inputs": { "anything": ["9", 1] },
+    "class_type": "ShowAnything|Mie",
+    "_meta": { "title": "A: Show IsFirst" }
+  },
+  "11": {
+    "inputs": { "loop_ctx": ["2", 0], "then_value": "LAST_ROUND", "else_value": "NOT_LAST" },
+    "class_type": "MieLoopIfIsLast|Mie",
+    "_meta": { "title": "A: IfIsLast(routed)" }
+  },
+  "12": {
+    "inputs": { "loop_ctx": ["2", 0], "operator": "==", "compare_value": 2, "then_value": "MIDDLE", "else_value": "OTHER" },
+    "class_type": "MieLoopIfCurrentIdx|Mie",
+    "_meta": { "title": "A: IfCurrentIdx==2" }
+  },
+  "13": {
+    "inputs": { "anything": ["11", 1] },
+    "class_type": "ShowAnything|Mie",
+    "_meta": { "title": "A: Show IsLast" }
+  },
+  "14": {
+    "inputs": { "anything": ["12", 1] },
+    "class_type": "ShowAnything|Mie",
+    "_meta": { "title": "A: Show CurrentIdx" }
+  },
+  "15": {
+    "inputs": { "str1": "prefix_", "str2": ["4", 0], "delimiter": "" },
+    "class_type": "StringConcat|Mie",
+    "_meta": { "title": "A: StringConcat(prefix_+param)" }
+  },
+  "16": {
+    "inputs": { "loop_ctx": ["8", 0], "text": ["15", 0] },
+    "class_type": "MieLoopCollectText|Mie",
+    "_meta": { "title": "A: CollectText" }
+  },
+  "17": {
+    "inputs": { "loop_ctx": ["16", 0], "item_json": "{\"collected\": true}" },
+    "class_type": "MieLoopCollectJSON|Mie",
+    "_meta": { "title": "A: CollectJSON" }
+  },
+  "18": {
+    "inputs": { "loop_ctx": ["17", 0] },
+    "class_type": "MieLoopBodyOut|Mie",
+    "_meta": { "title": "A: BodyOut" }
+  },
+  "19": {
+    "inputs": { "loop_ctx": ["18", 0], "state_json": "{}", "debug": false },
+    "class_type": "MieLoopEnd|Mie",
+    "_meta": { "title": "A: End" }
+  },
+  "20": {
+    "inputs": { "loop_ctx": ["19", 0], "done": ["19", 1] },
+    "class_type": "MieLoopFinalizeTextList|Mie",
+    "_meta": { "title": "A: FinalizeTextList" }
+  },
+  "21": {
+    "inputs": { "loop_ctx": ["19", 0], "done": ["19", 1] },
+    "class_type": "MieLoopFinalizeJSONList|Mie",
+    "_meta": { "title": "A: FinalizeJSONList" }
+  },
+  "22": {
+    "inputs": { "anything": ["20", 0] },
+    "class_type": "ShowAnything|Mie",
+    "_meta": { "title": "A: Final Text" }
+  },
+  "23": {
+    "inputs": { "anything": ["21", 0] },
+    "class_type": "ShowAnything|Mie",
+    "_meta": { "title": "A: Final JSON" }
+  },
+  "24": {
+    "inputs": { "loop_ctx": ["19", 0] },
+    "class_type": "MieLoopCleanupText|Mie",
+    "_meta": { "title": "A: CleanupText" }
+  },
+  "25": {
+    "inputs": { "loop_ctx": ["19", 0] },
+    "class_type": "MieLoopCleanupJSON|Mie",
+    "_meta": { "title": "A: CleanupJSON" }
+  },
+  "30": {
+    "inputs": { "image": "chibi-green-sweater.png" },
+    "class_type": "LoadImage",
+    "_meta": { "title": "B: Load Test Image" }
+  },
+  "31": {
+    "inputs": {
+      "loop_id": "loop_b_image",
+      "param_type": "int",
+      "param_mode": "range",
+      "initial_state_json": "{}",
+      "int_list": "",
+      "float_list": "",
+      "string_list": "",
+      "json_list": "[]",
+      "int_range_start": 0,
+      "int_range_end": 2,
+      "int_range_step": 1,
+      "float_range_start": 0.0,
+      "float_range_end": 0.0,
+      "float_range_step": 0.1,
+      "int_decrement_total": 5,
+      "int_decrement_step": 2,
+      "float_decrement_total": 5.0,
+      "float_decrement_step": 2.0,
+      "meta_json": "{}",
+      "resume_loop_ctx": ""
+    },
+    "class_type": "MieLoopStart|Mie",
+    "_meta": { "title": "B: Start (int_range 0..2)" }
+  },
+  "32": {
+    "inputs": { "loop_ctx": ["31", 0] },
+    "class_type": "MieLoopBodyIn|Mie",
+    "_meta": { "title": "B: BodyIn" }
+  },
+  "33": {
+    "inputs": { "loop_ctx": ["32", 0] },
+    "class_type": "MieLoopGetIndex|Mie",
+    "_meta": { "title": "B: GetIndex" }
+  },
+  "34": {
+    "inputs": { "loop_ctx": ["32", 0], "key": "value", "default_value": 0 },
+    "class_type": "MieLoopParamGetInt|Mie",
+    "_meta": { "title": "B: ParamGetInt" }
+  },
+  "35": {
+    "inputs": { "anything": ["34", 0] },
+    "class_type": "ShowAnything|Mie",
+    "_meta": { "title": "B: Show Param" }
+  },
+  "36": {
+    "inputs": { "loop_ctx": ["32", 0], "then_value": ["33", 0], "else_value": ["34", 0] },
+    "class_type": "MieLoopIfIsFirst|Mie",
+    "_meta": { "title": "B: IfIsFirst(index vs param)" }
+  },
+  "37": {
+    "inputs": { "anything": ["36", 1] },
+    "class_type": "ShowAnything|Mie",
+    "_meta": { "title": "B: Show Routed Value" }
+  },
+  "38": {
+    "inputs": { "loop_ctx": ["32", 0], "key": "prev", "fallback_image": ["30", 0] },
+    "class_type": "MieLoopStateGetImage|Mie",
+    "_meta": { "title": "B: StateGetImage(prev)" }
+  },
+  "39": {
+    "inputs": { "anything": ["38", 1] },
+    "class_type": "ShowAnything|Mie",
+    "_meta": { "title": "B: Show StateImage found" }
+  },
+  "40": {
+    "inputs": { "loop_ctx": ["32", 0], "key": "single", "image": ["30", 0] },
+    "class_type": "MieLoopStateSetImage|Mie",
+    "_meta": { "title": "B: StateSetImage(single)" }
+  },
+  "41": {
+    "inputs": { "loop_ctx": ["40", 0], "key": "batch", "image": ["30", 0] },
+    "class_type": "MieLoopStateSetImageBatch|Mie",
+    "_meta": { "title": "B: StateSetImageBatch(batch)" }
+  },
+  "42": {
+    "inputs": { "loop_ctx": ["41", 0], "key": "single" },
+    "class_type": "MieLoopStateCleanupImage|Mie",
+    "_meta": { "title": "B: StateCleanupImage(single)" }
+  },
+  "43": {
+    "inputs": { "loop_ctx": ["42", 0], "image": ["30", 0], "offload_to_disk": true, "offload_dir": "" },
+    "class_type": "MieLoopCollectImage|Mie",
+    "_meta": { "title": "B: CollectImage(offload=true)" }
+  },
+  "44": {
+    "inputs": { "images": ["30", 0], "index": 0 },
+    "class_type": "MieImageSelectFrame|Mie",
+    "_meta": { "title": "B: ImageSelectFrame(0)" }
+  },
+  "45": {
+    "inputs": { "images": ["30", 0], "cols": 2, "pad": 4 },
+    "class_type": "MieImageGrid|Mie",
+    "_meta": { "title": "B: ImageGrid(2 cols)" }
+  },
+  "46": {
+    "inputs": { "loop_ctx": ["43", 0] },
+    "class_type": "MieLoopBodyOut|Mie",
+    "_meta": { "title": "B: BodyOut" }
+  },
+  "47": {
+    "inputs": { "loop_ctx": ["46", 0], "state_json": "{}", "debug": false },
+    "class_type": "MieLoopEnd|Mie",
+    "_meta": { "title": "B: End" }
+  },
+  "48": {
+    "inputs": { "loop_ctx": ["47", 0], "done": ["47", 1] },
+    "class_type": "MieLoopFinalizeImages|Mie",
+    "_meta": { "title": "B: FinalizeImages" }
+  },
+  "100": {
+    "inputs": { "images": ["48", 0], "filename_prefix": "e2e_loop_test/images" },
+    "class_type": "SaveImage",
+    "_meta": { "title": "B: SaveImage (finalized)" }
+  },
+  "101": {
+    "inputs": { "images": ["45", 0], "filename_prefix": "e2e_loop_test/grid" },
+    "class_type": "SaveImage",
+    "_meta": { "title": "B: SaveImage (grid)" }
+  },
+  "49": {
+    "inputs": { "loop_ctx": ["47", 0] },
+    "class_type": "MieLoopCleanupImages|Mie",
+    "_meta": { "title": "B: CleanupImages" }
+  },
+  "50": {
+    "inputs": {
+      "loop_id": "loop_c_json",
+      "param_type": "json",
+      "param_mode": "list",
+      "initial_state_json": "{}",
+      "int_list": "",
+      "float_list": "",
+      "string_list": "",
+      "json_list": "[{\"temp\": 0.1, \"flag\": true, \"label\": \"alpha\"}, {\"temp\": 0.2, \"flag\": false, \"label\": \"beta\"}, {\"temp\": 0.3, \"flag\": true, \"label\": \"gamma\"}]",
+      "int_range_start": 0,
+      "int_range_end": 0,
+      "int_range_step": 1,
+      "float_range_start": 0.0,
+      "float_range_end": 0.0,
+      "float_range_step": 0.1,
+      "int_decrement_total": 5,
+      "int_decrement_step": 2,
+      "float_decrement_total": 5.0,
+      "float_decrement_step": 2.0,
+      "meta_json": "{}",
+      "resume_loop_ctx": ""
+    },
+    "class_type": "MieLoopStart|Mie",
+    "_meta": { "title": "C: Start (json_list)" }
+  },
+  "51": {
+    "inputs": { "loop_ctx": ["50", 0] },
+    "class_type": "MieLoopBodyIn|Mie",
+    "_meta": { "title": "C: BodyIn" }
+  },
+  "52": {
+    "inputs": { "loop_ctx": ["51", 0] },
+    "class_type": "MieLoopGetIndex|Mie",
+    "_meta": { "title": "C: GetIndex" }
+  },
+  "53": {
+    "inputs": { "loop_ctx": ["51", 0], "key": "temp", "default_value": 0.0 },
+    "class_type": "MieLoopParamGetFloat|Mie",
+    "_meta": { "title": "C: ParamGetFloat(temp)" }
+  },
+  "54": {
+    "inputs": { "loop_ctx": ["51", 0], "key": "flag", "default_value": false },
+    "class_type": "MieLoopParamGetBool|Mie",
+    "_meta": { "title": "C: ParamGetBool(flag)" }
+  },
+  "55": {
+    "inputs": { "loop_ctx": ["51", 0], "key": "label", "default_value": "" },
+    "class_type": "MieLoopParamGetString|Mie",
+    "_meta": { "title": "C: ParamGetString(label)" }
+  },
+  "56": {
+    "inputs": { "anything": ["53", 0] },
+    "class_type": "ShowAnything|Mie",
+    "_meta": { "title": "C: Show ParamFloat" }
+  },
+  "57": {
+    "inputs": { "anything": ["54", 0] },
+    "class_type": "ShowAnything|Mie",
+    "_meta": { "title": "C: Show ParamBool" }
+  },
+  "58": {
+    "inputs": { "anything": ["55", 0] },
+    "class_type": "ShowAnything|Mie",
+    "_meta": { "title": "C: Show ParamString" }
+  },
+  "59": {
+    "inputs": { "loop_ctx": ["51", 0], "key": "ftemp", "default_value": 0.0 },
+    "class_type": "MieLoopStateGetFloat|Mie",
+    "_meta": { "title": "C: StateGetFloat(ftemp)" }
+  },
+  "60": {
+    "inputs": { "loop_ctx": ["51", 0], "key": "slabel", "default_value": "" },
+    "class_type": "MieLoopStateGetString|Mie",
+    "_meta": { "title": "C: StateGetString(slabel)" }
+  },
+  "61": {
+    "inputs": { "loop_ctx": ["51", 0], "key": "bflag", "default_value": false },
+    "class_type": "MieLoopStateGetBool|Mie",
+    "_meta": { "title": "C: StateGetBool(bflag)" }
+  },
+  "62": {
+    "inputs": { "loop_ctx": ["51", 0], "key": "ftemp", "value": ["53", 0] },
+    "class_type": "MieLoopStateSetFloat|Mie",
+    "_meta": { "title": "C: StateSetFloat(ftemp=param)" }
+  },
+  "63": {
+    "inputs": { "loop_ctx": ["62", 0], "key": "slabel", "value": ["55", 0] },
+    "class_type": "MieLoopStateSetString|Mie",
+    "_meta": { "title": "C: StateSetString(slabel=param)" }
+  },
+  "64": {
+    "inputs": { "loop_ctx": ["63", 0], "key": "bflag", "value": ["54", 0] },
+    "class_type": "MieLoopStateSetBool|Mie",
+    "_meta": { "title": "C: StateSetBool(bflag=param)" }
+  },
+  "65": {
+    "inputs": {
+      "base_state_json": "{}",
+      "key1": "batch_k1",
+      "value1_json": "100",
+      "key2": "batch_k2",
+      "value2_json": "\"hello\"",
+      "key3": "batch_k3",
+      "value3_json": "true"
+    },
+    "class_type": "MieLoopStateSet|Mie",
+    "_meta": { "title": "C: StateSet(batch builder)" }
+  },
+  "66": {
+    "inputs": { "anything": ["59", 0] },
+    "class_type": "ShowAnything|Mie",
+    "_meta": { "title": "C: Show StateFloat" }
+  },
+  "67": {
+    "inputs": { "loop_ctx": ["64", 0], "text": ["55", 0] },
+    "class_type": "MieLoopCollectText|Mie",
+    "_meta": { "title": "C: CollectText(label)" }
+  },
+  "68": {
+    "inputs": { "loop_ctx": ["67", 0], "item_json": "{\"round\": 0}" },
+    "class_type": "MieLoopCollectJSON|Mie",
+    "_meta": { "title": "C: CollectJSON" }
+  },
+  "69": {
+    "inputs": { "duration": 0.5, "sample_rate": 44100, "channels": 1 },
+    "class_type": "EmptyAudio",
+    "_meta": { "title": "C: EmptyAudio source" }
+  },
+  "70": {
+    "inputs": { "loop_ctx": ["68", 0], "audio": ["69", 0], "offload_to_disk": true, "offload_dir": "e2e_loop_test/audio_offload" },
+    "class_type": "MieLoopCollectAudio|Mie",
+    "_meta": { "title": "C: CollectAudio(offload=true, custom dir)" }
+  },
+  "71": {
+    "inputs": { "loop_ctx": ["70", 0] },
+    "class_type": "MieLoopBodyOut|Mie",
+    "_meta": { "title": "C: BodyOut" }
+  },
+  "72": {
+    "inputs": { "loop_ctx": ["71", 0], "state_json": "{}", "debug": false },
+    "class_type": "MieLoopEnd|Mie",
+    "_meta": { "title": "C: End" }
+  },
+  "73": {
+    "inputs": { "loop_ctx": ["72", 0], "done": ["72", 1] },
+    "class_type": "MieLoopFinalizeTextList|Mie",
+    "_meta": { "title": "C: FinalizeTextList" }
+  },
+  "74": {
+    "inputs": { "loop_ctx": ["72", 0], "done": ["72", 1] },
+    "class_type": "MieLoopFinalizeJSONList|Mie",
+    "_meta": { "title": "C: FinalizeJSONList" }
+  },
+  "75": {
+    "inputs": { "loop_ctx": ["72", 0], "done": ["72", 1] },
+    "class_type": "MieLoopFinalizeAudio|Mie",
+    "_meta": { "title": "C: FinalizeAudio" }
+  },
+  "76": {
+    "inputs": { "anything": ["73", 0] },
+    "class_type": "ShowAnything|Mie",
+    "_meta": { "title": "C: Final Text" }
+  },
+  "77": {
+    "inputs": { "anything": ["74", 0] },
+    "class_type": "ShowAnything|Mie",
+    "_meta": { "title": "C: Final JSON" }
+  },
+  "78": {
+    "inputs": { "audio": ["75", 0], "filename_prefix": "e2e_loop_test/audio" },
+    "class_type": "SaveAudio",
+    "_meta": { "title": "C: SaveAudio" }
+  },
+  "79": {
+    "inputs": { "loop_ctx": ["72", 0] },
+    "class_type": "MieLoopCleanupAudio|Mie",
+    "_meta": { "title": "C: CleanupAudio" }
+  },
+  "200": {
+    "inputs": { "width": 8, "height": 8, "batch_size": 1, "color": 0 },
+    "class_type": "EmptyImage",
+    "_meta": { "title": "D: EmptyImage source (8x8)" }
+  },
+  "201": {
+    "inputs": {
+      "loop_id": "loop_d_disk_stress",
+      "param_type": "int",
+      "param_mode": "range",
+      "initial_state_json": "{}",
+      "int_list": "",
+      "float_list": "",
+      "string_list": "",
+      "json_list": "[]",
+      "int_range_start": 0,
+      "int_range_end": 11,
+      "int_range_step": 1,
+      "float_range_start": 0.0,
+      "float_range_end": 0.0,
+      "float_range_step": 0.1,
+      "int_decrement_total": 5,
+      "int_decrement_step": 2,
+      "float_decrement_total": 5.0,
+      "float_decrement_step": 2.0,
+      "meta_json": "{}",
+      "resume_loop_ctx": ""
+    },
+    "class_type": "MieLoopStart|Mie",
+    "_meta": { "title": "D: Start (int_range 0..11, 12 rounds)" }
+  },
+  "202": {
+    "inputs": { "loop_ctx": ["201", 0] },
+    "class_type": "MieLoopBodyIn|Mie",
+    "_meta": { "title": "D: BodyIn" }
+  },
+  "203": {
+    "inputs": { "loop_ctx": ["202", 0] },
+    "class_type": "MieLoopGetIndex|Mie",
+    "_meta": { "title": "D: GetIndex" }
+  },
+  "204": {
+    "inputs": { "anything": ["203", 0] },
+    "class_type": "ShowAnything|Mie",
+    "_meta": { "title": "D: Show Index" }
+  },
+  "205": {
+    "inputs": { "loop_ctx": ["202", 0], "image": ["200", 0], "offload_to_disk": true, "offload_dir": "e2e_loop_test/image_offload" },
+    "class_type": "MieLoopCollectImage|Mie",
+    "_meta": { "title": "D: CollectImage(offload=true, custom dir)" }
+  },
+  "206": {
+    "inputs": { "loop_ctx": ["205", 0] },
+    "class_type": "MieLoopBodyOut|Mie",
+    "_meta": { "title": "D: BodyOut" }
+  },
+  "207": {
+    "inputs": { "loop_ctx": ["206", 0], "state_json": "{}", "debug": false },
+    "class_type": "MieLoopEnd|Mie",
+    "_meta": { "title": "D: End" }
+  },
+  "208": {
+    "inputs": { "loop_ctx": ["207", 0], "done": ["207", 1] },
+    "class_type": "MieLoopFinalizeImages|Mie",
+    "_meta": { "title": "D: FinalizeImages (incremental merge >=10 batches)" }
+  },
+  "209": {
+    "inputs": { "images": ["208", 0], "filename_prefix": "e2e_loop_test/disk_stress" },
+    "class_type": "SaveImage",
+    "_meta": { "title": "D: SaveImage (merged 12 frames)" }
+  }
+}

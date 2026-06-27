@@ -2500,7 +2500,7 @@ class MieLoopStateGetImage:
             mie_log(f"LoopStateGetImage: key={key}, ref={ref}, found=False, using=fallback")
             return (fallback_image, False)
         mie_log(f"LoopStateGetImage: key={key}, ref={ref}, found=False, using=empty")
-        return (EMPTY_IMAGE, False)
+        return (EMPTY_IMAGES, False)
 
 
 class MieLoopStateCleanupImage:
