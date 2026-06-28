@@ -12,12 +12,18 @@ import fnmatch
 import shutil
 from types import SimpleNamespace
 from deepdiff import DeepDiff
+import torch
 
 import folder_paths
 try:
     from _mienodes_internal.core.utils import mie_log, any_typ, compute_hash, convert_size
 except ImportError:
     from ...core.utils import mie_log, any_typ, compute_hash, convert_size
+
+
+# Empty IMAGE batch used as a safe fallback when LoadImageBatch|Mie
+# cannot find the requested file and no upstream fallback is connected.
+EMPTY_IMAGE_BATCH = torch.zeros((0, 1, 1, 3), dtype=torch.float32)
 
 def _plugin_root_dir():
     """Return the on-disk directory of the installed plugin.
@@ -490,6 +496,53 @@ class GetFileInfo(object):
         return float("nan")
 
 
+class GetFileBasename(object):
+    """Return the basename of a file path, with the file extension stripped.
+
+    Use this when a cache key or output filename needs to be derived from
+    an input file (e.g. drive video, ref image). The output is a plain
+    STRING so it can be spliced into StringConcat|Mie chains.
+
+    Inputs:
+    - file_path: a STRING path (absolute or relative to ComfyUI's
+      base_path). Non-string input falls back to "".
+
+    Outputs:
+    - basename: the final path component, e.g. "video" for
+      "input/video.mp4" or "/abs/path/video.mp4".
+
+    This is a control-plane utility only: no disk I/O, no hashing, no
+    side effect beyond computing the string. It does NOT enforce that
+    the file exists; the caller can run FileExists|Mie after.
+    """
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "file_path": ("STRING", {"default": "input/foo.mp4"}),
+            },
+        }
+
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("basename",)
+    FUNCTION = "execute"
+    CATEGORY = "🐑 MieNodes/🐑 Common"
+
+    def execute(self, file_path):
+        if not isinstance(file_path, str):
+            return ("",)
+        p = file_path.strip()
+        if not p:
+            return ("",)
+        try:
+            base = os.path.basename(p)
+        except Exception:
+            return ("",)
+        stem, _ext = os.path.splitext(base)
+        return (stem,)
+
+
 class GetDirectoryFilesInfo(object):
     @classmethod
     def INPUT_TYPES(cls):
@@ -723,3 +776,429 @@ class ClassicAspectRatio(object):
             return w, h
         except Exception:
             return 1024, 1024
+
+
+class FileExists(object):
+    """Lightweight existence check for a single file path.
+
+    Intentionally minimal: a single ``os.path.isfile()`` call, no size /
+    hash / mtime lookup (use ``GetFileInfo|Mie`` for those). The path is
+    taken as-is (absolute or relative to ComfyUI CWD); pair this node with
+    ``GetAbsolutePath|Mie`` to resolve a workflow-relative path first.
+
+    Empty / whitespace input is treated as not-exists rather than raising,
+    so the node is safe to wire into a cache-gate before any path has been
+    materialised.
+    """
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "file_path": ("STRING", {"default": "output/cache/abc.mp4"}),
+            },
+        }
+
+    RETURN_TYPES = ("BOOLEAN",)
+    RETURN_NAMES = ("exists",)
+    FUNCTION = "execute"
+    CATEGORY = "🐑 MieNodes/🐑 Common"
+
+    def execute(self, file_path):
+        raw = str(file_path or "").strip()
+        if not raw:
+            return (False,)
+        result = os.path.isfile(raw)
+        if raw:
+            mie_log(f"FileExists|Mie: {raw} -> {result}")
+        return (result,)
+
+
+class IfElse(object):
+    """Generic if/else router driven by an external BOOLEAN.
+
+    Differs from ``MieLoopIfIsLast` (which only knows the loop's
+    ``is_last`` flag) and ``MieLoopIfCurrentIdx`` (which only compares
+    the loop index) -- this node takes any boolean computed anywhere
+    upstream and uses it to pick a branch. The boolean is typically the
+    output of ``FileExists|Mie`` (cache hit/miss), but can be any other
+    condition in the graph.
+
+    ``then_value`` and ``else_value`` are ``any_typ`` so any data type
+    (image, video, string, dict, loop_ctx, ...) can flow through.
+    Unconnected branches fall back to ``None``.
+    """
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "condition": ("BOOLEAN", {"forceInput": True}),
+            },
+            "optional": {
+                "then_value": (any_typ,),
+                "else_value": (any_typ,),
+            },
+        }
+
+    RETURN_TYPES = (any_typ,)
+    RETURN_NAMES = ("value",)
+    FUNCTION = "execute"
+    CATEGORY = "🐑 MieNodes/🐑 Common"
+
+    def execute(self, condition, then_value=None, else_value=None):
+        chosen = then_value if bool(condition) else else_value
+        return (chosen,)
+class SaveImageBatch(object):
+    """Persist a ComfyUI IMAGE batch (N,H,W,3 float32 in [0,1]) as a lossless .pt file.
+
+    The path is taken as-is (absolute or ComfyUI-CWD relative). Parent directories are created on demand. This is the cache write side used by the SCAIL-2 material-cache loop: the 81-frame SCAIL-2 material batch is the expensive part of the workflow, so we materialise it once and reload it on subsequent runs of the same source video.
+
+    .pt is preferred over .mp4 here because the data is exactly the ComfyUI IMAGE tensor (no encode/decode round-trip), the file path is deterministic (VHS auto-numbers by fps/counter), and the on-disk size stays close to N*H*W*3*4 bytes.
+    """
+
+    @classmethod
+    def VALIDATE_INPUTS(s, images, file_path):
+        return True
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "images": ("IMAGE",),
+                "file_path": ("STRING", {"default": "output/cache/foo.pt"}),
+            },
+        }
+
+    RETURN_TYPES = ()
+    OUTPUT_NODE = True
+    FUNCTION = "execute"
+    CATEGORY = "🐑 MieNodes/🐑 Common"
+
+    def execute(self, images, file_path):
+        raw = str(file_path or "").strip()
+        if not raw:
+            raise ValueError("SaveImageBatch|Mie: file_path is empty")
+        parent = os.path.dirname(raw)
+        if parent and not os.path.isdir(parent):
+            os.makedirs(parent, exist_ok=True)
+        payload = images.detach().to("cpu").contiguous()
+        torch.save(payload, raw)
+        try:
+            size = os.path.getsize(raw)
+        except OSError:
+            size = -1
+        mie_log(f"SaveImageBatch|Mie: wrote {raw} ({size} bytes)")
+        return ()
+
+class LoadImageBatch(object):
+    """Inverse of SaveImageBatch|Mie: reload a .pt IMAGE batch.
+
+    Designed for a cache gate: when file_path is missing or empty, the node falls back to the optional fallback IMAGE input (typically the freshly-generated material batch). When fallback is also unconnected, an empty batch is returned so the downstream graph still receives a valid IMAGE and can decide what to do.
+
+    Wire it after FileExists|Mie only if the consumer needs a separate existence signal -- this node already does the existence check internally, so most call sites do not need an IfElse wrapper.
+    """
+
+    @classmethod
+    def VALIDATE_INPUTS(s, file_path, fallback=None):
+        return True
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "file_path": ("STRING", {"default": "output/cache/foo.pt"}),
+            },
+            "optional": {
+                "fallback": ("IMAGE",),
+            },
+        }
+
+    RETURN_TYPES = ("IMAGE",)
+    RETURN_NAMES = ("images",)
+    FUNCTION = "execute"
+    CATEGORY = "🐑 MieNodes/🐑 Common"
+
+    def execute(self, file_path, fallback=None):
+        raw = str(file_path or "").strip()
+        if raw and os.path.isfile(raw):
+            try:
+                size = os.path.getsize(raw)
+            except OSError:
+                size = -1
+            mie_log(f"LoadImageBatch|Mie: cache HIT loaded {raw} ({size} bytes)")
+            return (torch.load(raw, map_location="cpu"),)
+        mie_log(f"LoadImageBatch|Mie: cache MISS {raw} -> fallback")
+        if fallback is not None:
+            return (fallback,)
+        return (EMPTY_IMAGE_BATCH,)
+
+
+class SaveAny(object):
+    """Persist any Python object via pickle to a deterministic file path.
+
+    Generic sibling of SaveImageBatch|Mie: instead of torch.save on a ComfyUI IMAGE
+    tensor, this uses plain pickle so callers can round-trip arbitrary data
+    (dicts, custom plugin outputs like SAM3_TRACK_DATA, lists, etc.) through
+    the same file-gate idiom. Use this when the value type does not match
+    SaveImageBatch's IMAGE contract -- e.g. the SAM3 drive/ref track dict that
+    feeds SCAIL2ColoredMask.
+
+    Pair with LoadAny|Mie + FileExists|Mie + IfElse|Mie to build a cache gate
+    identical in shape to the 351[0]/351[1] IMAGE cache (see v5 workflow).
+    """
+
+    @classmethod
+    def VALIDATE_INPUTS(s, value, file_path):
+        return True
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "value": (any_typ,),
+                "file_path": ("STRING", {"default": "output/cache/foo.pkl"}),
+            },
+        }
+
+    RETURN_TYPES = ()
+    OUTPUT_NODE = True
+    FUNCTION = "execute"
+    CATEGORY = "🐑 MieNodes/🐑 Common"
+
+    def execute(self, value, file_path):
+        import pickle
+        raw = str(file_path or "").strip()
+        if not raw:
+            raise ValueError("SaveAny|Mie: file_path is empty")
+        parent = os.path.dirname(raw)
+        if parent and not os.path.isdir(parent):
+            os.makedirs(parent, exist_ok=True)
+        with open(raw, "wb") as f:
+            pickle.dump(value, f)
+        try:
+            size = os.path.getsize(raw)
+        except OSError:
+            size = -1
+        mie_log(f"SaveAny|Mie: wrote {raw} ({size} bytes)")
+        return ()
+
+
+class LoadAny(object):
+    """Inverse of SaveAny|Mie: unpickle any Python object from a file path.
+
+    Mirrors LoadImageBatch|Mie's contract: when the file is missing or empty,
+    fall back to the optional wildcard fallback input. When fallback is also
+    unconnected, return None so the downstream graph still receives a valid
+    (None) value and can decide what to do. Pair with FileExists|Mie only if
+    the consumer needs a separate existence signal -- this node already does
+    the existence check internally.
+    """
+
+    @classmethod
+    def VALIDATE_INPUTS(s, file_path, fallback=None):
+        return True
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "file_path": ("STRING", {"default": "output/cache/foo.pkl"}),
+            },
+            "optional": {
+                "fallback": (any_typ,),
+            },
+        }
+
+    RETURN_TYPES = (any_typ,)
+    RETURN_NAMES = ("value",)
+    FUNCTION = "execute"
+    CATEGORY = "🐑 MieNodes/🐑 Common"
+
+    def execute(self, file_path, fallback=None):
+        import pickle
+        raw = str(file_path or "").strip()
+        if raw and os.path.isfile(raw):
+            try:
+                size = os.path.getsize(raw)
+            except OSError:
+                size = -1
+            mie_log(f"LoadAny|Mie: cache HIT loaded {raw} ({size} bytes)")
+            with open(raw, "rb") as f:
+                return (pickle.load(f),)
+        mie_log(f"LoadAny|Mie: cache MISS {raw} -> fallback")
+        if fallback is not None:
+            return (fallback,)
+        return (None,)
+
+
+class LoadOrCompute(object):
+    """Disk cache gate that can skip its own upstream node on a cache hit.
+
+    This is the load-or-compute-save pattern expressed as a single ComfyUI
+    node, built on ComfyUI's official Lazy Evaluation mechanism. It replaces
+    the ``LoadAny + SaveAny + IfElse`` trio (and the old MieLoopCacheMarker
+    graph-rewrite approach): the computation upstream of ``value`` is gated
+    purely at runtime via ``check_lazy_status``, not by editing the graph.
+
+    Contract:
+      - ``cache_path`` is a STRING resolved eagerly (must be known before
+        ``check_lazy_status`` is called). Per T22's cache-key design it is
+        derived from inputs that live upstream of the heavy target
+        (video basename / size / mode / frame range), so it never depends on
+        the lazy ``value`` itself.
+      - ``value`` is ``any_typ`` and declared ``lazy=True``. The engine does
+        NOT compute it up-front; instead it calls ``check_lazy_status`` first.
+      - HIT (file exists): ``check_lazy_status`` returns ``[]`` -> the engine
+        skips the upstream node entirely -> ``execute`` loads and returns the
+        cached payload. This is the real win: the expensive upstream (e.g.
+        SAM3_VideoTrack) does not run on a cache hit.
+      - MISS (file absent): ``check_lazy_status`` returns ``["value"]`` -> the
+        engine runs the upstream node -> ``execute`` receives the freshly
+        computed value, persists it to ``cache_path``, and returns it.
+
+    Design decisions (aligned with user requirements):
+      - Empty/whitespace ``cache_path`` raises (option B): there is no
+        legitimate reason to wire this node without a cache key. Silent
+        passthrough would mask wiring bugs.
+      - Serialisation mirrors SaveAny/LoadAny: pickle for arbitrary Python
+        objects (SAM3TrackData dicts, etc.). IMAGE batches should be cached
+        with SaveImageBatch/LoadImageBatch for the lossless .pt path; this
+        node is the general-purpose pickle variant.
+      - Single responsibility: it does NOT know what the upstream computes.
+        It is a generic gate for any lazy input.
+
+    See: ComfyUI Lazy Evaluation docs and ``comfy_extras/nodes_logic.py``
+    ``SwitchNode`` for the authoritative ``check_lazy_status`` contract.
+    """
+
+    @classmethod
+    def VALIDATE_INPUTS(s, cache_path, value=None):
+        # Mirror the no-op validator used by SaveAny/LoadAny: this node's own
+        # inputs are always structurally valid (cache_path is a STRING widget;
+        # value is a lazy link or unconnected). Returning True here lets the
+        # v3 recursive validator resolve cleanly without delegating to the
+        # upstream node's VALIDATE_INPUTS with a mismatched input key.
+        return True
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "cache_path": ("STRING", {"default": "output/cache/foo.pkl"}),
+                "value": (any_typ, {"lazy": True}),
+            },
+        }
+
+    RETURN_TYPES = (any_typ,)
+    RETURN_NAMES = ("value",)
+    FUNCTION = "execute"
+    CATEGORY = "🐑 MieNodes/🐑 Common"
+
+    def check_lazy_status(self, cache_path, value=None):
+        # The engine calls this before evaluating the lazy ``value`` input.
+        # Returning [] means "do not compute value" -> upstream node is skipped.
+        # cache_path is already resolved here (it is a non-lazy input), so the
+        # existence check is safe and deterministic.
+        raw = str(cache_path or "").strip()
+        if raw and os.path.isfile(raw):
+            mie_log(f"LoadOrCompute|Mie: 找到缓存 {raw} -> 跳过上游计算 (cache HIT, suppress upstream)")
+            return []
+        mie_log(f"LoadOrCompute|Mie: 没有缓存 {raw} -> 需要上游计算 (cache MISS, request upstream)")
+        return ["value"]
+
+    def execute(self, cache_path, value=None):
+        import pickle
+        raw = str(cache_path or "").strip()
+        if not raw:
+            # Option B: no cache key is a wiring error, never silent.
+            raise ValueError(
+                "LoadOrCompute|Mie: cache_path is empty -- a cache key is required"
+            )
+        if os.path.isfile(raw):
+            try:
+                size = os.path.getsize(raw)
+            except OSError:
+                size = -1
+            mie_log(f"LoadOrCompute|Mie: 找到缓存 已加载 {raw} ({size} bytes) (cache HIT loaded)")
+            with open(raw, "rb") as f:
+                return (pickle.load(f),)
+        # MISS path: value is the freshly computed upstream output.
+        if value is None:
+            raise ValueError(
+                f"LoadOrCompute|Mie: 没有缓存但上游返回 None {raw} (cache MISS, upstream None)"
+            )
+        parent = os.path.dirname(raw)
+        if parent and not os.path.isdir(parent):
+            os.makedirs(parent, exist_ok=True)
+        with open(raw, "wb") as f:
+            pickle.dump(value, f)
+        try:
+            size = os.path.getsize(raw)
+        except OSError:
+            size = -1
+        mie_log(f"LoadOrCompute|Mie: 保存缓存 {raw} ({size} bytes) (cache MISS saved)")
+        return (value,)
+
+
+class ImageHash(object):
+    """Deterministic content hash of a ComfyUI IMAGE batch, returned as a STRING.
+
+    Solves the cache-key problem for inputs whose filename is not exposed as a
+    STRING output -- most notably ``LoadImage`` (its ``image`` widget holds the
+    filename, but only IMAGE/MASK come out) and ``VHS_LoadVideo`` (its ``video``
+    widget is hidden behind the VHS_VIDEOINFO output). By hashing the IMAGE
+    tensor we get a stable key that tracks the actual content the user selected,
+    with no manual filename sync and no graph-walk to read upstream widgets.
+
+    Usage: wire it directly downstream of the IMAGE source (LoadImage for a
+    reference image, VHS_LoadVideo for a drive video) and splice the resulting
+    short hash into a StringConcat|Mie cache-key chain. One node, fully
+    automatic: the user only ever touches the LoadImage / VHS widgets.
+
+    ``frame_limit`` controls how much of the batch is hashed:
+      - 0  : hash the entire batch (use for reference images -- 1 frame, <10ms)
+      - >0 : hash only the first N frames (use for drive video identity).
+             A drive video is identified by hashing its first frame only
+             (frame_limit=1): two different videos differ on frame 0 almost
+             surely, so this is a reliable identity key at negligible cost
+             (~10ms regardless of video length). A full 81-frame hash would
+             cost ~100ms+ and add nothing for identity purposes.
+
+    Determinism:
+      - Input is detached + moved to CPU + made contiguous before hashing, so a
+        GPU tensor and a CPU tensor with identical values hash equally.
+      - Uses sha256 over the raw float32 bytes; truncated to 12 hex chars (48
+        bits) -- collision-safe for a per-user cache directory.
+    """
+
+    @classmethod
+    def VALIDATE_INPUTS(s, images, frame_limit=0):
+        return True
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "images": ("IMAGE",),
+            },
+            "optional": {
+                "frame_limit": ("INT", {"default": 0, "min": 0, "max": 100000}),
+            },
+        }
+
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("hash",)
+    FUNCTION = "execute"
+    CATEGORY = "🐑 MieNodes/🐑 Common"
+
+    def execute(self, images, frame_limit=0):
+        try:
+            t = images.detach().to("cpu").contiguous()
+            if frame_limit and frame_limit > 0 and t.shape[0] > frame_limit:
+                t = t[:frame_limit]
+            buf = t.numpy().tobytes() if hasattr(t, "numpy") else bytes(t)
+            h = hashlib.sha256(buf).hexdigest()[:12]
+            return (h,)
+        except Exception as e:
+            mie_log(f"ImageHash|Mie: hash failed ({e}), falling back to empty")
+            return ("",)
+
