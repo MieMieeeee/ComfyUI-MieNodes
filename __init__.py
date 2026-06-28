@@ -11,7 +11,7 @@ if _INTERNAL_PACKAGE not in sys.modules:
     sys.modules[_INTERNAL_PACKAGE] = _pkg
 
 from _mienodes_internal.nodes.common import ShowAnythingMie, ShowAndSaveAnythingMie, SaveAnythingAsFile, CompareFiles, GetAbsolutePath, GetFileInfo, \
-    GetDirectoryFilesInfo, CopyFiles, DeleteFiles, ClassicAspectRatio, AspectRatioFromSize, RoundToMultiple, StringConcat, SimpleTextNode, RichTextNode
+    GetDirectoryFilesInfo, GetFileBasename, CopyFiles, DeleteFiles, ClassicAspectRatio, AspectRatioFromSize, RoundToMultiple, StringConcat, IntToString, SimpleTextNode, RichTextNode, FileExists, IfElse, SaveImageBatch, LoadImageBatch, SaveAny, LoadAny, LoadOrCompute, ImageHash
 from _mienodes_internal.nodes.files import BatchRenameFiles, BatchDeleteFiles, BatchEditTextFiles, BatchSyncImageCaptionFiles, \
     SummaryTextFiles, BatchConvertImageFiles, DedupImageFiles, ModelDownloader, HFRepoDownloader
 from _mienodes_internal.nodes.llm import TextTranslator, PromptGenerator, KontextPromptGenerator, AddUserKontextPreset, RemoveUserKontextPreset, \
@@ -84,9 +84,20 @@ NODE_CLASS_MAPPINGS = {
     add_suffix("GetAbsolutePath"): GetAbsolutePath,
     add_suffix("GetFileInfo"): GetFileInfo,
     add_suffix("GetDirectoryFilesInfo"): GetDirectoryFilesInfo,
+    add_suffix("GetFileBasename"): GetFileBasename,
     add_suffix("CopyFiles"): CopyFiles,
     add_suffix("DeleteFiles"): DeleteFiles,
     add_suffix("StringConcat"): StringConcat,
+    add_suffix("IntToString"): IntToString,
+    add_suffix("FileExists"): FileExists,
+    add_suffix("IfElse"): IfElse,
+    add_suffix("SaveImageBatch"): SaveImageBatch,
+    add_suffix("LoadImageBatch"): LoadImageBatch,
+    add_suffix("SaveAny"): SaveAny,
+    add_suffix("LoadAny"): LoadAny,
+    add_suffix("LoadOrCompute"): LoadOrCompute,
+    add_suffix("ImageHash"): ImageHash,
+
     add_suffix("WavConcat"): WavConcat,
     add_suffix("QwenTTSNode"): QwenTTSNode,
     add_suffix("SetBailianTTSConnector"): SetBailianTTSConnector,
@@ -189,9 +200,20 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     add_suffix("GetAbsolutePath"): add_emoji("Get Absolute Path"),
     add_suffix("GetFileInfo"): add_emoji("Get File Info"),
     add_suffix("GetDirectoryFilesInfo"): add_emoji("Get Directory Files Info"),
+    add_suffix("GetFileBasename"): add_emoji("Get File Basename"),
     add_suffix("CopyFiles"): add_emoji("Copy Files"),
     add_suffix("DeleteFiles"): add_emoji("Delete Files"),
     add_suffix("StringConcat"): add_emoji("String Concat"),
+    add_suffix("IntToString"): add_emoji("Int To String"),
+    add_suffix("FileExists"): add_emoji("File Exists"),
+    add_suffix("IfElse"): add_emoji("If Else"),
+    add_suffix("SaveImageBatch"): add_emoji("Save Image Batch"),
+    add_suffix("LoadImageBatch"): add_emoji("Load Image Batch"),
+    add_suffix("SaveAny"): add_emoji("Save Any"),
+    add_suffix("LoadAny"): add_emoji("Load Any"),
+    add_suffix("LoadOrCompute"): add_emoji("Load Or Compute"),
+    add_suffix("ImageHash"): add_emoji("Image Hash"),
+
     add_suffix("WavConcat"): add_emoji("Wav Concat"),
     add_suffix("QwenTTSNode"): add_emoji("Qwen TTS"),
     add_suffix("SetBailianTTSConnector"): add_emoji("Set Bailian TTS Connector"),
@@ -246,3 +268,5 @@ NODE_DISPLAY_NAME_MAPPINGS = {
 }
 
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS", "WEB_DIRECTORY"]
+
+

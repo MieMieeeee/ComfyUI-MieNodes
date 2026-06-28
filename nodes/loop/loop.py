@@ -709,6 +709,16 @@ def _is_collector_class(base_class_type: str):
     }
 
 
+_CACHE_WRITE_WHITELIST = {
+    "SaveImageBatch",  # .pt IMAGE cache write (lossless, deterministic, side-effect)
+    "SaveAny",         # .pkl generic pickle write (e.g. SAM3_TRACK_DATA for SCAIL-2 material cache)
+}
+
+
+def _get_cache_write_whitelist():
+    return _CACHE_WRITE_WHITELIST
+
+
 def _is_excluded_output_class(base_class_type: str):
     explicit = {
         "MieLoopStart",
@@ -725,6 +735,13 @@ def _is_excluded_output_class(base_class_type: str):
         "SaveImage",
         "PreviewImage",
     }
+    # Whitelist: nodes that look like "save*" but are actually side-effect cache writes,
+    # not display outputs. These must NOT be excluded from loop body expansion because
+    # the user explicitly wants them to re-execute per iteration (e.g. material cache
+    # writes for SCAIL-2 workflow). The default rule below would still exclude them.
+    cache_write_whitelist = _get_cache_write_whitelist()
+    if base_class_type in cache_write_whitelist:
+        return False
     if base_class_type in explicit:
         return True
     lowered = base_class_type.lower()
@@ -1154,6 +1171,37 @@ def _build_expand_graph_for_next_round(
     # walk_from_body_in(str(body_in_id))
     build_node(str(body_out_id))
     build_node(str(end_id))
+
+    # Post-pass: 强制 include OUTPUT_NODE side-effect 节点 (如 SaveImageBatch)。
+    # 这些节点不在 body 内任何其他节点的 input chain 上 (是 351 output 的 leaf user)，
+    # 所以 main input-chain walk 不会 reach 它们。但它们必须在每轮 iter 跑以执行
+    # side effect (写 cache 文件)。否则 expand graph 不会包含它们，graph executor
+    # 不会调度，cache 永远不写。
+    # 这里复用 _is_excluded_output_class 的 cache_write_whitelist 来识别"该跑但不会
+    # 被 walk 到"的 side-effect 节点。
+    # Post-pass: scan ENTIRE graph for cache_write_whitelist nodes and force-build them.
+    # 630/631 (SaveImageBatch) are leaf OUTPUT_NODE users of 351 outputs - they are NOT
+    # in body_nodes_raw (backward chain ∩ forward chain) because:
+    #   - backward chain from body_out (450) walks input chain, doesn't reach OUTPUT_NODE leaves
+    #   - forward chain from body_in (446) walks downstream of 446, doesn't reach 351 output users
+    # So we must scan all_nodes directly. All other body nodes (in built_nodes) are kept
+    # as-is; this pass only ADDS whitelist nodes that were missed.
+    cache_write_set = _get_cache_write_whitelist()
+    post_pass_candidates = []
+    for nid, n in all_nodes.items():
+        if str(nid) in built_nodes:
+            continue
+        if not isinstance(n, dict):
+            continue
+        base_class_type = _base_class_type(_get_class_type(n))
+        if base_class_type in cache_write_set:
+            post_pass_candidates.append((str(nid), base_class_type))
+            build_node(str(nid))
+    mie_log(
+        f"LoopEndPostPass: candidates={post_pass_candidates}, "
+        f"total_built_after={len(built_nodes)}"
+    )
+
     # 返回 end 节点的 Node 对象，用于在 MieLoopEnd.execute 中构造 is_link() 结果
     # 这是 ComfyUI expand 机制的关键：result 中必须包含 is_link() 值
     # （即 [node_id, output_index] 格式的 list），引擎才会为子图节点创建
