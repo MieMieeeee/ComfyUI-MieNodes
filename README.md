@@ -254,6 +254,16 @@ After:
 - `file_format` (str): The format of the files ("json" or "toml").
 
 ![Image](images/CompareFiles.png)
+---
+
+### **StringFormat**  
+**Function:** Format a Python `str.format`-style template with autogrowing positional value inputs (Bernini Conditioning style UX).  
+**Parameters:**  
+- `template` (str): The format string. Supports `{0}`, `{1}`, ... positional placeholders and standard format specs (e.g. `{0:>5}`, `{0:.2f}`). Use `{{` / `}}` to emit a literal brace.  
+- `value_0` ... `value_15` (str, optional): The positional arguments, one per slot. The first 2 slots (`value_0`, `value_1`) are visible when the node is dropped; the next slot appears automatically each time the last visible slot gets a connection, up to 16. Unconnected slots are treated as the empty string.  
+**Output:**  
+- `result` (str): The formatted string. On a malformed template, the raw template is returned and a diagnostic is logged so the user can still see it on the wire.  
+**Example:** template `"{0} + {1} = {2}"` with `value_0="1"`, `value_1="2"`, `value_2="3"` produces `"1 + 2 = 3"`.  
 
 ---
 
