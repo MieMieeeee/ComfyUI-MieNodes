@@ -11,7 +11,7 @@ if _INTERNAL_PACKAGE not in sys.modules:
     sys.modules[_INTERNAL_PACKAGE] = _pkg
 
 from _mienodes_internal.nodes.common import ShowAnythingMie, ShowAndSaveAnythingMie, SaveAnythingAsFile, CompareFiles, GetAbsolutePath, GetFileInfo, \
-    GetDirectoryFilesInfo, GetFileBasename, CopyFiles, DeleteFiles, ClassicAspectRatio, AspectRatioFromSize, RoundToMultiple, StringConcat, IntToString, SimpleTextNode, RichTextNode, FileExists, IfElse, SaveImageBatch, LoadImageBatch, SaveAny, LoadAny, LoadOrCompute, ImageHash
+    GetDirectoryFilesInfo, GetFileBasename, CopyFiles, DeleteFiles, ClassicAspectRatio, AspectRatioFromSize, RoundToMultiple, StringConcat, IntToString, SimpleTextNode, RichTextNode, FileExists, IfElse, SaveImageBatch, LoadImageBatch, SaveAny, LoadAny, LoadOrCompute, ImageHash, AnyToString
 from _mienodes_internal.nodes.files import BatchRenameFiles, BatchDeleteFiles, BatchEditTextFiles, BatchSyncImageCaptionFiles, \
     SummaryTextFiles, BatchConvertImageFiles, DedupImageFiles, ModelDownloader, HFRepoDownloader
 from _mienodes_internal.nodes.llm import TextTranslator, PromptGenerator, KontextPromptGenerator, AddUserKontextPreset, RemoveUserKontextPreset, \
@@ -97,6 +97,7 @@ NODE_CLASS_MAPPINGS = {
     add_suffix("LoadAny"): LoadAny,
     add_suffix("LoadOrCompute"): LoadOrCompute,
     add_suffix("ImageHash"): ImageHash,
+    add_suffix("AnyToString"): AnyToString,
 
     add_suffix("WavConcat"): WavConcat,
     add_suffix("QwenTTSNode"): QwenTTSNode,
@@ -213,6 +214,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     add_suffix("LoadAny"): add_emoji("Load Any"),
     add_suffix("LoadOrCompute"): add_emoji("Load Or Compute"),
     add_suffix("ImageHash"): add_emoji("Image Hash"),
+    add_suffix("AnyToString"): add_emoji("Any To String"),
 
     add_suffix("WavConcat"): add_emoji("Wav Concat"),
     add_suffix("QwenTTSNode"): add_emoji("Qwen TTS"),

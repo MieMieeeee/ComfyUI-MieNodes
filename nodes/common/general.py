@@ -1202,3 +1202,38 @@ class ImageHash(object):
             mie_log(f"ImageHash|Mie: hash failed ({e}), falling back to empty")
             return ("",)
 
+
+class AnyToString(object):
+    """Convert any Python value to a STRING via ``str()``.
+
+    Generic sibling of IntToString: accepts any type (BOOLEAN, INT, FLOAT,
+    STRING, or any wildcard) and returns its string representation. Used to
+    splice scalar widgets into StringConcat|Mie cache-key chains where the
+    source is not already a STRING -- e.g. the replace_mode BOOLEAN
+    (True/False -> "True"/"False") or a width INT (512 -> "512").
+
+    Prefer this over IntToString for new workflows; IntToString is kept only
+    for backward compatibility with already-committed graphs.
+    """
+
+    @classmethod
+    def VALIDATE_INPUTS(s, value=None):
+        return True
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "value": (any_typ,),
+            },
+        }
+
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("string",)
+    FUNCTION = "execute"
+    CATEGORY = "🐑 MieNodes/🐑 Common"
+
+    def execute(self, value=None):
+        return (str(value),)
+
+
