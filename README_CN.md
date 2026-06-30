@@ -264,6 +264,15 @@
 - `result` (str)：格式化后的字符串。模板语法错误时会记录诊断日志并原样返回模板，便于在工作流中直接看到。
 **示例：** 模板 `"{0} + {1} = {2}"` 配合 `value_0="1"`、`value_1="2"`、`value_2="3"`，输出 `"1 + 2 = 3"`。
 
+### **StringHash**（字符串哈希）  
+**功能说明：** 把 STRING 哈希成短 hex 摘要，用于 cache key 文件名。是 ImageHash|Mie 的搭档——当输入已经是 STRING 时（比如 SAM3 提示词）用它，hash 后的字符串短、确定、不含文件名不安全字符（空格、斜杠）。  
+**参数说明：**  
+- `text` (str, required)：要哈希的字符串。None / 空字符串会返回常量哨兵（`"0" * length`），所以未连接的输入仍然能产出合法的文件名组件，不会崩溃。  
+- `length` (int, optional)：保留的 hex 字符数。默认 12，范围 [4, 64]。范围外的值会被截断到边界。  
+**输出说明：**  
+- `hash` (str)：小写 hex，`sha256(text.encode("utf-8"))[:length]`。  
+**示例：** `text="human"`（默认 length 12）返回 `"79a5478768d2"`。  
+
 ---
 
 ### **ModelDownloader**

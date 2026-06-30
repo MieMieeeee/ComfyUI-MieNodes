@@ -11,7 +11,7 @@ if _INTERNAL_PACKAGE not in sys.modules:
     sys.modules[_INTERNAL_PACKAGE] = _pkg
 
 from _mienodes_internal.nodes.common import ShowAnythingMie, ShowAndSaveAnythingMie, SaveAnythingAsFile, CompareFiles, GetAbsolutePath, GetFileInfo, \
-    GetDirectoryFilesInfo, GetFileBasename, CopyFiles, DeleteFiles, ClassicAspectRatio, AspectRatioFromSize, RoundToMultiple, StringConcat, StringFormat, IntToString, SimpleTextNode, RichTextNode, FileExists, IfElse, SaveImageBatch, LoadImageBatch, SaveAny, LoadAny, LoadOrCompute, ImageHash, AnyToString
+    GetDirectoryFilesInfo, GetFileBasename, CopyFiles, DeleteFiles, ClassicAspectRatio, AspectRatioFromSize, RoundToMultiple, StringConcat, StringFormat, IntToString, StringHash, SimpleTextNode, RichTextNode, FileExists, IfElse, SaveImageBatch, LoadImageBatch, SaveAny, LoadAny, LoadOrCompute, ImageHash, AnyToString
 from _mienodes_internal.nodes.files import BatchRenameFiles, BatchDeleteFiles, BatchEditTextFiles, BatchSyncImageCaptionFiles, \
     SummaryTextFiles, BatchConvertImageFiles, DedupImageFiles, ModelDownloader, HFRepoDownloader
 from _mienodes_internal.nodes.llm import TextTranslator, PromptGenerator, KontextPromptGenerator, AddUserKontextPreset, RemoveUserKontextPreset, \
@@ -89,6 +89,7 @@ NODE_CLASS_MAPPINGS = {
     add_suffix("DeleteFiles"): DeleteFiles,
     add_suffix("StringConcat"): StringConcat,
     add_suffix("StringFormat"): StringFormat,
+    add_suffix("StringHash"): StringHash,
     add_suffix("IntToString"): IntToString,
     add_suffix("FileExists"): FileExists,
     add_suffix("IfElse"): IfElse,
@@ -207,6 +208,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     add_suffix("DeleteFiles"): add_emoji("Delete Files"),
     add_suffix("StringConcat"): add_emoji("String Concat"),
     add_suffix("StringFormat"): add_emoji("String Format"),
+    add_suffix("StringHash"): add_emoji("String Hash"),
     add_suffix("IntToString"): add_emoji("Int To String"),
     add_suffix("FileExists"): add_emoji("File Exists"),
     add_suffix("IfElse"): add_emoji("If Else"),

@@ -265,6 +265,15 @@ After:
 - `result` (str): The formatted string. On a malformed template, the raw template is returned and a diagnostic is logged so the user can still see it on the wire.  
 **Example:** template `"{0} + {1} = {2}"` with `value_0="1"`, `value_1="2"`, `value_2="3"` produces `"1 + 2 = 3"`.  
 
+### **StringHash**  
+**Function:** Hash a STRING into a short hex digest for use in cache-key filenames. Companion to ImageHash|Mie for inputs that are already STRING (e.g. a SAM3 prompt word); keeps the prompt-derived component of a cache key short, deterministic, and free of filename-hostile characters (spaces, slashes).  
+**Parameters:**  
+- `text` (str, required): The STRING to hash. None / empty yields a constant sentinel (`"0" * length`) so an unconnected input still produces a valid filename component rather than crashing.  
+- `length` (int, optional): Number of hex chars to keep. Default 12, range [4, 64]. Values outside the range are clamped.  
+**Output:**  
+- `hash` (str): Lowercase hex of `sha256(text.encode("utf-8"))[:length]`.  
+**Example:** `text="human"` (default length 12) returns `"79a5478768d2"`.  
+
 ---
 
 ### **ModelDownloader**

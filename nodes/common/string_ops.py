@@ -1,3 +1,5 @@
+import hashlib
+
 MY_CATEGORY = "🐑 MieNodes/🐑 String Operator"
 
 
@@ -169,3 +171,52 @@ class StringFormat(object):
                 "StringFormat|Mie: format failed: " + str(e) + " (template=" + repr(tpl) + ")"
             )
             return (tpl,)
+
+
+class StringHash(object):
+    """Hash a STRING into a short hex digest for use in cache-key filenames.
+
+    Companion to ImageHash|Mie for inputs that are already STRING (e.g. a
+    SAM3 prompt word). Keeps the prompt-derived component of a cache key
+    short, deterministic, and free of filename-hostile characters (spaces,
+    slashes) so cache-key templates can stop worrying about prompt wording
+    and just splice the hash.
+
+    Defaults match ImageHash|Mie: 12 hex chars (48 bits) of sha256,
+    collision-safe for a per-user cache directory.
+
+    Inputs:
+    - text: STRING to hash. None / empty yields a constant sentinel
+      ("0" * length) so an unconnected input still produces a valid
+      filename component rather than crashing.
+    - length: INT widget, hex chars to keep. Default 12, range [4, 64].
+
+    Output:
+    - hash: lowercase hex of sha256(text.encode("utf-8"))[:length].
+    """
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "text": ("STRING", {"default": "", "multiline": False}),
+            },
+            "optional": {
+                "length": ("INT", {"default": 12, "min": 4, "max": 64}),
+            },
+        }
+
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("hash",)
+    FUNCTION = "execute"
+    CATEGORY = MY_CATEGORY
+
+    def execute(self, text, length=12):
+        try:
+            n = max(4, min(64, int(length)))
+        except (TypeError, ValueError):
+            n = 12
+        if not text:
+            return ("0" * n,)
+        h = hashlib.sha256(str(text).encode("utf-8")).hexdigest()[:n]
+        return (h,)
