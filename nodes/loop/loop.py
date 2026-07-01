@@ -8,6 +8,7 @@ import time
 import uuid
 from typing import Any
 
+import numpy as np
 import torch
 from pathlib import Path
 
@@ -1257,6 +1258,227 @@ def _merge_tensor_batches_incremental(
     return merged
 
 
+def _save_inmem_batches_to_disk(inmem_items, run_dir, kind):
+    """Persist any in-memory Tensors to <run_dir>/<kind>_<uuid>.pt.
+
+    Lets the chunked disk-merge treat every batch uniformly as a disk item, so the
+    MERGE step never has to materialize an N-batch accumulator in memory (which is
+    what blows up on long runs -- 30 SCAIL segments of 81 frames at 704x1280 fp32
+    is ~21 GB at peak).
+    """
+    saved = []
+    for item in inmem_items:
+        if _is_disk_cache_item(item):
+            saved.append(item)
+            continue
+        if not isinstance(item, torch.Tensor):
+            raise ValueError(
+                f"in-memory batch is not a torch.Tensor (got {type(item).__name__})"
+            )
+        suffix = uuid.uuid4().hex[:10]
+        path = Path(run_dir) / f"{kind}_inmem_{suffix}.pt"
+        torch.save(item.detach().to("cpu"), str(path))
+        saved.append({"disk_path": str(path), "ref": ""})
+    return saved
+
+
+# Torch -> numpy dtype map for the memmap phase-2 path. Bfloat16/half
+# are accepted as float16 in numpy (the small precision difference is
+# acceptable for an intermediate staging tensor -- the final torch.save
+# re-encodes to the original dtype on disk).
+_TORCH_TO_NUMPY_DTYPE = {
+    torch.float32: np.float32,
+    torch.float16: np.float16,
+    torch.bfloat16: np.float16,
+    torch.uint8: np.uint8,
+    torch.int8: np.int8,
+    torch.int16: np.int16,
+    torch.int32: np.int32,
+    torch.int64: np.int64,
+    torch.bool: np.bool_,
+}
+
+
+def _chunked_disk_merge(
+    disk_items,
+    out_path,
+    *,
+    chunk_size=5,
+    kind="image",
+    validate_batch=None,
+    log_progress=None,
+    avoid_oom=True,
+):
+    """Stream-merge on-disk per-batch .pt files to a single .pt at out_path.
+
+    Two-phase to keep peak memory bounded:
+
+    Phase 1: build intermediate chunk files. Each chunk cat-merges up to
+    ``chunk_size`` input .pt files into a single chunk tensor and writes it to
+    ``<run_dir>/_mie_chunk_{kind}_NNNN.pt``. Peak here is roughly
+    ``2 * chunk_size * per_batch_bytes`` (load + cat). With the SCAIL-2 30-batch
+    case (chunk_size=5) that is ~7 GB peak.
+
+    Phase 2 has two strategies selected by ``avoid_oom``:
+
+    - ``avoid_oom=False`` (legacy): pre-allocate the final tensor on CPU and
+      copy each chunk into it. Peak is ``final_bytes + max_chunk_bytes`` (no
+      2x torch.cat blow-up). For the SCAIL-2 case that is ~24.5 GB peak.
+
+    - ``avoid_oom=True`` (default): write the final directly to a
+      ``numpy.memmap`` file (one mmap file per merge, deleted right after the
+      final ``torch.save``). Peak during phase 2 is roughly 1 chunk (~3.5 GB
+      for SCAIL-2). The OS page cache bounds the ``torch.save`` step, so the
+      whole merge uses roughly the phase-1 peak (~7 GB) end-to-end.
+      Unsupported dtypes (anything not in ``_TORCH_TO_NUMPY_DTYPE``) silently
+      fall back to the pre-allocate path so a weird dtype never OOMs harder
+      than the legacy code.
+
+    On any failure the chunk files (and the memmap file, if any) are removed
+    but the original per-batch .pt files are NOT touched -- matches
+    ``_merge_tensor_batches_incremental``'s preserve-on-failure contract so
+    the user can still recover via ``scripts/manual_merge_offloaded_images.py``.
+    """
+    paths = [
+        Path(item["disk_path"])
+        for item in disk_items
+        if _is_disk_cache_item(item)
+    ]
+    if not paths:
+        raise FileNotFoundError(
+            f"_chunked_disk_merge: no on-disk batches under {out_path.parent}"
+        )
+    n = len(paths)
+    chunk_size = max(1, int(chunk_size))
+    n_chunks = (n + chunk_size - 1) // chunk_size
+    run_dir = paths[0].parent
+    chunk_paths = []
+    mmap_temp_paths = []
+    total_frames = 0
+    ref_hwc = None
+    ref_dtype = None
+    try:
+        for ci in range(n_chunks):
+            start = ci * chunk_size
+            end = min(start + chunk_size, n)
+            chunk_batch = None
+            for idx in range(start, end):
+                batch = torch.load(
+                    str(paths[idx]), map_location="cpu", weights_only=False
+                )
+                if not isinstance(batch, torch.Tensor):
+                    raise ValueError(
+                        f"{paths[idx]} is not a torch.Tensor "
+                        f"(got {type(batch).__name__})"
+                    )
+                if ref_hwc is None:
+                    ref_hwc = tuple(batch.shape[1:])
+                    ref_dtype = batch.dtype
+                if validate_batch is not None:
+                    validate_batch(batch, idx, chunk_batch)
+                if chunk_batch is None:
+                    chunk_batch = batch
+                else:
+                    chunk_batch = torch.cat([chunk_batch, batch], dim=0)
+                del batch
+                gc.collect()
+            chunk_path = run_dir / f"_mie_chunk_{kind}_{ci:04d}.pt"
+            torch.save(chunk_batch, str(chunk_path))
+            chunk_paths.append(chunk_path)
+            total_frames += chunk_batch.shape[0]
+            if log_progress is not None:
+                log_progress(end, n)
+            del chunk_batch
+            gc.collect()
+
+        if ref_hwc is None:
+            raise RuntimeError("ref_hwc not set; no batches processed")
+
+        use_mmap = bool(avoid_oom) and ref_dtype in _TORCH_TO_NUMPY_DTYPE
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+
+        if use_mmap:
+            np_dtype = _TORCH_TO_NUMPY_DTYPE[ref_dtype]
+            mmap_path = out_path.with_name(
+                f".{out_path.stem}.{kind}.mmap.tmp"
+            )
+            if mmap_path.exists():
+                mmap_path.unlink()
+            mmap = np.memmap(
+                str(mmap_path),
+                dtype=np_dtype,
+                mode="w+",
+                shape=(total_frames,) + ref_hwc,
+            )
+            mmap_temp_paths.append(mmap_path)
+            try:
+                offset = 0
+                for ci, chunk_path in enumerate(chunk_paths):
+                    chunk = torch.load(
+                        str(chunk_path), map_location="cpu", weights_only=False
+                    )
+                    n_chunk = chunk.shape[0]
+                    mmap[offset : offset + n_chunk] = chunk.numpy()
+                    offset += n_chunk
+                    if log_progress is not None:
+                        log_progress(n, n)
+                    del chunk
+                    gc.collect()
+                mmap.flush()
+            finally:
+                del mmap
+                gc.collect()
+            # Reopen in read mode and torch.save from the mmap'd storage.
+            # The OS page cache bounds the actual RAM used here; we do not
+            # materialize the full tensor in Python space.
+            mmap_read = np.memmap(
+                str(mmap_path),
+                dtype=np_dtype,
+                mode="r",
+                shape=(total_frames,) + ref_hwc,
+            )
+            try:
+                tensor = torch.from_numpy(mmap_read)
+                torch.save(tensor, str(out_path))
+            finally:
+                del tensor
+                del mmap_read
+                gc.collect()
+        else:
+            # Legacy pre-allocate path. Use this when the dtype is unsupported
+            # by the memmap bridge or when the user explicitly opts out.
+            out = torch.empty(
+                (total_frames,) + ref_hwc, dtype=ref_dtype, device="cpu"
+            )
+            offset = 0
+            for ci, chunk_path in enumerate(chunk_paths):
+                chunk = torch.load(
+                    str(chunk_path), map_location="cpu", weights_only=False
+                )
+                n_chunk = chunk.shape[0]
+                out[offset : offset + n_chunk] = chunk
+                offset += n_chunk
+                if log_progress is not None:
+                    log_progress(n, n)
+                del chunk
+                gc.collect()
+            torch.save(out, str(out_path))
+            del out
+            gc.collect()
+        return str(out_path)
+    finally:
+        for cp in chunk_paths:
+            try:
+                cp.unlink()
+            except FileNotFoundError:
+                pass
+        for mp in mmap_temp_paths:
+            try:
+                mp.unlink()
+            except FileNotFoundError:
+                pass
+
+
 def _finalize_cache_dir(disk_paths):
     if not disk_paths:
         return ""
@@ -1292,21 +1514,35 @@ def _log_finalize_merge_failed(kind, ctx, disk_paths):
     )
 
 
-def _merge_images_for_ctx(loop_ctx):
+def _merge_images_for_ctx(loop_ctx, *, finalize_to_disk="", chunk_size=5, avoid_oom=True):
+    """Merge IMAGE batches for the loop's image collector.
+
+    Two modes, picked by ``finalize_to_disk``:
+
+    - Empty (legacy in-memory cat): returns ``(IMAGE_TENSOR, "")``. Matches the
+      pre-chunked behavior. OOMs on long runs; kept for backward compat with
+      existing workflows.
+    - Set (chunked disk merge): streams the merge to ``finalize_to_disk`` in
+      ``chunk_size``-sized chunks. With ``avoid_oom=True`` (default) phase 2
+      uses a numpy.memmap so the merge peak is ~1 chunk instead of
+      final+chunk. Returns ``(IMAGE_OR_EMPTY, merged_path)``. The merged_path
+      is stable even if the final load OOMs, so the user can recover via
+      ``LoadAny|Mie`` on the path.
+    """
     ctx = _validate_loop_ctx(loop_ctx)
     ref = _ensure_collector_slot(ctx, "image").get("ref")
     if not ref:
-        return EMPTY_IMAGES
+        return EMPTY_IMAGES, ""
     raw_batches = _pop_collector_items("image", ref)
     run_meta = _ensure_runtime_meta(ctx.get("run_id", ""))
     _remove_runtime_collector_ref(run_meta, "image", ref)
     if not raw_batches:
-        return EMPTY_IMAGES
+        return EMPTY_IMAGES, ""
     disk_paths = _collect_disk_paths(raw_batches)
     _log_finalize_merge_start("image", ctx, raw_batches, disk_paths)
 
     def load_item(item):
-        loaded = torch.load(str(item["disk_path"]), map_location="cpu")
+        loaded = torch.load(str(item["disk_path"]), map_location="cpu", weights_only=False)
         if not isinstance(loaded, torch.Tensor):
             raise ValueError("disk cached image is not a torch.Tensor")
         return loaded
@@ -1325,24 +1561,67 @@ def _merge_images_for_ctx(loop_ctx):
         if len(raw_batches) >= 10
         else None
     )
+
+    target_path = str(finalize_to_disk or "").strip()
+    use_disk = bool(target_path)
     merged_ok = False
+    merged_path = ""
     try:
-        merged = _merge_tensor_batches_incremental(
-            raw_batches,
-            load_disk_item=load_item,
-            validate_batch=validate,
-            cat_dim=0,
-            log_progress=progress_cb,
-        )
-        merged_ok = True
-        return merged
+        if use_disk:
+            out_path = Path(target_path)
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            # Materialize any in-memory batches so the chunked merge sees disk items.
+            disk_items = _save_inmem_batches_to_disk(raw_batches, out_path.parent, "image")
+            try:
+                _chunked_disk_merge(
+                    disk_items,
+                    out_path,
+                    chunk_size=chunk_size,
+                    kind="image",
+                    validate_batch=validate,
+                    log_progress=progress_cb,
+                    avoid_oom=avoid_oom,
+                )
+            finally:
+                # Cleanup the inmem-saved temp .pt files (they live next to out_path).
+                for di in disk_items:
+                    p = di.get("disk_path", "")
+                    if p and "_inmem_" in os.path.basename(p):
+                        try:
+                            os.remove(p)
+                        except FileNotFoundError:
+                            pass
+            # Best-effort load for the IMAGE output. If the final tensor is too big
+            # for the system RAM, fall back to EMPTY_IMAGES and let the user recover
+            # via LoadAny on merged_path.
+            try:
+                loaded = torch.load(str(out_path), map_location="cpu", weights_only=False)
+            except Exception as e:
+                mie_log(
+                    f"LoopFinalizeImages: post-merge load failed for {out_path}: {e}; "
+                    "returning EMPTY_IMAGES -- use MERGED_PATH with LoadAny|Mie to recover."
+                )
+                loaded = EMPTY_IMAGES
+            merged_path = str(out_path)
+            merged_ok = True
+            return loaded, merged_path
+        else:
+            merged = _merge_tensor_batches_incremental(
+                raw_batches,
+                load_disk_item=load_item,
+                validate_batch=validate,
+                cat_dim=0,
+                log_progress=progress_cb,
+            )
+            merged_ok = True
+            return merged, ""
     except Exception:
         _log_finalize_merge_failed("image", ctx, disk_paths)
         raise
     finally:
         # Cleanup only on success: on failure, preserve .pt files so the user can
-        # recover via a manual merge script (see docs/LOOP_USAGE.md).
-        if merged_ok:
+        # recover via a manual merge script (see docs/LOOP_USAGE.md / scripts/).
+        if merged_ok and not use_disk:
             _cleanup_disk_cache_paths(disk_paths)
 
 
@@ -2629,19 +2908,64 @@ class MieLoopFinalizeImages:
             "required": {
                 "loop_ctx": ("MIE_LOOP_CTX",),
                 "done": ("BOOLEAN", {"forceInput": True}),
-            }
+            },
+            "optional": {
+                "finalize_to_disk": (
+                    "STRING",
+                    {
+                        "default": "",
+                        "multiline": False,
+                        "tooltip": (
+                            "If set, the merge streams to this .pt path in chunks. "
+                            "Leave empty to use the legacy in-memory cat."
+                        ),
+                    },
+                ),
+                "chunk_size": (
+                    "INT",
+                    {
+                        "default": 5,
+                        "min": 1,
+                        "max": 1024,
+                        "tooltip": (
+                            "Batches per chunk for the disk-streaming merge. "
+                            "Larger = less I/O, more peak RAM during phase 1. "
+                            "Default 5 keeps phase-1 ~7 GB peak for the SCAIL-2 "
+                            "30-batch case."
+                        ),
+                    },
+                ),
+                "avoid_oom": (
+                    "BOOLEAN",
+                    {
+                        "default": True,
+                        "tooltip": (
+                            "Avoid OOM: write phase 2 through a numpy.memmap so peak "
+                            "RAM is ~1 chunk (not final+chunk). Recommended ON for "
+                            "any long run; toggle OFF only if you have abundant RAM "
+                            "and want the small speed-up of the pre-allocate path."
+                        ),
+                    },
+                ),
+            },
         }
 
-    RETURN_TYPES = ("IMAGE",)
-    RETURN_NAMES = ("images",)
+    RETURN_TYPES = ("IMAGE", "STRING")
+    RETURN_NAMES = ("images", "merged_path")
     FUNCTION = "execute"
     CATEGORY = MY_CATEGORY
 
-    def execute(self, loop_ctx, done):
+    def execute(self, loop_ctx, done, finalize_to_disk="", chunk_size=5, avoid_oom=True):
         ctx = copy.deepcopy(_validate_loop_ctx(loop_ctx))
         if not bool(done):
-            return (EMPTY_IMAGES,)
-        return (_merge_images_for_ctx(ctx),)
+            return (EMPTY_IMAGES, "")
+        merged, merged_path = _merge_images_for_ctx(
+            ctx,
+            finalize_to_disk=finalize_to_disk,
+            chunk_size=chunk_size,
+            avoid_oom=bool(avoid_oom),
+        )
+        return (merged, merged_path)
 
 
 class MieLoopCleanupImages:

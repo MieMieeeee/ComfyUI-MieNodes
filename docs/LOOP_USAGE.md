@@ -85,8 +85,9 @@ End.loop_ctx/done -> Finalize*
 
 长跑建议（如 SCAIL 数十段）：
 - **强烈建议** `offload_to_disk=true`：生成阶段把每段结果落盘，避免 collect list 持有全部 tensor。
-- `FinalizeImages` / `FinalizeAudio` 采用**增量合并**（逐段 load → cat → 释放），load 阶段峰值显著低于一次性全量载入；合并失败时磁盘缓存**保留**，便于手动救回（见下「Finalize 崩溃后手动合并」）。
+- `FinalizeImages` / `FinalizeAudio` 默认采用**增量合并**（逐段 load → cat → 释放），load 阶段峰值显著低于一次性全量载入；合并失败时磁盘缓存**保留**，便于手动救回（见下「Finalize 崩溃后手动合并」）。
 - 增量合并的降峰值收益主要在 `offload_to_disk=true`（逐段从盘载入）；`offload_to_disk=false` 时 collect list 仍持有全部 tensor，Finalize 峰值与改前相近——长跑请务必开启 offload。
+- `MieLoopFinalizeImages` 新增 `finalize_to_disk` / `chunk_size` 两个可选入参，详情见「长跑防 OOM 合并」一节。
 
 ## Expand 与协议 ID 约束
 MieLoop 使用 expand 图递归执行下一轮。为避免 ID 漂移：
@@ -137,9 +138,39 @@ MieLoop 使用 expand 图递归执行下一轮。为避免 ID 漂移：
 ### Finalize 崩溃后手动合并
 `FinalizeImages` / `FinalizeAudio` 合并失败时（如超大批次触发原生崩溃），**不会删除**磁盘缓存，日志会打印 `LoopFinalizeMergeFailed: ... cache_dir=... disk_files_preserved=true`。
 - 缓存目录：`{ComfyUI temp}/mie_loop_offload/{run_id}/`（或你指定的 `offload_dir`），形如 `image_*.pt` / `audio_*.pt`。
-- 手动救回：按 mtime 排序文件，逐个 `torch.load` + 增量 `torch.cat`（image 沿 `dim=0`，audio 波形沿 `dim=-1`）。
+- 手动救回用本仓库自带脚本（无需 ComfyUI 启动）：
+  ```bash
+  python scripts/manual_merge_offloaded_images.py 5e81e5f1a4b24e58a721371f
+  # 或显式指定 offload 目录与输出：
+  python scripts/manual_merge_offloaded_images.py       --offload-dir F:/ComfyUI_Mie_2026_V8.0_Base/ComfyUI/temp/mie_loop_offload/5e81e5f1a4b24e58a721371f       --out F:/ComfyUI_Mie_2026_V8.0_Base/ComfyUI/output/merged.pt
+  # --dry-run 只列文件；--cleanup 成功合并后删原 batch。
+  ```
+  脚本做的事和 `_merge_tensor_batches_incremental` 等价（逐 batch load + cat + 释放 + gc），失败也保留输入 .pt；输出可被 `LoadAny|Mie` 直接吃。
 - 救回后可自行删除该 `{run_id}` 目录释放空间。
 - 注意：若工作流内同一文件被多路 LoadVideo 引用（如 SCAIL 双视频路径不一致），collector 可能混入不属于本循环的段，需结合业务链判断要跳过的前若干文件——这是 workflow 层问题，Finalize 无法自动识别。
+
+
+### 长跑防 OOM 合并（`finalize_to_disk`）
+`MieLoopFinalizeImages`（v3.1.1+）额外提供两个可选入参，避免长跑合并时单进程内 `torch.cat` 把堆顶到 `MemoryError`：
+
+| 参数 | 默认 | 说明 |
+|---|---|---|
+| `finalize_to_disk` | `""` | 合并目标 .pt 路径。设置后走**分块落盘**合并；留空走原有增量内存 cat（向后兼容）。推荐直接设为 `<ComfyUI temp>/mie_loop_offload/<run_id>/merged.pt` 或自己指定一个稳定盘路径。 |
+| `chunk_size` | `5` | 每个 chunk 合并多少个 batch。值越大 I/O 越少但 phase-1 峰值越高；值越小 I/O 越多但更省内存。SCAIL-2 30 段 81 帧的 case 默认 5 就够稳（phase-1 ~7 GB 峰）。 |
+| `avoid_oom` | `True` | **避免 OOM**：phase 2 用 `numpy.memmap` 走磁盘映射，把 24.5 GB 级的 final+chunk 峰值压到 ~1 chunk（~3.5 GB）。推荐所有长跑都开着。坏处是 mmap 写比直接 RAM 写稍慢（NVMe 几乎无感，HDD 慢 2-3×）；遇到不支持的 dtype 会自动回退到预分配路径。 |
+
+**合并分两阶段**：
+- **Phase 1**：每 `chunk_size` 个 batch 合并成一段，写到 `<out_dir>/_mie_chunk_image_NNNN.pt`。峰值约 `2 × chunk_size × 单 batch 字节`。
+- **Phase 2**：
+  - `avoid_oom=True`（默认）：用 `np.memmap` 建一个磁盘映射的 ndarray 当成 final，chunk-by-chunk 拷进去（写直达磁盘，**不分配 final 大 tensor**），最后 `torch.save` 走 mmap 读取（OS 负责分页）。峰值 ≈ 1 chunk + phase 1 那个 `2 × chunk_size`，**整体 ~7 GB**。
+  - `avoid_oom=False`：预分配最终张量到 CPU（避免 `torch.cat` 翻倍峰值），把每个 chunk 拷进去，再 `torch.save` 到 `finalize_to_disk`。峰值约 `final_size + max_chunk_size`，SCAIL-2 case ~24.5 GB。
+
+**输出**：`MieLoopFinalizeImages` 现在返回 `(images, merged_path)`：
+- `images`：把 `finalize_to_disk` 的 .pt 加载回 tensor（尽力而为，若系统连 21 GB tensor 都装不下则返回 `EMPTY_IMAGES`）。
+- `merged_path`：稳定的最终 .pt 路径，**即使 load OOM 也会返回**。把它接给 `LoadAny|Mie` 即可在另一台机器上恢复。
+
+**失败兜底**：
+- 任一阶段失败都会在 `finally` 块里清掉中间的 `_mie_chunk_*.pt` 文件，但**绝不删原始 `image_*.pt`**——preserve-on-failure 契约保持不变，可继续用 `scripts/manual_merge_offloaded_images.py` 救回。
 
 ## 推荐最小示例（文本收集）
 ```text

@@ -81,6 +81,21 @@
       "STRING"
     ]
   },
+  "AnyToString|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Common",
+    "function": "execute",
+    "hidden": [],
+    "optional": [],
+    "required": [
+      "value"
+    ],
+    "return_names": [
+      "string"
+    ],
+    "return_types": [
+      "STRING"
+    ]
+  },
   "AspectRatioFromSize|Mie": {
     "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Common",
     "function": "convert",
@@ -387,6 +402,21 @@
       "STRING"
     ]
   },
+  "FileExists|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Common",
+    "function": "execute",
+    "hidden": [],
+    "optional": [],
+    "required": [
+      "file_path"
+    ],
+    "return_names": [
+      "exists"
+    ],
+    "return_types": [
+      "BOOLEAN"
+    ]
+  },
   "Flux2PromptGenerator|Mie": {
     "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Prompt Generator",
     "function": "generate_flux2_prompt",
@@ -467,6 +497,21 @@
     ],
     "return_names": [
       "directory_files_info"
+    ],
+    "return_types": [
+      "STRING"
+    ]
+  },
+  "GetFileBasename|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Common",
+    "function": "execute",
+    "hidden": [],
+    "optional": [],
+    "required": [
+      "file_path"
+    ],
+    "return_names": [
+      "basename"
     ],
     "return_types": [
       "STRING"
@@ -568,6 +613,56 @@
       "STRING"
     ]
   },
+  "IfElse|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Common",
+    "function": "execute",
+    "hidden": [],
+    "optional": [
+      "else_value",
+      "then_value"
+    ],
+    "required": [
+      "condition"
+    ],
+    "return_names": [
+      "value"
+    ],
+    "return_types": [
+      "*"
+    ]
+  },
+  "ImageHash|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Common",
+    "function": "execute",
+    "hidden": [],
+    "optional": [
+      "frame_limit"
+    ],
+    "required": [
+      "images"
+    ],
+    "return_names": [
+      "hash"
+    ],
+    "return_types": [
+      "STRING"
+    ]
+  },
+  "IntToString|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 String Operator",
+    "function": "execute",
+    "hidden": [],
+    "optional": [],
+    "required": [
+      "value"
+    ],
+    "return_names": [
+      "string"
+    ],
+    "return_types": [
+      "STRING"
+    ]
+  },
   "KontextPromptGenerator|Mie": {
     "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Prompt Generator",
     "function": "generate_kontext_prompt",
@@ -603,6 +698,56 @@
     ],
     "return_types": [
       "STRING"
+    ]
+  },
+  "LoadAny|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Common",
+    "function": "execute",
+    "hidden": [],
+    "optional": [
+      "fallback"
+    ],
+    "required": [
+      "file_path"
+    ],
+    "return_names": [
+      "value"
+    ],
+    "return_types": [
+      "*"
+    ]
+  },
+  "LoadImageBatch|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Common",
+    "function": "execute",
+    "hidden": [],
+    "optional": [
+      "fallback"
+    ],
+    "required": [
+      "file_path"
+    ],
+    "return_names": [
+      "images"
+    ],
+    "return_types": [
+      "IMAGE"
+    ]
+  },
+  "LoadOrCompute|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Common",
+    "function": "execute",
+    "hidden": [],
+    "optional": [],
+    "required": [
+      "cache_path",
+      "value"
+    ],
+    "return_names": [
+      "value"
+    ],
+    "return_types": [
+      "*"
     ]
   },
   "MieImageGrid|Mie": {
@@ -864,16 +1009,22 @@
     "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Loop",
     "function": "execute",
     "hidden": [],
-    "optional": [],
+    "optional": [
+      "avoid_oom",
+      "chunk_size",
+      "finalize_to_disk"
+    ],
     "required": [
       "done",
       "loop_ctx"
     ],
     "return_names": [
-      "images"
+      "images",
+      "merged_path"
     ],
     "return_types": [
-      "IMAGE"
+      "IMAGE",
+      "STRING"
     ]
   },
   "MieLoopFinalizeJSONList|Mie": {
@@ -1459,6 +1610,30 @@
       "directory",
       "file_name",
       "save_format"
+    ],
+    "return_names": [],
+    "return_types": []
+  },
+  "SaveAny|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Common",
+    "function": "execute",
+    "hidden": [],
+    "optional": [],
+    "required": [
+      "file_path",
+      "value"
+    ],
+    "return_names": [],
+    "return_types": []
+  },
+  "SaveImageBatch|Mie": {
+    "category": "\ud83d\udc11 MieNodes/\ud83d\udc11 Common",
+    "function": "execute",
+    "hidden": [],
+    "optional": [],
+    "required": [
+      "file_path",
+      "images"
     ],
     "return_names": [],
     "return_types": []
