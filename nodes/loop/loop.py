@@ -1514,20 +1514,30 @@ def _log_finalize_merge_failed(kind, ctx, disk_paths):
     )
 
 
-def _merge_images_for_ctx(loop_ctx, *, finalize_to_disk="", chunk_size=5, avoid_oom=True):
-    """Merge IMAGE batches for the loop's image collector.
+# Internal default for the disk-streaming merge. Hard-coded (not exposed
+# on the node) so the user cannot misconfigure it into a state that OOMs
+# mid-loop. 5 batches per chunk keeps phase-1 peak at ~2x per-batch bytes
+# (~7 GB for the SCAIL-2 30-batch case).
+_MIE_LOOP_IMG_MERGE_CHUNK_SIZE = 5
 
-    Two modes, picked by ``finalize_to_disk``:
 
-    - Empty (legacy in-memory cat): returns ``(IMAGE_TENSOR, "")``. Matches the
-      pre-chunked behavior. OOMs on long runs; kept for backward compat with
-      existing workflows.
-    - Set (chunked disk merge): streams the merge to ``finalize_to_disk`` in
-      ``chunk_size``-sized chunks. With ``avoid_oom=True`` (default) phase 2
-      uses a numpy.memmap so the merge peak is ~1 chunk instead of
-      final+chunk. Returns ``(IMAGE_OR_EMPTY, merged_path)``. The merged_path
-      is stable even if the final load OOMs, so the user can recover via
-      ``LoadAny|Mie`` on the path.
+def _merge_images_for_ctx(loop_ctx, *, avoid_oom=True):
+    """Stream-merge the loop's image collector to disk and return the result.
+
+    Always runs through the chunked disk-merge path -- the in-memory cat is
+    no longer reachable from the public node, since a long-running loop
+    that hits MemoryError mid-merge loses the whole run. Output path is
+    auto-derived as ``<offload_dir>/merged.pt`` so the user does not have
+    to pick a destination.
+
+    Returns ``(IMAGE_OR_EMPTY, merged_path)``:
+    - ``images``: best-effort load of the merged .pt. Returns EMPTY_IMAGES
+      if the load OOMs (e.g., the system cannot fit the final tensor in
+      RAM); the path is still returned so the user can recover via
+      ``LoadAny|Mie``.
+    - ``merged_path``: stable path to the merged .pt, always populated
+      when the merge succeeded. Empty string when the loop is not done
+      yet or there were no batches.
     """
     ctx = _validate_loop_ctx(loop_ctx)
     ref = _ensure_collector_slot(ctx, "image").get("ref")
@@ -1541,11 +1551,9 @@ def _merge_images_for_ctx(loop_ctx, *, finalize_to_disk="", chunk_size=5, avoid_
     disk_paths = _collect_disk_paths(raw_batches)
     _log_finalize_merge_start("image", ctx, raw_batches, disk_paths)
 
-    def load_item(item):
-        loaded = torch.load(str(item["disk_path"]), map_location="cpu", weights_only=False)
-        if not isinstance(loaded, torch.Tensor):
-            raise ValueError("disk cached image is not a torch.Tensor")
-        return loaded
+    # Auto-derive the output path under the same offload dir the loop wrote
+    # its per-batch .pt files into. Keeps everything for one run co-located.
+    out_path = Path(_resolve_offload_dir(ctx, "")) / "merged.pt"
 
     def validate(batch, idx, merged):
         if merged is None:
@@ -1562,66 +1570,52 @@ def _merge_images_for_ctx(loop_ctx, *, finalize_to_disk="", chunk_size=5, avoid_
         else None
     )
 
-    target_path = str(finalize_to_disk or "").strip()
-    use_disk = bool(target_path)
     merged_ok = False
     merged_path = ""
     try:
-        if use_disk:
-            out_path = Path(target_path)
-            out_path.parent.mkdir(parents=True, exist_ok=True)
-            # Materialize any in-memory batches so the chunked merge sees disk items.
-            disk_items = _save_inmem_batches_to_disk(raw_batches, out_path.parent, "image")
-            try:
-                _chunked_disk_merge(
-                    disk_items,
-                    out_path,
-                    chunk_size=chunk_size,
-                    kind="image",
-                    validate_batch=validate,
-                    log_progress=progress_cb,
-                    avoid_oom=avoid_oom,
-                )
-            finally:
-                # Cleanup the inmem-saved temp .pt files (they live next to out_path).
-                for di in disk_items:
-                    p = di.get("disk_path", "")
-                    if p and "_inmem_" in os.path.basename(p):
-                        try:
-                            os.remove(p)
-                        except FileNotFoundError:
-                            pass
-            # Best-effort load for the IMAGE output. If the final tensor is too big
-            # for the system RAM, fall back to EMPTY_IMAGES and let the user recover
-            # via LoadAny on merged_path.
-            try:
-                loaded = torch.load(str(out_path), map_location="cpu", weights_only=False)
-            except Exception as e:
-                mie_log(
-                    f"LoopFinalizeImages: post-merge load failed for {out_path}: {e}; "
-                    "returning EMPTY_IMAGES -- use MERGED_PATH with LoadAny|Mie to recover."
-                )
-                loaded = EMPTY_IMAGES
-            merged_path = str(out_path)
-            merged_ok = True
-            return loaded, merged_path
-        else:
-            merged = _merge_tensor_batches_incremental(
-                raw_batches,
-                load_disk_item=load_item,
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        # Materialize any in-memory batches so the chunked merge sees disk items.
+        disk_items = _save_inmem_batches_to_disk(raw_batches, out_path.parent, "image")
+        try:
+            _chunked_disk_merge(
+                disk_items,
+                out_path,
+                chunk_size=_MIE_LOOP_IMG_MERGE_CHUNK_SIZE,
+                kind="image",
                 validate_batch=validate,
-                cat_dim=0,
                 log_progress=progress_cb,
+                avoid_oom=avoid_oom,
             )
-            merged_ok = True
-            return merged, ""
+        finally:
+            # Cleanup the inmem-saved temp .pt files (they live next to out_path).
+            for di in disk_items:
+                p = di.get("disk_path", "")
+                if p and "_inmem_" in os.path.basename(p):
+                    try:
+                        os.remove(p)
+                    except FileNotFoundError:
+                        pass
+        # Best-effort load for the IMAGE output. If the final tensor is too big
+        # for the system RAM, fall back to EMPTY_IMAGES and let the user recover
+        # via LoadAny on merged_path.
+        try:
+            loaded = torch.load(str(out_path), map_location="cpu", weights_only=False)
+        except Exception as e:
+            mie_log(
+                f"LoopFinalizeImages: post-merge load failed for {out_path}: {e}; "
+                "returning EMPTY_IMAGES -- use MERGED_PATH with LoadAny|Mie to recover."
+            )
+            loaded = EMPTY_IMAGES
+        merged_path = str(out_path)
+        merged_ok = True
+        return loaded, merged_path
     except Exception:
         _log_finalize_merge_failed("image", ctx, disk_paths)
         raise
     finally:
         # Cleanup only on success: on failure, preserve .pt files so the user can
         # recover via a manual merge script (see docs/LOOP_USAGE.md / scripts/).
-        if merged_ok and not use_disk:
+        if merged_ok:
             _cleanup_disk_cache_paths(disk_paths)
 
 
@@ -2902,6 +2896,24 @@ class MieLoopCollectImage:
 
 
 class MieLoopFinalizeImages:
+    """Finalize the image collector and stream-merge to disk.
+
+    Designed for long-running SCAIL-style loops where an OOM at the merge
+    step would lose the entire run. The node ALWAYS streams the merge to
+    ``<offload_dir>/merged.pt`` in chunks with a numpy.memmap-backed
+    phase 2, so the in-process peak is bounded by ~1 chunk (~3.5 GB
+    for the SCAIL-2 30-batch case) instead of final+chunk (~24.5 GB).
+    On any failure the per-batch ``image_*.pt`` files are preserved
+    (preserve-on-failure contract) so the user can recover via
+    ``scripts/manual_merge_offloaded_images.py``.
+
+    Inputs are intentionally minimal -- chunk_size and output path are
+    internal so the user cannot misconfigure them into a state that
+    OOMs mid-loop. The only knob is ``avoid_oom``; it defaults ON and
+    the tooltip warns that turning it off on a long loop risks losing
+    the run.
+    """
+
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -2910,40 +2922,17 @@ class MieLoopFinalizeImages:
                 "done": ("BOOLEAN", {"forceInput": True}),
             },
             "optional": {
-                "finalize_to_disk": (
-                    "STRING",
-                    {
-                        "default": "",
-                        "multiline": False,
-                        "tooltip": (
-                            "If set, the merge streams to this .pt path in chunks. "
-                            "Leave empty to use the legacy in-memory cat."
-                        ),
-                    },
-                ),
-                "chunk_size": (
-                    "INT",
-                    {
-                        "default": 5,
-                        "min": 1,
-                        "max": 1024,
-                        "tooltip": (
-                            "Batches per chunk for the disk-streaming merge. "
-                            "Larger = less I/O, more peak RAM during phase 1. "
-                            "Default 5 keeps phase-1 ~7 GB peak for the SCAIL-2 "
-                            "30-batch case."
-                        ),
-                    },
-                ),
                 "avoid_oom": (
                     "BOOLEAN",
                     {
                         "default": True,
                         "tooltip": (
-                            "Avoid OOM: write phase 2 through a numpy.memmap so peak "
-                            "RAM is ~1 chunk (not final+chunk). Recommended ON for "
-                            "any long run; toggle OFF only if you have abundant RAM "
-                            "and want the small speed-up of the pre-allocate path."
+                            "Avoid OOM: stream phase 2 through a numpy.memmap so peak "
+                            "RAM is ~1 chunk (not final+chunk). DEFAULT ON -- leave it on "
+                            "for any long-running loop. Turning it off reverts to a "
+                            "pre-allocate path that needs ~final+chunk contiguous RAM; "
+                            "on a typical SCAIL-2 30-batch run that exceeds 24 GB and "
+                            "will OOM-crash the merge, losing the whole run."
                         ),
                     },
                 ),
@@ -2955,14 +2944,12 @@ class MieLoopFinalizeImages:
     FUNCTION = "execute"
     CATEGORY = MY_CATEGORY
 
-    def execute(self, loop_ctx, done, finalize_to_disk="", chunk_size=5, avoid_oom=True):
+    def execute(self, loop_ctx, done, avoid_oom=True):
         ctx = copy.deepcopy(_validate_loop_ctx(loop_ctx))
         if not bool(done):
             return (EMPTY_IMAGES, "")
         merged, merged_path = _merge_images_for_ctx(
             ctx,
-            finalize_to_disk=finalize_to_disk,
-            chunk_size=chunk_size,
             avoid_oom=bool(avoid_oom),
         )
         return (merged, merged_path)

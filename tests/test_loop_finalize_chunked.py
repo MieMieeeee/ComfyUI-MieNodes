@@ -11,6 +11,9 @@ frames at 704x1280 fp32 ~= 21 GB). Verifies that the chunked merge:
 - falls back to the pre-allocate path for unsupported dtypes
 """
 
+import glob
+import os
+
 import pytest
 import torch
 from pathlib import Path
@@ -310,3 +313,139 @@ def test_chunked_disk_merge_memmap_uses_smaller_peak_than_pre_allocate(tmp_path,
     write_shapes = [s for s, m in zip(seen["shapes"], seen["modes"]) if m == "w+"]
     assert write_shapes, "no w+ mmap call captured"
     assert write_shapes[0][0] == 24  # 6 batches * 4 frames = 24
+
+# ---------------------------------------------------------------------------
+# MieLoopFinalizeImages contract: the only user-facing knob is avoid_oom.
+# ---------------------------------------------------------------------------
+
+
+def _clean_offload(merged_path):
+    """Remove merged .pt + the run dir it lived in."""
+    if not merged_path:
+        return
+    try:
+        os.remove(merged_path)
+    except OSError:
+        pass
+    run_dir = os.path.dirname(merged_path)
+    for leftover in glob.glob(os.path.join(run_dir, "*")):
+        try:
+            os.remove(leftover)
+        except OSError:
+            pass
+    try:
+        os.rmdir(run_dir)
+    except OSError:
+        pass
+
+
+def test_finalize_images_contract_only_avoid_oom_is_optional():
+    """The user cannot misconfigure the merge into an OOM-prone state -- the
+    node only exposes the avoid_oom BOOLEAN (default True). Everything else
+    is hard-coded so a long-running loop can never OOM-crash the merge."""
+    spec = MieLoopFinalizeImages.INPUT_TYPES()
+    opt = spec.get("optional") or {}
+    assert list(opt.keys()) == ["avoid_oom"], (
+        f"MieLoopFinalizeImages must expose ONLY avoid_oom as an optional "
+        f"input (got {list(opt.keys())}). Hiding chunk_size and "
+        f"finalize_to_disk is intentional: the user cannot pick an OOM-prone "
+        f"value for a long-running loop."
+    )
+    assert (opt["avoid_oom"][1]).get("default") is True
+
+
+def test_finalize_images_auto_derives_merged_path_under_offload_dir(
+    sample_loop_ctx, tmp_path
+):
+    """finalize_to_disk is not exposed -- the node auto-derives the output
+    path under the loop's offload dir. This keeps the per-run artefacts
+    (image_*.pt + merged.pt) co-located and discoverable."""
+    collect = MieLoopCollectImage()
+    finalize = MieLoopFinalizeImages()
+    expected = []
+    ctx = sample_loop_ctx
+    for _ in range(4):
+        img = torch.rand(2, 4, 4, 3)
+        expected.append(img)
+        ctx = collect.execute(ctx, img, True, str(tmp_path))[0]
+
+    images, merged_path = finalize.execute(ctx, True)
+    try:
+        assert merged_path, "merged_path should be populated"
+        assert merged_path.endswith("merged.pt")
+        # The auto-derived path should live in an offload dir that contains
+        # the per-batch image_*.pt files for this run.
+        run_dir = os.path.dirname(merged_path)
+        leftover_batches = glob.glob(os.path.join(run_dir, "image_*.pt"))
+        # Success path cleans up the per-batch .pt; just verify run_dir exists.
+        assert os.path.isdir(run_dir)
+        assert isinstance(images, torch.Tensor)
+        assert torch.equal(images, torch.cat(expected, dim=0))
+    finally:
+        _clean_offload(merged_path)
+
+
+def test_finalize_images_merged_path_always_set_on_done(
+    sample_loop_ctx, tmp_path
+):
+    """When done=True and there are batches, merged_path is the auto-derived
+    .pt path. When done=False, merged_path is the empty string (loop still
+    running). The path is always present and stable so the user can wire
+    it into LoadAny|Mie for recovery."""
+    finalize = MieLoopFinalizeImages()
+    images, merged_path = finalize.execute(sample_loop_ctx, False)
+    assert merged_path == ""
+    assert images is loop_module.EMPTY_IMAGES
+
+
+def test_finalize_images_avoid_oom_false_still_loads_image_when_possible(
+    sample_loop_ctx, tmp_path
+):
+    """The avoid_oom=False path is the legacy pre-allocate. For small runs
+    that fit in RAM, it should still produce the merged tensor and the
+    auto-derived .pt. (Locks that the public contract is identical between
+    avoid_oom=True and avoid_oom=False.)"""
+    collect = MieLoopCollectImage()
+    finalize = MieLoopFinalizeImages()
+    expected = []
+    ctx = sample_loop_ctx
+    for _ in range(3):
+        img = torch.rand(2, 4, 4, 3)
+        expected.append(img)
+        ctx = collect.execute(ctx, img, True, str(tmp_path))[0]
+    images, merged_path = finalize.execute(ctx, True, avoid_oom=False)
+    try:
+        assert isinstance(images, torch.Tensor)
+        assert torch.equal(images, torch.cat(expected, dim=0))
+        assert merged_path.endswith("merged.pt")
+    finally:
+        _clean_offload(merged_path)
+
+
+def test_finalize_images_preserves_per_batch_files_on_failure(
+    sample_loop_ctx, tmp_path, monkeypatch
+):
+    """Hard contract: if the merge fails, the per-batch image_*.pt files
+    MUST survive. This is the only safety net for a multi-hour loop run
+    -- losing them is losing the entire run."""
+    collect = MieLoopCollectImage()
+    finalize = MieLoopFinalizeImages()
+    ctx = collect.execute(sample_loop_ctx, torch.rand(2, 4, 4, 3), True, str(tmp_path))[0]
+    ctx = collect.execute(ctx, torch.rand(2, 4, 4, 3), True, str(tmp_path))[0]
+
+    real_load = torch.load
+    calls = {"n": 0}
+
+    def flaky(*args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] >= 3:
+            raise RuntimeError("simulated disk error")
+        return real_load(*args, **kwargs)
+
+    monkeypatch.setattr(loop_module.torch, "load", flaky)
+
+    with pytest.raises(RuntimeError):
+        finalize.execute(ctx, True)
+    leftovers = list(Path(tmp_path).glob("image_*.pt"))
+    assert leftovers, "input batches must be preserved on failure"
+

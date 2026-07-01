@@ -1010,9 +1010,7 @@
     "function": "execute",
     "hidden": [],
     "optional": [
-      "avoid_oom",
-      "chunk_size",
-      "finalize_to_disk"
+      "avoid_oom"
     ],
     "required": [
       "done",

@@ -150,20 +150,26 @@ MieLoop 使用 expand 图递归执行下一轮。为避免 ID 漂移：
 - 注意：若工作流内同一文件被多路 LoadVideo 引用（如 SCAIL 双视频路径不一致），collector 可能混入不属于本循环的段，需结合业务链判断要跳过的前若干文件——这是 workflow 层问题，Finalize 无法自动识别。
 
 
-### 长跑防 OOM 合并（`finalize_to_disk`）
-`MieLoopFinalizeImages`（v3.1.1+）额外提供两个可选入参，避免长跑合并时单进程内 `torch.cat` 把堆顶到 `MemoryError`：
+### 长跑防 OOM 合并（`avoid_oom`）
+`MieLoopFinalizeImages`（v3.1.2+）默认走**分块落盘 + numpy.memmap** 的合并路径，专门为长跑设计 —— **不允许**用户配到一个 OOM 会杀进程的状态。整个 SCAIL-2 跑过程只在节点上暴露一个旋钮：
 
 | 参数 | 默认 | 说明 |
 |---|---|---|
-| `finalize_to_disk` | `""` | 合并目标 .pt 路径。设置后走**分块落盘**合并；留空走原有增量内存 cat（向后兼容）。推荐直接设为 `<ComfyUI temp>/mie_loop_offload/<run_id>/merged.pt` 或自己指定一个稳定盘路径。 |
-| `chunk_size` | `5` | 每个 chunk 合并多少个 batch。值越大 I/O 越少但 phase-1 峰值越高；值越小 I/O 越多但更省内存。SCAIL-2 30 段 81 帧的 case 默认 5 就够稳（phase-1 ~7 GB 峰）。 |
-| `avoid_oom` | `True` | **避免 OOM**：phase 2 用 `numpy.memmap` 走磁盘映射，把 24.5 GB 级的 final+chunk 峰值压到 ~1 chunk（~3.5 GB）。推荐所有长跑都开着。坏处是 mmap 写比直接 RAM 写稍慢（NVMe 几乎无感，HDD 慢 2-3×）；遇到不支持的 dtype 会自动回退到预分配路径。 |
+| `avoid_oom` | `True` | **避免 OOM**：phase 2 用 `numpy.memmap` 走磁盘映射，把 24.5 GB 级的 final+chunk 峰值压到 ~1 chunk（~3.5 GB）。**所有长跑都保持 ON**。关闭后会回退到预分配路径，那种路径在 30 段 81 帧 704×1280 的 SCAIL-2 case 上需要 ~24.5 GB 连续 RAM，普通 16 GB 工作站必然 `MemoryError` 中途被杀 —— **几小时的循环白跑**。tooltip 里有同样的警告。 |
+
+其他参数（输出路径、chunk 大小）都是节点内部写死：
+- 输出路径：自动推到 `<ComfyUI temp>/mie_loop_offload/<run_id>/merged.pt`，和循环每轮写出来的 `image_*.pt` 放一起，方便定位。
+- chunk_size：写死 5。Phase 1 峰值 `2 × 5 × 单 batch 字节`（SCAIL-2 case ~7 GB）。
 
 **合并分两阶段**：
-- **Phase 1**：每 `chunk_size` 个 batch 合并成一段，写到 `<out_dir>/_mie_chunk_image_NNNN.pt`。峰值约 `2 × chunk_size × 单 batch 字节`。
+- **Phase 1**：每 5 个 batch 合并成一段，写到 `<offload_dir>/_mie_chunk_image_NNNN.pt`。峰值约 `2 × chunk_size × 单 batch 字节`。
 - **Phase 2**：
   - `avoid_oom=True`（默认）：用 `np.memmap` 建一个磁盘映射的 ndarray 当成 final，chunk-by-chunk 拷进去（写直达磁盘，**不分配 final 大 tensor**），最后 `torch.save` 走 mmap 读取（OS 负责分页）。峰值 ≈ 1 chunk + phase 1 那个 `2 × chunk_size`，**整体 ~7 GB**。
-  - `avoid_oom=False`：预分配最终张量到 CPU（避免 `torch.cat` 翻倍峰值），把每个 chunk 拷进去，再 `torch.save` 到 `finalize_to_disk`。峰值约 `final_size + max_chunk_size`，SCAIL-2 case ~24.5 GB。
+  - `avoid_oom=False`：预分配最终张量到 CPU（避免 `torch.cat` 翻倍峰值），把每个 chunk 拷进去，再 `torch.save` 到目标路径。峰值约 `final_size + max_chunk_size`，SCAIL-2 case ~24.5 GB。
+
+**节点输出**（v3.1.2+）：
+- `images`（IMAGE）：尽力把 merged .pt 加载回 tensor，**最终 tensor 在系统 RAM 装不下时返回 `EMPTY_IMAGES`**（不抛错、不杀进程）。
+- `merged_path`（STRING）：merged .pt 的稳定路径。**即使 IMAGE 槽返回了 EMPTY_IMAGES，这个路径也是有效的**，把它接给 `LoadAny|Mie` 就能在另一台机器上恢复（LoadAny 走 `torch.load` 物理读盘，不吃本机 RAM）。
 
 **输出**：`MieLoopFinalizeImages` 现在返回 `(images, merged_path)`：
 - `images`：把 `finalize_to_disk` 的 .pt 加载回 tensor（尽力而为，若系统连 21 GB tensor 都装不下则返回 `EMPTY_IMAGES`）。
