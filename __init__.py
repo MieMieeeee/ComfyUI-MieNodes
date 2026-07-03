@@ -15,7 +15,7 @@ from _mienodes_internal.nodes.common import ShowAnythingMie, ShowAndSaveAnything
 from _mienodes_internal.nodes.files import BatchRenameFiles, BatchDeleteFiles, BatchEditTextFiles, BatchSyncImageCaptionFiles, \
     SummaryTextFiles, BatchConvertImageFiles, DedupImageFiles, ModelDownloader, HFRepoDownloader
 from _mienodes_internal.nodes.llm import TextTranslator, PromptGenerator, KontextPromptGenerator, AddUserKontextPreset, RemoveUserKontextPreset, \
-    FrameTransitionPromptGenerator, HunyuanVideoI2VPromptGenerator, HunyuanVideoT2VPromptGenerator, ZImagePromptGenerator, Flux2PromptGenerator, FluxKleinT2VPromptGenerator, LTX2PromptGenerator, BerniniPromptGenerator, Ideogram4PromptGenerator, CustomSystemPromptGenerator, AddCustomSystemPrompt, RemoveCustomSystemPrompt
+    FrameTransitionPromptGenerator, HunyuanVideoI2VPromptGenerator, HunyuanVideoT2VPromptGenerator, ZImagePromptGenerator, Flux2PromptGenerator, FluxKleinT2VPromptGenerator, LTX2PromptGenerator, BerniniPromptGenerator, Ideogram4PromptGenerator, CustomSystemPromptGenerator, AddCustomSystemPrompt, RemoveCustomSystemPrompt, Scail2PromptGenerator
 from _mienodes_internal.services.llm import SetGeneralLLMServiceConnector, SetSiliconFlowLLMServiceConnector, \
     SetGithubModelsLLMServiceConnector, SetZhiPuLLMServiceConnector, SetZhiPuCodeLLMServiceConnector, SetKimiLLMServiceConnector, \
     SetDeepSeekLLMServiceConnector, SetGeminiLLMServiceConnector, SetBailianLLMServiceConnector, \
@@ -81,6 +81,7 @@ NODE_CLASS_MAPPINGS = {
     add_suffix("CustomSystemPromptGenerator"): CustomSystemPromptGenerator,
     add_suffix("AddCustomSystemPrompt"): AddCustomSystemPrompt,
     add_suffix("RemoveCustomSystemPrompt"): RemoveCustomSystemPrompt,
+    add_suffix("Scail2PromptGenerator"): Scail2PromptGenerator,
     add_suffix("GetAbsolutePath"): GetAbsolutePath,
     add_suffix("GetFileInfo"): GetFileInfo,
     add_suffix("GetDirectoryFilesInfo"): GetDirectoryFilesInfo,
@@ -200,6 +201,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     add_suffix("CustomSystemPromptGenerator"): add_emoji("Custom System Prompt Generator"),
     add_suffix("AddCustomSystemPrompt"): add_emoji("Add Custom System Prompt"),
     add_suffix("RemoveCustomSystemPrompt"): add_emoji("Remove Custom System Prompt"),
+    add_suffix("Scail2PromptGenerator"): add_emoji("SCAIL-2 Prompt Generator"),
     add_suffix("GetAbsolutePath"): add_emoji("Get Absolute Path"),
     add_suffix("GetFileInfo"): add_emoji("Get File Info"),
     add_suffix("GetDirectoryFilesInfo"): add_emoji("Get Directory Files Info"),
