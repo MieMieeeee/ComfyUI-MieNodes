@@ -267,7 +267,7 @@ def test_comfyui_node_input_types(scail2):
     assert "user_prompt" in required
     assert "seed" in required
     optional = spec["optional"]
-    assert "source" in optional
+    assert "driving_video" in optional
     assert "reference_images" in optional
     assert "num_frames" in optional
     assert "image_detail" in optional
@@ -342,7 +342,7 @@ def test_is_changed_factors_in_seed(scail2):
 
 
 def test_enhancer_short_circuits_on_missing_media(scail2):
-    """No source / ref images -> returns the original user_prompt,
+    """No driving_video / ref images -> returns the original user_prompt,
     matching Bernini's graceful-degradation behavior."""
     _, gen = scail2
 
@@ -354,7 +354,7 @@ def test_enhancer_short_circuits_on_missing_media(scail2):
     out = enhancer(
         "character_replacement - 角色替换",
         "replace the man",
-        source=None,
+        driving_video=None,
         reference_images=None,
     )
     assert out == "replace the man"
@@ -373,7 +373,7 @@ def test_enhancer_short_circuits_on_empty_prompt_replacement(scail2):
     out = enhancer(
         "character_replacement - 角色替换",
         "",
-        source=None,
+        driving_video=None,
         reference_images=None,
     )
     assert out == ""

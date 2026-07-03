@@ -68,7 +68,7 @@ MY_CATEGORY = "\ud83d\udc11 MieNodes/\ud83d\udc11 Prompt Generator"
 _DEFAULT_MAX_TOKENS_CAPTION = 2048
 _DEFAULT_MAX_TOKENS_ENHANCE = 512
 
-# Default number of frames sampled from the source video for stage 1.
+# Default number of frames sampled from the driving video for stage 1.
 # Matches upstream ``prompt_enhancer.py`` default of 8.
 DEFAULT_NUM_FRAMES = 8
 MIN_NUM_FRAMES = 1
@@ -117,7 +117,7 @@ def _sample_urls(urls: list[str], n: int) -> list[str]:
 class Scail2PromptEnhancer:
     """Two-stage SCAIL-2 prompt enhancer that talks to the project's LLMServiceConnector.
 
-    Stage 1 captions the source video; stage 2 writes the final positive
+    Stage 1 captions the driving video; stage 2 writes the final positive
     description of the animated / replaced video. Each stage is one
     ``llm.invoke`` call against the same connector.
 
@@ -224,7 +224,7 @@ class Scail2PromptEnhancer:
         user_prompt: str,
         seed: Optional[int],
     ) -> str:
-        """Stage 1: caption the source video."""
+        """Stage 1: caption the driving video."""
         if task_code == "character_replacement":
             system = caption_replacement_prompt()
             user_text = (
@@ -298,7 +298,7 @@ class Scail2PromptEnhancer:
         task_type: str,
         user_prompt: str,
         *,
-        source: Any = None,
+        driving_video: Any = None,
         reference_images: Any = None,
         seed: Optional[int] = None,
     ) -> str:
@@ -329,17 +329,17 @@ class Scail2PromptEnhancer:
                 )
                 return user_prompt
 
-        # Both tasks need a source video + at least one reference image.
-        source_urls = image_tensor_batch_to_data_urls(source)
+        # Both tasks need a driving video + at least one reference image.
+        driving_urls = image_tensor_batch_to_data_urls(driving_video)
         ref_urls = image_tensor_batch_to_data_urls(reference_images)
-        if not source_urls:
-            mie_log(f"Scail2: no source frames provided (task={code}); returning original")
+        if not driving_urls:
+            mie_log(f"Scail2: no driving_video frames provided (task={code}); returning original")
             return user_prompt
         if not ref_urls:
             mie_log(f"Scail2: no reference images provided (task={code}); returning original")
             return user_prompt
 
-        frame_urls = _sample_urls(source_urls, self.num_frames)
+        frame_urls = _sample_urls(driving_urls, self.num_frames)
         mie_log(
             f"Scail2: task={code} source_frames={len(source_urls)}->{len(frame_urls)} "
             f"ref_imgs={len(ref_urls)} detail={self.image_detail} "
@@ -389,13 +389,20 @@ class Scail2PromptGenerator:
                 ),
             },
             "optional": {
-                # Source video (image batch). Required for both tasks; if
+                # Driving video (image batch). Required for both tasks; if
                 # empty the enhancer returns the original prompt.
-                "source": ("IMAGE",),
+                "driving_video": (
+                    "IMAGE",
+                    {
+                        "tooltip": (
+                            "For character_replacement: the source video to be edited (the subject being replaced appears in this video).\\n\\nFor motion_transfer: the driving video whose motion / pose / action is applied to the character in reference_images."
+                        ),
+                    },
+                ),
                 # Reference image(s). Required for both tasks; the first
                 # one is the "replacement target" / "target character".
                 "reference_images": ("IMAGE",),
-                # How many frames to sample from ``source`` for stage 1.
+                # How many frames to sample from ``driving_video`` for stage 1.
                 # Matches upstream ``prompt_enhancer.py`` default of 8.
                 "num_frames": (
                     "INT",
@@ -439,7 +446,7 @@ class Scail2PromptGenerator:
         task_type,
         user_prompt,
         seed=None,
-        source=None,
+        driving_video=None,
         reference_images=None,
         num_frames=DEFAULT_NUM_FRAMES,
         image_detail="auto",
@@ -460,7 +467,7 @@ class Scail2PromptGenerator:
         out = enhancer(
             task_type,
             user_prompt,
-            source=source,
+            driving_video=driving_video,
             reference_images=reference_images,
             seed=seed,
         )
@@ -472,7 +479,7 @@ class Scail2PromptGenerator:
         task_type,
         user_prompt,
         seed=None,
-        source=None,
+        driving_video=None,
         reference_images=None,
         num_frames=DEFAULT_NUM_FRAMES,
         image_detail="auto",
@@ -503,7 +510,7 @@ class Scail2PromptGenerator:
         # Cheap media signature: just the tensor shape, not the full
         # pixel data. Matches Bernini's strategy so a tweak that
         # changes frame count or resolution triggers a re-run.
-        for t in (source, reference_images):
+        for t in (driving_video, reference_images):
             if t is None:
                 h.update(b"none")
             else:
