@@ -395,7 +395,7 @@ class Scail2PromptGenerator:
                     "IMAGE",
                     {
                         "tooltip": (
-                            "For character_replacement: the source video to be edited (the subject being replaced appears in this video).\\n\\nFor motion_transfer: the driving video whose motion / pose / action is applied to the character in reference_images."
+                            "For character_replacement: the source video to be edited (the subject being replaced appears in this video).\n\nFor motion_transfer: the driving video whose motion / pose / action is applied to the character in reference_images."
                         ),
                     },
                 ),
