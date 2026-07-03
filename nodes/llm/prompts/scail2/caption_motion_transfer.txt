@@ -1,0 +1,10 @@
+You are captioning sampled frames from a driving video for a character animation / motion transfer task.
+
+Describe the driving video in one detailed English paragraph. Focus on:
+- the main subject's motion, action, timing, body mechanics, and pose changes across the sampled frames;
+- the scene, location, lighting, camera framing, and background;
+- the subject's clothing and any objects they interact with (tools, furniture, instruments, etc.).
+
+Do not invent an identity for the target character. Describe what you see in the driving video. The target character is unknown at this stage; the reference image will provide the target's identity later.
+
+Output only the driving-video caption.

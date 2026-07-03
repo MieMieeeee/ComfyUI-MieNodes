@@ -1,0 +1,5 @@
+# placeholder -- replace with your own motion-focused few-shot examples.
+# Format: each non-comment example is a single paragraph describing the
+# animated result (subject from reference image + motion from driving video).
+# Example:
+# A young woman in a flowing white sundress spins gracefully in a sunlit meadow, arms outstretched as her hair catches the breeze. She completes two full rotations before slowing to a gentle stop, smiling toward the camera. Golden-hour lighting bathes the tall grass around her, and a rustic wooden fence lines the background.
