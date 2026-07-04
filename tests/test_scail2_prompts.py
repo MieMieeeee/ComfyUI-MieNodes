@@ -217,7 +217,7 @@ def test_bundled_examples_helpers(scail2):
     """``load_bundled_examples`` returns non-empty text for both tasks."""
     prompts, _ = scail2
     assert "woodworking" in prompts.load_bundled_examples("character_replacement")
-    # motion_transfer ships with a placeholder; just assert it loads.
+    # motion_transfer ships with MieNodes-original few-shot examples.
     assert prompts.load_bundled_examples("motion_transfer")
     # Unknown code returns empty.
     assert prompts.load_bundled_examples("not_a_task") == ""
@@ -377,3 +377,62 @@ def test_enhancer_short_circuits_on_empty_prompt_replacement(scail2):
         reference_images=None,
     )
     assert out == ""
+
+
+def test_enhancer_happy_path_runs_full_pipeline(scail2, monkeypatch):
+    """Regression for the ``source_urls`` NameError that the rename commit
+    (58fafad) introduced on the success path: ``__call__`` must run both
+    stages and return the enhanced prompt when media + user_prompt are
+    present. The short-circuit tests above never reach the buggy log line,
+    so this case is the only thing that would have caught it.
+
+    We monkeypatch ``image_tensor_batch_to_data_urls`` on the generator
+    module to return canned URLs (decoupling from the real image-encode
+    path) and a ``FakeConnector`` whose ``invoke`` returns deterministic
+    text per stage. We then assert:
+      - the returned prompt is the stage-2 enhanced text, not the original;
+      - both stages were invoked exactly once, in caption-then-enhance order.
+    """
+    _, gen = scail2
+
+    invocations = []
+
+    class FakeConnector:
+        model = "fake-model"
+
+        def get_state(self):
+            return "fake-state"
+
+        def invoke(self, messages, *, seed, temperature, max_tokens):
+            # Stage 1 (caption) asks for more tokens than stage 2 (enhance).
+            invocations.append(max_tokens)
+            if max_tokens >= 1024:
+                return "A caption of the driving video frames."
+            return "An enhanced SCAIL-2 animation prompt."
+
+    # Decouple from the real image-encoding path: any non-None media is
+    # treated as a non-empty batch of frames / references.
+    monkeypatch.setattr(
+        gen,
+        "image_tensor_batch_to_data_urls",
+        lambda t: ["data:image/jpeg;base64,AAAA"] * 8 if t is not None else [],
+    )
+
+    enhancer = gen.Scail2PromptEnhancer(FakeConnector(), num_frames=8)
+
+    # A stand-in "tensor": only truthiness matters once the data-url helper
+    # is monkeypatched.
+    class FakeTensor:
+        pass
+
+    out = enhancer(
+        "motion_transfer - 动作迁移",
+        "the girl is dancing",
+        driving_video=FakeTensor(),
+        reference_images=FakeTensor(),
+        seed=42,
+    )
+
+    assert out == "An enhanced SCAIL-2 animation prompt."
+    # First the high-token caption stage, then the lower-token enhance stage.
+    assert invocations == [gen._DEFAULT_MAX_TOKENS_CAPTION, gen._DEFAULT_MAX_TOKENS_ENHANCE]

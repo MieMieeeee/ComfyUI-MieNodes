@@ -341,7 +341,7 @@ class Scail2PromptEnhancer:
 
         frame_urls = _sample_urls(driving_urls, self.num_frames)
         mie_log(
-            f"Scail2: task={code} source_frames={len(source_urls)}->{len(frame_urls)} "
+            f"Scail2: task={code} driving_frames={len(driving_urls)}->{len(frame_urls)} "
             f"ref_imgs={len(ref_urls)} detail={self.image_detail} "
             f"temperature={self.temperature}"
         )

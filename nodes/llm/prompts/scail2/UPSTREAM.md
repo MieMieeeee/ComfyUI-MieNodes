@@ -38,7 +38,7 @@ The three files below are MieNodes designs and are NOT from upstream:
 | --- | --- |
 | `caption_motion_transfer.txt` | Stage 1: caption the driving video (focus on motion) |
 | `enhance_motion_transfer.txt` | Stage 2: rewrite as a positive animation prompt |
-| `examples_motion_transfer.txt` | Placeholder few-shot examples |
+| `examples_motion_transfer.txt` | MieNodes-original few-shot examples (dancing / walking / yoga motions, one descriptive paragraph each, matching the prompt style required by `enhance_motion_transfer.txt`) |
 
 If upstream later ships a motion-transfer prompt enhancer, these three
 files should be either deleted (in favor of the upstream files) or moved

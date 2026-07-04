@@ -125,6 +125,12 @@ def parse_task_code(task_type: str) -> str:
       - new display strings like ``"motion_transfer - 动作迁移"``
       - the legacy bare code ``"motion_transfer"`` (saved workflows)
       - None / empty (passed through unchanged)
+
+    Separator contract: the display string splits on the literal substring
+    ``" - "`` (space-hyphen-space, ASCII hyphen-minus U+002D). Every entry in
+    ``TASK_TYPES`` MUST follow this exact form ``"<code> - <label>"``; using a
+    different separator (em-dash, colon, no spaces) will silently break the
+    split and the task will fall through to the unknown-task short-circuit.
     """
     if not task_type:
         return task_type
