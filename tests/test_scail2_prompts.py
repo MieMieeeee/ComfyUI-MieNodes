@@ -404,9 +404,11 @@ def test_enhancer_happy_path_runs_full_pipeline(scail2, monkeypatch):
             return "fake-state"
 
         def invoke(self, messages, *, seed, temperature, max_tokens):
-            # Stage 1 (caption) asks for more tokens than stage 2 (enhance).
+            # Distinguish stage by call ORDER, not token budget: caption runs
+            # first, enhance second. (Token budgets can change -- e.g. both
+            # stages currently default to 2048 -- so do not gate on max_tokens.)
             invocations.append(max_tokens)
-            if max_tokens >= 1024:
+            if len(invocations) == 1:
                 return "A caption of the driving video frames."
             return "An enhanced SCAIL-2 animation prompt."
 
@@ -434,5 +436,5 @@ def test_enhancer_happy_path_runs_full_pipeline(scail2, monkeypatch):
     )
 
     assert out == "An enhanced SCAIL-2 animation prompt."
-    # First the high-token caption stage, then the lower-token enhance stage.
-    assert invocations == [gen._DEFAULT_MAX_TOKENS_CAPTION, gen._DEFAULT_MAX_TOKENS_ENHANCE]
+    # Exactly two LLM calls: caption then enhance.
+    assert len(invocations) == 2
