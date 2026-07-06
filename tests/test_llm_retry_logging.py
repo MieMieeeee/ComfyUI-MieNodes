@@ -127,3 +127,121 @@ def test_default_timeout_is_30(llm_module):
     import inspect
     sig = inspect.signature(llm_module.GeneralLLMServiceConnector.__init__)
     assert sig.parameters["timeout"].default == 30
+
+
+# --------------------------------------------------------------------------- #
+# Reasoning-model response parsing
+#
+# MiniMax-M3 / DeepSeek-R1 API / GLM-5.x emit chain-of-thought that may
+# consume the whole token budget before the answer. Two shapes are
+# handled: (a) reasoning inlined in ``content`` as ``<think>...</think>``
+# and stripped by ``_sanitize_response`` (leaving content empty), and
+# (b) reasoning split into a separate ``reasoning_content`` field. When
+# the sanitized ``content`` is empty, ``invoke`` falls back to
+# ``reasoning_content`` so callers don't get a bare empty string.
+# --------------------------------------------------------------------------- #
+def _conn(llm_module):
+    return llm_module.GeneralLLMServiceConnector(
+        api_url="https://x/v1/chat/completions", manual_token="", model="M3"
+    )
+
+
+def _run_with_response(llm_module, response_json, captured):
+    """Drive ``invoke`` with a single canned 200 response."""
+    resp = MagicMock()
+    resp.status_code = 200
+    resp.json.return_value = response_json
+    with patch.object(llm_module, "mie_log", side_effect=lambda m: captured.append(m)), \
+         patch("services.llm.time.sleep"), \
+         patch("services.llm.requests.post", return_value=resp), \
+         patch("services.llm.resolve_token", return_value="tok"):
+        return _conn(llm_module).invoke([{"role": "user", "content": "hi"}])
+
+
+def test_response_falls_back_to_reasoning_content_when_content_empty(llm_module):
+    """content = <think>...</think> (sanitize -> empty) + reasoning_content
+    set -> invoke returns the reasoning_content text, and a fallback log is
+    emitted. Regression for the SCAIL-2 enhance-stage "returned empty" bug."""
+    captured = []
+    out = _run_with_response(
+        llm_module,
+        {
+            "choices": [{
+                "message": {
+                    "content": "<think>long chain of thought</think>",
+                    "reasoning_content": "The real enhanced prompt.",
+                }
+            }]
+        },
+        captured,
+    )
+    assert out == "The real enhanced prompt."
+    joined = "\n".join(captured)
+    assert "falling back to reasoning_content" in joined
+    # response_chars reflects post-sanitize (post-fallback) length, not the
+    # raw content length (36 chars for the <think>...</think> string).
+    assert "response_chars=25" in joined  # len("The real enhanced prompt.")
+
+
+def test_response_returns_content_when_non_empty_after_sanitize(llm_module):
+    """Normal case: content has a think block + real answer -> return the
+    sanitized answer; reasoning_content is NOT consulted."""
+    captured = []
+    out = _run_with_response(
+        llm_module,
+        {
+            "choices": [{
+                "message": {
+                    "content": "<think>chain</think>The answer paragraph.",
+                    "reasoning_content": "SHOULD NOT BE USED",
+                }
+            }]
+        },
+        captured,
+    )
+    assert out == "The answer paragraph."
+    joined = "\n".join(captured)
+    assert "falling back" not in joined
+
+
+def test_response_chars_log_uses_post_sanitize_length(llm_module):
+    """The success log's response_chars reflects the sanitized length, not
+    the raw content length. Regression: the old log reported the pre-sanitize
+    length and masked the 'returned empty' condition."""
+    captured = []
+    _run_with_response(
+        llm_module,
+        {
+            "choices": [{
+                "message": {
+                    "content": "<think>chain</think>answer",  # sanitize -> "answer" (6)
+                    "reasoning_content": "",
+                }
+            }]
+        },
+        captured,
+    )
+    joined = "\n".join(captured)
+    assert "response_chars=6" in joined
+    # The raw content was 27 chars; ensure we are NOT reporting that.
+    assert "response_chars=27" not in joined
+
+
+def test_response_returns_empty_when_both_content_and_reasoning_empty(llm_module):
+    """Both content (after sanitize) and reasoning_content empty -> return
+    empty string, no crash. Preserves current behavior; the SCAIL-2 enhancer
+    handles the empty return upstream by falling back to the original prompt."""
+    captured = []
+    out = _run_with_response(
+        llm_module,
+        {
+            "choices": [{
+                "message": {
+                    "content": "<think>chain</think>",
+                    "reasoning_content": "",
+                }
+            }]
+        },
+        captured,
+    )
+    assert out == ""

@@ -197,17 +197,41 @@ class GeneralLLMServiceConnector:
                 if response.status_code == 200:
                     response_data = response.json()
                     try:
-                        content = response_data["choices"][0]["message"]["content"]
+                        message = response_data["choices"][0]["message"]
                     except (KeyError, IndexError) as e:
                         raise ValueError(
                             f"Unexpected response format: {type(e).__name__}. "
                             f"Response: {response.text[:200]}...")
-                    mie_log(
-                        f"{tag} ok in {attempt_elapsed:.2f}s response_chars={len(content)}"
-                    )
-                    return self._sanitize_response(
+                    content = message.get("content") or ""
+                    cleaned = self._sanitize_response(
                         content, preserve_thinking=preserve_thinking
                     )
+                    # Reasoning models (MiniMax-M3, DeepSeek-R1 API, GLM-5.x)
+                    # emit their chain-of-thought in a separate
+                    # ``reasoning_content`` field while the real answer sits in
+                    # ``content``. Some providers (e.g. MiniMax-M3 inline mode)
+                    # instead put the whole `<think>...</think>` chain inside
+                    # ``content`` so that ``_sanitize_response`` strips it; when
+                    # that leaves ``content`` empty (chain consumed the whole
+                    # token budget before the answer), fall back to
+                    # ``reasoning_content`` so callers still get the model's
+                    # final reasoning instead of a bare empty string.
+                    if not cleaned:
+                        reasoning = message.get("reasoning_content") or ""
+                        if reasoning:
+                            mie_log(
+                                f"{tag} content empty after sanitize; "
+                                f"falling back to reasoning_content "
+                                f"({len(reasoning)} chars)"
+                            )
+                            cleaned = self._sanitize_response(
+                                reasoning, preserve_thinking=preserve_thinking
+                            )
+                    mie_log(
+                        f"{tag} ok in {attempt_elapsed:.2f}s "
+                        f"response_chars={len(cleaned or '')}"
+                    )
+                    return cleaned
 
                 # 5xx: 瞬时错误，包含响应体前 200 字符方便诊断
                 if 500 <= response.status_code < 600:
@@ -592,11 +616,36 @@ class GeminiConnectorGeneral(GeneralLLMServiceConnector):
                     # 适配 Gemini 响应解析: candidates -> content -> parts -> text
                     if not response_data.get("candidates"):
                         raise ValueError(f"No candidates in response. Response: {response.text}")
-                    text = response_data["candidates"][0]["content"]["parts"][0]["text"]
+                    parts = response_data["candidates"][0]["content"]["parts"]
+                    text = parts[0].get("text", "") if parts else ""
+                    cleaned = self._sanitize_response(text, preserve_thinking=preserve_thinking)
+                    # Gemini thinking models put reasoning in parts flagged
+                    # ``thought: true`` (or with a ``thoughtsContent`` key). If
+                    # the first / non-thought text sanitizes to empty (think
+                    # chain consumed the whole budget), fall back to the first
+                    # reasoning part so callers still get the model's output.
+                    # Mirrors the OpenAI-compat ``reasoning_content`` fallback.
+                    if not cleaned:
+                        for p in parts[1:]:
+                            rtext = p.get("thoughtsContent") or (
+                                p.get("text") if p.get("thought") else ""
+                            )
+                            if rtext:
+                                mie_log(
+                                    f"{tag} content empty after sanitize; "
+                                    f"falling back to Gemini thought part "
+                                    f"({len(rtext)} chars)"
+                                )
+                                cleaned = self._sanitize_response(
+                                    rtext, preserve_thinking=preserve_thinking
+                                )
+                                if cleaned:
+                                    break
                     mie_log(
-                        f"{tag} ok in {attempt_elapsed:.2f}s response_chars={len(text or '')}"
+                        f"{tag} ok in {attempt_elapsed:.2f}s "
+                        f"response_chars={len(cleaned or '')}"
                     )
-                    return self._sanitize_response(text, preserve_thinking=preserve_thinking)
+                    return cleaned
 
                 if 500 <= response.status_code < 600:
                     body_snip = (response.text or "").replace("\n", " ")[:200]
