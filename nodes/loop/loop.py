@@ -21,9 +21,9 @@ except ImportError:
 # live node and the manual CLI use the exact same chunked+memmap code path.
 # Re-imported under the legacy private name to keep call sites unchanged.
 try:
-    from ...scripts.chunked_merge import chunked_disk_merge as _chunked_disk_merge
+    from ...core.chunked_merge import chunked_disk_merge as _chunked_disk_merge
 except Exception:
-    from scripts.chunked_merge import chunked_disk_merge as _chunked_disk_merge
+    from core.chunked_merge import chunked_disk_merge as _chunked_disk_merge
 
 try:
     from comfy_execution.graph_utils import GraphBuilder

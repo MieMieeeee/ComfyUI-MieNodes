@@ -47,12 +47,13 @@ from pathlib import Path
 import torch
 
 # Use the same chunked+memmap implementation the live node uses, so the
-# recovery path cannot OOM harder than the live path. Import via the
-# scripts/ sibling layout (this script lives in scripts/).
-_HERE = Path(__file__).resolve().parent
-if str(_HERE) not in sys.path:
-    sys.path.insert(0, str(_HERE))
-from chunked_merge import (  # noqa: E402
+# recovery path cannot OOM harder than the live path. The shared module
+# lives in core/ (same package as the live node), so we add the repo
+# root (parent of scripts/) to sys.path and import as a normal package.
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+from core.chunked_merge import (  # noqa: E402
     build_disk_item,
     chunked_disk_merge,
     is_disk_cache_item,
