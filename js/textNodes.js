@@ -922,6 +922,14 @@ function injectRichStyles() {
     .mie-rich-content input[type="checkbox"] { margin-right: 0.3em; }
     .mie-rich-content img { max-width: 100%; height: auto; }
     .mie-rich-empty { color: inherit; }
+    /* ComfyUI wraps our element inside a div.dom-widget overlay with the
+       default pointer-events: auto. That wrapper absorbs clicks on the
+       node body even though the inner .mie-rich-frame is now none,
+       so the bottom-right resize handle stays unreachable. Use :has() to
+       flip the wrapper to none only when it actually contains a
+       .mie-rich-frame direct child (i.e. our RichText widget), so we do
+       not disturb DOM widgets from other extensions. */
+    .dom-widget:has(> .mie-rich-frame) { pointer-events: none !important; }
   `;
   document.head.appendChild(style);
 }
@@ -1033,12 +1041,14 @@ function installRichTextBehavior(nodeType) {
     el.style.flexDirection = "column";
     el.style.justifyContent = "center";
     el.style.background = "transparent";
+    el.style.pointerEvents = "none";
 
     const inner = document.createElement("div");
     inner.className = "mie-rich-content";
     inner.style.boxSizing = "border-box";
     inner.style.width = "100%";
     inner.style.background = "transparent";
+    inner.style.pointerEvents = "none";
     el.appendChild(inner);
 
     // Cache BEFORE addDOMWidget: if addDOMWidget throws, the next call
@@ -1064,14 +1074,16 @@ function installRichTextBehavior(nodeType) {
       this._mieDomWidget = { element: el };
     }
 
-    // The DOM widget sits on top of the node, so the canvas underneath
-    // never sees clicks on the node body. Without this, onDblClick is
-    // dead for RichText. We catch the native dblclick on the DOM element
-    // and route it to openEditor.
-    el.addEventListener("dblclick", (ev) => {
-      ev.stopPropagation();
-      this.openEditor();
-    });
+    // With pointer-events: none on the widget tree, LiteGraph sees
+    // every event on the node body again, which means:
+    //   - node.onDblClick fires for dblclicks (routes to openEditor),
+    //   - the bottom-right resize handle works again,
+    //   - the right-click menu still works (including the prepended
+    //     "Edit" item from getMenuOptions).
+    // We therefore do NOT add a manual dblclick handler here -- adding
+    // one would re-introduce the swallowed-event problem by calling
+    // stopPropagation on the native dblclick, breaking the chain that
+    // lets LiteGraph detect the same gesture for resize / dblclick.
 
     return el;
   };
