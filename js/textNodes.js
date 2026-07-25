@@ -1074,16 +1074,18 @@ function installRichTextBehavior(nodeType) {
       this._mieDomWidget = { element: el };
     }
 
-    // With pointer-events: none on the widget tree, LiteGraph sees
-    // every event on the node body again, which means:
-    //   - node.onDblClick fires for dblclicks (routes to openEditor),
-    //   - the bottom-right resize handle works again,
-    //   - the right-click menu still works (including the prepended
-    //     "Edit" item from getMenuOptions).
-    // We therefore do NOT add a manual dblclick handler here -- adding
-    // one would re-introduce the swallowed-event problem by calling
-    // stopPropagation on the native dblclick, breaking the chain that
-    // lets LiteGraph detect the same gesture for resize / dblclick.
+    // Collapse the auto-created .dom-widget wrapper height to zero so
+    // the new Vue-driven frontend's domWidget layout does not stack
+    // this widget's height under the title bar (which would push the
+    // node taller on every layout pass -- a runaway feedback loop).
+    // The wrapper has pointer-events: none (via the :has() rule in
+    // injectRichStyles), so its visual size does not affect clicks.
+    // The Markdown band still fills the full node body because the
+    // inner .mie-rich-frame is sized explicitly in _renderContent.
+    const w = this._mieDomWidget;
+    if (w && !w.computeSize) {
+      w.computeSize = function () { return [0, 0]; };
+    }
 
     return el;
   };
