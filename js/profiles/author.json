@@ -1,0 +1,15 @@
+{
+  "name": "黎黎原上咩",
+  "handle": "SweetValberry",
+  "tagline": "专注无门槛分享的 AIGC 视频教程制作者、开源贡献者、整合包分享者。",
+  "avatar": "./Summer.png",
+  "links": [
+    { "group": "看中文教程", "url": "https://space.bilibili.com/449342345" },
+    { "group": "看英文教程", "url": "https://www.youtube.com/@SweetValberry" },
+    { "group": "开源贡献", "url": "https://github.com/MieMieeeee" },
+    { "group": "使用整合包", "url": "https://pan.quark.cn/s/4b98f758d6d4" },
+    { "group": "下载模型", "url": "https://pan.quark.cn/s/3be6eb0d7f65" },
+    { "group": "更多工作流", "url": "https://pan.quark.cn/s/59bafd8bf39d" },
+    { "group": "查阅知识库", "url": "https://dcn8q5lcfe3s.feishu.cn/wiki/IYHAwFhLviZIHBk7C7XccuJBn3c" }
+  ]
+}

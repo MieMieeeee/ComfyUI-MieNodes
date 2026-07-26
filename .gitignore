@@ -7,6 +7,7 @@ user_system_prompts.json
 .trae/
 .sisyphus/
 .omc/
+.zcode/
 .ruff_cache/
 %TEMP%/
 

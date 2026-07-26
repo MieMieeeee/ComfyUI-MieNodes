@@ -11,7 +11,7 @@ if _INTERNAL_PACKAGE not in sys.modules:
     sys.modules[_INTERNAL_PACKAGE] = _pkg
 
 from _mienodes_internal.nodes.common import ShowAnythingMie, ShowAndSaveAnythingMie, SaveAnythingAsFile, CompareFiles, GetAbsolutePath, GetFileInfo, \
-    GetDirectoryFilesInfo, GetFileBasename, CopyFiles, DeleteFiles, ClassicAspectRatio, AspectRatioFromSize, RoundToMultiple, StringConcat, StringFormat, IntToString, StringHash, SimpleTextNode, RichTextNode, FileExists, IfElse, SaveImageBatch, LoadImageBatch, SaveAny, LoadAny, LoadOrCompute, ImageHash, AnyToString
+    GetDirectoryFilesInfo, GetFileBasename, CopyFiles, DeleteFiles, ClassicAspectRatio, AspectRatioFromSize, RoundToMultiple, StringConcat, StringFormat, IntToString, StringHash, SimpleTextNode, RichTextNode, AboutAuthorNode, FileExists, IfElse, SaveImageBatch, LoadImageBatch, SaveAny, LoadAny, LoadOrCompute, ImageHash, AnyToString
 from _mienodes_internal.nodes.files import BatchRenameFiles, BatchDeleteFiles, BatchEditTextFiles, BatchSyncImageCaptionFiles, \
     SummaryTextFiles, BatchConvertImageFiles, DedupImageFiles, ModelDownloader, HFRepoDownloader
 from _mienodes_internal.nodes.llm import TextTranslator, PromptGenerator, KontextPromptGenerator, AddUserKontextPreset, RemoveUserKontextPreset, \
@@ -114,6 +114,7 @@ NODE_CLASS_MAPPINGS = {
     add_suffix("RoundToMultiple"): RoundToMultiple,
     add_suffix('SimpleTextNode'): SimpleTextNode,
     add_suffix('RichTextNode'): RichTextNode,
+    add_suffix('AboutAuthorNode'): AboutAuthorNode,
     add_suffix("MieLoopStart"): MieLoopStart,
     add_suffix("MieLoopResume"): MieLoopResume,
     add_suffix("MieLoopBodyIn"): MieLoopBodyIn,
@@ -235,6 +236,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     add_suffix("RoundToMultiple"): add_emoji("Round To Multiple"),
     add_suffix('SimpleTextNode'): add_emoji('Simple Text'),
     add_suffix('RichTextNode'): add_emoji('Rich Text'),
+    add_suffix('AboutAuthorNode'): add_emoji('About Author'),
     add_suffix("MieLoopStart"): add_emoji("Mie Loop Start"),
     add_suffix("MieLoopResume"): add_emoji("Mie Loop Resume"),
     add_suffix("MieLoopBodyIn"): add_emoji("Mie Loop Body In"),

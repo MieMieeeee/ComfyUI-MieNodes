@@ -39,6 +39,7 @@ IGNORE_DIRS = {
     ".claude",
     ".omc",
     ".sisyphus",
+    ".zcode",
     "debug_logs",
     "logs",
     "%TEMP%",

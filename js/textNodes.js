@@ -1198,6 +1198,637 @@ function installRichTextBehavior(nodeType) {
 }
 
 // ---------------------------------------------------------------------------
+// AboutAuthorNode — Read-only structured author card.
+//
+// Content (name / handle / tagline / avatar / links) is sourced from
+// `js/profiles/author.json` and copied into the node's `properties.author_*`
+// fields on creation so the card survives workflow save/load even for users
+// who don't have the profile file. All fields are read-only; the only
+// per-instance state is the theme (Dark / Light / Minimal / Banner), chosen
+// from the right-click menu.
+// ---------------------------------------------------------------------------
+
+let _authorStylesInjected = false;
+function injectAboutAuthorStyles() {
+  if (_authorStylesInjected) return;
+  _authorStylesInjected = true;
+  const style = document.createElement("style");
+  style.textContent = `
+    /* --- Card shell ------------------------------------------------------- */
+    /* The default card is a vertically centered stack: header on top, links */
+    /* below, everything horizontally centered. Banner is the one horizontal */
+    /* variant (header on the left, links on the right) for placing at the */
+    /* top of a workflow. */
+    .mie-author-card {
+      box-sizing: border-box;
+      width: 100%; height: 100%;
+      display: flex; flex-direction: column;
+      align-items: stretch;              /* children fill card width; the
+                                            links list needs full width so its
+                                            buttons fill the card. The header
+                                            centers itself via its own rules. */
+      padding: 16px 18px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      pointer-events: none;          /* the inner <a>/widget handle hit-test */
+      overflow: hidden;
+    }
+    /* Leaf theme: Animal-Crossing-inspired warm cream card. */
+    .mie-author-card.theme-leaf {
+      color: #5d4037;
+    }
+    .theme-leaf .mie-author-link:hover { background: rgba(124, 179, 66, 0.18); }
+
+    /* --- Header: avatar + name + tagline, vertically stacked & centered --- */
+    .mie-author-header {
+      display: flex; flex-direction: column; align-items: center;
+      gap: 4px;
+      margin-bottom: 12px;
+      pointer-events: auto;
+      text-align: center;
+    }
+    /* Banner theme removed — replaced by Leaf. This slot kept for any future
+       /* horizontal-variant theme. */
+    .mie-author-avatar {
+      width: 72px; height: 72px; flex-shrink: 0;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 38px; line-height: 1;
+      user-select: none;
+      margin-bottom: 8px;
+      /* Glow ring: a soft halo around the avatar. Each theme overrides the */
+      /* halo color via its --author-accent CSS variable. */
+      box-shadow: 0 0 0 3px var(--author-accent, #60a5fa),
+                  0 0 18px 2px var(--author-glow, rgba(96, 165, 250, 0.35));
+    }
+    .mie-author-avatar img {
+      width: 100%; height: 100%;
+      border-radius: 50%; object-fit: cover; display: block;
+    }
+    .mie-author-text { min-width: 0; }
+    .mie-author-name {
+      font-size: 18px; font-weight: 700; line-height: 1.25;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .mie-author-handle {
+      font-size: 12px; opacity: 0.65; margin-top: 2px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .mie-author-tagline {
+      font-size: 12px; opacity: 0.8; margin-top: 8px; line-height: 1.5;
+      max-width: 200px;                   /* constrain so it wraps cleanly */
+    }
+    .theme-leaf .mie-author-tagline { color: #6d4c41; }   /* warm brown */
+
+    /* --- Links list (Linktree-style big buttons) ------------------------- */
+    .mie-author-links {
+      display: flex; flex-direction: column; align-items: stretch; gap: 8px;
+      margin-top: 4px;
+      width: 100%;                        /* buttons fill the card width */
+      pointer-events: auto;
+    }
+    /* Each link is a full-width button: translucent background, thin border,
+       generous padding, large radius. Hover deepens the background and
+       brightens the border toward the theme accent. Inspired by Linktree /
+       creator bio-link cards. */
+    .mie-author-link {
+      display: flex; align-items: center; justify-content: center;
+      gap: 6px;
+      padding: 11px 14px;
+      border-radius: 12px;
+      font-size: 13px; font-weight: 500; line-height: 1.3;
+      text-decoration: none;
+      border: 1px solid var(--author-link-border, rgba(127, 127, 127, 0.25));
+      background: var(--author-link-bg, rgba(127, 127, 127, 0.10));
+      transition: background 0.14s ease, border-color 0.14s ease, transform 0.14s ease;
+      cursor: pointer;
+      width: 100%; box-sizing: border-box;
+    }
+    .mie-author-link:hover {
+      background: var(--author-link-bg-hover, rgba(127, 127, 127, 0.20));
+      border-color: var(--author-accent, #60a5fa);
+    }
+    .mie-author-link-left { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center; }
+    .mie-author-link-platform { opacity: 0.6; font-size: 12px; }
+
+    /* --- Theme color variants -------------------------------------------- */
+    /* Each theme defines its accent (avatar ring + link hover border) and a
+       pair of link background tones (resting / hover) via CSS variables on
+       the card root. This keeps the per-theme rules tiny. */
+    .mie-author-card.theme-dark {
+      color: #e5e7eb;
+      --author-accent: #60a5fa;
+      --author-glow: rgba(96, 165, 250, 0.35);
+      --author-link-bg: rgba(255, 255, 255, 0.06);
+      --author-link-bg-hover: rgba(96, 165, 250, 0.20);
+      --author-link-border: rgba(255, 255, 255, 0.12);
+    }
+    .mie-author-card.theme-dark .mie-author-link { color: #e5e7eb; }
+
+    .mie-author-card.theme-light {
+      color: #1f2937;
+      --author-accent: #2563eb;
+      --author-glow: rgba(37, 99, 235, 0.25);
+      --author-link-bg: rgba(0, 0, 0, 0.04);
+      --author-link-bg-hover: rgba(37, 99, 235, 0.12);
+      --author-link-border: rgba(0, 0, 0, 0.10);
+    }
+    .mie-author-card.theme-light .mie-author-link { color: #1f2937; }
+
+    /* Minimal: no card background, links revert to plain text (no button
+       chrome) so the theme stays as light as the name implies. */
+    .mie-author-card.theme-minimal {
+      color: inherit; padding: 10px 12px;
+      --author-accent: #9ca3af;
+      --author-glow: transparent;
+    }
+    .mie-author-card.theme-minimal .mie-author-avatar {
+      background: transparent; width: 44px; height: 44px; font-size: 26px;
+      box-shadow: none;
+    }
+    .mie-author-card.theme-minimal .mie-author-link {
+      background: transparent; border-color: transparent; padding: 6px 8px;
+    }
+    .mie-author-card.theme-minimal .mie-author-link:hover { background: transparent; border-color: transparent; }
+    .mie-author-card.theme-minimal .mie-author-link { color: inherit; }
+
+    /* Leaf: Animal-Crossing warm cream with grass-green accent. */
+    .mie-author-card.theme-leaf {
+      color: #5d4037;
+      --author-accent: #7cb342;
+      --author-glow: rgba(124, 179, 66, 0.40);
+      --author-link-bg: rgba(124, 179, 66, 0.08);
+      --author-link-bg-hover: rgba(124, 179, 66, 0.20);
+      --author-link-border: rgba(124, 179, 66, 0.25);
+    }
+    .mie-author-card.theme-leaf .mie-author-link { color: #5d4037; }
+
+    /* --- Theme picker modal ---------------------------------------------- */
+    /* Custom theme selector — used because this LiteGraph build does not */
+    /* render native submenus (has_submenu / submenu fields are ignored), */
+    /* and flattening 4 themes into 4 top-level items lets other extensions */
+    /* (rgthree) inject between them. A single menu item that opens this */
+    /* modal sidesteps both problems. */
+    .mie-theme-picker-mask {
+      position: fixed; inset: 0; z-index: 99999;
+      background: rgba(0, 0, 0, 0.45);
+      display: flex; align-items: center; justify-content: center;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif;
+    }
+    .mie-theme-picker {
+      width: 320px; max-width: 92vw;
+      background: #1f2937; color: #e5e7eb;
+      border-radius: 10px; box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+      padding: 16px;
+    }
+    .mie-theme-picker-title {
+      font-weight: 600; font-size: 14px; margin-bottom: 4px;
+    }
+    .mie-theme-picker-hint {
+      color: #9ca3af; font-size: 12px; margin-bottom: 12px;
+    }
+    .mie-theme-picker-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+    }
+    .mie-theme-option {
+      display: flex; flex-direction: column; align-items: center; gap: 6px;
+      padding: 12px 8px; border-radius: 8px;
+      background: #111827; border: 2px solid transparent;
+      color: #e5e7eb; cursor: pointer;
+      transition: border-color 0.12s ease, background 0.12s ease;
+      font-family: inherit;
+    }
+    .mie-theme-option:hover { background: #1f2937; border-color: #4b5563; }
+    .mie-theme-option.active { border-color: #2563eb; background: #1e293b; }
+    .mie-theme-option-swatches {
+      display: flex; gap: 4px; height: 28px; width: 100%;
+      border-radius: 4px; overflow: hidden;
+    }
+    .mie-theme-option-label { font-size: 12px; }
+  `;
+  document.head.appendChild(style);
+}
+
+// Module-level cache for the loaded profile. `null` = not loaded yet.
+let _authorProfile = null;
+let _authorProfilePromise = null;
+
+const AUTHOR_PROFILE_URL = new URL("./profiles/author.json", import.meta.url).href;
+// Base for resolving relative avatar paths inside the profile (e.g.
+// "./profiles/about_me.png") into absolute URLs the browser can fetch.
+const PROFILES_BASE = new URL("./profiles/", import.meta.url).href;
+
+/**
+ * Load (and cache) js/profiles/author.json. Resolves to a normalized profile
+ * object even on failure — a minimal fallback so the card never blanks out
+ * just because the profile file is missing or the network is down.
+ */
+function loadAuthorProfile() {
+  if (_authorProfile) return Promise.resolve(_authorProfile);
+  if (_authorProfilePromise) return _authorProfilePromise;
+  _authorProfilePromise = new Promise((resolve) => {
+    const fallback = {
+      name: "Author", handle: "", tagline: "", avatar: "🐑", links: [],
+    };
+    const timer = setTimeout(() => {
+      // 5s safety timeout: resolve with fallback so callers never hang.
+      _authorProfile = fallback;
+      resolve(fallback);
+    }, 5000);
+    fetch(AUTHOR_PROFILE_URL, { cache: "no-cache" })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("http " + r.status))))
+      .then((data) => {
+        clearTimeout(timer);
+        _authorProfile = {
+          name: String(data?.name ?? fallback.name),
+          handle: String(data?.handle ?? ""),
+          tagline: String(data?.tagline ?? ""),
+          avatar: String(data?.avatar ?? fallback.avatar),
+          links: Array.isArray(data?.links) ? data.links : [],
+        };
+        resolve(_authorProfile);
+      })
+      .catch(() => {
+        clearTimeout(timer);
+        _authorProfile = fallback;
+        resolve(fallback);
+      });
+  });
+  return _authorProfilePromise;
+}
+
+/**
+ * Decide whether an avatar string is an image source (URL / data URI) or an
+ * emoji/text fallback, and append the right element into `parent`.
+ * If an image fails to load, it falls back to the 🐑 emoji.
+ */
+function renderAvatar(parent, avatar) {
+  parent.textContent = "";
+  const v = String(avatar ?? "");
+  const isImage = (/^https?:\/\//i.test(v) || v.startsWith("/") || v.startsWith("data:image"));
+  if (isImage) {
+    const img = document.createElement("img");
+    img.alt = "";
+    img.src = v;
+    img.addEventListener("error", () => {
+      // Replace the broken image with the default emoji so the header
+      // never has an empty avatar slot.
+      parent.textContent = "🐑";
+    });
+    parent.appendChild(img);
+  } else {
+    parent.textContent = v === "" ? "🐑" : v;
+  }
+}
+
+/**
+ * Open a modal theme picker and resolve to the chosen theme value, or `null`
+ * if the user cancels. Used instead of a LiteGraph submenu because this build
+ * does not render native submenus (has_submenu is ignored), and flattening
+ * themes into top-level items lets other extensions inject between them.
+ *
+ * Each option shows a 3-swatch preview (card bg / text / link) so the choice
+ * is visual, not just textual.
+ */
+const AUTHOR_THEMES = [
+  {
+    value: "leaf",
+    label: "Leaf / 动森",
+    swatches: ["#fef9e7", "#5d4037", "#7cb342"],
+  },
+  {
+    value: "dark",
+    label: "Dark / 深色",
+    swatches: ["#1f2937", "#e5e7eb", "#60a5fa"],
+  },
+  {
+    value: "light",
+    label: "Light / 亮色",
+    swatches: ["#f3f4f6", "#1f2937", "#2563eb"],
+  },
+  {
+    value: "minimal",
+    label: "Minimal / 极简",
+    swatches: ["transparent", "#e5e7eb", "#9ca3af"],
+  },
+];
+
+function openThemePicker(currentTheme) {
+  return new Promise((resolve) => {
+    const mask = document.createElement("div");
+    mask.className = "mie-theme-picker-mask";
+    mask.innerHTML = `
+      <div class="mie-theme-picker" role="dialog" aria-label="选择主题">
+        <div class="mie-theme-picker-title">🎨  主题 (Theme)</div>
+        <div class="mie-theme-picker-hint">选择卡片的展示样式</div>
+        <div class="mie-theme-picker-grid"></div>
+      </div>
+    `;
+    document.body.appendChild(mask);
+
+    const grid = mask.querySelector(".mie-theme-picker-grid");
+    for (const t of AUTHOR_THEMES) {
+      const opt = document.createElement("button");
+      opt.type = "button";
+      opt.className = "mie-theme-option" + (t.value === currentTheme ? " active" : "");
+      const sw = document.createElement("div");
+      sw.className = "mie-theme-option-swatches";
+      for (const color of t.swatches) {
+        const s = document.createElement("div");
+        s.style.flex = "1";
+        s.style.background = color === "transparent" ? "repeating-conic-gradient(#4b5563 0% 25%, #374151 0% 50%) 50% / 12px 12px" : color;
+        sw.appendChild(s);
+      }
+      opt.appendChild(sw);
+      const lbl = document.createElement("div");
+      lbl.className = "mie-theme-option-label";
+      lbl.textContent = t.label;
+      opt.appendChild(lbl);
+      opt.addEventListener("click", () => {
+        mask.remove();
+        document.removeEventListener("keydown", onKey);
+        resolve(t.value);
+      });
+      grid.appendChild(opt);
+    }
+
+    const onKey = (e) => {
+      if (e.key === "Escape") {
+        mask.remove();
+        document.removeEventListener("keydown", onKey);
+        resolve(null);
+      }
+    };
+    // Click outside the dialog to cancel.
+    mask.addEventListener("mousedown", (e) => {
+      if (e.target === mask) {
+        mask.remove();
+        document.removeEventListener("keydown", onKey);
+        resolve(null);
+      }
+    });
+    document.addEventListener("keydown", onKey);
+  });
+}
+
+function installAboutAuthorBehavior(nodeType) {
+  injectAboutAuthorStyles();
+
+  const origOnNodeCreated = nodeType.prototype.onNodeCreated;
+  nodeType.prototype.onNodeCreated = function () {
+    origOnNodeCreated?.apply(this, arguments);
+    // Theme is the ONLY per-instance writable state — the only thing that
+    // needs to survive workflow save/load. All content (name/handle/tagline/
+    // avatar/links) is read live from js/profiles/author.json on every render
+    // so updating the plugin (and restarting ComfyUI) propagates the new
+    // content to every existing node automatically. This means the workflow
+    // file stays tiny ({theme: "..."} only) and every user always sees the
+    // content matching their installed MieNodes version.
+    if (this.properties.theme === undefined) this.properties.theme = "leaf";
+    // Initial size — draw() will grow-only fit to the rendered content.
+    if (!this.size || this.size[0] < 200 || this.size[1] < 100) {
+      this.size = [260, 160];
+    }
+    configureAnnotationShell(this);
+    this._ensureAuthorCardElement();
+    // Drop any legacy content fields serialized by older MieNodes versions,
+    // so they don't override the live profile read below.
+    for (const k of ["author_name", "author_handle", "author_tagline", "author_avatar", "author_links"]) {
+      delete this.properties[k];
+    }
+    // Content is read live: once the profile resolves, re-render to paint
+    // the real data (until then _renderAuthorCard shows the fallback).
+    loadAuthorProfile().then(() => {
+      this._renderAuthorCard();
+      this.setDirtyCanvas?.(true, true);
+    });
+    this._renderAuthorCard();
+  };
+
+  nodeType.prototype._ensureAuthorCardElement = function () {
+    if (this._mieAuthorCard) return this._mieAuthorCard;
+
+    const card = document.createElement("div");
+    card.className = "mie-author-card";
+    card.style.boxSizing = "border-box";
+    card.style.overflow = "hidden";
+    card.style.background = "transparent";
+    card.style.pointerEvents = "none";
+    // Pin the card to the node's top-left corner. LiteGraph's DOM-widget
+    // host otherwise offsets the widget horizontally (e.g. past the title
+    // bar slot), which makes the cream card + its content slide right
+    // while the Canvas-drawn background stays at 0,0 — visibly off-center.
+    // Absolute positioning relative to the node wrapper keeps the DOM card
+    // aligned with the Canvas background rect on every frame.
+    card.style.position = "absolute";
+    card.style.left = "0";
+    card.style.top = "0";
+    this._mieAuthorCard = card;
+
+    // Use the LiteGraph DOM-widget API so the element is properly attached
+    // to the node body and survives graph redraws — same pattern as RichText.
+    if (typeof this.addDOMWidget === "function") {
+      try {
+        this._mieAuthorWidget = this.addDOMWidget("mie_author", "MIE_AUTHOR", card, {
+          serialize: false, hideOnZoom: false,
+        });
+      } catch (e) {
+        console.warn("[MieAuthor] addDOMWidget failed, using stub:", e);
+        this._mieAuthorWidget = { element: card };
+      }
+    } else {
+      this._mieAuthorWidget = { element: card };
+    }
+
+    // Collapse the auto-created .dom-widget wrapper height (same fix as
+    // RichText: without this the Vue-driven frontend stacks the widget's
+    // height under the title bar and the Markdown band misaligns).
+    const w = this._mieAuthorWidget;
+    if (w && !w.computeSize) {
+      w.computeSize = function () { return [0, 0]; };
+    }
+
+    return card;
+  };
+
+  nodeType.prototype._renderAuthorCard = function () {
+    const card = this._ensureAuthorCardElement();
+    // Clear children but keep the cached class list base. Rebuild from scratch
+    // on every render so theme switches and profile reloads are clean.
+    card.className = `mie-author-card theme-${this.properties.theme || "leaf"}`;
+    card.textContent = "";
+
+    // Content is read LIVE from the cached profile on every render — never
+    // from properties. This is what makes "update author.json + restart
+    // ComfyUI" propagate to all existing nodes. If the profile hasn't
+    // resolved yet (or failed), we fall back to the placeholder.
+    const profile = _authorProfile || {};
+    const name = profile.name || "Author";
+    const handle = profile.handle || "";
+    const tagline = profile.tagline || "";
+    const links = profile.links || [];
+    // Resolve the avatar: emoji stays as-is; a relative path (e.g.
+    // "./Summer.png") is rebased against this extension's URL so
+    // the <img src> works regardless of how ComfyUI mounts /js.
+    let avatar = profile.avatar || "🐑";
+    if (typeof avatar === "string" && avatar.startsWith("./")) {
+      avatar = new URL(avatar, PROFILES_BASE).href;
+    }
+
+    // --- Header ----------------------------------------------------------
+    const header = document.createElement("div");
+    header.className = "mie-author-header";
+
+    const avatarEl = document.createElement("div");
+    avatarEl.className = "mie-author-avatar";
+    renderAvatar(avatarEl, avatar);
+    header.appendChild(avatarEl);
+
+    const textEl = document.createElement("div");
+    textEl.className = "mie-author-text";
+    const nameEl = document.createElement("div");
+    nameEl.className = "mie-author-name";
+    nameEl.textContent = name;
+    textEl.appendChild(nameEl);
+    if (handle) {
+      const handleEl = document.createElement("div");
+      handleEl.className = "mie-author-handle";
+      handleEl.textContent = handle.startsWith("@") ? handle : "@" + handle;
+      textEl.appendChild(handleEl);
+    }
+    if (tagline) {
+      const taglineEl = document.createElement("div");
+      taglineEl.className = "mie-author-tagline";
+      taglineEl.textContent = tagline;
+      textEl.appendChild(taglineEl);
+    }
+    header.appendChild(textEl);
+    card.appendChild(header);
+
+    // --- Links -----------------------------------------------------------
+    if (Array.isArray(links) && links.length > 0) {
+      const list = document.createElement("div");
+      list.className = "mie-author-links";
+      for (const link of links) {
+        if (!link || !link.url) continue;
+        const a = document.createElement("a");
+        a.className = "mie-author-link";
+        a.href = String(link.url);
+        a.target = "_blank";
+        a.rel = "noopener noreferrer";
+        a.title = String(link.url);
+        const left = document.createElement("span");
+        left.className = "mie-author-link-left";
+        left.textContent = String(link.group ?? "");
+        if (link.platform) {
+          const plat = document.createElement("span");
+          plat.className = "mie-author-link-platform";
+          plat.textContent = `（${link.platform}）`;
+          left.appendChild(plat);
+        }
+        a.appendChild(left);
+        // No arrow icon — the whole button is the clickable affordance,
+        // matching the Linktree / creator bio-link convention.
+        list.appendChild(a);
+      }
+      card.appendChild(list);
+    }
+  };
+
+  // Measure the natural height of the rendered card so draw() can grow the
+  // node to fit. Mirrors RichText's _measureHeight pattern: force a sync
+  // reflow via offsetHeight, then read scrollHeight. Returns 0 if the card
+  // isn't built yet (draw will retry next frame).
+  nodeType.prototype._measureAuthorHeight = function () {
+    const card = this._mieAuthorCard || this._ensureAuthorCardElement();
+    void card.offsetHeight;
+    return card.scrollHeight;
+  };
+
+  nodeType.prototype.onPropertyChanged = function () {
+    this._renderAuthorCard();
+    this.setDirtyCanvas?.(true, true);
+  };
+
+  // Theme switcher via right-click menu. This is the only per-instance write.
+  // We expose a SINGLE top-level menu item that opens a custom HTML modal
+  // picker (openThemePicker). Returning one item (instead of 4 flattened
+  // theme items) is deliberate: this LiteGraph build does not render native
+  // submenus (has_submenu is ignored), and flattening 4 themes into 4
+  // top-level items lets other extensions (rgthree) inject items between
+  // them — observed pushing the 4th theme to the bottom of the menu. One
+  // item sidesteps both problems.
+  const _origGetMenuOptions_A = nodeType.prototype.getMenuOptions;
+  nodeType.prototype.getMenuOptions = function (canvas) {
+    const base = _origGetMenuOptions_A ? _origGetMenuOptions_A.call(this, canvas) : [];
+    return [
+      {
+        content: "🎨  主题 (Theme)...",
+        callback: async () => {
+          const picked = await openThemePicker(this.properties.theme || "leaf");
+          if (!picked) return;
+          this.properties.theme = picked;
+          this._renderAuthorCard();
+          this.setDirtyCanvas?.(true, true);
+        },
+      },
+      null,
+      ...base,
+    ];
+  };
+
+  nodeType.prototype.draw = function (ctx) {
+    // Keep the LiteGraph shell invisible (mirrors rgthree Label.draw()).
+    this.color = "transparent";
+    this.bgcolor = "transparent";
+    ctx.save();
+    try {
+      if (this.flags?.collapsed) return;
+
+      const theme = this.properties.theme || "dark";
+      // Leaf gets a softer, larger radius to match the Animal-Crossing vibe;
+      // the others keep the crisp 10px card.
+      const radius = theme === "leaf" ? 16 : 10;
+      let bgColor = null;
+      if (theme === "dark") bgColor = "rgba(31, 41, 55, 0.92)";
+      else if (theme === "light") bgColor = "rgba(243, 244, 246, 0.95)";
+      else if (theme === "leaf") bgColor = "rgba(254, 249, 231, 0.97)";  // warm cream
+      // minimal: bgColor stays null -> fully transparent
+
+      // Width: the node body grows to a fixed target width so the card has
+      // room to render. The card element itself is left at width:100% (from
+      // its CSS) so it tracks the .dom-widget host wrapper — NEVER set its
+      // width in pixels here. Setting card.style.width = this.size[0] made
+      // the card wider than its wrapper (LiteGraph computes the wrapper a
+      // little narrower than the node to leave room for borders/scrollbars),
+      // and since the card is position:absolute inside the wrapper, the
+      // overflow spilled 20px to the right, producing the "left empty /
+      // right crowded" misalignment.
+      const cardW = 260;
+
+      const card = this._mieAuthorCard;
+      if (card) {
+        // Measure the natural height at the wrapper's current width, then
+        // grow the node vertically to fit. Width stays driven by CSS (100%).
+        card.style.height = "auto";
+        void card.offsetWidth;              // force sync reflow at wrapper width
+        const naturalH = card.scrollHeight;
+        if (this.size[0] < cardW) this.size[0] = cardW;
+        if (this.size[1] < naturalH) this.size[1] = naturalH;
+        card.style.height = `${this.size[1]}px`;
+      }
+
+      if (bgColor) {
+        ctx.fillStyle = bgColor;
+        roundRect(ctx, 0, 0, this.size[0], this.size[1], radius);
+        ctx.fill();
+      }
+    } finally {
+      ctx.restore();
+    }
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Register the extension
 // ---------------------------------------------------------------------------
 
@@ -1222,6 +1853,11 @@ app.registerExtension({
     } else if (nodeData.name === "RichTextNode|Mie") {
       console.log("[MieText] installing RichText behavior");
       installRichTextBehavior(nodeType);
+      registerMieTextNodeType(nodeType);
+      installMieDrawNodeHook();
+    } else if (nodeData.name === "AboutAuthorNode|Mie") {
+      console.log("[MieText] installing AboutAuthor behavior");
+      installAboutAuthorBehavior(nodeType);
       registerMieTextNodeType(nodeType);
       installMieDrawNodeHook();
     }
