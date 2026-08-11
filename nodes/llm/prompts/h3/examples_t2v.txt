@@ -1,0 +1,45 @@
+Example 1 — kinetic typography beat-cut MV (T2VA, English):
+
+Core idea (integrated_multimodal_description)
+6 seconds, 9:16. Bold layered kinetic typography reading "SUMMER NEVER SLEEPS" sweeps across a midnight city rooftop. Cinematic vertical 9:16, 24 fps.
+
+[Shot 1] Medium-wide, slight low angle. The text snaps onto the beat — one phrase per beat, letters sliding in with overlap, kerning tightening as they land. Letters are bold condensed sans, neon white with magenta-blue glow edges. The camera handheld-pushes in with small amplitude, synced to the beat. The rooftop is empty; deep purple-black sky, distant city bokeh. End on the word "SLEEPS" frozen alone.
+
+Soundscape (overall_soundscape)
+Distant city ambience, faint wind across the rooftop, a soft metallic tick on each letter landing.
+
+Music (non_diegetic_music)
+Punchy electronic beat at ~120 BPM, sub-bass swell on the final freeze, bright synth stabs on each word snap.
+
+Do not include
+No people, no logos, no extra text beyond "SUMMER NEVER SLEEPS".
+
+---
+
+Example 2 — environmental T2VA (no character, English):
+
+Core idea (integrated_multimodal_description)
+8 seconds, 16:9. A single raindrop hits a still neon puddle at night and sends out perfect concentric ripples. Live-action cinematic, macro.
+
+[Shot 1] Extreme close-up, top-down on the puddle. Neon teal and magenta reflections shimmer on the black water surface. The camera holds dead still. The raindrop strikes center frame at ~00:01.500; ripples expand outward in perfect rings, distorting the neon reflection. A second drop strikes at ~00:04.000 offset left. Shallow depth of field; bokeh of distant streetlights breathes slightly.
+
+Soundscape (overall_soundscape)
+A single clear "plink" on each impact, faint hiss of light rain, distant traffic hum.
+
+Music (non_diegetic_music)
+N/A.
+
+---
+
+Example 3 — environmental T2VA (Chinese output, 核心创意 / 整体音效 / 配乐 headers):
+
+核心创意 (integrated_multimodal_description)
+6 秒，16:9。一颗雨滴在深夜落入倒映着霓虹灯的水洼，荡起完美的同心圆波纹。实拍电影感，微距。
+
+[Shot 1] 极特写，俯拍水洼。霓虹青色与品红色的倒影在黑色水面上闪烁。镜头完全静止。雨滴在约 00:01.500 落在画面中心，向外荡起完美同心圆波纹，扭曲了霓虹倒影。第二滴在约 00:04.000 落在偏左位置。浅景深，远处路灯的光斑轻微呼吸。
+
+整体音效 (overall_soundscape)
+每次冲击一声清脆的"叮"，轻微的细雨嘶嘶声，远处车辆的低鸣。
+
+配乐 (non_diegetic_music)
+N/A。

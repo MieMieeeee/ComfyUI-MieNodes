@@ -1,0 +1,44 @@
+Example 1 — single-image first-frame I2VA (brand film, English):
+
+For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.
+
+Core idea (integrated_multimodal_description)
+6 seconds, 16:9. The young woman in <Picture 1> walks beside a vintage car parked on a desert highway at golden hour. She opens the trunk, takes out a black leather bag, shares a quiet beat with the man standing beside the car, then walks away with the bag. Keep her identity, hair, outfit, and lighting consistent. Camera: medium-wide establishing, push in with small amplitude at slow speed. Sound: warm wind, soft engine ticking, footsteps on sand.
+
+[Shot 1] Live-action cinematic, medium-wide. The woman (identity, hair, white outfit, lighting all locked to <Picture 1>) stands beside the open trunk of the vintage car. The camera pushes in slowly. She lifts the black leather bag from the trunk, pauses to share a quiet look with the man by the car door, then turns and walks out of frame right, bag in hand. Golden-hour backlight, long lens, shallow depth of field.
+
+Soundscape (overall_soundscape)
+Warm desert wind, the soft metallic tick of the cooling engine, her footsteps on sand, the faint creak of leather.
+
+Music (non_diegetic_music)
+A single sustained warm guitar drone, slow swell, fades as she exits.
+
+---
+
+Example 2 — multi-image Ref2VA (five-character MV, English):
+
+Core idea (integrated_multimodal_description)
+8 seconds, 1:1. Use <Picture 1> <Picture 2> <Picture 3> <Picture 4> <Picture 5> as five distinct chibi characters with different outfits. Pop-music group dance scene, 1:1 square, 24 fps. The five chibis pop into frame in sequence on the beat — first <Picture 1> appears left, then <Picture 2> appears right, then <Picture 3> center back, then <Picture 4> jumps in, then <Picture 5> drops from above — they immediately break into a coordinated hip-hop dance with sharp snaps and bounces, each character wearing their original outfit from the reference images, lighting shifts from teal to magenta on every beat drop. Sound: punchy pop track with claps, snaps, sub-bass.
+
+[Shot 1] 3D CG chibi style, medium-wide, slight high angle. Empty neon studio backdrop, teal wash. On beat 1 <Picture 1> pops in frame-left in its original outfit; on beat 2 <Picture 2> pops in frame-right; on beat 3 <Picture 3> appears center-back; on beat 4 <Picture 4> jumps in; on beat 5 <Picture 5> drops from above. The camera orbits slowly. All five then sync into a sharp hip-hop routine, snaps and bounces on each beat; the wash flips teal->magenta on every beat drop. Each character keeps its <Picture N> outfit and proportions exactly.
+
+Soundscape (overall_soundscape)
+Synced handclaps and finger snaps on every beat, the thud of <Picture 5> landing, faint studio reverb.
+
+Music (non_diegetic_music)
+Punchy pop track at ~128 BPM, sub-bass on the downbeat, bright synth lead riding the melody.
+
+---
+
+Example 3 — image + (described) audio Ref2VA (ancient-Chinese MV, Chinese output, 核心创意 / 整体音效 / 配乐 headers):
+
+核心创意 (integrated_multimodal_description)
+8 秒，16:9。将 <Picture 1> 作为主角的外貌参考；将描述的古筝旋律作为整段视频的节奏与音色驱动。电影感 16:9 古风 MV。一位身着飘逸汉服的女子伫立在黄昏薄雾笼罩的临海悬崖上，长袖随风飘动。随着古筝旋律渐强，她开始一段缓慢而端庄的舞蹈。风格：高端古装剧，细腻的丝绸质感，朱砂与墨黑相间的克制配色。保持她的身份、发型、汉服和光线与 <Picture 1> 一致。
+
+[Shot 1] 实拍电影感古装剧风格，中景，微微低角度。女子（锁定 <Picture 1>）立于悬崖边缘中央，长袖被海风扬起。镜头随旋律缓慢推近。她抬臂开始一段克制端庄的水袖舞，每个动作带出丝绸拖尾。黄昏光线，体积感薄雾，下方墨色大海。
+
+整体音效 (overall_soundscape)
+崖上的风声，远处海浪的低语，每次抬臂时丝绸的窸窣声。
+
+配乐 (non_diegetic_music)
+古筝旋律，缓慢节奏，音区渐升；中段加入一声 faint erhu drone。
