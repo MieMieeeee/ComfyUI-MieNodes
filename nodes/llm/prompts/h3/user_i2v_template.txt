@@ -1,0 +1,31 @@
+Write a structured MiniMax H3 image-to-video / reference-to-video prompt.
+
+The FIRST line(s) of the first section's body MUST be this alignment directive, kept verbatim and separated from the rest of the body by a blank line:
+
+{align_directive}
+
+User idea (the motion / change to depict; do NOT re-describe appearances already visible in the reference image):
+{idea}
+
+Reference-material caption (features that MUST be preserved — lock them item by item; describe only the CHANGE on top of them):
+{caption}
+
+Specs:
+- duration: {duration} seconds
+- aspect ratio: {aspect_ratio}
+- category advice (apply as default styling where relevant; ignore if empty): {category_advice}
+
+Output language: {output_language}
+(`en` = write the prompt in English; `zh` = write the prompt in Chinese. Dialogue, lyrics, and visible on-screen text ALWAYS stay in their original language regardless.)
+
+Use EXACTLY these three section headers, in this order, one per line. Copy them VERBATIM (they are pre-localized to the output language and carry the canonical English API field name in parentheses — do not translate, rename, or duplicate them):
+
+{section_headers}
+
+If (and only if) there are banned elements, append a fourth section using this header line:
+{negatives_header}
+
+Few-shot examples of the desired prompt style:
+{examples}
+
+Now output ONLY the final structured H3 prompt following the system-prompt rules: alignment directive verbatim at the top of the first section, then describe only the change, do NOT re-describe the reference image's visible appearance, lock identity by naming features item by item. No preamble, no explanation.

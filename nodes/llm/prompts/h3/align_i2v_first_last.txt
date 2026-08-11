@@ -1,0 +1,1 @@
+For the target video, <Picture 1> (from [Shot 1]) is fully referenced at 0.00 seconds, and <Picture 2> is fully referenced at the final timestamp ({ts}).

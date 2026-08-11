@@ -1,0 +1,24 @@
+Write a structured MiniMax H3 text-to-video (T2VA) prompt for the following request.
+
+User idea:
+{idea}
+
+Specs:
+- duration: {duration} seconds
+- aspect ratio: {aspect_ratio}
+- category advice (apply as default styling where relevant; ignore if empty): {category_advice}
+
+Output language: {output_language}
+(`en` = write the prompt in English; `zh` = write the prompt in Chinese. Dialogue, lyrics, and visible on-screen text ALWAYS stay in their original language regardless.)
+
+Use EXACTLY these three section headers, in this order, one per line. Copy them VERBATIM (they are pre-localized to the output language and carry the canonical English API field name in parentheses — do not translate, rename, or duplicate them):
+
+{section_headers}
+
+If (and only if) there are banned elements, append a fourth section using this header line:
+{negatives_header}
+
+Few-shot examples of the desired prompt style:
+{examples}
+
+Now output ONLY the final structured H3 T2VA prompt following the system-prompt rules. No preamble, no explanation.
