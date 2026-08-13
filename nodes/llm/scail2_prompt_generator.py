@@ -66,12 +66,17 @@ MY_CATEGORY = "\ud83d\udc11 MieNodes/\ud83d\udc11 Prompt Generator"
 # Per-stage token budgets. Stage 1 writes a long English paragraph;
 # stage 2 is constrained to 80-140 words by the prompt templates.
 # NOTE: reasoning models (MiniMax-M3, DeepSeek-R1, GLM-5.x) emit their
-# chain-of-thought inside the token budget before the final answer, so
-# the enhance budget must be large enough to hold BOTH the (possibly
-# long) <think> chain AND the ~140-word answer. 512 was too tight and
-# caused M3 to return empty after sanitize stripped the think block.
-_DEFAULT_MAX_TOKENS_CAPTION = 2048
-_DEFAULT_MAX_TOKENS_ENHANCE = 2048
+# chain-of-thought INSIDE the token budget before the final answer. If the
+# <think> chain consumes the whole budget the model returns an empty
+# content (the #1 cause of "Scail2 ...: returned empty" logs — M3 thinking
+# for tens of seconds and exhausting the budget before the answer). So both
+# budgets are sized to hold the think chain AND the ~140-word answer with
+# headroom. Giving more than needed costs nothing — the model stops as soon
+# as the answer is done; only worst-case latency grows. (512 was the
+# original default and was too tight; 2048 still edge-case-exhausted on long
+# driving-video captions; 4096 leaves comfortable room.)
+_DEFAULT_MAX_TOKENS_CAPTION = 4096
+_DEFAULT_MAX_TOKENS_ENHANCE = 4096
 
 # Default number of frames sampled from the driving video for stage 1.
 # Matches upstream ``prompt_enhancer.py`` default of 8.

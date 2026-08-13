@@ -577,6 +577,10 @@ def test_comfyui_node_input_types(h3):
     # The old aspect_ratio dropdown and num_frames knob must be gone.
     assert "aspect_ratio" not in optional
     assert "num_frames" not in optional
+    # Token budgets are sized to hold M3's <think> chain + the answer
+    # (the #1 cause of empty responses was think exhausting 4096).
+    assert optional["max_tokens_caption"][1]["default"] == 4096
+    assert optional["max_tokens_enhance"][1]["default"] == 8192
     # output_language dropdown exposes en + zh, defaults to en.
     assert set(optional["output_language"][0]) == {"en", "zh"}
     assert optional["output_language"][1]["default"] == "en"

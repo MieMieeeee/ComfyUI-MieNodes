@@ -142,8 +142,8 @@ def test_is_changed_stable_and_seed_sensitive(h3):
         caption_sample_frames=8,
         image_detail="auto",
         temperature=0.4,
-        max_tokens_caption=2048,
-        max_tokens_enhance=4096,
+        max_tokens_caption=4096,
+        max_tokens_enhance=8192,
         timeout=120,
     )
     a = node.is_changed(FakeConnector(), **kwargs)
@@ -172,8 +172,8 @@ def test_is_changed_senses_category_duration_aspect(h3):
         caption_sample_frames=8,
         image_detail="auto",
         temperature=0.4,
-        max_tokens_caption=2048,
-        max_tokens_enhance=4096,
+        max_tokens_caption=4096,
+        max_tokens_enhance=8192,
         timeout=120,
     )
     h0 = node.is_changed(**base)
