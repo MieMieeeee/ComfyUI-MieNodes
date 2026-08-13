@@ -87,6 +87,7 @@ CATEGORIES = (
     "commercial-ad - 硬广",
     "motion-graphics - 动态图形/MG",
     "viral-short - 病毒短视频",
+    "short-drama - 短剧/竖屏剧情",
     "title-sequence - 片头/字幕",
     "product-demo - 产品演示",
 )
@@ -110,6 +111,7 @@ CATEGORY_CODES = (
     "commercial-ad",
     "motion-graphics",
     "viral-short",
+    "short-drama",
     "title-sequence",
     "product-demo",
 )
@@ -137,6 +139,16 @@ CATEGORY_ADVICE = {
     "commercial-ad": "product high-key lighting, bold on-screen text, product center-framed",
     "motion-graphics": "flat 2D / motion-design, easing curves, loop-friendly timing",
     "viral-short": "hook in the first second, large subtitle text, a clear payoff/reversal",
+    "short-drama": (
+        "vertical short-drama (9:16). Favor medium-close, close-up, and extreme close-up on "
+        "faces, eyes, and tension points; use frequent shot/reverse-shot for dialogue. "
+        "Performance direction must be explicit and PER-CHARACTER: write each character's "
+        "emotion arc (e.g. 'S1: hurt->anger->resolve'); the acting is natural short-form drama, "
+        "NEVER theatrical or stagey. Lock palette and lighting as fixed values (e.g. cold blue / "
+        "ink-green / charcoal). Layered diegetic sound with trigger timing. Hard negatives "
+        "required: no subtitles, no on-screen text, no watermark, no stickers, no palette drift "
+        "between shots."
+    ),
     "title-sequence": "animated typography, cinematic mood, text-led composition",
     "product-demo": "centered product, clean rotation, white background, UI callouts",
 }
@@ -194,27 +206,41 @@ def aspect_ratio_string(width: int, height: int) -> str:
 OUTPUT_LANGUAGES = ("en", "zh")
 DEFAULT_OUTPUT_LANGUAGE = "en"
 
-# Per-language section labels. Keys are the canonical English field names
-# the H3 API expects (integrated_multimodal_description etc.); values are
-# the display labels written into the prompt.
+# Per-language section labels. The label is localized (中文/English); the
+# canonical English API field name is appended in parentheses so the H3
+# pipeline can parse the structure regardless of output language.
 _SECTION_LABELS = {
     "en": {
+        # base (T2VA / I2VA / FL2VA / L2VA) — three core fields
         "description": "Core idea",
         "sound": "Soundscape",
         "music": "Music",
+        # full-reference (Ref2VA) — three extra fields
+        "subject_def": "Subject definitions",
+        "summary": "Summary",
+        "retention": "Retention analysis",
+        "detailed": "Detailed description",
+        # optional
         "negatives": "Do not include",
     },
     "zh": {
         "description": "核心创意",
         "sound": "整体音效",
         "music": "配乐",
+        "subject_def": "主体定义",
+        "summary": "概要",
+        "retention": "保留分析",
+        "detailed": "详细描述",
         "negatives": "不要出现",
     },
 }
 
-# Canonical English field name for the description header (always English so
-# the H3 API can still parse it): written as a parenthetical after the label.
+# Canonical English field names (always English so the H3 API can parse).
 _DESC_FIELD_NAME = "integrated_multimodal_description"
+_DETAILED_FIELD_NAME = "detailed_description"
+_SUBJECT_DEF_FIELD_NAME = "subject_definitions"
+_SUMMARY_FIELD_NAME = "summary"
+_RETENTION_FIELD_NAME = "retention_analysis"
 _SOUND_FIELD_NAME = "overall_soundscape"
 _MUSIC_FIELD_NAME = "non_diegetic_music"
 
@@ -225,24 +251,33 @@ def _labels(output_language: str) -> dict:
     return _SECTION_LABELS.get(output_language, _SECTION_LABELS["en"])
 
 
-def section_headers_block(output_language: str = DEFAULT_OUTPUT_LANGUAGE) -> str:
-    """Return the three required section headers (description / sound /
-    music), one per line, formatted as ``"header: <label> (<field>)"``.
+def section_headers_block(
+    output_language: str = DEFAULT_OUTPUT_LANGUAGE,
+    reference_mode: bool = False,
+) -> str:
+    """Return the required section headers, one per line, formatted as
+    ``"Header: <label> (<field>)"``.
 
-    The label is localized (中文/English) but the parenthetical field name
-    is always the canonical English API token, so the H3 pipeline can still
-    parse the structure regardless of the chosen output language.
+    Base modes (T2VA / I2VA / FL2VA / L2VA) and S2V use THREE headers
+    (integrated_multimodal_description / overall_soundscape /
+    non_diegetic_music), matching base-en.txt §2.2.
 
-    Example (en):
-        Header: Core idea (integrated_multimodal_description)
-        Header: Soundscape (overall_soundscape)
-        Header: Music (non_diegetic_music)
-    Example (zh):
-        Header: 核心创意 (integrated_multimodal_description)
-        Header: 整体音效 (overall_soundscape)
-        Header: 配乐 (non_diegetic_music)
+    Full-reference mode (Ref2VA) uses SIX headers (subject_definitions /
+    summary / retention_analysis / detailed_description / overall_soundscape
+    / non_diegetic_music), matching ref-en.txt §1.
     """
     labels = _labels(output_language)
+    if reference_mode:
+        return "\n".join(
+            [
+                f"Header: {labels['subject_def']} ({_SUBJECT_DEF_FIELD_NAME})",
+                f"Header: {labels['summary']} ({_SUMMARY_FIELD_NAME})",
+                f"Header: {labels['retention']} ({_RETENTION_FIELD_NAME})",
+                f"Header: {labels['detailed']} ({_DETAILED_FIELD_NAME})",
+                f"Header: {labels['sound']} ({_SOUND_FIELD_NAME})",
+                f"Header: {labels['music']} ({_MUSIC_FIELD_NAME})",
+            ]
+        )
     return "\n".join(
         [
             f"Header: {labels['description']} ({_DESC_FIELD_NAME})",
@@ -256,6 +291,49 @@ def negatives_header(output_language: str = DEFAULT_OUTPUT_LANGUAGE) -> str:
     """Return the optional negatives-section header line, or empty string."""
     labels = _labels(output_language)
     return f"Header: {labels['negatives']}"
+
+
+def structure_guidance(
+    output_language: str = DEFAULT_OUTPUT_LANGUAGE,
+    reference_mode: bool = False,
+) -> str:
+    """Mode-specific guidance explaining what each section contains.
+
+    Kept in Python (single source of truth) so the user template stays generic
+    and the LLM gets the exact official rules (field semantics, the summary
+    task-type prefix, the retention relationship markers, the
+    detailed_description style-opening rule) instead of inventing them.
+    """
+    if reference_mode:
+        return (
+            "This is FULL-REFERENCE mode (Ref2VA): output SIX sections in this exact order — "
+            "subject_definitions, summary, retention_analysis, detailed_description, "
+            "overall_soundscape, non_diegetic_music (plus the optional negatives section if banned elements exist).\n"
+            "- subject_definitions: one line per referenced item. Define each <Subject N> / <Picture N> / "
+            "<Video N> / <Audio N>: what its label denotes, its reference role, and the main features to follow. "
+            "A label keeps the same meaning across ALL sections.\n"
+            "- summary: one short paragraph, beginning with a square-bracketed task-type prefix chosen from "
+            "[keyframe completion], [reference generation], [video editing], [video continuation], [audio reuse], "
+            "[audio reference]; combine multiple with ' + ' (e.g. [video continuation + keyframe completion]). "
+            "Do NOT introduce new reference labels here.\n"
+            "- retention_analysis: one line per reference label, recording where it appears and a FIXED relationship "
+            "marker. Visual markers (<Subject N>/<Picture N>/<Video N>): fully_preserved / partially_preserved / "
+            "attribute_transfer / weak_reference. Audio markers (<Audio N>): fully_copy / partially_copy / reference / "
+            "weak_reference. Example: '<Subject 1> (appears in [Shot 1], [Shot 3]): fully_preserved - ...'\n"
+            "- detailed_description: the main body (normally 350-500 English words). Establish the overall style in "
+            "1-2 sentences BEFORE [Shot 1], then write shots in playback order. This field REPLACES "
+            "integrated_multimodal_description — do not emit the latter.\n"
+            "- overall_soundscape and non_diegetic_music: same rules as base mode.\n"
+            "Do NOT also emit the three base fields (integrated_multimodal_description etc.) — the six headers above "
+            "fully replace them in this mode."
+        )
+    return (
+        "This is a BASE mode (T2VA / I2VA / FL2VA / L2VA / S2V): output THREE core sections in this exact order — "
+        "integrated_multimodal_description (the main audiovisual timeline body), overall_soundscape, "
+        "non_diegetic_music (plus the optional negatives section if banned elements exist). "
+        "For I2VA/FL2VA/L2VA the alignment directive is already prepended verbatim above the first section — "
+        "keep it as the first line, followed by one blank line."
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -310,11 +388,13 @@ def align_i2v_first_snippet() -> str:
 
 
 def _final_timestamp(duration) -> str:
-    """Format the FL2VA/L2VA final timestamp as ``<seconds>.000s``.
+    """Format the FL2VA/L2VA final timestamp the way the official guide does:
+    the effective video duration to exactly two decimal places, no unit suffix
+    (the template appends ``-second mark``). e.g. ``6`` -> ``"6.00"``,
+    ``7.5`` -> ``"7.50"``. Negative / non-numeric values fall back to ``0.00``.
 
-    Accepts int or float. Integer durations (6) render as ``6.000s``;
-    fractional durations (7.5) render as ``7.500s``. Negative or
-    non-numeric values fall back to ``0.000s``.
+    Matches base-en.txt: "S.SS is the effective video duration formatted to
+    exactly two decimal places."
     """
     try:
         d = float(duration)
@@ -322,7 +402,7 @@ def _final_timestamp(duration) -> str:
         d = 0.0
     if d < 0:
         d = 0.0
-    return f"{d:.3f}s"
+    return f"{d:.2f}"
 
 
 def align_i2v_first_last_snippet(duration) -> str:
@@ -403,7 +483,8 @@ def user_t2v_prompt(
         duration=_duration_str(duration),
         aspect_ratio=(aspect_ratio or "").strip(),
         category_advice=(category_advice or "").strip(),
-        section_headers=section_headers_block(output_language),
+        section_headers=section_headers_block(output_language, reference_mode=False),
+        structure_guidance=structure_guidance(output_language, reference_mode=False),
         negatives_header=negatives_header(output_language),
         output_language=output_language if output_language in OUTPUT_LANGUAGES else "en",
         examples=(examples or "(No examples provided.)").strip(),
@@ -419,13 +500,17 @@ def user_i2v_prompt(
     category_advice: str,
     examples: str,
     output_language: str = DEFAULT_OUTPUT_LANGUAGE,
+    reference_mode: bool = False,
 ) -> str:
     """Stage-2 user text for the image-bearing paths.
 
     Substitutes ``{align_directive}``/``{idea}``/``{caption}``/
     ``{duration}``/``{aspect_ratio}``/``{category_advice}``/
-    ``{section_headers}``/``{negatives_header}``/``{output_language}``/
-    ``{examples}`` into ``user_i2v_template.txt``.
+    ``{section_headers}``/``{structure_guidance}``/``{negatives_header}``/
+    ``{output_language}``/``{examples}`` into ``user_i2v_template.txt``.
+
+    ``reference_mode`` switches the section set from the base three fields
+    to the full-reference six fields (ref-en.txt §1).
     """
     template = load_prompt_text(_USER_I2V_PATH)
     return template.format(
@@ -435,7 +520,8 @@ def user_i2v_prompt(
         duration=_duration_str(duration),
         aspect_ratio=(aspect_ratio or "").strip(),
         category_advice=(category_advice or "").strip(),
-        section_headers=section_headers_block(output_language),
+        section_headers=section_headers_block(output_language, reference_mode=reference_mode),
+        structure_guidance=structure_guidance(output_language, reference_mode=reference_mode),
         negatives_header=negatives_header(output_language),
         output_language=output_language if output_language in OUTPUT_LANGUAGES else "en",
         examples=(examples or "(No examples provided.)").strip(),

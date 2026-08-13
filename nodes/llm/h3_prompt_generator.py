@@ -402,6 +402,10 @@ class H3PromptEnhancer:
         else:
             system = system_reference_prompt()
             align = align_directive_for(task_code, duration)
+            # Full-reference mode (Ref2VA) uses the six-section format from
+            # ref-en.txt; all other image tasks use the base three-section
+            # format from base-en.txt.
+            ref_mode = task_code == "reference"
             user_text = user_i2v_prompt(
                 align_directive=align,
                 idea=user_prompt,
@@ -411,6 +415,7 @@ class H3PromptEnhancer:
                 category_advice=cat_advice,
                 examples=examples,
                 output_language=lang,
+                reference_mode=ref_mode,
             )
         messages = self._build_messages(
             system, user_text, ref_urls, self.image_detail
