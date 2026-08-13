@@ -1,6 +1,8 @@
-Write a structured MiniMax H3 text-to-video (T2VA) prompt for the following request.
+Rewrite the input below into a structured MiniMax H3 text-to-video (T2VA) prompt.
 
-User idea:
+The input may come from ANY source — another video model's prompt, free-form natural language, a loose idea, or a structured non-H3 format. Treat it as raw material, NOT a final prompt: extract every visual, action, camera, lighting, style, and on-screen-text intent it contains, and preserve all concrete details. Where the input is silent on a dimension H3 requires (camera motion type/amplitude/speed, diegetic sound, non-diegetic music), infer a concrete, fitting value rather than copying vague wording. Translate loose camera phrasing (e.g. "镜头跟随", "slow motion", "快速穿梭") into the official motion-type + amplitude + speed vocabulary. Keep dialogue, lyrics, and visible on-screen text in their original language.
+
+Input (raw, any format):
 {idea}
 
 Specs:
