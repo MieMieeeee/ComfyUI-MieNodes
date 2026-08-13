@@ -101,11 +101,16 @@ MY_CATEGORY = "\ud83d\udc11 MieNodes/\ud83d\udc11 Prompt Generator"
 
 # Per-stage token budgets.
 # NOTE: reasoning models (MiniMax-M3, DeepSeek-R1, GLM-5.x) emit their
-# chain-of-thought inside the token budget before the final answer, so the
-# enhance budget must hold BOTH the (possibly long) <think> chain AND the
-# ~350-800-word H3 answer. 2048 was too tight for long Ref2VA prompts.
-_DEFAULT_MAX_TOKENS_CAPTION = 2048
-_DEFAULT_MAX_TOKENS_ENHANCE = 4096
+# chain-of-thought INSIDE the token budget before the final answer. If the
+# <think> chain consumes the whole budget the model returns an empty
+# content — this is the #1 cause of "H3 enhance[...]: returned empty
+# after Xs" logs in the wild (e.g. M3 thinking for ~60s on a long i2v
+# prompt and exhausting 4096 before the answer). So both budgets are sized
+# to hold the think chain AND the ~350-800-word H3 answer with headroom.
+# Giving more than needed costs nothing — the model stops as soon as the
+# answer is done; only worst-case latency grows.
+_DEFAULT_MAX_TOKENS_CAPTION = 4096
+_DEFAULT_MAX_TOKENS_ENHANCE = 8192
 
 # Default number of frames sampled from the reference video for stage 1
 # (caption). Matches the SCAIL-2 default of 8. Renamed from ``num_frames``

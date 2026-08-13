@@ -273,6 +273,10 @@ def test_comfyui_node_input_types(scail2):
     assert "image_detail" in optional
     assert "temperature" in optional
     assert "timeout" in optional
+    # Token budgets sized to hold M3's <think> chain + the answer (the #1
+    # cause of empty responses was think exhausting a too-small budget).
+    assert optional["max_tokens_caption"][1]["default"] == 4096
+    assert optional["max_tokens_enhance"][1]["default"] == 4096
 
 
 def test_comfyui_node_return_types(scail2):
@@ -406,7 +410,7 @@ def test_enhancer_happy_path_runs_full_pipeline(scail2, monkeypatch):
         def invoke(self, messages, *, seed, temperature, max_tokens):
             # Distinguish stage by call ORDER, not token budget: caption runs
             # first, enhance second. (Token budgets can change -- e.g. both
-            # stages currently default to 2048 -- so do not gate on max_tokens.)
+            # stages currently default to 4096 -- so do not gate on max_tokens.)
             invocations.append(max_tokens)
             if len(invocations) == 1:
                 return "A caption of the driving video frames."

@@ -1,4 +1,6 @@
-Write a structured MiniMax H3 image-to-video / reference-to-video prompt.
+Rewrite the inputs below into a structured MiniMax H3 image-to-video / reference-to-video prompt.
+
+The user idea may come from ANY source — another video model's prompt, free-form natural language, a loose idea, or a structured non-H3 format. Treat it as raw material: extract the motion/change intent and preserve concrete details, then restructure into the H3 format below. Translate loose camera phrasing into the official motion-type + amplitude + speed vocabulary. Infer concrete diegetic sound and non-diegetic music where the input is silent. CRITICAL for image tasks: do NOT re-describe appearances already visible in the reference image — the alignment directive / subject_definitions already declare what is referenced; describe only the CHANGE. Keep dialogue, lyrics, and visible on-screen text in their original language.
 
 {structure_guidance}
 
@@ -7,7 +9,7 @@ If an alignment directive is given below, it MUST be the first line of the final
 Alignment directive (if non-empty):
 {align_directive}
 
-User idea (the motion / change to depict; do NOT re-describe appearances already visible in the reference image):
+User idea (raw, any format — the motion / change to depict):
 {idea}
 
 Reference-material caption (features that MUST be preserved — lock them item by item; describe only the CHANGE on top of them):
