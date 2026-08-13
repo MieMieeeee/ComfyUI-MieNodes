@@ -131,12 +131,15 @@ def test_prompt_files_exist():
 def test_system_t2v_content(h3):
     prompts, _ = h3
     text = prompts.system_t2v_prompt()
-    assert "Five core principles" in text
-    # Headers are now injected via {section_headers}; the system prompt
-    # must tell the model to copy them verbatim and respect output_language.
+    # Output-language rule + verbatim-header rule.
     assert "output_language" in text
     assert "VERBATIM" in text or "verbatim" in text
-    assert "seven" in text.lower()  # per-shot seven-element checklist
+    # Per-shot checklist (covers all elements, in order).
+    assert "in order" in text
+    # Camera motion section with the official vocabulary.
+    assert "Push In" in text and "Truck" in text
+    # Dialogue continuity tags from base-en.txt.
+    assert "scenetrans" in text and "cutoff" in text
     assert "Output rules" in text
     assert text.rstrip("\n") == text.rstrip()  # no stray trailing whitespace
 
@@ -179,32 +182,32 @@ def test_align_i2v_first(h3):
 def test_align_i2v_first_last_substitutes_duration(h3):
     prompts, _ = h3
     text = prompts.align_i2v_first_last_snippet(6)
-    assert "<Picture 1>" in text
-    assert "<Picture 2>" in text
-    assert "6.000s" in text
+    # Official base-en.txt wording: "Picture 1 (from Shot 1) aligns with the
+    # 0.00-second mark ... Picture 2 (from Shot 1) aligns with the S.SS-second mark".
+    assert "Picture 1 (from Shot 1) aligns with the 0.00-second mark" in text
+    assert "Picture 2 (from Shot 1) aligns with the 6.00-second mark" in text
     assert "{ts}" not in text
 
 
 def test_align_i2v_last_substitutes_duration(h3):
     prompts, _ = h3
     text = prompts.align_i2v_last_snippet(8)
-    assert "<Picture 1>" in text
-    assert "8.000s" in text
+    assert "<Picture 1> (from [Shot 1]) aligns with the 8.00-second mark" in text
     assert "{ts}" not in text
 
 
 def test_align_i2v_first_last_accepts_float_duration(h3):
-    """Fractional durations render as ``<secs>.000s`` with 3 decimals."""
+    """Fractional durations format to two decimals per the official spec."""
     prompts, _ = h3
-    assert "7.500s" in prompts.align_i2v_first_last_snippet(7.5)
-    assert "12.250s" in prompts.align_i2v_last_snippet(12.25)
+    assert "7.50-second mark" in prompts.align_i2v_first_last_snippet(7.5)
+    assert "12.25-second mark" in prompts.align_i2v_last_snippet(12.25)
 
 
 def test_align_directive_for_picks_right_snippet(h3):
     prompts, _ = h3
     assert "at 0.00 seconds" in prompts.align_directive_for("i2v_first", 6)
-    assert "6.000s" in prompts.align_directive_for("i2v_first_last", 6)
-    assert "8.000s" in prompts.align_directive_for("i2v_last", 8)
+    assert "6.00-second mark" in prompts.align_directive_for("i2v_first_last", 6)
+    assert "8.00-second mark" in prompts.align_directive_for("i2v_last", 8)
     # reference / s2v have no top-of-prompt directive.
     assert prompts.align_directive_for("reference", 6) == ""
     assert prompts.align_directive_for("s2v", 6) == ""
@@ -354,6 +357,37 @@ def test_category_advice_covers_all_codes(h3):
         assert code in prompts.CATEGORY_ADVICE, f"missing advice for {code!r}"
 
 
+def test_short_drama_category_injects_drama_rules(h3):
+    """The short-drama category must carry the key short-drama guardrails
+    distilled from the H3 scenario cases (vertical 9:16, close-up-led,
+    per-character performance direction, never-theatrical, hard negatives)."""
+    prompts, _ = h3
+    # Code present in both lists.
+    assert "short-drama" in prompts.CATEGORY_CODES
+    assert any(c.startswith("short-drama - ") for c in prompts.CATEGORIES)
+    advice = prompts.category_advice("short-drama - 短剧/竖屏剧情")
+    assert advice  # non-empty
+    for key in ("9:16", "close-up", "PER-CHARACTER", "NEVER theatrical", "no watermark"):
+        assert key in advice, f"short-drama advice missing {key!r}"
+
+
+def test_system_prompts_have_rhythm_and_card_rules(h3):
+    """The per-shot element ordering, default three-beat rhythm, and
+    (reference) subject-card rules exist in both system prompts."""
+    prompts, _ = h3
+    t2v = prompts.system_t2v_prompt()
+    assert "composition" in t2v and "in order" in t2v
+    assert "three-beat" in t2v
+    ref = prompts.system_reference_prompt()
+    assert "composition" in ref and "in order" in ref
+    assert "three-beat" in ref
+    # Reference system prompt adds the subject-card-before-shots rule.
+    assert "Subject/environment cards" in ref or "subject card" in ref.lower()
+    # Reference system prompt distinguishes base 3-section vs ref 6-section.
+    assert "FULL-REFERENCE" in ref or "full-reference" in ref.lower()
+    assert "detailed_description" in ref
+
+
 # --------------------------------------------------------------------------- #
 # Output language + section headers
 # --------------------------------------------------------------------------- #
@@ -381,6 +415,75 @@ def test_section_headers_block_zh(h3):
     assert "integrated_multimodal_description" in block
     assert "overall_soundscape" in block
     assert "non_diegetic_music" in block
+
+
+def test_section_headers_block_reference_mode_six_sections(h3):
+    """Full-reference mode (Ref2VA) emits SIX headers per ref-en.txt §1,
+    using detailed_description instead of integrated_multimodal_description."""
+    prompts, _ = h3
+    block = prompts.section_headers_block("en", reference_mode=True)
+    # The six canonical sections, in order.
+    for field in (
+        "subject_definitions",
+        "summary",
+        "retention_analysis",
+        "detailed_description",
+        "overall_soundscape",
+        "non_diegetic_music",
+    ):
+        assert field in block, f"ref mode missing {field}"
+    # integrated_multimodal_description must NOT appear in ref mode.
+    assert "integrated_multimodal_description" not in block
+    # Header count is 6.
+    assert block.count("Header:") == 6
+
+
+def test_section_headers_block_base_mode_three_sections(h3):
+    """Base mode (default) emits exactly THREE headers."""
+    prompts, _ = h3
+    block = prompts.section_headers_block("en", reference_mode=False)
+    assert block.count("Header:") == 3
+    assert "integrated_multimodal_description" in block
+    assert "detailed_description" not in block
+
+
+def test_structure_guidance_modes(h3):
+    prompts, _ = h3
+    base = prompts.structure_guidance("en", reference_mode=False)
+    assert "BASE mode" in base
+    assert "integrated_multimodal_description" in base
+    ref = prompts.structure_guidance("en", reference_mode=True)
+    assert "FULL-REFERENCE" in ref
+    # Ref guidance carries the official summary task-type prefixes and the
+    # retention relationship markers.
+    assert "[reference generation]" in ref
+    assert "fully_preserved" in ref and "attribute_transfer" in ref
+    assert "fully_copy" in ref and "weak_reference" in ref
+    assert "detailed_description" in ref
+
+
+def test_user_i2v_prompt_reference_mode_injects_six_headers(h3):
+    """reference_mode=True makes the i2v user template emit the six ref
+    headers and the ref structure guidance."""
+    prompts, _ = h3
+    rendered = prompts.user_i2v_prompt(
+        align_directive="",
+        idea="x",
+        caption="y",
+        duration=6,
+        aspect_ratio="16:9",
+        category_advice="",
+        examples="ex",
+        output_language="en",
+        reference_mode=True,
+    )
+    for field in ("subject_definitions", "retention_analysis", "detailed_description"):
+        assert field in rendered
+    # The actual header block (between "Copy them VERBATIM" and the negatives
+    # note) must use detailed_description, NOT integrated_multimodal_description.
+    headers_section = rendered.split("Copy them VERBATIM")[1].split("If (and only if)")[0]
+    assert "(detailed_description)" in headers_section
+    assert "(integrated_multimodal_description)" not in headers_section
 
 
 def test_section_headers_block_unknown_lang_falls_back(h3):
@@ -431,9 +534,11 @@ def test_bundled_examples(h3):
     assert i2v
     # T2V example mentions the kinetic-typography sample.
     assert "SUMMER NEVER SLEEPS" in t2v
-    # I2V example mentions the brand-film + five-character MV samples.
-    assert "<Picture 1>" in i2v
-    assert "<Picture 5>" in i2v
+    # I2V/R2V examples cover: I2VA base 3-section, Ref2VA six-section, L2VA.
+    assert "<Picture 1>" in i2v  # I2VA + L2VA use <Picture 1>
+    assert "subject_definitions" in i2v  # Ref2VA six-section example present
+    assert "retention_analysis" in i2v
+    assert "6.00-second mark" in i2v  # L2VA official alignment wording
 
 
 def test_load_bundled_examples_routes_by_task(h3):

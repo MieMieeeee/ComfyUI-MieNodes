@@ -11,11 +11,13 @@ Specs:
 Output language: {output_language}
 (`en` = write the prompt in English; `zh` = write the prompt in Chinese. Dialogue, lyrics, and visible on-screen text ALWAYS stay in their original language regardless.)
 
-Use EXACTLY these three section headers, in this order, one per line. Copy them VERBATIM (they are pre-localized to the output language and carry the canonical English API field name in parentheses — do not translate, rename, or duplicate them):
+Structure: {structure_guidance}
+
+Use EXACTLY these section headers, in this order, one per line. Copy them VERBATIM (they are pre-localized to the output language and carry the canonical English API field name in parentheses — do not translate, rename, or duplicate them):
 
 {section_headers}
 
-If (and only if) there are banned elements, append a fourth section using this header line:
+If (and only if) there are banned elements, append a final section using this header line:
 {negatives_header}
 
 Few-shot examples of the desired prompt style:
