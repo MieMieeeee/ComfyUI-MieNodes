@@ -331,6 +331,7 @@ To use a different config file (for example, a shared team config kept outside t
 - `model` (str): the name of a locally installed Ollama model. Free-form text — type whatever you have (`qwen2.5`, `llama3.2`, `deepseek-r1`, `llava`, `qwen2.5vl:7b`, etc.). Pull new models with `ollama pull <name>` on the host. Empty falls back to `qwen2.5`.
 - `api_token` (str, optional): placeholder only. Ollama ignores the value, but you can fill it in if you run Ollama behind a reverse proxy that needs auth.
 - `config_file` / `config_key` / `prefer_local_config`: standard config plumbing (default `config_key=ollama` matches the example JSON).
+- `timeout` (int, optional, default 60s): per-request HTTP timeout. Set higher (e.g. 120-180s) if you pull a large model that takes a long time to load on first call. The base class retries on timeout, but bumping the single-attempt timeout avoids the wasted first attempt.
 
 **Notes:**
 - Vision models (llava, llama3.2-vision, qwen2.5vl, gemma3, etc.) work through the OpenAI-compat layer: just connect an `IMAGE` input to the downstream `CallLLMService` node.

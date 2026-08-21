@@ -332,6 +332,7 @@
 - `model`（str）：本地已装的 Ollama 模型名，自由文本——填你已有的名字即可（`qwen2.5`、`llama3.2`、`deepseek-r1`、`llava`、`qwen2.5vl:7b` 等）。需要新模型就在 Ollama 主机上 `ollama pull <name>`。留空会回退到 `qwen2.5`。
 - `api_token`（str, optional）：占位字段，Ollama 会忽略填入值；只有用反代鉴权时才需要真填。
 - `config_file` / `config_key` / `prefer_local_config`：标准配置项（默认 `config_key=ollama` 与示例 JSON 对齐）。
+- `timeout`（int, optional，默认 60 秒）：单次请求的 HTTP 超时。拉了大模型、首次加载到显存耗时较长时，可调高到 120-180 秒。基类会在超时后重试，但把单次超时调大可以避免首次调用白白浪费一次重试。
 
 **备注：**
 - 视觉模型（llava、llama3.2-vision、qwen2.5vl、gemma3 等）走 OpenAI 兼容层即可：把 `IMAGE` 输入接到下游 `CallLLMService` 节点。

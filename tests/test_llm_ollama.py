@@ -213,3 +213,44 @@ def test_node_returns_tuple_of_one_connector(llm_module):
     out = node.execute(host="http://127.0.0.1:11434", model="qwen2.5")
     assert isinstance(out, tuple)
     assert len(out) == 1
+
+# ---------------------------------------------------------------------------
+# timeout field: cold-start friendly default (Ollama can take 30-90s to
+# load a 7B+ model from disk on first call; the base class default of 30s
+# would always timeout).
+# ---------------------------------------------------------------------------
+
+def test_node_input_types_timeout_default_is_60(llm_module):
+    types_ = llm_module.SetOllamaLLMServiceConnector.INPUT_TYPES()
+    field = types_["optional"]["timeout"]
+    assert field[0] == "INT"
+    assert field[1]["default"] == 60
+    # Reasonable bounds so the user can't accidentally set timeout=0 or
+    # a multi-hour value that would hang the workflow.
+    assert field[1]["min"] == 1
+    assert field[1]["max"] >= 60
+
+
+def test_node_default_timeout_propagates_to_connector(llm_module):
+    """When the user leaves the timeout input blank, the connector gets 60s."""
+    node = llm_module.SetOllamaLLMServiceConnector()
+    connector = node.execute(host="http://127.0.0.1:11434", model="qwen2.5")[0]
+    assert connector.timeout == 60
+
+
+def test_node_explicit_timeout_propagates_to_connector(llm_module):
+    """An explicit timeout value must reach the GeneralLLMServiceConnector base."""
+    node = llm_module.SetOllamaLLMServiceConnector()
+    connector = node.execute(
+        host="http://127.0.0.1:11434", model="qwen2.5", timeout=120,
+    )[0]
+    assert connector.timeout == 120
+
+
+def test_node_small_timeout_also_propagates(llm_module):
+    """User can dial timeout DOWN to e.g. 10s for fast fail on quick models."""
+    node = llm_module.SetOllamaLLMServiceConnector()
+    connector = node.execute(
+        host="http://127.0.0.1:11434", model="qwen2.5", timeout=10,
+    )[0]
+    assert connector.timeout == 10

@@ -1281,6 +1281,11 @@ class SetOllamaLLMServiceConnector(object):
     downstream ``CallLLMService`` node and it will be forwarded as an
     ``image_url`` content part. Reasoning models (deepseek-r1, qwen3) emit
     ``<think>...</think>`` blocks; the base class strips them automatically.
+
+    Cold-start note: Ollama loads the model from disk into VRAM on first call,
+    which can take 30-90s for 7B+ models. The base class retries on timeout,
+    but bumping the ``timeout`` input above the 30s base default avoids the
+    wasted first attempt for big models.
     """
 
     @classmethod
@@ -1298,6 +1303,8 @@ class SetOllamaLLMServiceConnector(object):
                 "config_file": ("STRING", {"default": "mie_llm_keys.json"}),
                 "config_key": ("STRING", {"default": "ollama"}),
                 "prefer_local_config": ("BOOLEAN", {"default": True}),
+                "timeout": ("INT", {"default": 60, "min": 1, "max": 600, "step": 5,
+                    "tooltip": "Per-request HTTP timeout in seconds. Default 60s to absorb Ollama's cold-start cost (30-90s for 7B+ models). The base class retries on timeout, but a longer single-attempt timeout avoids the wasted retry."}),
             },
         }
 
@@ -1306,7 +1313,7 @@ class SetOllamaLLMServiceConnector(object):
     FUNCTION = "execute"
     CATEGORY = MY_CATEGORY
 
-    def execute(self, host, model, api_token="", config_file="mie_llm_keys.json", config_key="ollama", prefer_local_config=True):
+    def execute(self, host, model, api_token="", config_file="mie_llm_keys.json", config_key="ollama", prefer_local_config=True, timeout=60):
         if not model:
             # Sensible default if the user left the field blank. Users can pull
             # other models with `ollama pull <name>` and then edit this field.
@@ -1318,6 +1325,7 @@ class SetOllamaLLMServiceConnector(object):
             config_file=config_file,
             config_key=config_key,
             prefer_local_config=prefer_local_config,
+            timeout=timeout,
         ),)
 
 
