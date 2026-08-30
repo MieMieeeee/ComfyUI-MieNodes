@@ -44,6 +44,8 @@ TEXT_PROMPTS = [
     ("zimage/t2i", "prompt_generator", "ZIMAGE_T2I_SYSTEM_PROMPT_TEMPLATE"),
     ("flux2/t2i", "prompt_generator", "FLUX2_T2I_SYSTEM_PROMPT"),
     ("ltx2/system", "prompt_generator", "LTX2_SYSTEM_PROMPT"),
+    ("ltx25/system_t2v_gemma4", "ltx25_prompts", "SYSTEM_PROMPT_T2V"),
+    ("ltx25/system_i2v_gemma4", "ltx25_prompts", "SYSTEM_PROMPT_I2V"),
     ("flux_klein/t2v", "prompt_generator", "FLUX_KLEIN_T2V_SYSTEM_PROMPT"),
     ("bernini/t2v_a14b_en", "bernini_prompts", "T2V_A14B_EN_SYS_PROMPT"),
     ("bernini/t2i_a14b_en", "bernini_prompts", "T2I_A14B_EN_SYS_PROMPT"),

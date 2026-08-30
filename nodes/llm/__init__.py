@@ -7,3 +7,4 @@ from .custom_system_prompt import *
 from .scail2_prompt_generator import *
 from .krea2_prompt_generator import *
 from .h3_prompt_generator import *
+from .ltx25_prompt_generator import *
