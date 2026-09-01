@@ -182,6 +182,11 @@ class AddNumberWatermarkForImage:
                 "thickness": ("INT", {"default": 2, "min": 1, "max": 20}),
                 "outline": ("BOOLEAN", {"default": True}),
                 "outline_thickness": ("INT", {"default": 2, "min": 1, "max": 10}),
+            },
+            "optional": {
+                # Optional (not required) so pre-existing saved workflows
+                # without this widget keep evaluating at full opacity.
+                "opacity": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01}),
             }
         }
 
@@ -214,14 +219,20 @@ class AddNumberWatermarkForImage:
 
         cv2.putText(img_bgr, text, (x, y), font, font_scale, color, thickness, cv2.LINE_AA)
 
-    def apply_watermark(self, images, start_number, position_x, position_y, font_scale, color_r, color_g, color_b, thickness, outline, outline_thickness):
+    def apply_watermark(self, images, start_number, position_x, position_y, font_scale, color_r, color_g, color_b, thickness, outline, outline_thickness, opacity=1.0):
         if images is None or images.shape[0] == 0:
             raise ValueError("No images provided to watermark.")
 
-        mie_log(f"Applying numeric watermark to {images.shape[0]} images. start_number={start_number}, pos=({position_x}%, {position_y}%), font_scale={font_scale}, color=({color_r},{color_g},{color_b}), thickness={thickness}, outline={outline}")
+        # Stale-session / cache-old front-ends may reach us with `opacity=None`
+        # (the schema default wasn't applied). Coerce to the documented default.
+        if opacity is None:
+            opacity = 1.0
+
+        mie_log(f"Applying numeric watermark to {images.shape[0]} images. start_number={start_number}, pos=({position_x}%, {position_y}%), font_scale={font_scale}, color=({color_r},{color_g},{color_b}), thickness={thickness}, outline={outline}, opacity={opacity}")
 
         device = images.device
         dtype = images.dtype
+        alpha = float(max(0.0, min(1.0, opacity)))
 
         batch = images.shape[0]
         out_list = []
@@ -241,8 +252,10 @@ class AddNumberWatermarkForImage:
             # cv2.putText uses baseline y (bottom of text)
             y = y_top + text_h
 
+            # Render the watermark fully opaque on a copy first
+            rendered = img_bgr.copy()
             self._draw_text_with_optional_outline(
-                img_bgr,
+                rendered,
                 number_text,
                 (x, y),
                 font_scale,
@@ -251,6 +264,19 @@ class AddNumberWatermarkForImage:
                 bool(outline),
                 int(outline_thickness),
             )
+
+            if alpha >= 1.0:
+                img_bgr = rendered
+            elif alpha > 0.0:
+                # The fully-opaque render already encodes per-pixel glyph
+                # coverage (anti-aliasing), so blending base and render by the
+                # global opacity directly yields a uniform fade everywhere —
+                # no extra coverage mask needed (that would square it).
+                blended = (
+                    img_bgr.astype(np.float32) * (1.0 - alpha)
+                    + rendered.astype(np.float32) * alpha
+                )
+                img_bgr = np.clip(blended, 0, 255).astype(np.uint8)
 
             out_tensor = self._cv2_to_tensor(img_bgr, device=device, dtype=dtype)
             out_list.append(out_tensor)
@@ -295,6 +321,11 @@ class AddTextWatermarkForImage:
                 "outline": ("BOOLEAN", {"default": True}),
                 "outline_width": ("INT", {"default": 3, "min": 0, "max": 20}),
                 "align": (["left", "center", "right"], {"default": "center"}),
+            },
+            "optional": {
+                # Optional (not required) so pre-existing saved workflows
+                # without this widget keep evaluating at full opacity.
+                "opacity": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01}),
             }
         }
 
@@ -302,13 +333,18 @@ class AddTextWatermarkForImage:
     FUNCTION = "apply_watermark"
     CATEGORY = MY_CATEGORY
 
-    def apply_watermark(self, images, text, font_size, position_x, position_y, color_r, color_g, color_b, outline, outline_width, align):
+    def apply_watermark(self, images, text, font_size, position_x, position_y, color_r, color_g, color_b, outline, outline_width, align, opacity=1.0):
         from PIL import Image, ImageDraw, ImageFont
 
         if images is None or images.shape[0] == 0:
             raise ValueError("No images provided to watermark.")
 
-        mie_log(f"Applying text watermark to {images.shape[0]} images. text={text!r}, font_size={font_size}, pos=({position_x}%, {position_y}%), align={align}")
+        # Stale-session / cache-old front-ends may reach us with `opacity=None`
+        # (the schema default wasn't applied). Coerce to the documented default.
+        if opacity is None:
+            opacity = 1.0
+
+        mie_log(f"Applying text watermark to {images.shape[0]} images. text={text!r}, font_size={font_size}, pos=({position_x}%, {position_y}%), align={align}, opacity={opacity}")
 
         device = images.device
         dtype = images.dtype
@@ -327,14 +363,21 @@ class AddTextWatermarkForImage:
 
         text_color = (int(color_r), int(color_g), int(color_b))
         outline_color = (0, 0, 0)
+        # Global alpha (0..255) derived from opacity (0..1)
+        global_alpha = int(round(max(0.0, min(1.0, opacity)) * 255))
 
         for i in range(batch):
             # tensor -> PIL (RGB)
             img_np = images[i].detach().cpu().numpy()
             img_np = (np.clip(img_np, 0.0, 1.0) * 255.0).astype(np.uint8)
-            pil_img = Image.fromarray(img_np, "RGB")
-            draw = ImageDraw.Draw(pil_img)
-            w, h = pil_img.size
+            base_img = Image.fromarray(img_np, "RGB")
+            w, h = base_img.size
+
+            # Render the watermark fully opaque onto a transparent RGBA overlay,
+            # then scale the overlay's alpha by `opacity` before compositing so
+            # the whole watermark (fill + outline) becomes semi-transparent.
+            overlay = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+            draw = ImageDraw.Draw(overlay)
 
             # Measure text bounding box (supports multiline)
             lines = text.split("\n")
@@ -382,8 +425,15 @@ class AddTextWatermarkForImage:
             else:
                 draw.text((x, y), text, font=pil_font, fill=text_color)
 
+            # Apply global opacity to the overlay's alpha channel
+            if global_alpha < 255:
+                overlay.putalpha(overlay.getchannel("A").point(lambda v: (v * global_alpha) // 255))
+
+            # Composite watermark over the base image
+            out_img = Image.alpha_composite(base_img.convert("RGBA"), overlay).convert("RGB")
+
             # PIL -> tensor
-            out_np = np.array(pil_img).astype(np.float32) / 255.0
+            out_np = np.array(out_img).astype(np.float32) / 255.0
             out_tensor = torch.from_numpy(out_np).to(device=device, dtype=dtype)
             out_list.append(out_tensor)
 
