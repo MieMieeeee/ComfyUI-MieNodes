@@ -18,6 +18,7 @@ Currently, the following services are supported:
   - [Bailian 阿里云百炼](https://bailian.console.aliyun.com/) (`bailian` key)
   - [MiniMax](https://api.minimaxi.com/) — standard Open Platform (`sk-...` key, `minimax_open_platform`) + [Token Plan / Coding Plan](https://api.minimaxi.com/) (`sk-cp-...` key, `minimax`)
   - [Xiaomi MiMo](https://mimo.mi.com/) — standard Open Platform (`sk-...` key, `mimo`) + [Token Plan / Coding Plan](https://mimo.mi.com/) (`tp-...` key, `mimo_token_plan`)
+  - [Ollama](https://ollama.com/) (local) — `SetOllamaLLMServiceConnector`, no API key required (the `Authorization` header is sent but ignored), `ollama` config_key (key is usually left empty)
   - Any OpenAI-compatible endpoint via `SetGeneralLLMServiceConnector` (custom base URL + model, `openai_compatible` key)
 
 If you wish to use other large language model (LLM) services that cannot be connected through SetGeneralLLMServiceConnector, please submit an issue or a pull request for feedback.
@@ -310,6 +311,7 @@ The default `config_key` for each connector matches the JSON key in the example 
 | `mimo_token_plan` | `SetMiMoTokenPlanLLMServiceConnector` | Xiaomi MiMo Token Plan / Coding Plan | `tp-...` |
 | `gemini` | `SetGeminiLLMServiceConnector` | [Google Gemini](https://ai.google.dev/gemini) | `AIza...` |
 | `bailian` | `SetBailianLLMServiceConnector` | [Bailian 阿里云百炼](https://bailian.console.aliyun.com/) | `sk-...` |
+| `ollama` | `SetOllamaLLMServiceConnector` | [Ollama](https://ollama.com/) (local) | not required (placeholder `ollama` is sent) |
 
 **Resolution rules** (matches `core.utils.resolve_token`):
 
@@ -318,6 +320,23 @@ The default `config_key` for each connector matches the JSON key in the example 
 3. With `prefer_local_config=True` (default), the JSON file wins. The `api_token` node input is used only when the file is missing or the entry is empty. Flip to `False` to make the node input win — useful when you keep a placeholder in the file but want to override the key per workflow.
 
 To use a different config file (for example, a shared team config kept outside the plugin folder), set `config_file` on the node to its absolute path.
+
+### **SetOllamaLLMServiceConnector** (local Ollama)
+**Function:** Connect to a locally running [Ollama](https://ollama.com/) instance via its OpenAI-compatible `/v1/chat/completions` endpoint (Ollama 0.3+). Ollama does **not** require an API key — the `Authorization: Bearer ...` header is sent but ignored by the server, so the `api_token` field can be left empty (or set to anything).
+**Parameters:**
+- `host` (str): bare Ollama server URL. Default `http://127.0.0.1:11434`. Common variants:
+  - `http://127.0.0.1:11434` (default, local install)
+  - `http://192.168.x.x:11434` (LAN host running Ollama, with `OLLAMA_HOST=0.0.0.0` set on the server)
+  - `http://host.docker.internal:11434` (Ollama running in Docker, reached from another container on the same host)
+- `model` (str): the name of a locally installed Ollama model. Free-form text — type whatever you have (`qwen2.5`, `llama3.2`, `deepseek-r1`, `llava`, `qwen2.5vl:7b`, etc.). Pull new models with `ollama pull <name>` on the host. Empty falls back to `qwen2.5`.
+- `api_token` (str, optional): placeholder only. Ollama ignores the value, but you can fill it in if you run Ollama behind a reverse proxy that needs auth.
+- `config_file` / `config_key` / `prefer_local_config`: standard config plumbing (default `config_key=ollama` matches the example JSON).
+
+**Notes:**
+- Vision models (llava, llama3.2-vision, qwen2.5vl, gemma3, etc.) work through the OpenAI-compat layer: just connect an `IMAGE` input to the downstream `CallLLMService` node.
+- Reasoning models (deepseek-r1, qwen3) emit `<think>...</think>` chains before the final answer; the base class strips them automatically.
+- Ollama-level knobs (`num_ctx`, `keep_alive`, custom Modelfile) are NOT exposed on the OpenAI-compat endpoint. Configure those via Modelfile on the Ollama host.
+- Streaming, JSON mode, tools, and seed are all supported by Ollama's OpenAI-compat layer; the connector stays non-streaming for parity with the other `Set*LLMServiceConnector` nodes.
 
 ### **SetMiniMaxLLMServiceConnector** (standard, not token plan)
 **Function:** Connect to the MiniMax Open Platform API with a standard `eyJ...` (JWT) key.

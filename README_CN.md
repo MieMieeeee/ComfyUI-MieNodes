@@ -18,6 +18,7 @@
   - [Bailian 阿里云百炼](https://bailian.console.aliyun.com/)（`bailian` 密钥）
   - [MiniMax](https://api.minimaxi.com/) — 标准 Open Platform（`sk-...` 密钥，`minimax_open_platform`）+ [Token Plan / Coding Plan](https://api.minimaxi.com/)（`sk-cp-...` 密钥，`minimax`）双轨
   - [小米 MiMo](https://mimo.mi.com/) — 标准 Open Platform（`sk-...` 密钥，`mimo`）+ [Token Plan / Coding Plan](https://mimo.mi.com/)（`tp-...` 密钥，`mimo_token_plan`）双轨
+  - [Ollama](https://ollama.com/)（本地）— `SetOllamaLLMServiceConnector` 接入，不需要 API 密钥（Authorization 头会发送但被服务端忽略），`ollama` config_key（密钥一般留空）
   - 任何 OpenAI 兼容端点可通过 `SetGeneralLLMServiceConnector` 接入（自定义 base URL + 模型，`openai_compatible` 密钥）
 
 如果你希望使用其他无法通过 SetGeneralLLMServiceConnector 连接的大语言模型（LLM）服务，请提交 issue 或 pull request 进行反馈。
@@ -311,6 +312,7 @@
 | `mimo_token_plan` | `SetMiMoTokenPlanLLMServiceConnector` | 小米 MiMo Token Plan / Coding Plan | `tp-...` |
 | `gemini` | `SetGeminiLLMServiceConnector` | [Google Gemini](https://ai.google.dev/gemini) | `AIza...` |
 | `bailian` | `SetBailianLLMServiceConnector` | [Bailian 阿里云百炼](https://bailian.console.aliyun.com/) | `sk-...` |
+| `ollama` | `SetOllamaLLMServiceConnector` | [Ollama](https://ollama.com/)（本地） | 不需要（占位符 `ollama`） |
 
 **解析规则**（与 `core.utils.resolve_token` 一致）：
 
@@ -319,6 +321,23 @@
 3. `prefer_local_config=True`（默认）时，JSON 文件里的值优先；只有当文件不存在或条目为空时才会用节点 `api_token` 输入框里的值。切到 `False` 则让节点输入框优先——适合在文件里保留个占位符，但按工作流个别覆盖密钥的场景。
 
 想用另一个配置文件（比如团队公用、存在插件外部的那种），把节点上的 `config_file` 改成它的绝对路径即可。
+
+### **SetOllamaLLMServiceConnector**（本地 Ollama）
+**功能：** 通过 Ollama 自带的 OpenAI 兼容 `/v1/chat/completions` 端点（Ollama 0.3+）接入本地运行的 [Ollama](https://ollama.com/) 实例。Ollama **不需要** API 密钥——`Authorization: Bearer ...` 头会发送但被服务端忽略，因此 `api_token` 字段留空（或随便填一个）即可。
+**参数：**
+- `host`（str）：Ollama 服务器的 bare URL，默认 `http://127.0.0.1:11434`。常见用法：
+  - `http://127.0.0.1:11434`（默认，本地安装）
+  - `http://192.168.x.x:11434`（局域网主机跑 Ollama，服务端设了 `OLLAMA_HOST=0.0.0.0`）
+  - `http://host.docker.internal:11434`（Ollama 跑在 Docker 里，从同宿主的其他容器访问）
+- `model`（str）：本地已装的 Ollama 模型名，自由文本——填你已有的名字即可（`qwen2.5`、`llama3.2`、`deepseek-r1`、`llava`、`qwen2.5vl:7b` 等）。需要新模型就在 Ollama 主机上 `ollama pull <name>`。留空会回退到 `qwen2.5`。
+- `api_token`（str, optional）：占位字段，Ollama 会忽略填入值；只有用反代鉴权时才需要真填。
+- `config_file` / `config_key` / `prefer_local_config`：标准配置项（默认 `config_key=ollama` 与示例 JSON 对齐）。
+
+**备注：**
+- 视觉模型（llava、llama3.2-vision、qwen2.5vl、gemma3 等）走 OpenAI 兼容层即可：把 `IMAGE` 输入接到下游 `CallLLMService` 节点。
+- 推理模型（deepseek-r1、qwen3）会输出 `<think>...</think>` 推理链；基类会自动剥掉。
+- Ollama 层的 `num_ctx` / `keep_alive` / 自定义 Modelfile 这些旋钮在 OpenAI 兼容端点上不暴露，请在 Ollama 主机上用 Modelfile 配置。
+- 流式、JSON 模式、tools、seed 在 Ollama OpenAI 兼容层都支持；连接器保持非流式以与其它 `Set*LLMServiceConnector` 一致。
 
 ### **SetMiniMaxLLMServiceConnector**（标准版，非 token plan）
 **功能：** 用标准 `eyJ...`（JWT）密钥接入 MiniMax Open Platform。

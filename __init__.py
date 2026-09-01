@@ -20,7 +20,7 @@ from _mienodes_internal.services.llm import SetGeneralLLMServiceConnector, SetSi
     SetGithubModelsLLMServiceConnector, SetZhiPuLLMServiceConnector, SetZhiPuCodeLLMServiceConnector, SetKimiLLMServiceConnector, \
     SetDeepSeekLLMServiceConnector, SetGeminiLLMServiceConnector, SetBailianLLMServiceConnector, \
     SetMiniMaxLLMServiceConnector, SetMiniMaxTokenPlanLLMServiceConnector, \
-    SetMiMoLLMServiceConnector, SetMiMoTokenPlanLLMServiceConnector, \
+    SetMiMoLLMServiceConnector, SetMiMoTokenPlanLLMServiceConnector, SetOllamaLLMServiceConnector, \
     CheckLLMServiceConnectivity, CallLLMService
 from _mienodes_internal.nodes.media import WavConcat, QwenTTSNode, SingleImageToVideo, AddNumberWatermarkForImage, AddTextWatermarkForImage
 from _mienodes_internal.services.tts import SetBailianTTSConnector
@@ -62,6 +62,7 @@ NODE_CLASS_MAPPINGS = {
     add_suffix("SetMiniMaxTokenPlanLLMServiceConnector"): SetMiniMaxTokenPlanLLMServiceConnector,
     add_suffix("SetMiMoLLMServiceConnector"): SetMiMoLLMServiceConnector,
     add_suffix("SetMiMoTokenPlanLLMServiceConnector"): SetMiMoTokenPlanLLMServiceConnector,
+    add_suffix("SetOllamaLLMServiceConnector"): SetOllamaLLMServiceConnector,
     add_suffix("CheckLLMServiceConnectivity"): CheckLLMServiceConnectivity,
     add_suffix("CallLLMService"): CallLLMService,
     add_suffix("Translator"): TextTranslator,
@@ -183,6 +184,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     add_suffix("SetMiniMaxTokenPlanLLMServiceConnector"): add_emoji("Set MiniMax Token Plan LLM Service Connector"),
     add_suffix("SetMiMoLLMServiceConnector"): add_emoji("Set MiMo LLM Service Connector"),
     add_suffix("SetMiMoTokenPlanLLMServiceConnector"): add_emoji("Set MiMo Token Plan LLM Service Connector"),
+    add_suffix("SetOllamaLLMServiceConnector"): add_emoji("Set Ollama LLM Service Connector"),
     add_suffix("CheckLLMServiceConnectivity"): add_emoji("Check LLM Service Connectivity"),
     add_suffix("CallLLMService"): add_emoji("Call LLM Service"),
     add_suffix("ModelDownloader"): add_emoji("Model Downloader"),

@@ -696,6 +696,47 @@ class GeminiConnectorGeneral(GeneralLLMServiceConnector):
         )
 
 
+class OllamaConnectorGeneral(StandardOpenAICompatibleConnector):
+    """Ollama (local) OpenAI-compatible connector.
+
+    Posts to ``{host}/v1/chat/completions``. Ollama ships an OpenAI-compat
+    layer from 0.3 onwards that supports vision (``image_url`` content
+    parts), JSON mode, tools, streaming, and reasoning models. The
+    ``api_key`` header is required by the OpenAI-compat shape but is
+    ignored by Ollama, so we pass through whatever the caller provided
+    (or fall back to a placeholder so the Authorization header stays
+    non-empty).
+
+    ``num_ctx`` / ``keep_alive`` / Modelfile-level knobs are NOT exposed
+    on the OpenAI-compat endpoint; configure those via Modelfile instead.
+
+    ``host`` should be the bare Ollama server URL without a trailing
+    slash and without ``/v1/chat/completions`` -- those are appended
+    here. Examples:
+
+      - ``http://127.0.0.1:11434`` (default, local install)
+      - ``http://192.168.1.10:11434`` (LAN host running Ollama)
+      - ``http://host.docker.internal:11434`` (Ollama in Docker, reached
+        from another container on the same host)
+    """
+
+    def __init__(self, host, model, api_token="", **kwargs):
+        api_url = host.rstrip("/") + "/v1/chat/completions"
+        # Ollama ignores the api_key but the Authorization header must
+        # still be non-empty so requests does not choke on a bare Bearer.
+        super().__init__(
+            api_url,
+            api_token or "ollama",
+            model,
+            **kwargs,
+        )
+
+    # NOTE: do NOT override _sanitize_image_detail. Ollama's OpenAI-compat
+    # endpoint accepts ``detail`` on image_url parts (unlike MiniMax /
+    # MiMo which reject ``auto``). The base-class identity behavior is
+    # the correct default here.
+
+
 class SetGeneralLLMServiceConnector(object):
     @classmethod
     def INPUT_TYPES(cls):
@@ -1225,6 +1266,59 @@ class SetMiMoTokenPlanLLMServiceConnector(object):
         if not model:
             model = "mimo-v2.5-pro"
         return (MiMoTokenPlanConnectorGeneral(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
+
+
+class SetOllamaLLMServiceConnector(object):
+    """Set Ollama (local) LLM service connector.
+
+    Connects to a locally running Ollama instance via its OpenAI-compatible
+    ``/v1/chat/completions`` endpoint (Ollama 0.3+). Ollama does NOT require
+    an API key -- the ``Authorization: Bearer ...`` header is sent but ignored
+    by the server, so an empty ``api_token`` is fine.
+
+    Vision models (llava, llama3.2-vision, qwen2.5vl, gemma3, etc.) work
+    through the OpenAI-compat layer: just connect an ``IMAGE`` input to the
+    downstream ``CallLLMService`` node and it will be forwarded as an
+    ``image_url`` content part. Reasoning models (deepseek-r1, qwen3) emit
+    ``<think>...</think>`` blocks; the base class strips them automatically.
+    """
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "host": ("STRING", {"default": "http://127.0.0.1:11434"}),
+                "model": ("STRING", {
+                    "default": "",
+                    "placeholder": "Enter local Ollama model name (e.g. qwen2.5, llama3.2, deepseek-r1, llava)",
+                }),
+            },
+            "optional": {
+                "api_token": ("STRING", {"default": ""}),
+                "config_file": ("STRING", {"default": "mie_llm_keys.json"}),
+                "config_key": ("STRING", {"default": "ollama"}),
+                "prefer_local_config": ("BOOLEAN", {"default": True}),
+            },
+        }
+
+    RETURN_TYPES = ("LLMServiceConnector",)
+    RETURN_NAMES = ("llm_service_connector",)
+    FUNCTION = "execute"
+    CATEGORY = MY_CATEGORY
+
+    def execute(self, host, model, api_token="", config_file="mie_llm_keys.json", config_key="ollama", prefer_local_config=True):
+        if not model:
+            # Sensible default if the user left the field blank. Users can pull
+            # other models with `ollama pull <name>` and then edit this field.
+            model = "qwen2.5"
+        return (OllamaConnectorGeneral(
+            host,
+            model,
+            api_token=api_token,
+            config_file=config_file,
+            config_key=config_key,
+            prefer_local_config=prefer_local_config,
+        ),)
 
 
 class SetGeminiLLMServiceConnector(object):
