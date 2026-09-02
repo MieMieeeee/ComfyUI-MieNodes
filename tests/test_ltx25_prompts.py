@@ -149,3 +149,55 @@ def test_build_i2v_user_text(ltx25):
         == "User Raw Input Prompt: she walks away."
     )
     assert ltx25.build_i2v_user_text("  padded  ") == "User Raw Input Prompt: padded."
+
+
+# --------------------------------------------------------------------------- #
+# Multishot directive (LTX-2.5 native multi-cut caption support)
+#
+# The two official system prompts are byte-locked (cannot be modified
+# without forking the upstream caption style), so multishot guidance
+# is appended to the user turn as a directive rather than baked into
+# the system prompt. Default off -- the bool widget on the node stays
+# False unless the user explicitly opts in.
+# --------------------------------------------------------------------------- #
+def test_append_multishot_directive_t2v_marks_c1_through_c4(ltx25):
+    """The t2v directive must reference the C1-C4 cut checklist
+    (per official sec 4.2) and name the prose-form transitions so the
+    LLM follows template E rather than the slugline fallback."""
+    out = ltx25.append_multishot_directive("user prompt: a neon city", "t2v")
+    # User-text prefix is preserved (system-prompt byte-lock is honored).
+    assert out.startswith("user prompt: a neon city")
+    # C1-C4 markers.
+    assert "C1" in out and "C2" in out and "C3" in out and "C4" in out
+    # Prose transition names (template E primary form).
+    for phrase in ("A hard cut transitions to", "match cut", "dissolves into"):
+        assert phrase in out, f"t2v directive missing transition phrase: {phrase!r}"
+    # Cut-count guidance.
+    assert "2-4" in out
+
+
+def test_append_multishot_directive_i2v_adds_opening_shot_note(ltx25):
+    """i2v must add the spec sec 4.5 caveat: the reference frame is the
+    OPENING shot of the multi-cut sequence. Without this note the LLM
+    tends to treat i2v as single-shot (the system prompt default)."""
+    out = ltx25.append_multishot_directive("User Raw Input Prompt: a cat.", "i2v")
+    assert "OPENING shot" in out or "opening shot" in out
+    assert "reference" in out.lower()
+    # Base C1-C4 still applies.
+    assert "C1" in out and "C4" in out
+
+
+def test_append_multishot_directive_unknown_mode_falls_back_to_t2v(ltx25):
+    """Unknown mode code reuses the t2v directive shape (no OPENING-shot
+    note); same defensive fallback as load_system_prompt."""
+    out = ltx25.append_multishot_directive("user prompt: x", "what")
+    assert out.startswith("user prompt: x")
+    assert "OPENING shot" not in out
+    assert "C1" in out
+
+
+def test_append_multishot_directive_empty_user_text_is_safe(ltx25):
+    """A blank user_prompt should still produce a valid directive
+    wrapper (used when _default_idea fills in later)."""
+    out = ltx25.append_multishot_directive("", "t2v")
+    assert "C1" in out

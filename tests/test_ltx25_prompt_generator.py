@@ -393,3 +393,109 @@ def test_is_changed_varies_with_image_shape(ltx25):
         )
         == h_512
     )
+
+
+# --------------------------------------------------------------------------- #
+# Multishot widget integration (LTX-2.5 native multi-cut caption support)
+#
+# The multishot widget is OPTIONAL with default False; when True, the
+# generator must append the multishot directive to the user turn in
+# both t2v and i2v modes. is_changed must hash multishot so toggling
+# the bool forces a re-run.
+# --------------------------------------------------------------------------- #
+def test_multishot_widget_schema(ltx25):
+    """multishot is OPTIONAL with default False (BOOLEAN)."""
+    _, gen = ltx25
+    spec = gen.LTX25PromptGenerator.INPUT_TYPES()
+    ms = spec["optional"]["multishot"]
+    assert ms[0] == "BOOLEAN"
+    assert ms[1]["default"] is False
+
+
+def test_t2v_default_multishot_false_no_directive(ltx25, monkeypatch):
+    """Default behavior (multishot omitted or False) must NOT inject
+    any multishot markers into the user turn -- preserves the
+    pre-multishot contract."""
+    _, gen = ltx25
+    captured = []
+
+    class _Conn(FakeConnector):
+        def invoke(self, messages, *, seed, temperature, max_tokens):
+            captured.append(messages)
+            return "ok"
+
+    monkeypatch.setattr(gen, "image_tensor_batch_to_data_urls", lambda t: [])
+    enhancer = gen.LTX25PromptEnhancer(_Conn())
+    enhancer("t2v - 文生视频", "a neon city", seed=7)
+    user_text = _text_part(captured[0][1]["content"])
+    assert user_text == "user prompt: a neon city"
+    # No directive markers leaked.
+    assert "hard cut transitions" not in user_text
+    assert "C1" not in user_text
+
+
+def test_t2v_multishot_true_appends_directive(ltx25, monkeypatch):
+    """multishot=True on t2v must append the C1-C4 + prose-transitions
+    directive after the user's idea (system prompt byte-lock honored)."""
+    _, gen = ltx25
+    captured = []
+
+    class _Conn(FakeConnector):
+        def invoke(self, messages, *, seed, temperature, max_tokens):
+            captured.append(messages)
+            return "ok"
+
+    monkeypatch.setattr(gen, "image_tensor_batch_to_data_urls", lambda t: [])
+    enhancer = gen.LTX25PromptEnhancer(_Conn())
+    enhancer("t2v", "a neon city", seed=7, multishot=True)
+    user_text = _text_part(captured[0][1]["content"])
+    # Original user_text prefix is intact.
+    assert user_text.startswith("user prompt: a neon city")
+    # Directive markers present.
+    for marker in ("C1", "C2", "C3", "C4", "A hard cut transitions to", "2-4"):
+        assert marker in user_text, f"missing directive marker: {marker!r}"
+    # No reference-frame note on t2v.
+    assert "OPENING shot" not in user_text
+    assert "opening shot" not in user_text
+
+
+def test_i2v_multishot_true_appends_directive_with_opening_shot_note(ltx25, monkeypatch):
+    """multishot=True on i2v must include the spec sec 4.5 OPENING-shot
+    note (reference frame is the opening shot of the multi-cut sequence)."""
+    _, gen = ltx25
+    captured = []
+    fake_image = _FakeTensor()
+
+    class _Conn(FakeConnector):
+        def invoke(self, messages, *, seed, temperature, max_tokens):
+            captured.append(messages)
+            return "ok"
+
+    monkeypatch.setattr(
+        gen, "image_tensor_batch_to_data_urls",
+        lambda im: ["data:image/jpeg;base64,AAAA"] if im is fake_image else []
+    )
+    enhancer = gen.LTX25PromptEnhancer(_Conn())
+    enhancer("i2v - 图生视频", "a cat", image=fake_image, seed=7, multishot=True)
+    user_text = _text_part(captured[0][1]["content"])
+    assert user_text.startswith("User Raw Input Prompt: a cat.")
+    # i2v-specific OPENING-shot note.
+    assert "OPENING shot" in user_text or "opening shot" in user_text
+    # Base C1-C4 still applies.
+    assert "C1" in user_text and "C4" in user_text
+
+
+def test_multishot_change_invalidates_is_changed(ltx25):
+    """Toggling multishot must invalidate is_changed -- otherwise
+    ComfyUI will cache and silently skip re-running the LLM when the
+    user opts into multi-cut mode."""
+    _, gen = ltx25
+    node = gen.LTX25PromptGenerator()
+    conn = FakeConnector()
+    h_off = node.is_changed(
+        conn, "t2v - 文生视频", "a cat", seed=1, multishot=False
+    )
+    h_on = node.is_changed(
+        conn, "t2v - 文生视频", "a cat", seed=1, multishot=True
+    )
+    assert h_off != h_on, "is_changed must be sensitive to multishot toggle"

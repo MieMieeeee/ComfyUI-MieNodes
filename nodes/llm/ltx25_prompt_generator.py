@@ -42,6 +42,7 @@ try:
     from _mienodes_internal.nodes.llm.ltx25_prompts import (
         MODE_CODES,
         MODES,
+        append_multishot_directive,
         build_i2v_user_text,
         build_t2v_user_text,
         load_system_prompt,
@@ -51,6 +52,7 @@ except ImportError:
     from .ltx25_prompts import (
         MODE_CODES,
         MODES,
+        append_multishot_directive,
         build_i2v_user_text,
         build_t2v_user_text,
         load_system_prompt,
@@ -226,6 +228,7 @@ class LTX25PromptEnhancer:
         *,
         image: Any = None,
         seed: Optional[int] = None,
+        multishot: bool = False,
     ) -> str:
         """Run the LTX-2.5 pipeline and return the final caption.
 
@@ -265,6 +268,8 @@ class LTX25PromptEnhancer:
                 f"(single stage, no media)"
             )
             user_text = build_t2v_user_text(prompt)
+            if multishot:
+                user_text = append_multishot_directive(user_text, mode_code)
             messages = self._build_messages(
                 system, user_text, [], self.image_detail
             )
@@ -294,6 +299,8 @@ class LTX25PromptEnhancer:
             f"(single stage, first frame attached)"
         )
         user_text = build_i2v_user_text(prompt)
+        if multishot:
+            user_text = append_multishot_directive(user_text, mode_code)
         messages = self._build_messages(
             system, user_text, [first_frame_url], self.image_detail
         )
@@ -403,6 +410,13 @@ class LTX25PromptGenerator:
                 # on heavy prompts sometimes need 60-300s; 120 mirrors
                 # the rest of the family.
                 "timeout": ([30, 60, 120, 300], {"default": _DEFAULT_TIMEOUT}),
+                # Multi-shot caption toggle (LTX-2.5 native multi-cut).
+                # When True, an explicit directive is appended to the user
+                # turn covering the C1-C4 cut checklist (see spec sec 4.2 /
+                # template E); i2v also gets the sec 4.5 OPENING-shot note.
+                # Default off -- the upstream single-shot caption style is
+                # the safe default.
+                "multishot": ("BOOLEAN", {"default": False}),
             },
         }
 
@@ -422,6 +436,7 @@ class LTX25PromptGenerator:
         temperature=_DEFAULT_TEMPERATURE,
         max_tokens=_DEFAULT_MAX_TOKENS,
         timeout=_DEFAULT_TIMEOUT,
+        multishot=False,
     ):
         enhancer = LTX25PromptEnhancer(
             llm_service_connector,
@@ -430,7 +445,9 @@ class LTX25PromptGenerator:
             max_tokens=max_tokens,
             timeout=timeout,
         )
-        out = enhancer(mode, user_prompt, image=image, seed=seed)
+        out = enhancer(
+            mode, user_prompt, image=image, seed=seed, multishot=bool(multishot)
+        )
         return (out,)
 
     def is_changed(
@@ -444,6 +461,7 @@ class LTX25PromptGenerator:
         temperature=_DEFAULT_TEMPERATURE,
         max_tokens=_DEFAULT_MAX_TOKENS,
         timeout=_DEFAULT_TIMEOUT,
+        multishot=False,
     ):
         h = hashlib.md5()
         for part in (
@@ -454,6 +472,7 @@ class LTX25PromptGenerator:
             str(temperature),
             str(timeout),
             str(max_tokens),
+            str(bool(multishot)),
         ):
             h.update((part or "").encode("utf-8"))
         try:
