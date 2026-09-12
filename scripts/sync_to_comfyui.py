@@ -1,15 +1,20 @@
 #!/usr/bin/env python3
-"""Sync ComfyUI-MieNodes dev tree into a live ComfyUI custom_nodes install.
+"""Sync ComfyUI-MieNodes dev tree into live ComfyUI custom_nodes installs.
 
-Default:
-  src  = this repo root (parent of scripts/)
-  dst  = E:\\FF\\ComfyUI_Mie_2026_V8.0\\ComfyUI\\custom_nodes\\ComfyUI-MieNodes
+Built-in targets (both are disposable local test environments; code may be
+fully overwritten — only the destination ``mie_llm_keys.json`` is preserved):
 
-Preserves destination ``mie_llm_keys.json`` (local API keys).
-Optionally removes stale files in dst that no longer exist in src (--mirror).
+  local  C:\\PP\\V9\\V9-Large\\ComfyUI_Mie_2026_V9.0_Large\\ComfyUI\\custom_nodes\\comfyui_mienodes
+  lan    \\\\192.168.31.150\\f\\V9_cu130\\V9-Large_cu130\\ComfyUI_Mie_2026_V9.0_Large\\ComfyUI\\custom_nodes\\comfyui_mienodes
+
+Default behaviour: sync BOTH targets with mirror mode (stale destination
+files that no longer exist in src are deleted). If one target is
+unreachable (e.g. the LAN box is offline) the other still syncs; the exit
+code reports the failure.
 
 Usage:
-  python scripts/sync_to_comfyui.py
+  python scripts/sync_to_comfyui.py                # both targets
+  python scripts/sync_to_comfyui.py --target local # one built-in target
   python scripts/sync_to_comfyui.py --dry-run
   python scripts/sync_to_comfyui.py --dst "D:\\other\\ComfyUI\\custom_nodes\\ComfyUI-MieNodes"
 """
@@ -23,11 +28,18 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_DST = Path(
-    r"E:\FF\ComfyUI_Mie_2026_V8.0\ComfyUI\custom_nodes\ComfyUI-MieNodes"
-)
 
-# Directory names skipped entirely during copy.
+# Named deployment targets (test environments; full overwrite, keys kept).
+TARGETS = {
+    "local": Path(
+        r"C:\PP\V9\V9-Large\ComfyUI_Mie_2026_V9.0_Large\ComfyUI\custom_nodes\comfyui_mienodes"
+    ),
+    "lan": Path(
+        r"\\192.168.31.150\f\V9_cu130\V9-Large_cu130\ComfyUI_Mie_2026_V9.0_Large\ComfyUI\custom_nodes\comfyui_mienodes"
+    ),
+}
+
+# Directory names skipped entirely during copy (and never mirror-deleted).
 IGNORE_DIRS = {
     ".git",
     ".venv",
@@ -175,10 +187,15 @@ def main(argv: list[str] | None = None) -> int:
         help=f"source repo root (default: {REPO_ROOT})",
     )
     parser.add_argument(
+        "--target",
+        choices=[*TARGETS, "all"],
+        default="all",
+        help="built-in deployment target(s) (default: all)",
+    )
+    parser.add_argument(
         "--dst",
         type=Path,
-        default=DEFAULT_DST,
-        help=f"ComfyUI custom_nodes target (default: {DEFAULT_DST})",
+        help="custom single target (overrides --target), e.g. another ComfyUI install",
     )
     parser.add_argument(
         "--no-mirror",
@@ -192,31 +209,45 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
+    if args.dst is not None:
+        targets: list[tuple[str, Path]] = [("custom", args.dst)]
+    elif args.target == "all":
+        targets = list(TARGETS.items())
+    else:
+        targets = [(args.target, TARGETS[args.target])]
+
     print(f"src: {args.src.resolve()}")
-    print(f"dst: {args.dst.resolve()}")
     if args.dry_run:
         print("mode: dry-run")
     print()
 
-    try:
-        stats = sync(
-            args.src,
-            args.dst,
-            mirror=not args.no_mirror,
-            dry_run=args.dry_run,
+    failed: list[str] = []
+    for name, dst in targets:
+        print(f"=== target: {name} -> {dst}")
+        try:
+            stats = sync(
+                args.src,
+                dst,
+                mirror=not args.no_mirror,
+                dry_run=args.dry_run,
+            )
+        except (FileNotFoundError, OSError) as e:
+            print(f"ERROR: {e}", file=sys.stderr)
+            failed.append(name)
+            print()
+            continue
+        print(
+            f"done ({name}). "
+            f"copied={stats['copied']} "
+            f"skipped={stats['skipped']} "
+            f"removed={stats['removed']} "
+            f"preserved={stats['preserved']}"
         )
-    except FileNotFoundError as e:
-        print(f"ERROR: {e}", file=sys.stderr)
-        return 1
+        print()
 
-    print()
-    print(
-        "done. "
-        f"copied={stats['copied']} "
-        f"skipped={stats['skipped']} "
-        f"removed={stats['removed']} "
-        f"preserved={stats['preserved']}"
-    )
+    if failed:
+        print(f"FAILED targets: {', '.join(failed)}", file=sys.stderr)
+        return 1
     if not args.dry_run:
         print("restart ComfyUI or reload custom nodes to pick up Python changes.")
     return 0
