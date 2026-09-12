@@ -18,12 +18,19 @@ except ImportError:
     from ...core.utils import any_typ, mie_log, add_suffix
 
 # Stream-merge primitive shared with the offline recovery script so the
-# live node and the manual CLI use the exact same chunked+memmap code path.
+# live node and the manual CLI use the exact same single-pass merge path.
 # Re-imported under the legacy private name to keep call sites unchanged.
 try:
     from ...core.chunked_merge import chunked_disk_merge as _chunked_disk_merge
 except Exception:
     from core.chunked_merge import chunked_disk_merge as _chunked_disk_merge
+
+# Capped-shard persistence: guarantees no single torch.save file exceeds
+# ~1.5 GiB (2^31-byte zip64 corruption guard for non-ASCII install paths).
+try:
+    from ...core import tensor_store as _tensor_store
+except Exception:
+    from core import tensor_store as _tensor_store
 
 try:
     from comfy_execution.graph_utils import GraphBuilder
@@ -459,12 +466,9 @@ def _cleanup_disk_cache_paths(paths):
     if not paths:
         return
     for raw_path in paths:
-        try:
-            os.remove(str(raw_path))
-        except FileNotFoundError:
-            pass
-        except Exception:
-            pass
+        # File or .shards directory; missing paths and errors are swallowed
+        # (same contract as before, now dir-aware).
+        _tensor_store.remove_path(raw_path)
 
 
 def _cleanup_disk_cache_items(items):
@@ -496,8 +500,10 @@ def _offload_payload_to_disk(kind, ctx, ref, payload, offload_dir):
     suffix = uuid.uuid4().hex[:10]
     safe_kind = "".join([c if c.isalnum() or c in {"-", "_"} else "_" for c in str(kind)])
     path = base_dir / f"{safe_kind}_{suffix}.pt"
-    torch.save(payload, str(path))
-    return {"disk_path": str(path), "ref": str(ref)}
+    # Tensors over the shard cap land in <stem>.shards/ instead of one giant
+    # torch.save zip; small tensors and audio dicts stay a single .pt.
+    actual = _tensor_store.save_tensor(payload, str(path))
+    return {"disk_path": str(actual), "ref": str(ref)}
 
 
 def _ensure_state_object_store(kind):
@@ -1285,8 +1291,8 @@ def _save_inmem_batches_to_disk(inmem_items, run_dir, kind):
             )
         suffix = uuid.uuid4().hex[:10]
         path = Path(run_dir) / f"{kind}_inmem_{suffix}.pt"
-        torch.save(item.detach().to("cpu"), str(path))
-        saved.append({"disk_path": str(path), "ref": ""})
+        actual = _tensor_store.save_tensor(item.detach().to("cpu"), str(path))
+        saved.append({"disk_path": str(actual), "ref": ""})
     return saved
 
 
@@ -1326,32 +1332,38 @@ def _log_finalize_merge_failed(kind, ctx, disk_paths):
     )
 
 
-# Internal default for the disk-streaming merge. Hard-coded (not exposed
-# on the node) so the user cannot misconfigure it into a state that OOMs
-# mid-loop. 5 batches per chunk keeps phase-1 peak at ~2x per-batch bytes
-# (~7 GB for the SCAIL-2 30-batch case).
+# Internal default for the merge's chunk_size parameter. Kept (and still
+# passed) for call-site compatibility; the merge itself is byte-capped by
+# tensor_store.SHARD_FILE_CAP_BYTES, which alone governs how much is buffered
+# and how large any serialized file may get.
 _MIE_LOOP_IMG_MERGE_CHUNK_SIZE = 5
 
 
 def _merge_images_for_ctx(loop_ctx, *, avoid_oom=True):
     """Stream-merge the loop's image collector to disk and return the result.
 
-    Always runs through the chunked disk-merge path -- the in-memory cat is
-    no longer reachable from the public node, since a long-running loop
-    that hits MemoryError mid-merge loses the whole run. Output path is
-    auto-derived as ``<offload_dir>/merged.pt`` so the user does not have
-    to pick a destination.
+    Always runs through the single-pass disk-merge path -- the in-memory cat is
+    no longer reachable from the public node, since a long-running loop that
+    hits MemoryError mid-merge loses the whole run. The output path is
+    auto-derived as ``<offload_dir>/merged.pt`` so the user does not have to
+    pick a destination; when the merged tensor exceeds the shard cap the merge
+    instead commits ``<offload_dir>/merged.shards/`` and returns that path.
 
     Returns ``(IMAGE_OR_EMPTY, merged_path)``:
-    - ``images``: best-effort load of the merged .pt. Returns EMPTY_IMAGES
+    - ``images``: best-effort load of the merged artifact. Returns EMPTY_IMAGES
       if the load OOMs (e.g., the system cannot fit the final tensor in
       RAM); the path is still returned so the user can recover via
-      ``LoadAny|Mie``.
-    - ``merged_path``: stable path to the merged .pt, always populated
-      when the merge succeeded. Empty string when the loop is not done
-      yet or there were no batches.
+      ``LoadImageBatch|Mie``.
+    - ``merged_path``: path to the merged artifact (``merged.pt`` file or
+      ``merged.shards`` directory), always populated when the merge succeeded.
+      Empty string when the loop is not done yet or there were no batches.
     """
     ctx = _validate_loop_ctx(loop_ctx)
+    if not bool(avoid_oom):
+        mie_log(
+            "LoopFinalizeImages: avoid_oom=False is deprecated and has no "
+            "effect (the merge is always single-pass and byte-capped now)"
+        )
     ref = _ensure_collector_slot(ctx, "image").get("ref")
     if not ref:
         return EMPTY_IMAGES, ""
@@ -1364,7 +1376,10 @@ def _merge_images_for_ctx(loop_ctx, *, avoid_oom=True):
     _log_finalize_merge_start("image", ctx, raw_batches, disk_paths)
 
     # Auto-derive the output path under the same offload dir the loop wrote
-    # its per-batch .pt files into. Keeps everything for one run co-located.
+    # its per-batch files into. Keeps everything for one run co-located. The
+    # merge returns the ACTUAL artifact path: this merged.pt for small
+    # results, or the sibling merged.shards/ directory when the merged tensor
+    # exceeds the shard cap.
     out_path = Path(_resolve_offload_dir(ctx, "")) / "merged.pt"
 
     def validate(batch, idx, merged):
@@ -1386,10 +1401,10 @@ def _merge_images_for_ctx(loop_ctx, *, avoid_oom=True):
     merged_path = ""
     try:
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        # Materialize any in-memory batches so the chunked merge sees disk items.
+        # Materialize any in-memory batches so the merge sees disk items.
         disk_items = _save_inmem_batches_to_disk(raw_batches, out_path.parent, "image")
         try:
-            _chunked_disk_merge(
+            actual_path = _chunked_disk_merge(
                 disk_items,
                 out_path,
                 chunk_size=_MIE_LOOP_IMG_MERGE_CHUNK_SIZE,
@@ -1399,34 +1414,32 @@ def _merge_images_for_ctx(loop_ctx, *, avoid_oom=True):
                 avoid_oom=avoid_oom,
             )
         finally:
-            # Cleanup the inmem-saved temp .pt files (they live next to out_path).
+            # Cleanup the inmem-saved temp artifacts (they live next to
+            # out_path; remove_path also handles _inmem_ shard dirs).
             for di in disk_items:
                 p = di.get("disk_path", "")
                 if p and "_inmem_" in os.path.basename(p):
-                    try:
-                        os.remove(p)
-                    except FileNotFoundError:
-                        pass
+                    _tensor_store.remove_path(p)
         # Best-effort load for the IMAGE output. If the final tensor is too big
-        # for the system RAM, fall back to EMPTY_IMAGES and let the user recover
-        # via LoadAny on merged_path.
+        # for the system RAM, fall back to EMPTY_IMAGES and let the user
+        # recover via LoadImageBatch|Mie on merged_path.
         try:
-            loaded = torch.load(str(out_path), map_location="cpu", weights_only=False)
+            loaded = _tensor_store.load_tensor(actual_path)
         except Exception as e:
             mie_log(
-                f"LoopFinalizeImages: post-merge load failed for {out_path}: {e}; "
-                "returning EMPTY_IMAGES -- use MERGED_PATH with LoadAny|Mie to recover."
+                f"LoopFinalizeImages: post-merge load failed for {actual_path}: {e}; "
+                "returning EMPTY_IMAGES -- use MERGED_PATH with LoadImageBatch|Mie to recover."
             )
             loaded = EMPTY_IMAGES
-        merged_path = str(out_path)
+        merged_path = str(actual_path)
         merged_ok = True
         return loaded, merged_path
     except Exception:
         _log_finalize_merge_failed("image", ctx, disk_paths)
         raise
     finally:
-        # Cleanup only on success: on failure, preserve .pt files so the user can
-        # recover via a manual merge script (see docs/LOOP_USAGE.md / scripts/).
+        # Cleanup only on success: on failure, preserve batch files so the user
+        # can recover via a manual merge script (see docs/LOOP_USAGE.md / scripts/).
         if merged_ok:
             _cleanup_disk_cache_paths(disk_paths)
 
@@ -2711,19 +2724,20 @@ class MieLoopFinalizeImages:
     """Finalize the image collector and stream-merge to disk.
 
     Designed for long-running SCAIL-style loops where an OOM at the merge
-    step would lose the entire run. The node ALWAYS streams the merge to
-    ``<offload_dir>/merged.pt`` in chunks with a numpy.memmap-backed
-    phase 2, so the in-process peak is bounded by ~1 chunk (~3.5 GB
-    for the SCAIL-2 30-batch case) instead of final+chunk (~24.5 GB).
-    On any failure the per-batch ``image_*.pt`` files are preserved
+    step would lose the entire run. The node ALWAYS streams the merge in a
+    single pass through a byte-capped part writer: every serialized file
+    stays under the ~1.5 GiB shard cap (the 2^31-byte zip64 corruption
+    guard), peak RAM is roughly one input batch + one part (~2.3 GB for the
+    SCAIL-2 30-batch case), and the result lands at
+    ``<offload_dir>/merged.pt`` (small) or ``<offload_dir>/merged.shards/``
+    (oversized). On any failure the per-batch files are preserved
     (preserve-on-failure contract) so the user can recover via
     ``scripts/manual_merge_offloaded_images.py``.
 
-    Inputs are intentionally minimal -- chunk_size and output path are
-    internal so the user cannot misconfigure them into a state that
-    OOMs mid-loop. The only knob is ``avoid_oom``; it defaults ON and
-    the tooltip warns that turning it off on a long loop risks losing
-    the run.
+    Inputs are intentionally minimal -- the byte cap is internal so the user
+    cannot misconfigure it into a state that OOMs mid-loop or writes
+    uncapped files. ``avoid_oom`` is kept only for workflow compatibility
+    and has no effect anymore (see its tooltip).
     """
 
     @classmethod
@@ -2739,12 +2753,11 @@ class MieLoopFinalizeImages:
                     {
                         "default": True,
                         "tooltip": (
-                            "Avoid OOM: stream phase 2 through a numpy.memmap so peak "
-                            "RAM is ~1 chunk (not final+chunk). DEFAULT ON -- leave it on "
-                            "for any long-running loop. Turning it off reverts to a "
-                            "pre-allocate path that needs ~final+chunk contiguous RAM; "
-                            "on a typical SCAIL-2 30-batch run that exceeds 24 GB and "
-                            "will OOM-crash the merge, losing the whole run."
+                            "Deprecated, no effect. The merge is always a "
+                            "single-pass, byte-capped stream now: no file ever "
+                            "exceeds ~1.5 GiB and peak RAM stays around one "
+                            "batch + one part. Kept only so existing workflows "
+                            "keep loading; leave it at the default."
                         ),
                     },
                 ),
@@ -3054,7 +3067,9 @@ class MieLoopFinalizeAudio:
             for idx, item in enumerate(raw_items):
                 is_disk = _is_disk_cache_item(item)
                 if is_disk:
-                    loaded = torch.load(str(item["disk_path"]), map_location="cpu")
+                    # Plain .pt dict via load_tensor's file branch (audio never
+                    # shards; load_tensor keeps torch.load semantics for files).
+                    loaded = _tensor_store.load_tensor(item["disk_path"])
                     if not isinstance(loaded, dict):
                         raise ValueError("disk cached audio is not an object")
                     current = loaded

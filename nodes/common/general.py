@@ -20,6 +20,11 @@ try:
 except ImportError:
     from ...core.utils import mie_log, any_typ, compute_hash, convert_size
 
+try:
+    from _mienodes_internal.core import tensor_store
+except ImportError:
+    from ...core import tensor_store
+
 
 # Empty IMAGE batch used as a safe fallback when LoadImageBatch|Mie
 # cannot find the requested file and no upstream fallback is connected.
@@ -781,10 +786,15 @@ class ClassicAspectRatio(object):
 class FileExists(object):
     """Lightweight existence check for a single file path.
 
-    Intentionally minimal: a single ``os.path.isfile()`` call, no size /
-    hash / mtime lookup (use ``GetFileInfo|Mie`` for those). The path is
-    taken as-is (absolute or relative to ComfyUI CWD); pair this node with
-    ``GetAbsolutePath|Mie`` to resolve a workflow-relative path first.
+    Intentionally minimal: a file-existence probe with no size / hash / mtime
+    lookup (use ``GetFileInfo|Mie`` for those). Besides plain files this also
+    accepts a COMPLETE ``<stem>.shards/`` directory (what capped-shard
+    persistence writes for oversized tensors) at the given path or at the
+    sibling alias of a ``.pt`` path -- a crash-left partial shard directory
+    counts as NOT existing, so a FileExists -> IfElse recompute gate still
+    fires. The path is taken as-is (absolute or relative to ComfyUI CWD); pair
+    this node with ``GetAbsolutePath|Mie`` to resolve a workflow-relative path
+    first.
 
     Empty / whitespace input is treated as not-exists rather than raising,
     so the node is safe to wire into a cache-gate before any path has been
@@ -808,9 +818,9 @@ class FileExists(object):
         raw = str(file_path or "").strip()
         if not raw:
             return (False,)
-        result = os.path.isfile(raw)
-        if raw:
-            mie_log(f"FileExists|Mie: {raw} -> {result}")
+        found = tensor_store.find_tensor_path(raw)
+        result = found is not None
+        mie_log(f"FileExists|Mie: {raw} -> {result}" + (f" (via {found})" if found and found != raw else ""))
         return (result,)
 
 
@@ -878,16 +888,20 @@ class SaveImageBatch(object):
         raw = str(file_path or "").strip()
         if not raw:
             raise ValueError("SaveImageBatch|Mie: file_path is empty")
-        parent = os.path.dirname(raw)
-        if parent and not os.path.isdir(parent):
-            os.makedirs(parent, exist_ok=True)
         payload = images.detach().to("cpu").contiguous()
-        torch.save(payload, raw)
+        # Small batches write exactly `raw` (a plain .pt, byte-identical to
+        # the old torch.save). Oversized batches write the sibling
+        # `<stem>.shards/` directory instead so no serialized file ever
+        # exceeds ~1.5 GiB; LoadImageBatch|Mie / FileExists|Mie resolve both.
+        actual = tensor_store.save_tensor(payload, raw)
         try:
-            size = os.path.getsize(raw)
+            if os.path.isfile(actual):
+                size = os.path.getsize(actual)
+            else:
+                size = tensor_store.dir_bytes(actual) if os.path.isdir(actual) else -1
         except OSError:
             size = -1
-        mie_log(f"SaveImageBatch|Mie: wrote {raw} ({size} bytes)")
+        mie_log(f"SaveImageBatch|Mie: wrote {actual} ({size} bytes)")
         return ()
 
 class LoadImageBatch(object):
@@ -919,13 +933,21 @@ class LoadImageBatch(object):
 
     def execute(self, file_path, fallback=None):
         raw = str(file_path or "").strip()
-        if raw and os.path.isfile(raw):
+        # Resolves the widget path to a file OR its sibling `<stem>.shards/`
+        # directory (what SaveImageBatch|Mie writes for oversized batches);
+        # incomplete shard directories count as a MISS so the fallback /
+        # recompute path still fires.
+        found = tensor_store.find_tensor_path(raw) if raw else None
+        if found is not None:
             try:
-                size = os.path.getsize(raw)
+                if os.path.isfile(found):
+                    size = os.path.getsize(found)
+                else:
+                    size = tensor_store.dir_bytes(found)
             except OSError:
                 size = -1
-            mie_log(f"LoadImageBatch|Mie: cache HIT loaded {raw} ({size} bytes)")
-            return (torch.load(raw, map_location="cpu"),)
+            mie_log(f"LoadImageBatch|Mie: cache HIT loaded {found} ({size} bytes)")
+            return (tensor_store.load_tensor(found),)
         mie_log(f"LoadImageBatch|Mie: cache MISS {raw} -> fallback")
         if fallback is not None:
             return (fallback,)

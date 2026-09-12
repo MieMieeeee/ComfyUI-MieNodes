@@ -137,7 +137,7 @@ MieLoop 使用 expand 图递归执行下一轮。为避免 ID 漂移：
 
 ### Finalize 崩溃后手动合并
 `FinalizeImages` / `FinalizeAudio` 合并失败时（如超大批次触发原生崩溃），**不会删除**磁盘缓存，日志会打印 `LoopFinalizeMergeFailed: ... cache_dir=... disk_files_preserved=true`。
-- 缓存目录：`{ComfyUI temp}/mie_loop_offload/{run_id}/`（或你指定的 `offload_dir`），形如 `image_*.pt` / `audio_*.pt`。
+- 缓存目录：`{ComfyUI temp}/mie_loop_offload/{run_id}/`（或你指定的 `offload_dir`），形如 `image_*.pt` / `image_*.shards/`（超限批次）/ `audio_*.pt`。
 - 手动救回用本仓库自带脚本（无需 ComfyUI 启动）：
   ```bash
   python scripts/manual_merge_offloaded_images.py 5e81e5f1a4b24e58a721371f
@@ -145,38 +145,28 @@ MieLoop 使用 expand 图递归执行下一轮。为避免 ID 漂移：
   python scripts/manual_merge_offloaded_images.py       --offload-dir F:/ComfyUI_Mie_2026_V8.0_Base/ComfyUI/temp/mie_loop_offload/5e81e5f1a4b24e58a721371f       --out F:/ComfyUI_Mie_2026_V8.0_Base/ComfyUI/output/merged.pt
   # --dry-run 只列文件；--cleanup 成功合并后删原 batch。
   ```
-  脚本做的事和 `_merge_tensor_batches_incremental` 等价（逐 batch load + cat + 释放 + gc），失败也保留输入 .pt；输出可被 `LoadAny|Mie` 直接吃。
+  脚本和节点走同一条单遍流式合并路径（逐 batch 流式写入分卷，失败也保留输入文件）；输出可被 `LoadImageBatch|Mie` 直接吃（小结果为 `merged.pt` 单文件，超 ~1.5 GiB 时为 `merged.shards/` 目录，两者都会被节点自动识别）。**注意：`LoadAny|Mie` 走 pickle，读不了这些文件，恢复请用 `LoadImageBatch|Mie`。**
 - 救回后可自行删除该 `{run_id}` 目录释放空间。
 - 注意：若工作流内同一文件被多路 LoadVideo 引用（如 SCAIL 双视频路径不一致），collector 可能混入不属于本循环的段，需结合业务链判断要跳过的前若干文件——这是 workflow 层问题，Finalize 无法自动识别。
 
 
-### 长跑防 OOM 合并（`avoid_oom`）
-`MieLoopFinalizeImages`（v3.1.2+）默认走**分块落盘 + numpy.memmap** 的合并路径，专门为长跑设计 —— **不允许**用户配到一个 OOM 会杀进程的状态。整个 SCAIL-2 跑过程只在节点上暴露一个旋钮：
+### 长跑防 OOM + 单文件不超 2 GB 的合并（`avoid_oom` 已弃用）
+`MieLoopFinalizeImages` 现在走**单遍流式 + 字节封顶分卷**的合并路径，同时解决两件事：长跑 OOM、以及"中文安装路径 + `torch.save` 写超 2 GB zip64 文件在 2^31 字节处损坏"（社区报告的视频只剩单帧问题）。
 
-| 参数 | 默认 | 说明 |
-|---|---|---|
-| `avoid_oom` | `True` | **避免 OOM**：phase 2 用 `numpy.memmap` 走磁盘映射，把 24.5 GB 级的 final+chunk 峰值压到 ~1 chunk（~3.5 GB）。**所有长跑都保持 ON**。关闭后会回退到预分配路径，那种路径在 30 段 81 帧 704×1280 的 SCAIL-2 case 上需要 ~24.5 GB 连续 RAM，普通 16 GB 工作站必然 `MemoryError` 中途被杀 —— **几小时的循环白跑**。tooltip 里有同样的警告。 |
+**保证**：
+- 任何一次落盘的文件都 ≤ `SHARD_FILE_CAP_BYTES`（1.5 GiB，在 2^31 损坏线下留 ~512 MiB 裕量）；超限张量自动写成 `<名字>.shards/` 目录（`part_00000.pt`、`part_00001.pt`… 按"帧"整切 + 最后原子写入的 `meta.json` 提交标记），dtype（含 bfloat16）无损，单个分卷也可以手动 `torch.load`。
+- 合并峰值内存 ≈ 一个输入 batch + 一个分卷（SCAIL-2 30 段 case ~2.3 GB），不再有中间 `_mie_chunk_*.pt` 和 numpy.memmap 暂存。
+- `avoid_oom` 参数保留只为旧工作流能加载，**已无效果**（默认 True；传 False 只会打一条弃用日志）。
 
-其他参数（输出路径、chunk 大小）都是节点内部写死：
-- 输出路径：自动推到 `<ComfyUI temp>/mie_loop_offload/<run_id>/merged.pt`，和循环每轮写出来的 `image_*.pt` 放一起，方便定位。
-- chunk_size：写死 5。Phase 1 峰值 `2 × 5 × 单 batch 字节`（SCAIL-2 case ~7 GB）。
+**输出路径**：自动推到 `<ComfyUI temp>/mie_loop_offload/<run_id>/`，小结果为 `merged.pt`，超限结果为 `merged.shards/`，和每轮写出的批次文件放一起。
 
-**合并分两阶段**：
-- **Phase 1**：每 5 个 batch 合并成一段，写到 `<offload_dir>/_mie_chunk_image_NNNN.pt`。峰值约 `2 × chunk_size × 单 batch 字节`。
-- **Phase 2**：
-  - `avoid_oom=True`（默认）：用 `np.memmap` 建一个磁盘映射的 ndarray 当成 final，chunk-by-chunk 拷进去（写直达磁盘，**不分配 final 大 tensor**），最后 `torch.save` 走 mmap 读取（OS 负责分页）。峰值 ≈ 1 chunk + phase 1 那个 `2 × chunk_size`，**整体 ~7 GB**。
-  - `avoid_oom=False`：预分配最终张量到 CPU（避免 `torch.cat` 翻倍峰值），把每个 chunk 拷进去，再 `torch.save` 到目标路径。峰值约 `final_size + max_chunk_size`，SCAIL-2 case ~24.5 GB。
-
-**节点输出**（v3.1.2+）：
-- `images`（IMAGE）：尽力把 merged .pt 加载回 tensor，**最终 tensor 在系统 RAM 装不下时返回 `EMPTY_IMAGES`**（不抛错、不杀进程）。
-- `merged_path`（STRING）：merged .pt 的稳定路径。**即使 IMAGE 槽返回了 EMPTY_IMAGES，这个路径也是有效的**，把它接给 `LoadAny|Mie` 就能在另一台机器上恢复（LoadAny 走 `torch.load` 物理读盘，不吃本机 RAM）。
-
-**输出**：`MieLoopFinalizeImages` 现在返回 `(images, merged_path)`：
-- `images`：把 `finalize_to_disk` 的 .pt 加载回 tensor（尽力而为，若系统连 21 GB tensor 都装不下则返回 `EMPTY_IMAGES`）。
-- `merged_path`：稳定的最终 .pt 路径，**即使 load OOM 也会返回**。把它接给 `LoadAny|Mie` 即可在另一台机器上恢复。
+**节点输出**：
+- `images`（IMAGE）：尽力加载合并产物，**最终 tensor 在系统 RAM 装不下时返回 `EMPTY_IMAGES`**（不抛错、不杀进程）。
+- `merged_path`（STRING）：合并产物的实际路径（`merged.pt` 文件或 `merged.shards` 目录），**即使 IMAGE 槽返回了 EMPTY_IMAGES 也有效**，接给 `LoadImageBatch|Mie` 即可恢复（它自动识别单文件与分卷目录，不吃本机 RAM 也能逐卷重组）。
 
 **失败兜底**：
-- 任一阶段失败都会在 `finally` 块里清掉中间的 `_mie_chunk_*.pt` 文件，但**绝不删原始 `image_*.pt`**——preserve-on-failure 契约保持不变，可继续用 `scripts/manual_merge_offloaded_images.py` 救回。
+- 任一阶段失败都会清掉中途的输出暂存（隐藏的 `.staging` 目录），但**绝不删原始批次文件**（`image_*.pt` / `image_*.shards/`）——preserve-on-failure 契约保持不变，可继续用 `scripts/manual_merge_offloaded_images.py` 救回。
+- 分卷目录以 `meta.json` 为提交标记：进程中途被杀留下的残缺目录（无 meta 或分卷缺失）会被加载方判定为"不存在/损坏"并报 `CorruptShardError`，绝不会把半截数据当正常结果读。
 
 ## 推荐最小示例（文本收集）
 ```text

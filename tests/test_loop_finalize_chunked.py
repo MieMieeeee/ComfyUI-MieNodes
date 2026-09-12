@@ -1,18 +1,19 @@
-"""Tests for the chunked disk-streaming merge in MieLoopFinalizeImages.
+"""Tests for the single-pass disk-streaming merge in MieLoopFinalizeImages.
 
-Locks the no-OOM contract for the SCAIL-2 long-run case (30 batches of 81
-frames at 704x1280 fp32 ~= 21 GB). Verifies that the chunked merge:
+Locks the no-OOM + capped-file contract for the SCAIL-2 long-run case (30
+batches of 81 frames at 704x1280 fp32 ~= 21 GB). Verifies that the merge:
 - produces the same tensor as one-shot torch.cat
-- cleans up its intermediate chunk files
-- preserves the input image_*.pt files on failure
-- handles in-memory and on-disk batch mix
-- still exposes the legacy in-memory cat when finalize_to_disk is empty
-- drops phase-2 peak to ~1 chunk via numpy.memmap when avoid_oom=True
-- falls back to the pre-allocate path for unsupported dtypes
+- keeps every serialized file under the shard cap (2^31-byte zip64 guard)
+- writes no intermediate chunk files / np.memmap staging (single pass)
+- preserves the input image_*.pt / image_*.shards batches on failure
+- handles in-memory and on-disk batch mixes, and mixed old/new formats
+- returns the ACTUAL artifact path (merged.pt or merged.shards/)
 """
 
 import glob
+import json
 import os
+import shutil
 
 import pytest
 import torch
@@ -284,35 +285,85 @@ def test_chunked_disk_merge_memmap_chunk_larger_than_count(tmp_path):
     assert torch.equal(loaded, torch.cat(expected, dim=0))
 
 
-def test_chunked_disk_merge_memmap_uses_smaller_peak_than_pre_allocate(tmp_path, monkeypatch):
-    # The whole point of avoid_oom: phase-2 peak should be bounded by ~1 chunk,
-    # not final+chunk. We assert this indirectly by checking the memmap path
-    # was actually used (np.memmap called with mode w+). Direct peak
-    # measurement via psutil is too fragile for CI.
+def test_chunked_disk_merge_single_pass_no_memmap_no_chunk_files(tmp_path, monkeypatch):
+    # The two-phase machinery (np.memmap staging + _mie_chunk_*.pt
+    # intermediates) existed only to feed one giant torch.save. With the
+    # byte-capped part writer it must be GONE: no memmap call, no chunk
+    # files, no hidden staging leftovers -- and a correct merged result.
     import numpy as _np
 
     _, paths = _make_disk_batches(tmp_path, count=6, frames_per=4, h=8, w=8)
     out_path = tmp_path / "merged.pt"
 
+    seen = {"memmap": 0}
     real_memmap = _np.memmap
-    seen = {"modes": [], "shapes": []}
 
-    def spy_memmap(filename, dtype=None, mode=None, shape=None, *args, **kwargs):
-        seen["modes"].append(mode)
-        seen["shapes"].append(shape)
-        return real_memmap(filename, dtype=dtype, mode=mode, shape=shape, *args, **kwargs)
+    def spy_memmap(*args, **kwargs):
+        seen["memmap"] += 1
+        return real_memmap(*args, **kwargs)
 
-    monkeypatch.setattr(loop_module.np, "memmap", spy_memmap)
+    monkeypatch.setattr(_np, "memmap", spy_memmap)
     _chunked_disk_merge(
         _to_disk_items(paths), out_path, chunk_size=2, kind="image",
         avoid_oom=True,
     )
-    # Phase 2 opens the mmap in "w+" first, then re-opens in "r" for torch.save.
-    assert "w+" in seen["modes"], "avoid_oom=True must use numpy.memmap in write mode"
-    # The mmap's shape is the full final tensor (24 frames total here).
-    write_shapes = [s for s, m in zip(seen["shapes"], seen["modes"]) if m == "w+"]
-    assert write_shapes, "no w+ mmap call captured"
-    assert write_shapes[0][0] == 24  # 6 batches * 4 frames = 24
+    assert seen["memmap"] == 0, "merge must not use np.memmap anymore"
+    assert not list(tmp_path.glob("_mie_chunk_*")), "no intermediate chunk files"
+    assert not list(tmp_path.glob(".*staging*")), "no staging leftovers"
+    loaded = torch.load(str(out_path), map_location="cpu", weights_only=False)
+    assert torch.equal(loaded, torch.cat(
+        [torch.load(str(p), map_location="cpu", weights_only=False) for p in paths],
+        dim=0,
+    ))
+
+
+def test_chunked_disk_merge_forced_cap_emits_parts_under_cap(tmp_path, monkeypatch):
+    # The core guarantee the rework was built for: with a forced-tiny cap the
+    # merge emits a .shards directory whose parts each stay under the cap and
+    # reassemble into exactly torch.cat of the inputs.
+    _, paths = _make_disk_batches(tmp_path, count=4, frames_per=3, h=8, w=8)
+    monkeypatch.setattr(
+        loop_module._tensor_store, "SHARD_FILE_CAP_BYTES", 800
+    )  # frame = 8*8*3*4 = 768 B -> 1 frame per part
+    out_path = tmp_path / "merged.pt"
+    actual = _chunked_disk_merge(
+        _to_disk_items(paths), out_path, chunk_size=5, kind="image", avoid_oom=True
+    )
+    assert actual.endswith("merged.shards")
+    assert not Path(out_path).exists()
+    meta = json.loads((Path(actual) / "meta.json").read_text(encoding="utf-8"))
+    assert len(meta["parts"]) == 12  # 4 batches x 3 frames
+    for entry in meta["parts"]:
+        assert entry["encoding"] == "pt" and entry["frames"] == 1
+    back = loop_module._tensor_store.load_tensor(actual)
+    expected = torch.cat(
+        [torch.load(str(p), map_location="cpu", weights_only=False) for p in paths], dim=0
+    )
+    assert torch.equal(back, expected)
+
+
+def test_chunked_disk_merge_accepts_mixed_pt_and_shards_inputs(tmp_path, monkeypatch):
+    # An offload dir written across the rework (or recovered manually) can mix
+    # legacy image_*.pt files with image_*.shards directories; the merge must
+    # stream both part-by-part in order.
+    batches = [torch.rand(2, 4, 4, 3) for _ in range(4)]
+    paths = []
+    for i, t in enumerate(batches):
+        base = tmp_path / f"image_{str(i).zfill(10)}"
+        if i % 2 == 0:
+            p = Path(str(base) + ".pt")
+            torch.save(t, str(p))
+        else:
+            p = Path(loop_module._tensor_store.save_tensor(t, str(base) + ".pt"))
+        paths.append(p)
+    monkeypatch.setattr(loop_module._tensor_store, "SHARD_FILE_CAP_BYTES", 400)
+    out_path = tmp_path / "merged.pt"
+    actual = _chunked_disk_merge(
+        _to_disk_items(paths), out_path, chunk_size=5, kind="image", avoid_oom=True
+    )
+    assert torch.equal(
+        loop_module._tensor_store.load_tensor(actual), torch.cat(batches, dim=0)
+    )
 
 # ---------------------------------------------------------------------------
 # MieLoopFinalizeImages contract: the only user-facing knob is avoid_oom.
@@ -320,19 +371,23 @@ def test_chunked_disk_merge_memmap_uses_smaller_peak_than_pre_allocate(tmp_path,
 
 
 def _clean_offload(merged_path):
-    """Remove merged .pt + the run dir it lived in."""
+    """Remove the merged artifact (file or .shards dir) + the run dir."""
     if not merged_path:
         return
-    try:
+    target = Path(merged_path)
+    if target.is_dir():
+        shutil.rmtree(str(target), ignore_errors=True)
+    elif target.is_file():
         os.remove(merged_path)
-    except OSError:
-        pass
     run_dir = os.path.dirname(merged_path)
     for leftover in glob.glob(os.path.join(run_dir, "*")):
-        try:
-            os.remove(leftover)
-        except OSError:
-            pass
+        if os.path.isdir(leftover):
+            shutil.rmtree(leftover, ignore_errors=True)
+        else:
+            try:
+                os.remove(leftover)
+            except OSError:
+                pass
     try:
         os.rmdir(run_dir)
     except OSError:
@@ -449,3 +504,110 @@ def test_finalize_images_preserves_per_batch_files_on_failure(
     leftovers = list(Path(tmp_path).glob("image_*.pt"))
     assert leftovers, "input batches must be preserved on failure"
 
+
+
+# ---------------------------------------------------------------------------
+# capped-shard end-to-end through the public nodes (forced tiny cap)
+# ---------------------------------------------------------------------------
+
+
+def test_finalize_images_forced_cap_end_to_end_shards(
+    sample_loop_ctx, tmp_path, monkeypatch
+):
+    """With the cap forced tiny, the whole public path must shard: collect
+    offloads each batch into image_*.shards/, finalize merges to
+    merged.shards/, the IMAGE output still equals torch.cat, the merged_path
+    probe resolves for LoadImageBatch|Mie, and success cleans the batch dirs.
+    """
+    collect = MieLoopCollectImage()
+    finalize = MieLoopFinalizeImages()
+    monkeypatch.setattr(loop_module._tensor_store, "SHARD_FILE_CAP_BYTES", 300)
+    expected = []
+    ctx = sample_loop_ctx
+    for _ in range(3):
+        img = torch.rand(2, 4, 4, 3)  # 384 B/frame -> every batch shards
+        expected.append(img)
+        ctx = collect.execute(ctx, img, True, str(tmp_path))[0]
+    batch_dirs = list(Path(tmp_path).glob("image_*.shards"))
+    assert len(batch_dirs) == 3, "offloaded batches must be shard dirs"
+
+    images, merged_path = finalize.execute(ctx, True)
+    try:
+        assert merged_path.endswith("merged.shards")
+        assert not Path(merged_path).parent.joinpath("merged.pt").exists()
+        assert isinstance(images, torch.Tensor)
+        assert torch.equal(images, torch.cat(expected, dim=0))
+        # The recovery probe LoadImageBatch|Mie uses finds and reassembles it.
+        probe = loop_module._tensor_store.find_tensor_path(
+            str(Path(merged_path).parent / "merged.pt")
+        )
+        assert probe == merged_path
+        assert torch.equal(
+            loop_module._tensor_store.load_tensor(probe), torch.cat(expected, dim=0)
+        )
+    finally:
+        _clean_offload(merged_path)
+    # Success path cleans the per-batch shard dirs (dir-aware cleanup).
+    assert not list(Path(tmp_path).glob("image_*.shards"))
+
+
+def test_finalize_images_failure_preserves_sharded_batches(
+    sample_loop_ctx, tmp_path, monkeypatch
+):
+    """The preserve-on-failure contract extends to image_*.shards batch dirs:
+    a merge that dies mid-way must leave them on disk for the manual script.
+    """
+    collect = MieLoopCollectImage()
+    finalize = MieLoopFinalizeImages()
+    monkeypatch.setattr(loop_module._tensor_store, "SHARD_FILE_CAP_BYTES", 300)
+    ctx = collect.execute(sample_loop_ctx, torch.rand(2, 4, 4, 3), True, str(tmp_path))[0]
+    ctx = collect.execute(ctx, torch.rand(2, 4, 4, 3), True, str(tmp_path))[0]
+
+    real_load = torch.load
+    calls = {"n": 0}
+
+    def flaky(*args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] >= 3:
+            raise RuntimeError("simulated disk error")
+        return real_load(*args, **kwargs)
+
+    monkeypatch.setattr(torch, "load", flaky)
+    with pytest.raises(RuntimeError):
+        finalize.execute(ctx, True)
+    leftovers = list(Path(tmp_path).glob("image_*.shards"))
+    assert leftovers, "sharded input batches must be preserved on failure"
+    assert not list(Path(tmp_path).glob(".merged*staging*")), "staging must be cleaned"
+
+
+def test_finalize_images_recovery_hint_points_at_loadimagebatch():
+    """Lock the recovery-node fix: the post-merge-load failure hint must say
+    LoadImageBatch|Mie (LoadAny|Mie pickles and can never read these files).
+    """
+    import inspect
+
+    src = inspect.getsource(loop_module)
+    assert "LoadImageBatch|Mie" in src
+    for line in src.splitlines():
+        if "post-merge load failed" in line:
+            continue
+        if "LoadAny|Mie" in line and "not" not in line and "never" not in line:
+            # No stray positive references to LoadAny as the recovery node.
+            assert "recover" not in line, line
+
+
+def test_finalize_images_avoid_oom_false_logs_deprecation(
+    sample_loop_ctx, tmp_path, capsys
+):
+    """avoid_oom is a documented no-op now; flipping it must at least say so
+    in the log instead of silently doing nothing."""
+    collect = MieLoopCollectImage()
+    finalize = MieLoopFinalizeImages()
+    ctx = collect.execute(sample_loop_ctx, torch.rand(2, 4, 4, 3), True, str(tmp_path))[0]
+    images, merged_path = finalize.execute(ctx, True, avoid_oom=False)
+    try:
+        out = capsys.readouterr().out
+        assert "avoid_oom=False is deprecated" in out
+        assert merged_path.endswith("merged.pt")
+    finally:
+        _clean_offload(merged_path)
