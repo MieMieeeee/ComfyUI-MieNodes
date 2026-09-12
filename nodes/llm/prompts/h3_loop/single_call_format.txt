@@ -1,0 +1,11 @@
+SINGLE-CALL FORMAT OVERRIDE: produce ALL {clip_count} clips in ONE reply as a strict JSON array, in storyboard order. Each element has EXACTLY these keys:
+  "id": the storyboard entry id,
+  "integrated_multimodal_description": the clip body text (no header inside the value, no [Shot 1] prefix needed),
+  "overall_soundscape": the soundscape text,
+  "non_diegetic_music": the music text or "No non-diegetic music.".
+Note: this mode is currently restricted to t2va (text-only chains). For
+i2va / fl2va / ref2va, the per_shot path is required so each clip can
+carry its keyframe idiom and label policy without merging them into
+one reply.
+No markdown fences, no preamble, no extra keys. Apply the loop continuation rules between consecutive clips: every clip after the first must open by continuing the previous clip's ending (state the carried overlap, begin new action only after it), and every overall_soundscape after the first must carry the previous ambience bed across the boundary instead of restarting it.
+Pacing: match each clip's content density to its own duration_seconds — one visible change (action beat, camera development, or light shift) every 2-3 seconds, with 2-3 beats for ~8-12s clips, 3-4 for ~12-20s, 4-6 for longer ones. Never stretch a single small gesture across a long clip (it renders as slow motion); write action at real-time speed unless the concept explicitly calls for slow motion.

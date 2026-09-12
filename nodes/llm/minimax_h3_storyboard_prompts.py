@@ -1,0 +1,532 @@
+"""Storyboard templates, whitelists, and parsing for the
+``MiniMaxH3StoryboardGenerator`` node.
+
+The node's methodology (beats before shots, hook, shot-size variety,
+character anchor, transition logic, pacing, continuity bible) is encoded
+in the bundled system prompt ``prompts/h3_storyboard/system_storyboard.txt``
+(sources listed in ``prompts/h3_storyboard/UPSTREAM.md``). This module
+owns everything deterministic around it:
+
+* dropdown tuples + code parsing (styles / output formats / languages),
+* ``STYLE_ADVICE`` — per-style concrete guidance injected into the user
+  turn (same pattern as ``h3_prompts.CATEGORY_ADVICE``),
+* shot_type / transition whitelists used both by the prompt contract and
+  by ``normalize_shots`` post-validation,
+* ``extract_json_array`` — tolerant JSON-array extraction (bare array,
+  ```json fenced, prose-wrapped),
+* ``normalize_shots`` — coerce + validate the LLM output into the
+  canonical shot dicts (unique ids, whitelist fallbacks, duration
+  clamping, count reconciliation),
+* ``render_storyboard_markdown`` — the human-readable ``storyboard_text``
+  output in three formats (table / detailed / minimal).
+
+Genre dropdown reuses ``h3_prompts.CATEGORIES`` / ``CATEGORY_ADVICE`` so
+the storyboard and the H3 prompt generator share one taxonomy.
+"""
+from __future__ import annotations
+
+import json
+import re
+from typing import Any
+
+try:
+    from _mienodes_internal.core.utils import mie_log
+except ImportError:
+    try:
+        from ...core.utils import mie_log
+    except ImportError:
+        from core.utils import mie_log
+
+try:
+    from _mienodes_internal.nodes.llm.h3_prompts import (
+        CATEGORIES,
+        category_advice,
+        parse_category,
+    )
+except ImportError:
+    from .h3_prompts import (
+        CATEGORIES,
+        category_advice,
+        parse_category,
+    )
+
+try:
+    from _mienodes_internal.nodes.llm.prompts.loader import load_prompt_text
+except ImportError:
+    from .prompts.loader import load_prompt_text
+
+
+# --------------------------------------------------------------------------- #
+# Dropdowns. Display strings follow the project-wide "<code> - <label>"
+# contract (literal ASCII " - " separator) so ``parse_*`` can split the
+# code back out; Chinese sub-labels use "/" internally, never " - ".
+# --------------------------------------------------------------------------- #
+STYLES = (
+    "narrative_arc - 叙事弧光/三幕",
+    "parallel_montage - 平行蒙太奇",
+    "rhythmic_cuts - 节奏剪辑",
+    "single_continuous - 一镜到底",
+    "character_study - 人物弧光",
+)
+
+STYLE_CODES = (
+    "narrative_arc",
+    "parallel_montage",
+    "rhythmic_cuts",
+    "single_continuous",
+    "character_study",
+)
+
+DEFAULT_STYLE = STYLE_CODES[0]
+
+OUTPUT_FORMATS = (
+    "table - Markdown表格",
+    "detailed - 每场多字段",
+    "minimal - 仅id+描述",
+)
+
+OUTPUT_FORMAT_CODES = (
+    "table",
+    "detailed",
+    "minimal",
+)
+
+DEFAULT_OUTPUT_FORMAT = OUTPUT_FORMAT_CODES[0]
+
+LANGUAGES = ("en", "zh")
+DEFAULT_LANGUAGE = "en"
+
+_LANGUAGE_NAMES = {"en": "English", "zh": "Chinese"}
+
+
+def language_name(language: str) -> str:
+    """Display name for an output-language code (fallback: the raw code)."""
+    return _LANGUAGE_NAMES.get((language or "").strip().lower(), (language or "en"))
+
+
+def parse_style(style: str) -> str:
+    """Extract the style code from a display string / bare code / None."""
+    if not style:
+        return style
+    return style.split(" - ", 1)[0].strip()
+
+
+def parse_output_format(output_format: str) -> str:
+    """Extract the output-format code from a display string / bare code."""
+    if not output_format:
+        return output_format
+    return output_format.split(" - ", 1)[0].strip()
+
+
+# --------------------------------------------------------------------------- #
+# Style advice (English keyword guidance injected into the user turn).
+# --------------------------------------------------------------------------- #
+STYLE_ADVICE = {
+    "narrative_arc": (
+        "Three-act shape scaled to the shot count (setup -> complication -> "
+        "resolution). Escalate shot intimacy as emotion rises; the final "
+        "beat lands the theme on a concrete image."
+    ),
+    "parallel_montage": (
+        "Two or more interwoven lines of action alternate; each cut switches "
+        "lines but keeps a shared rhythm. Mirror shot sizes between lines and "
+        "converge the lines in the final shot."
+    ),
+    "rhythmic_cuts": (
+        "Cut on a beat; progressively shorter durations build to a peak, then "
+        "one longer shot releases the energy. Use matched motion across cuts "
+        "(whip pans, matched movement direction)."
+    ),
+    "single_continuous": (
+        "One unbroken take segmented for generation: every entry is a stretch "
+        "of the SAME continuous camera move; transition_in is invisible_cut "
+        "for every entry after the first; camera movement must chain smoothly "
+        "(a move ending leftward begins the next still moving leftward)."
+    ),
+    "character_study": (
+        "One protagonist in frame throughout; the board tracks an emotional "
+        "arc through changing distance (far -> near), light, and micro-"
+        "actions; the final shot reads the feeling on the face or hands."
+    ),
+}
+
+
+def style_advice(style: str) -> str:
+    code = parse_style(style)
+    if code in STYLE_ADVICE:
+        return STYLE_ADVICE[code]
+    return STYLE_ADVICE[DEFAULT_STYLE]
+
+
+# --------------------------------------------------------------------------- #
+# Whitelists (the prompt contract and normalize_shots share them).
+# --------------------------------------------------------------------------- #
+SHOT_TYPES = (
+    "extreme_wide_shot",
+    "wide_shot",
+    "medium_wide_shot",
+    "medium_shot",
+    "medium_close_up",
+    "close_up",
+    "extreme_close_up",
+    "over_the_shoulder",
+    "point_of_view",
+    "aerial_shot",
+    "two_shot",
+    "insert_shot",
+)
+
+TRANSITIONS = (
+    "hard_cut",
+    "fade_from_black",
+    "fade_to_black",
+    "cross_dissolve",
+    "match_cut",
+    "smash_cut",
+    "wipe",
+    "whip_pan",
+    "invisible_cut",
+    "cut_in",
+    "cut_away",
+)
+
+DEFAULT_SHOT_TYPE = "medium_shot"
+# First shot opens the board; a bad/unknown value falls back to this.
+DEFAULT_FIRST_TRANSITION = "fade_from_black"
+DEFAULT_TRANSITION = "hard_cut"
+
+DEFAULT_DURATION_SECONDS = 8
+MIN_DURATION_SECONDS = 1
+MAX_DURATION_SECONDS = 60
+
+# Prompted hard cap; ``normalize_shots`` never returns more than this.
+MAX_SHOTS = 128
+
+
+# --------------------------------------------------------------------------- #
+# Prompt templates
+# --------------------------------------------------------------------------- #
+SYSTEM_STORYBOARD_PROMPT = load_prompt_text("h3_storyboard/system_storyboard")
+_USER_TEMPLATE = load_prompt_text("h3_storyboard/user_storyboard_template")
+
+
+def build_user_text(
+    concept: str,
+    shot_count: int,
+    style: str,
+    genre: str,
+    language: str,
+) -> str:
+    """Build the storyboard user turn from the bundled template."""
+    style_code = parse_style(style)
+    style_label = next(
+        (s for s in STYLES if parse_style(s) == style_code), STYLES[0]
+    )
+    genre_code = parse_category(genre)
+    advice = category_advice(genre_code).strip()
+    if not advice:
+        advice = "no genre-specific guidance; follow the concept as written"
+    lang = (language or DEFAULT_LANGUAGE).strip().lower()
+    if lang not in LANGUAGES:
+        lang = DEFAULT_LANGUAGE
+    return _USER_TEMPLATE.format(
+        concept=(concept or "").strip(),
+        shot_count=int(shot_count),
+        style_name=style_label,
+        style_advice=style_advice(style_code),
+        genre_advice=advice,
+        language=lang,
+    )
+
+
+# --------------------------------------------------------------------------- #
+# JSON extraction (tolerant: bare array, ```json fence, prose-wrapped,
+# {"shots": [...]}-wrapped, trailing commas, fullwidth quotes)
+# --------------------------------------------------------------------------- #
+_FENCE_RE = re.compile(r"```(?:json|JSON)?\s*(.*?)\s*```", re.DOTALL)
+_TRAILING_COMMA_RE = re.compile(r",\s*([\]}])")
+# LLMs writing Chinese-adjacent content sometimes emit fullwidth quotes /
+# colons inside JSON; normalized before a second parse attempt.
+_FULLWIDTH_MAP = str.maketrans(
+    {
+        "\u201c": '"',  # "
+        "\u201d": '"',  # "
+        "\u2018": "'",  # '
+        "\u2019": "'",  # '
+        "\uff1a": ":",  # ：
+    }
+)
+
+# Appended as a corrective user turn when a storyboard reply fails to parse.
+PARSE_RETRY_CORRECTION = (
+    "Your previous reply could not be parsed as a JSON array. Reply again "
+    "with ONLY the JSON array of storyboard entries — no prose, no markdown "
+    "fences, no code block: start directly with [ and end with ]."
+)
+
+
+def _repaired(text: str) -> str:
+    """Best-effort repair of common LLM JSON quirks (trailing commas,
+    fullwidth quotes). Returns the input unchanged when already clean."""
+    normalized = text.translate(_FULLWIDTH_MAP)
+    return _TRAILING_COMMA_RE.sub(r"\1", normalized)
+
+
+def extract_json_array(text: str) -> list[Any]:
+    """Extract the storyboard shots from an LLM reply.
+
+    Tries, in order: the stripped text, each ```-fenced block, then the
+    outermost ``[...]`` span — each both raw and quirk-repaired. A plain
+    array wins; a parsed ``{"shots": [...]}`` object is unwrapped as a
+    fallback. Raises ``ValueError`` when nothing yields shots.
+    """
+    if not text or not text.strip():
+        raise ValueError("empty storyboard reply")
+    bases: list[str] = [text.strip()]
+    bases.extend(m.strip() for m in _FENCE_RE.findall(text))
+    depth = 0
+    start = -1
+    for i, ch in enumerate(text):
+        if ch == "[":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == "]":
+            if depth > 0:
+                depth -= 1
+                if depth == 0 and start >= 0:
+                    bases.append(text[start : i + 1])
+    candidates: list[str] = []
+    for base in bases:
+        candidates.append(base)
+        repaired = _repaired(base)
+        if repaired != base:
+            candidates.append(repaired)
+    unwrapped_shots: list[Any] | None = None
+    for cand in candidates:
+        try:
+            data = json.loads(cand)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(data, list):
+            return data
+        if (
+            isinstance(data, dict)
+            and isinstance(data.get("shots"), list)
+            and unwrapped_shots is None
+        ):
+            unwrapped_shots = data["shots"]
+    if unwrapped_shots is not None:
+        return unwrapped_shots
+    raise ValueError("no JSON array found in storyboard reply")
+
+
+# --------------------------------------------------------------------------- #
+# Normalization / validation
+# --------------------------------------------------------------------------- #
+_ID_SAFE_RE = re.compile(r"[^0-9a-zA-Z_]+")
+_KNOWN_KEYS = (
+    "id",
+    "description",
+    "shot_type",
+    "camera_movement",
+    "transition_in",
+    "duration_seconds",
+    "narrative_beat",
+    "characters",
+    "props",
+    "notes",
+)
+
+
+def _slugify_id(raw: Any, index: int) -> str:
+    text = _ID_SAFE_RE.sub("_", str(raw or "").strip().lower()).strip("_")
+    text = re.sub(r"_+", "_", text)[:96]
+    return text or f"scene_{index:02d}"
+
+
+def _coerce_str_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        value = value.strip()
+        return [value] if value else []
+    if isinstance(value, (list, tuple)):
+        return [str(v).strip() for v in value if str(v).strip()]
+    return [str(value)]
+
+
+def _norm_duration(value: Any) -> tuple[int, str | None]:
+    try:
+        dur = int(round(float(value)))
+    except (TypeError, ValueError):
+        return DEFAULT_DURATION_SECONDS, "missing/invalid duration_seconds; used default"
+    if dur < MIN_DURATION_SECONDS or dur > MAX_DURATION_SECONDS:
+        return max(MIN_DURATION_SECONDS, min(MAX_DURATION_SECONDS, dur)), (
+            f"duration_seconds {value} clamped to {max(MIN_DURATION_SECONDS, min(MAX_DURATION_SECONDS, dur))}"
+        )
+    return dur, None
+
+
+def normalize_shots(
+    raw_shots: list[Any],
+    expected_count: int,
+) -> tuple[list[dict], list[str]]:
+    """Coerce raw LLM JSON elements into canonical shot dicts.
+
+    Returns ``(shots, warnings)``. Shot count reconciliation: more than
+    ``expected_count`` -> trimmed (the board was asked for N beats);
+    fewer -> kept as-is. Both cases warn. Raises ``ValueError`` when a
+    shot has no usable description at all (caller's retry trigger) or
+    the list is empty.
+    """
+    warnings: list[str] = []
+    shots: list[dict] = []
+
+    for i, raw in enumerate(raw_shots, start=1):
+        if isinstance(raw, str):
+            raw = {"description": raw}
+        if not isinstance(raw, dict):
+            warnings.append(f"shot {i}: not an object; skipped")
+            continue
+        # Accept "prompt" as an alias for description.
+        description = str(raw.get("description") or raw.get("prompt") or "").strip()
+        if not description:
+            raise ValueError(f"shot {i}: empty description")
+        shot_type = str(raw.get("shot_type") or "").strip()
+        if shot_type not in SHOT_TYPES:
+            fallback = DEFAULT_SHOT_TYPE
+            warnings.append(
+                f"shot {i}: unknown shot_type {shot_type!r}; used {fallback}"
+            )
+            shot_type = fallback
+        transition = str(raw.get("transition_in") or "").strip()
+        if transition not in TRANSITIONS:
+            fallback = (
+                DEFAULT_FIRST_TRANSITION if len(shots) == 0 else DEFAULT_TRANSITION
+            )
+            warnings.append(
+                f"shot {i}: unknown transition_in {transition!r}; used {fallback}"
+            )
+            transition = fallback
+        duration, warn = _norm_duration(raw.get("duration_seconds"))
+        if warn:
+            warnings.append(f"shot {i}: {warn}")
+        camera = _ID_SAFE_RE.sub("_", str(raw.get("camera_movement") or "").strip().lower()).strip("_")
+        shots.append(
+            {
+                "id": _slugify_id(raw.get("id"), len(shots) + 1),
+                "description": description,
+                "shot_type": shot_type,
+                "camera_movement": camera or "static_lockoff",
+                "transition_in": transition,
+                "duration_seconds": duration,
+                "narrative_beat": str(raw.get("narrative_beat") or "").strip(),
+                "characters": _coerce_str_list(raw.get("characters")),
+                "props": _coerce_str_list(raw.get("props")),
+                "notes": str(raw.get("notes") or "").strip(),
+            }
+        )
+
+    if not shots:
+        raise ValueError("storyboard reply contained no usable shots")
+
+    # Unique ids: suffix duplicates with _2, _3, ...
+    seen: dict[str, int] = {}
+    for shot in shots:
+        base = shot["id"]
+        if base in seen:
+            seen[base] += 1
+            shot["id"] = f"{base}_{seen[base]}"
+            warnings.append(f"duplicate id {base!r} renamed to {shot['id']!r}")
+        else:
+            seen[base] = 1
+
+    expected = int(expected_count)
+    if len(shots) > expected:
+        warnings.append(
+            f"LLM returned {len(shots)} shots; trimmed to requested {expected}"
+        )
+        shots = shots[:expected]
+    elif len(shots) < expected:
+        warnings.append(
+            f"LLM returned {len(shots)} shots; requested {expected} — kept actual count"
+        )
+    for w in warnings:
+        mie_log(f"H3SB normalize: {w}")
+    return shots, warnings
+
+
+# --------------------------------------------------------------------------- #
+# Rendering
+# --------------------------------------------------------------------------- #
+def _md_escape(text: str) -> str:
+    return str(text).replace("|", "\\|").replace("\n", " ")
+
+
+def render_storyboard_markdown(
+    shots: list[dict],
+    output_format: str = DEFAULT_OUTPUT_FORMAT,
+    warnings: list[str] | None = None,
+) -> str:
+    """Render the human-readable ``storyboard_text`` overview."""
+    code = parse_output_format(output_format)
+    if code not in OUTPUT_FORMAT_CODES:
+        code = DEFAULT_OUTPUT_FORMAT
+    lines: list[str] = [f"# Storyboard — {len(shots)} shots"]
+    if code == "table":
+        lines.append("")
+        lines.append("| # | ID | Beat | Shot | Camera | In | Dur(s) | Description |")
+        lines.append("|---|----|------|------|--------|----|--------|-------------|")
+        for i, s in enumerate(shots, start=1):
+            lines.append(
+                "| {n} | `{id}` | {beat} | {shot} | {cam} | {trans} | {dur} | {desc} |".format(
+                    n=i,
+                    id=_md_escape(s["id"]),
+                    beat=_md_escape(s.get("narrative_beat") or "-"),
+                    shot=_md_escape(s["shot_type"]),
+                    cam=_md_escape(s.get("camera_movement") or "-"),
+                    trans=_md_escape(s["transition_in"]),
+                    dur=s["duration_seconds"],
+                    desc=_md_escape(s["description"]),
+                )
+            )
+    elif code == "detailed":
+        for i, s in enumerate(shots, start=1):
+            lines.append("")
+            lines.append(
+                "### {n}. `{id}` — {beat} ({dur}s)".format(
+                    n=i,
+                    id=s["id"],
+                    beat=s.get("narrative_beat") or "beat",
+                    dur=s["duration_seconds"],
+                )
+            )
+            lines.append(f"**Description:** {s['description']}")
+            meta = (
+                f"- Shot: {s['shot_type']} | Camera: "
+                f"{s.get('camera_movement') or '-'} | In: {s['transition_in']}"
+            )
+            lines.append(meta)
+            if s.get("characters"):
+                lines.append(f"- Characters: {', '.join(s['characters'])}")
+            if s.get("props"):
+                lines.append(f"- Props: {', '.join(s['props'])}")
+            if s.get("notes"):
+                lines.append(f"- Notes: {s['notes']}")
+    else:  # minimal
+        lines.append("")
+        for i, s in enumerate(shots, start=1):
+            lines.append(f"{i}. `{s['id']}` — {s['description']}")
+    if warnings:
+        lines.append("")
+        lines.append("**Warnings:**")
+        for w in warnings:
+            lines.append(f"- {w}")
+    return "\n".join(lines)
+
+
+def shots_to_json_string(shots: list[dict]) -> str:
+    """Serialize normalized shots for the ``shots_json`` output (stays
+    JSON-parseable by ``MiniMaxH3LoopPromptGenerator.parse_shots_text``)."""
+    return json.dumps(shots, ensure_ascii=False, indent=2)

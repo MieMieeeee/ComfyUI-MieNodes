@@ -1,0 +1,16 @@
+Concept:
+{concept}
+
+Storyboard the prefix must fit (every clip, in order):
+{storyboard_digest}
+
+{genre_advice}
+
+{mode_note}
+
+Reference manifest (binding):
+{manifest_digest}
+
+Output language: {language_name}
+
+Write the shared prompt prefix now (one paragraph, nothing else). Anchor the protagonists exactly as they appear above and keep the storyboard's stated art style.

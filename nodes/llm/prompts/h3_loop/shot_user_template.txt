@@ -1,0 +1,23 @@
+Concept (whole production):
+{concept}
+
+Shared identity / style prefix (binding for every clip):
+{prompt_prefix}
+
+{genre_advice}
+
+{continuation_block}
+
+Storyboard entry for THIS clip (clip {clip_index} of {clip_count}):
+{shot_json}
+
+{reference_directive}
+
+Reference manifest (binding):
+{manifest_digest}
+
+Canvas: {width}x{height} ({aspect}). Clip duration: {duration_seconds:.1f} seconds (exact raw length on the H3 grid). Output language: {language_name}.
+
+{pacing_directive}
+
+Write this clip's prompt now: exactly the three bare-header sections, nothing else.

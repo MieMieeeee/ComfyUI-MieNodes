@@ -45,6 +45,7 @@ A complete camera-motion expression has three dimensions. Write it as a natural 
 - Speed: `at slow speed` / `at fast speed` (normal omitted).
 ```
 The camera pushes in with small amplitude at slow speed toward the folded letter in her hands.
+The camera whips right with large amplitude at fast speed to track the sprinting courier.
 The camera holds a static shot as the runner exits the frame.
 ```
 

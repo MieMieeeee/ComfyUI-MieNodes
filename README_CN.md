@@ -16,6 +16,8 @@
   - [DeepSeek](https://platform.deepseek.com/)（`deepseek` 密钥）
   - [Gemini](https://ai.google.dev/gemini) — 支持多模态（图片按 inline_data 转发）（`gemini` 密钥）
   - [Bailian 阿里云百炼](https://bailian.console.aliyun.com/)（`bailian` 密钥）
+  - [Bailian 阿里云百炼 Token Plan / 套餐](https://bailian.console.aliyun.com/)（`sk-sp-` 密钥，`bailian_token_plan`）— 固定费用多模态订阅（文本+视觉+图像+音频）
+  - [Bailian 阿里云百炼 Coding Plan / 编程订阅](https://bailian.console.aliyun.com/)（`sk-cp-` 密钥，`bailian_coding`）— 仅支持 Qwen-Coder 的编程订阅
   - [MiniMax](https://api.minimaxi.com/) — 标准 Open Platform（`sk-...` 密钥，`minimax_open_platform`）+ [Token Plan / Coding Plan](https://api.minimaxi.com/)（`sk-cp-...` 密钥，`minimax`）双轨
   - [小米 MiMo](https://mimo.mi.com/) — 标准 Open Platform（`sk-...` 密钥，`mimo`）+ [Token Plan / Coding Plan](https://mimo.mi.com/)（`tp-...` 密钥，`mimo_token_plan`）双轨
   - [Ollama](https://ollama.com/)（本地）— `SetOllamaLLMServiceConnector` 接入，不需要 API 密钥（Authorization 头会发送但被服务端忽略），`ollama` config_key（密钥一般留空）
@@ -87,6 +89,7 @@
 
 1. Kontext预设工作流，结合大语言模型，可根据图片和文本输入自动生成高质量的Kontext提示词，支持添加和移除自己的预设。
 2. 高级提示词优化，支持自动翻译与细节丰富，输出更具表现力和创意的内容，适用于各类创作任务。
+3. **MiniMax H3 分镜 / Loop 计划节点** — `MiniMaxH3StoryboardGenerator` 输入概念与期望分镜数，生成结构化分镜（叙事节拍、景别、运镜、转场、时长建议）；`MiniMaxH3LoopPromptGenerator` 基于概念与分镜生成 `plan_json`，直连 [ComfyUI-MiniMaxH3-Context-Loop](https://github.com/ethanfel/ComfyUI-MiniMaxH3-Context-Loop) 的 Production Plan 节点（`plan_json_input`），逐段撰写带链式续写规则与共享 `prompt_prefix` 的 H3 提示词。
 
 
 ---

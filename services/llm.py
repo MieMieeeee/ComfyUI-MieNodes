@@ -1424,10 +1424,154 @@ class SetBailianLLMServiceConnector(object):
     CATEGORY = MY_CATEGORY
 
     def execute(self, api_token, model_select, custom_model="", config_file="mie_llm_keys.json", config_key="bailian", prefer_local_config=True):
+            model = model_select if model_select != "Custom" else custom_model
+            if not model:
+                model = "qwen3.7-max"
+            return (BailianLLMServiceConnector(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
+
+
+class BailianTokenPlanConnectorGeneral(StandardOpenAICompatibleConnector):
+    """Alibaba Bailian Token Plan connector (multimodal subscription tier).
+
+    Targets the Bailian Token Plan endpoint at
+    `https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1/chat/completions`
+    with `sk-sp-...` prefixed API keys issued from
+    https://bailian.console.aliyun.com/. The Token Plan is a fixed-fee
+    subscription that grants access to the full Bailian multimodal lineup
+    (text / vision / image / audio) via a separate host. NOT interchangeable
+    with the PAYG `sk-` key or with the Coding Plan `sk-cp-` key. Pair with
+    `SetBailianTokenPlanLLMServiceConnector`.
+    """
+    api_url = "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1/chat/completions"
+
+    def __init__(self, api_token, model, **kwargs):
+        super().__init__(self.api_url, api_token, model, **kwargs)
+
+
+class BailianCodingPlanConnectorGeneral(StandardOpenAICompatibleConnector):
+    """Alibaba Bailian Coding Plan connector (Qwen-Coder-only subscription tier).
+
+    Targets the Bailian Coding Plan endpoint at
+    `https://coding.dashscope.aliyuncs.com/v1/chat/completions` with
+    `sk-cp-...` prefixed API keys. The Coding Plan only exposes the
+    Qwen-Coder family of models (no Qwen-Max / Qwen-VL / Qwen-Image);
+    a non-coder model selected here will fail server-side with HTTP 400.
+    NOT interchangeable with the PAYG `sk-` key or with the Token Plan
+    `sk-sp-` key. Pair with `SetBailianCodingPlanLLMServiceConnector`.
+    """
+    api_url = "https://coding.dashscope.aliyuncs.com/v1/chat/completions"
+
+    def __init__(self, api_token, model, **kwargs):
+        super().__init__(self.api_url, api_token, model, **kwargs)
+
+
+class SetBailianTokenPlanLLMServiceConnector(object):
+    """Alibaba Bailian Token Plan connector (multimodal subscription tier).
+
+    Use this node when you have a Token Plan API key (`sk-sp-...` prefix
+    issued from https://bailian.console.aliyun.com/). The Token Plan is a
+    fixed-fee subscription that grants access to the full Bailian
+    multimodal lineup (text / vision / image / audio) via a separate
+    endpoint. NOT interchangeable with the PAYG `sk-` key.
+    """
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "api_token": ("STRING", {"default": ""}),
+                "model_select": (
+                    [
+                        "qwen3-max",
+                        "qwen3-plus",
+                        "qwen3-flash",
+                        "qwen3-turbo",
+                        "qwen3-long",
+                        "qwen3-vl-plus",
+                        "qwen3-vl-flash",
+                        "qwen-image",
+                        "qwen3-coder-plus",
+                        "qwen3-coder-flash",
+                        "Custom",
+                    ],
+                    {"default": "qwen3-max"},
+                ),
+            },
+            "optional": {
+                "custom_model": (
+                    "STRING",
+                    {
+                        "default": "",
+                        "placeholder": "Enter custom model name (used when model_select is 'Custom')",
+                    },
+                ),
+                "config_file": ("STRING", {"default": "mie_llm_keys.json"}),
+                "config_key": ("STRING", {"default": "bailian_token_plan"}),
+                "prefer_local_config": ("BOOLEAN", {"default": True}),
+            },
+        }
+
+    RETURN_TYPES = ("LLMServiceConnector",)
+    RETURN_NAMES = ("llm_service_connector",)
+    FUNCTION = "execute"
+    CATEGORY = MY_CATEGORY
+
+    def execute(self, api_token, model_select, custom_model="", config_file="mie_llm_keys.json", config_key="bailian_token_plan", prefer_local_config=True):
         model = model_select if model_select != "Custom" else custom_model
         if not model:
-            model = "qwen3.7-max"
-        return (BailianLLMServiceConnector(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
+            model = "qwen3-max"
+        return (BailianTokenPlanConnectorGeneral(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
+
+
+class SetBailianCodingPlanLLMServiceConnector(object):
+    """Alibaba Bailian Coding Plan connector (Qwen-Coder-only subscription).
+
+    Use this node when you have a Coding Plan API key (`sk-cp-...` prefix
+    issued from https://bailian.console.aliyun.com/). The Coding Plan is a
+    Qwen-Coder-only subscription intended for code completion and repo-level
+    reasoning. NOT interchangeable with the PAYG `sk-` key or with the Token
+    Plan `sk-sp-` key.
+    """
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "api_token": ("STRING", {"default": ""}),
+                "model_select": (
+                    [
+                        "qwen3-coder-plus",
+                        "qwen3-coder-flash",
+                        "qwen-coder",
+                        "Custom",
+                    ],
+                    {"default": "qwen3-coder-plus"},
+                ),
+            },
+            "optional": {
+                "custom_model": (
+                    "STRING",
+                    {
+                        "default": "",
+                        "placeholder": "Enter custom model name (used when model_select is 'Custom')",
+                    },
+                ),
+                "config_file": ("STRING", {"default": "mie_llm_keys.json"}),
+                "config_key": ("STRING", {"default": "bailian_coding"}),
+                "prefer_local_config": ("BOOLEAN", {"default": True}),
+            },
+        }
+
+    RETURN_TYPES = ("LLMServiceConnector",)
+    RETURN_NAMES = ("llm_service_connector",)
+    FUNCTION = "execute"
+    CATEGORY = MY_CATEGORY
+
+    def execute(self, api_token, model_select, custom_model="", config_file="mie_llm_keys.json", config_key="bailian_coding", prefer_local_config=True):
+        model = model_select if model_select != "Custom" else custom_model
+        if not model:
+            model = "qwen3-coder-plus"
+        return (BailianCodingPlanConnectorGeneral(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
 
 
 class CheckLLMServiceConnectivity(object):

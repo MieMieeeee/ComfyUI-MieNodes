@@ -15,10 +15,11 @@ from _mienodes_internal.nodes.common import ShowAnythingMie, ShowAndSaveAnything
 from _mienodes_internal.nodes.files import BatchRenameFiles, BatchDeleteFiles, BatchEditTextFiles, BatchSyncImageCaptionFiles, \
     SummaryTextFiles, BatchConvertImageFiles, DedupImageFiles, ModelDownloader, HFRepoDownloader
 from _mienodes_internal.nodes.llm import TextTranslator, PromptGenerator, KontextPromptGenerator, AddUserKontextPreset, RemoveUserKontextPreset, \
-    FrameTransitionPromptGenerator, HunyuanVideoI2VPromptGenerator, HunyuanVideoT2VPromptGenerator, ZImagePromptGenerator, Flux2PromptGenerator, FluxKleinT2VPromptGenerator, LTX2PromptGenerator, BerniniPromptGenerator, Ideogram4PromptGenerator, CustomSystemPromptGenerator, AddCustomSystemPrompt, RemoveCustomSystemPrompt, Scail2PromptGenerator, Krea2PromptGenerator, MiniMaxH3PromptGenerator, LTX25PromptGenerator
+    FrameTransitionPromptGenerator, HunyuanVideoI2VPromptGenerator, HunyuanVideoT2VPromptGenerator, ZImagePromptGenerator, Flux2PromptGenerator, FluxKleinT2VPromptGenerator, LTX2PromptGenerator, BerniniPromptGenerator, Ideogram4PromptGenerator, CustomSystemPromptGenerator, AddCustomSystemPrompt, RemoveCustomSystemPrompt, Scail2PromptGenerator, Krea2PromptGenerator, MiniMaxH3PromptGenerator, LTX25PromptGenerator, MiniMaxH3StoryboardGenerator, MiniMaxH3LoopPromptGenerator
 from _mienodes_internal.services.llm import SetGeneralLLMServiceConnector, SetSiliconFlowLLMServiceConnector, \
     SetGithubModelsLLMServiceConnector, SetZhiPuLLMServiceConnector, SetZhiPuCodeLLMServiceConnector, SetKimiLLMServiceConnector, \
     SetDeepSeekLLMServiceConnector, SetGeminiLLMServiceConnector, SetBailianLLMServiceConnector, \
+    SetBailianTokenPlanLLMServiceConnector, SetBailianCodingPlanLLMServiceConnector, \
     SetMiniMaxLLMServiceConnector, SetMiniMaxTokenPlanLLMServiceConnector, \
     SetMiMoLLMServiceConnector, SetMiMoTokenPlanLLMServiceConnector, SetOllamaLLMServiceConnector, \
     CheckLLMServiceConnectivity, CallLLMService
@@ -58,6 +59,8 @@ NODE_CLASS_MAPPINGS = {
     add_suffix("SetDeepSeekLLMServiceConnector"): SetDeepSeekLLMServiceConnector,
     add_suffix("SetGeminiLLMServiceConnector"): SetGeminiLLMServiceConnector,
     add_suffix("SetBailianLLMServiceConnector"): SetBailianLLMServiceConnector,
+    add_suffix("SetBailianTokenPlanLLMServiceConnector"): SetBailianTokenPlanLLMServiceConnector,
+    add_suffix("SetBailianCodingPlanLLMServiceConnector"): SetBailianCodingPlanLLMServiceConnector,
     add_suffix("SetMiniMaxLLMServiceConnector"): SetMiniMaxLLMServiceConnector,
     add_suffix("SetMiniMaxTokenPlanLLMServiceConnector"): SetMiniMaxTokenPlanLLMServiceConnector,
     add_suffix("SetMiMoLLMServiceConnector"): SetMiMoLLMServiceConnector,
@@ -86,6 +89,8 @@ NODE_CLASS_MAPPINGS = {
     add_suffix("Krea2PromptGenerator"): Krea2PromptGenerator,
     add_suffix("MiniMaxH3PromptGenerator"): MiniMaxH3PromptGenerator,
     add_suffix("LTX25PromptGenerator"): LTX25PromptGenerator,
+    add_suffix("MiniMaxH3StoryboardGenerator"): MiniMaxH3StoryboardGenerator,
+    add_suffix("MiniMaxH3LoopPromptGenerator"): MiniMaxH3LoopPromptGenerator,
     add_suffix("GetAbsolutePath"): GetAbsolutePath,
     add_suffix("GetFileInfo"): GetFileInfo,
     add_suffix("GetDirectoryFilesInfo"): GetDirectoryFilesInfo,
@@ -181,6 +186,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     add_suffix("SetDeepSeekLLMServiceConnector"): add_emoji("Set DeepSeek LLM Service Connector"),
     add_suffix("SetGeminiLLMServiceConnector"): add_emoji("Set Gemini LLM Service Connector"),
     add_suffix("SetBailianLLMServiceConnector"): add_emoji("Set Bailian LLM Service Connector"),
+    add_suffix("SetBailianTokenPlanLLMServiceConnector"): add_emoji("Set Bailian Token Plan LLM Service Connector"),
+    add_suffix("SetBailianCodingPlanLLMServiceConnector"): add_emoji("Set Bailian Coding Plan LLM Service Connector"),
     add_suffix("SetMiniMaxLLMServiceConnector"): add_emoji("Set MiniMax LLM Service Connector"),
     add_suffix("SetMiniMaxTokenPlanLLMServiceConnector"): add_emoji("Set MiniMax Token Plan LLM Service Connector"),
     add_suffix("SetMiMoLLMServiceConnector"): add_emoji("Set MiMo LLM Service Connector"),
@@ -211,6 +218,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     add_suffix("Krea2PromptGenerator"): add_emoji("Krea2 Prompt Generator"),
     add_suffix("MiniMaxH3PromptGenerator"): add_emoji("MiniMax H3 Prompt Generator"),
     add_suffix("LTX25PromptGenerator"): add_emoji("LTX2.5 Prompt Generator"),
+    add_suffix("MiniMaxH3StoryboardGenerator"): add_emoji("MiniMax H3 Storyboard Generator"),
+    add_suffix("MiniMaxH3LoopPromptGenerator"): add_emoji("MiniMax H3 Loop Plan Generator"),
     add_suffix("GetAbsolutePath"): add_emoji("Get Absolute Path"),
     add_suffix("GetFileInfo"): add_emoji("Get File Info"),
     add_suffix("GetDirectoryFilesInfo"): add_emoji("Get Directory Files Info"),

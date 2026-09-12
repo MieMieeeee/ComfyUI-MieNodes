@@ -125,7 +125,12 @@ CATEGORY_ADVICE = {
     "cinematic-story": "cinematic color grading, 35-50mm focal length, soft directional lighting, restrained camera moves",
     "product-commercial": "product hero highlight, shallow depth of field, handheld realism, clean background",
     "music-video": "beat-synced editing, one cut per beat, subtitle/lyric punctuation, rhythmic camera pushes",
-    "action": "motion blur, camera shake, low angle, quick cuts, handheld energy",
+    "action": (
+        "motion blur, camera shake, low angle, quick cuts, handheld energy; "
+        "all action at real-time speed with no slow motion; snappy "
+        "strike-and-recoil verbs (launch -> connect -> recoil); combat "
+        "beats 4-6 seconds per clip"
+    ),
     "anime": "2D anime look, flat lighting, clean linework, limited but saturated palette",
     "gameplay": "player POV, HUD overlay feel, lower-fps texture, direct-control camera",
     "fashion": "editorial color grade, model-pose-led framing, crisp rim light, slow confident moves",

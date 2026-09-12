@@ -1,0 +1,18 @@
+This clip CONTINUES the previous clip in one unbroken motion chain (the generation loop carries an overlap from the end of the previous clip into the start of this one).
+
+Previous clip "{previous_id}" — full integrated_multimodal_description:
+"""
+{previous_description}
+"""
+
+Previous clip "{previous_id}" — overall_soundscape (this exact bed must carry over):
+"""
+{previous_soundscape}
+"""
+
+Continuation rules for THIS clip:
+- Continue the same unbroken moment; the carried opening overlap already contains the end of the previous clip. Begin NEW action only after that overlap; do not re-perform what the overlap already shows.
+- Preserve every recurring subject EXACTLY as established in the previous clip's description above — identity, species, markings, wardrobe, and who-wears/holds-what stay identical. Do not move props, accessories, or colors between characters, and do not invent new recurring subjects.
+- In the first sentence, state that this clip continues the incoming H3 Motion Context and name what the carried overlap contains.
+- overall_soundscape: carry the EXACT base-layer sounds listed above across the boundary (name them as carried), then add this clip's new close sounds on top. Do not restart the bed from silence, and do not introduce new background elements as if they had been carried over.
+- End this clip mid-action so the NEXT clip can continue it (unless it is the final clip).

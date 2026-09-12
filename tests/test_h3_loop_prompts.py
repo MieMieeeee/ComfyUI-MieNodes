@@ -1,0 +1,581 @@
+# -*- coding: utf-8 -*-
+"""Tests for ``minimax_h3_loop_prompts`` (17k+5 grid, three-section
+split, shots/overrides parsing, plan assembly + validation, reports)."""
+import importlib.util
+import json
+import sys
+import types
+from pathlib import Path
+
+import pytest
+
+PROJECT_DIR = Path(__file__).resolve().parents[1]
+PROMPTS_DIR = PROJECT_DIR / "nodes" / "llm" / "prompts"
+LLM_DIR = PROJECT_DIR / "nodes" / "llm"
+
+
+def _ensure_pkg(fqn: str, path: Path | None = None):
+    if fqn in sys.modules:
+        return sys.modules[fqn]
+    mod = types.ModuleType(fqn)
+    if path is not None:
+        mod.__path__ = [str(path)]
+    mod.__package__ = fqn
+    sys.modules[fqn] = mod
+    return mod
+
+
+def _load_file(fqn: str, path: Path):
+    if fqn in sys.modules:
+        del sys.modules[fqn]
+    spec = importlib.util.spec_from_file_location(fqn, str(path))
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[fqn] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+@pytest.fixture(scope="module")
+def lp():
+    _ensure_pkg("_mienodes_internal", PROJECT_DIR)
+    _ensure_pkg("_mienodes_internal.core", PROJECT_DIR / "core")
+    _load_file("_mienodes_internal.core.utils", PROJECT_DIR / "core" / "utils.py")
+    _ensure_pkg("_mienodes_internal.nodes", PROJECT_DIR / "nodes")
+    _ensure_pkg("_mienodes_internal.nodes.llm", LLM_DIR)
+    _ensure_pkg("_mienodes_internal.nodes.llm.prompts", PROMPTS_DIR)
+    _load_file(
+        "_mienodes_internal.nodes.llm.prompts.loader", PROMPTS_DIR / "loader.py"
+    )
+    _load_file("_mienodes_internal.nodes.llm.h3_prompts", LLM_DIR / "h3_prompts.py")
+    _load_file(
+        "_mienodes_internal.nodes.llm.minimax_h3_storyboard_prompts",
+        LLM_DIR / "minimax_h3_storyboard_prompts.py",
+    )
+    return _load_file(
+        "_mienodes_internal.nodes.llm.minimax_h3_loop_prompts",
+        LLM_DIR / "minimax_h3_loop_prompts.py",
+    )
+
+
+# --------------------------------------------------------------------------- #
+# 17k+5 grid
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize(
+    "seconds,frames",
+    [
+        (5, 124),
+        (10, 243),
+        (15, 362),
+        (20, 481),
+        (30, 736),
+        (60, 1450),
+        (1, 39),    # 24 frames -> next grid point 39
+        (0.25, 22), # 6 frames -> next grid point 22
+        (149.667, 3592),
+        (149.7, 3592),  # clamped to the max grid value
+        (10.0, 243),
+        ("10", 243),  # numeric strings tolerated
+    ],
+)
+def test_seconds_to_length(lp, seconds, frames):
+    assert lp.seconds_to_length(seconds) == frames
+
+
+def test_seconds_to_length_rejects_bad(lp):
+    for bad in (0, -1, "abc", None):
+        with pytest.raises(ValueError):
+            lp.seconds_to_length(bad)
+
+
+def test_is_valid_length(lp):
+    for good in (5, 22, 39, 243, 3592):
+        assert lp.is_valid_length(good)
+    for bad in (4, 6, 21, 23, 242, 244, 3593, -5, "243x", None):
+        assert not lp.is_valid_length(bad)
+
+
+# --------------------------------------------------------------------------- #
+# Three-section split
+# --------------------------------------------------------------------------- #
+def _clip_reply(desc="The bowl settles on the wood.", sound="Cicadas hold the air.", music="No non-diegetic music."):
+    return (
+        "integrated_multimodal_description:\n"
+        f"[Shot 1] {desc}\n"
+        "\n"
+        "overall_soundscape:\n"
+        f"{sound}\n"
+        "\n"
+        "non_diegetic_music:\n"
+        f"{music}\n"
+    )
+
+
+def test_split_three_sections_canonical(lp):
+    lines = lp.split_three_sections(_clip_reply())
+    assert lines[0] == "integrated_multimodal_description:"
+    assert lines[1] == "[Shot 1] The bowl settles on the wood."
+    assert lines[2] == ""
+    assert lines[3] == "overall_soundscape:"
+    assert lines[4] == "Cicadas hold the air."
+    assert lines[5] == ""
+    assert lines[6] == "non_diegetic_music:"
+    assert lines[7] == "No non-diegetic music."
+    # Matches the Production Plan prompt-array shape exactly.
+    assert len(lines) == 8
+
+
+def test_split_three_sections_tolerant(lp):
+    text = (
+        "Sure! Here is the clip:\n\n"
+        "integrated_multimodal_description:\n"
+        "\n[Shot 1] A first line.\nA second line.\n"
+        "\n"
+        "overall_soundscape:\n"
+        "Rain on glass.\n"
+        "\n"
+        "non_diegetic_music:\n"
+        "\nA lone piano note.\n"
+    )
+    lines = lp.split_three_sections(text)
+    assert lines[0] == "integrated_multimodal_description:"
+    assert lines[1:3] == ["[Shot 1] A first line.", "A second line."]
+    assert lines[-1] == "A lone piano note."
+
+
+def test_split_three_sections_missing_music_uses_default(lp):
+    text = (
+        "integrated_multimodal_description:\n[Shot 1] She stirs.\n\n"
+        "overall_soundscape:\nOne bright clink.\n"
+    )
+    lines = lp.split_three_sections(text)
+    assert lines[-2] == "non_diegetic_music:"
+    assert lines[-1] == lp.DEFAULT_MUSIC_LINE
+
+
+def test_split_three_sections_missing_sections_raise(lp):
+    with pytest.raises(ValueError, match="integrated_multimodal_description"):
+        lp.split_three_sections("overall_soundscape:\nonly sound\n")
+    with pytest.raises(ValueError, match="overall_soundscape"):
+        lp.split_three_sections("integrated_multimodal_description:\nonly desc\n")
+    with pytest.raises(ValueError, match="empty"):
+        lp.split_three_sections("integrated_multimodal_description:\n\n\noverall_soundscape:\nx\n")
+    with pytest.raises(ValueError):
+        lp.split_three_sections("")
+    with pytest.raises(ValueError):
+        lp.split_three_sections("   ")
+
+
+def test_split_three_sections_chinese(lp):
+    text = (
+        "integrated_multimodal_description:\n"
+        "[Shot 1] 江南院落，青瓷碗里的冰块开始滑动。\n"
+        "\n"
+        "overall_soundscape:\n"
+        "蝉声持续，冰块轻碰碗壁。\n"
+        "\n"
+        "non_diegetic_music:\n"
+        "无。\n"
+    )
+    lines = lp.split_three_sections(text)
+    assert any("江南院落，青瓷碗里的冰块开始滑动。" in ln for ln in lines)
+
+
+def test_previous_tail(lp):
+    lines = lp.split_three_sections(
+        _clip_reply(desc="[Shot 1] First beat.\nShe lifts the bowl with both hands and drinks.")
+    )
+    tail = lp.previous_tail(lines)
+    assert "She lifts the bowl" in tail
+
+
+def test_description_and_sound_bodies(lp):
+    lines = lp.split_three_sections(_clip_reply())
+    assert (
+        lp.description_body(lines)
+        == "[Shot 1] The bowl settles on the wood."
+    )
+    assert lp.sound_body(lines) == "Cicadas hold the air."
+    # Mid-paragraph anchors survive the full-description handoff.
+    long_desc = (
+        "A cat with a red collar watches from the left ridge. "
+        "The dog below wears nothing. " + "padding " * 120
+    )
+    lines2 = lp.split_three_sections(_clip_reply(desc=long_desc, sound="Night wind."))
+    assert "red collar" in lp.description_body(lines2)
+    assert lp.sound_body(lines2) == "Night wind."
+
+
+# --------------------------------------------------------------------------- #
+# Shots text parsing
+# --------------------------------------------------------------------------- #
+def test_parse_shots_text_json_array(lp):
+    shots = lp.parse_shots_text(
+        json.dumps(
+            [
+                {"id": "Scene One", "description": "d1", "duration_seconds": 8},
+                {"description": "d2"},
+            ],
+            ensure_ascii=False,
+        )
+    )
+    assert shots[0]["id"] == "scene_one"
+    assert shots[0]["duration_seconds"] == 8
+    assert shots[1]["id"] == "clip_0002"
+
+
+def test_parse_shots_text_object_with_shots(lp):
+    shots = lp.parse_shots_text(
+        json.dumps({"shots": [{"id": "a", "description": "d"}]})
+    )
+    assert len(shots) == 1 and shots[0]["id"] == "a"
+
+
+def test_parse_shots_text_natural_language(lp):
+    shots = lp.parse_shots_text("第一场：她端起碗\n\n第二场：冰块轻响\n")
+    assert len(shots) == 2
+    assert shots[0]["description"].startswith("第一场")
+    assert shots[1]["id"] == "clip_0002"
+
+
+def test_parse_shots_text_errors(lp):
+    with pytest.raises(ValueError, match="empty"):
+        lp.parse_shots_text("   \n ")
+    with pytest.raises(ValueError, match="empty description"):
+        lp.parse_shots_text('[{"id": "x"}]')
+    with pytest.raises(ValueError, match="maximum"):
+        lp.parse_shots_text(json.dumps([{"description": "d"}] * 129))
+
+
+def test_parse_shots_text_prompt_alias(lp):
+    shots = lp.parse_shots_text('[{"id": "a", "prompt": "via prompt key"}]')
+    assert shots[0]["description"] == "via prompt key"
+    assert "prompt" not in shots[0]
+
+
+# --------------------------------------------------------------------------- #
+# Overrides
+# --------------------------------------------------------------------------- #
+def test_parse_overrides_valid(lp):
+    ov = lp.parse_per_shot_overrides(
+        "scene_01:length=243\nscene_02:seed=4480\nscene_02:steps=30\n# a comment\n\n"
+    )
+    assert ov["scene_01"] == {"length": 243}
+    assert ov["scene_02"] == {"seed": "4480", "steps": 30}
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "scene_01:width=1280",   # unknown key
+        "scene_01 length 243",   # malformed
+        "scene_01:length=240",   # off grid
+        "scene_01:seed=-5",      # not uint64
+        "scene_01:steps=0",      # out of range
+        "length=243",            # missing id
+    ],
+)
+def test_parse_overrides_invalid(lp, line):
+    with pytest.raises(ValueError):
+        lp.parse_per_shot_overrides(line)
+
+
+def test_apply_overrides(lp):
+    shots = [
+        {"id": "scene_01", "description": "a"},
+        {"id": "scene_02", "description": "b"},
+    ]
+    out = lp.apply_overrides(
+        shots, {"scene_02": {"length": 481, "seed": "4480"}}
+    )
+    assert out[1]["length"] == 481 and out[1]["seed"] == "4480"
+    assert "length" not in out[0]
+    with pytest.raises(ValueError, match="unknown shot id"):
+        lp.apply_overrides(shots, {"nope": {"steps": 5}})
+
+
+# --------------------------------------------------------------------------- #
+# Seeds
+# --------------------------------------------------------------------------- #
+def test_derive_seed(lp):
+    assert lp.derive_seed(1000, 1) == "1001"
+    assert lp.derive_seed(1000, 3) == "1003"
+    # Unified: every clip shares the base seed.
+    assert lp.derive_seed(1000, 1, unified=True) == "1000"
+    assert lp.derive_seed(1000, 3, unified=True) == "1000"
+    base = lp.derive_seed_base(0)
+    assert base > 0  # wall-clock derived
+    assert lp.derive_seed_base(777) == 777
+
+
+# --------------------------------------------------------------------------- #
+# Plan assembly + validation
+# --------------------------------------------------------------------------- #
+# A canonical split prompt (the exact Production Plan line-array shape).
+_CLIP_PROMPT_LINES = [
+    "integrated_multimodal_description:",
+    "[Shot 1] The bowl settles on the wood.",
+    "",
+    "overall_soundscape:",
+    "Cicadas hold the air.",
+    "",
+    "non_diegetic_music:",
+    "No non-diegetic music.",
+]
+
+
+def _plan_entry(i, prompt=None, length=243, seed=None, steps=None):
+    entry = {
+        "id": f"scene_{i:02d}",
+        "prompt": prompt or list(_CLIP_PROMPT_LINES),
+        "length": length,
+        "seed": seed or str(1926 + i),
+    }
+    if steps:
+        entry["steps"] = steps
+    return entry
+
+
+def test_build_plan_and_validate_clean(lp):
+    plan = lp.build_plan(
+        [_plan_entry(1), _plan_entry(2, steps=30)], ["Shared prefix line."]
+    )
+    assert lp.validate_plan(plan) == []
+    assert set(plan.keys()) == {"defaults", "shots", "prompt_prefix"}
+    assert plan["defaults"] == {"steps": 20}
+    assert list(plan["shots"][0].keys()) == ["id", "prompt", "steps", "length", "seed"]
+    assert plan["shots"][1]["steps"] == 30
+    assert isinstance(plan["shots"][0]["seed"], str)
+
+
+def test_validate_plan_catches_drift(lp):
+    good = lp.build_plan([_plan_entry(1)], ["prefix"])
+    # Bad top-level key.
+    bad = dict(good, extra="x")
+    assert any("top-level" in e for e in lp.validate_plan(bad))
+    # Seed as int, not string.
+    bad_seed = json.loads(json.dumps(good))
+    bad_seed["shots"][0]["seed"] = 123
+    assert any("seed" in e for e in lp.validate_plan(bad_seed))
+    # Prompt as plain string, not array.
+    bad_prompt = json.loads(json.dumps(good))
+    bad_prompt["shots"][0]["prompt"] = "flat string"
+    assert any("prompt" in e for e in lp.validate_plan(bad_prompt))
+    # Off-grid length.
+    bad_len = json.loads(json.dumps(good))
+    bad_len["shots"][0]["length"] = 240
+    assert any("grid" in e for e in lp.validate_plan(bad_len))
+    # Empty prompt_prefix is tolerated (D3: absent OR empty are both fine);
+    # only absent-from-required or malformed entries error.
+    bad_prefix = json.loads(json.dumps(good))
+    bad_prefix["prompt_prefix"] = []
+    assert lp.validate_plan(bad_prefix) == []
+    del bad_prefix["prompt_prefix"]
+    assert lp.validate_plan(bad_prefix) == []
+    bad_prefix["prompt_prefix"] = [""]  # empty string entry still errors
+    assert any("prompt_prefix" in e for e in lp.validate_plan(bad_prefix))
+    bad_prefix["prompt_prefix"] = "not a list"
+    assert any("prompt_prefix" in e for e in lp.validate_plan(bad_prefix))
+    # Continuation_mode / width must never appear.
+    bad_extra = json.loads(json.dumps(good))
+    bad_extra["shots"][0]["continuation_mode"] = "guide"
+    assert any("unexpected keys" in e for e in lp.validate_plan(bad_extra))
+
+
+def test_plan_json_serialization_matches_reference_shape(lp):
+    """The serialized plan matches the real Production Plan JSON shape
+    from the user's workflow (top keys, prompt line-array, seed string)."""
+    plan = lp.build_plan(
+        [_plan_entry(1, seed="1926")], ["Always the same young woman."]
+    )
+    text = lp.plan_to_json_string(plan)
+    parsed = json.loads(text)
+    assert list(parsed.keys()) == ["defaults", "shots", "prompt_prefix"]
+    shot = parsed["shots"][0]
+    assert shot["prompt"][0] == "integrated_multimodal_description:"
+    assert shot["prompt"][3] == "overall_soundscape:"
+    assert shot["prompt"][6] == "non_diegetic_music:"
+    assert isinstance(shot["seed"], str) and shot["seed"] == "1926"
+    assert parsed["prompt_prefix"] == ["Always the same young woman."]
+
+
+# --------------------------------------------------------------------------- #
+# Reports + template builders
+# --------------------------------------------------------------------------- #
+def test_reports(lp):
+    plan = lp.build_plan([_plan_entry(1), _plan_entry(2)], ["prefix"])
+    report = lp.build_preflight_report(plan, warnings=["watch out"])
+    assert "Shots: 2" in report
+    assert "486" in report  # total frames
+    assert "watch out" in report
+    preview = lp.build_plan_preview(plan)
+    assert "| 1 | `scene_01` | 243 |" in preview
+    assert "| 2 | `scene_02` | 243 |" in preview
+
+
+def test_shot_system_prompt_reuses_h3_guide(lp):
+    system = lp.shot_system_prompt()
+    assert "MiniMax H3" in system  # official t2v guide prepended
+    assert "Loop-plan addendum" in system
+    assert "integrated_multimodal_description:" in system
+
+
+# --------------------------------------------------------------------------- #
+# Pacing directive (beat density scales with duration)
+# --------------------------------------------------------------------------- #
+def test_pacing_directive_bands(lp):
+    short = lp.pacing_directive(2.5)
+    assert "single clear gesture" in short
+    assert "real-time" in short
+    assert "slow motion" in short
+    mid = lp.pacing_directive(10.1)
+    assert "2-3 distinct action beats" in mid
+    long_clip = lp.pacing_directive(20.04)  # 481 frames = the 20s grid value
+    assert "3-4 distinct action beats" in long_clip
+    very_long = lp.pacing_directive(30)
+    assert "4-6 distinct action beats" in very_long
+    # Bands are the pacing contract: every 2-3 seconds a visible change.
+    for seconds in (2.5, 5, 10.1, 15, 30):
+        directive = lp.pacing_directive(seconds)
+        assert "2-3 seconds" in directive
+        # Burst beats + camera energy matching ride along on every band.
+        assert "short burst with a clear impact instant" in directive
+        assert "never take slow camera adjectives" in directive
+
+
+def test_pacing_directive_continued_clip(lp):
+    plain = lp.pacing_directive(10)
+    cont = lp.pacing_directive(10, continued=True)
+    assert "overlap" not in plain
+    assert "overlap" in cont
+
+
+def test_shot_user_text_carries_pacing(lp):
+    user = lp.build_shot_user_text(
+        concept="courtyard summer",
+        prefix_text="Same woman, white blouse.",
+        category="none - 不指定",
+        continuation_block="CONTINUATION RULES",
+        shot={"id": "scene_01", "description": "she stirs"},
+        clip_index=2,
+        clip_count=3,
+        width=544,
+        height=960,
+        duration_seconds=10.13,  # actual grid length 243 frames
+        language_name="English",
+    )
+    # Actual duration is surfaced with one decimal.
+    assert "10.1 seconds" in user
+    # Band for ~10s and the anti-slow-mo contract are both present.
+    assert "2-3 distinct action beats" in user
+    assert "real-time" in user
+    # Clip 2+ notes the carried overlap does not consume the beat budget.
+    assert "overlap" in user
+
+
+def test_shot_system_prompt_has_anti_slow_motion(lp):
+    system = lp.shot_system_prompt()
+    assert "Anti-slow-motion rule" in system
+    assert "words per second" in system
+    # Slow camera adjectives bleed into subject motion — banned outright.
+    assert "Slow-word ban" in system
+    assert "never combine slow camera with fast action" in system
+    # The base guide's "At 00:03.500" form must not leak into chain clips.
+    assert "Timestamp ban" in system
+    assert "never clock times" in system
+    # Burst-style action verbs.
+    assert "Strike verbs" in system
+
+
+def test_template_builders(lp):
+    user = lp.build_shot_user_text(
+        concept="courtyard summer",
+        prefix_text="Same woman, white blouse.",
+        category="cinematic-story - 电影短片/MV/戏剧",
+        continuation_block="CONTINUATION RULES",
+        shot={"id": "scene_01", "description": "she stirs"},
+        clip_index=1,
+        clip_count=3,
+        width=544,
+        height=960,
+        duration_seconds=10,
+        language_name="English",
+    )
+    assert "courtyard summer" in user
+    assert "Same woman, white blouse." in user
+    assert "CONTINUATION RULES" in user
+    assert "clip 1 of 3" in user
+    assert "544x960" in user
+    assert "34:60" in user or "17:30" in user  # aspect_ratio_string output
+
+    single = lp.build_single_call_user_text(
+        concept="c",
+        prefix_text="p",
+        category="none - 不指定",
+        shots=[{"id": "a", "description": "d"}],
+        width=544,
+        height=960,
+        duration_seconds=10,
+        language_name="English",
+    )
+    assert "SINGLE-CALL FORMAT OVERRIDE" in single
+    assert '"id"' in single
+    # Single-call mode also carries the density-vs-duration rule.
+    assert "Pacing" in single
+    assert "slow motion" in single
+
+
+def test_continuation_block_carries_full_context(lp):
+    block = lp.build_continuation_block(
+        "scene_01",
+        "A cat with a red collar perches left; the dog wears nothing.",
+        "Night wind over tiles; a low creak.",
+    )
+    assert "scene_01" in block
+    # Full previous description is embedded, not a truncated tail.
+    assert "red collar" in block
+    # The exact previous soundscape bed is embedded for carrying.
+    assert "Night wind over tiles" in block
+    # Anti-drift rules present.
+    assert "who-wears/holds-what" in block
+    assert "do not introduce new background elements" in block
+    # Empty bed gets an explicit fallback instead of a blank section.
+    block2 = lp.build_continuation_block("scene_01", "desc", "")
+    assert "no explicit bed" in block2
+    assert lp.split_prefix_paragraphs("A.\n\nB.\n") == ["A.", "B."]
+    assert lp.split_prefix_paragraphs("  \n ") == []
+
+
+def test_build_shots_digest(lp):
+    shots = [
+        {"id": "scene_01", "description": "First scene description."},
+        {"id": "scene_02", "description": "x" * 300},
+    ]
+    digest = lp.build_shots_digest(shots)
+    lines = digest.split("\n")
+    assert lines[0] == "- scene_01: First scene description."
+    assert lines[1].startswith("- scene_02: ")
+    assert lines[1].endswith("...")
+    assert len(lines[1]) <= 160 + len("- scene_02: ") + 3
+
+
+def test_prefix_user_text_carries_storyboard(lp):
+    user = lp.build_prefix_user_text(
+        "concept",
+        "cinematic-story - 电影短片/MV/戏剧",
+        "English",
+        shots_digest="- scene_01: a cat and a dog duel on a rooftop",
+    )
+    assert "- scene_01: a cat and a dog duel on a rooftop" in user
+    assert "storyboard's stated art style" in user or "art style" in user
+    # Without a digest the placeholder keeps the template well-formed.
+    user_default = lp.build_prefix_user_text("c", "none - 不指定", "English")
+    assert "(no storyboard provided)" in user_default
+
+
+def test_genre_advice_block(lp):
+    user = lp.build_prefix_user_text(
+        "concept", "action - 动作戏/打斗/飙车", "English"
+    )
+    assert "action" in user
+    user_none = lp.build_prefix_user_text("concept", "none - 不指定", "English")
+    assert "none" in user_none

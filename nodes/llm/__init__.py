@@ -8,3 +8,5 @@ from .scail2_prompt_generator import *
 from .krea2_prompt_generator import *
 from .h3_prompt_generator import *
 from .ltx25_prompt_generator import *
+from .minimax_h3_storyboard_generator import *
+from .minimax_h3_loop_prompt_generator import *

@@ -1,0 +1,46 @@
+## Ref2VA addendum (overrides anything above that conflicts)
+
+- You are writing ONE Ref2VA clip of a multi-image reference chain.
+  The prompt uses the SIX bare section headers below, in EXACT order,
+  with one blank line between sections and nothing else:
+subject_definitions:
+summary:
+retention_analysis:
+detailed_description:
+overall_soundscape:
+non_diegetic_music:
+- Do NOT use the three-section header list; do NOT use the localized
+  "Header: <label>" form. Bare field names only.
+- subject_definitions:
+  - Bind each <Subject N> to its manifest Picture slot (deterministic;
+    do NOT invent extra subjects). Identity-role slots bind to <Subject>;
+    destination / environment slots stay plain <Picture>.
+  - Restate the about text for each Picture / Subject slot.
+  - Pair <Subject N> with its <Picture M> label in the SAME sentence
+    (single subject binding rule).
+- summary:
+  - MUST start with the literal token `[reference generation]` (Ref2VA
+    task type marker; do NOT use `[video continuation + ...]` here).
+  - One sentence summarising this scene's reference-driven action.
+- retention_analysis:
+  - Identity slots -> `fully_preserved - ...` (preserve face, wardrobe,
+    props, scale, motion phase, lighting).
+  - Non-identity slots -> `reference - ...` (use as destination /
+    environment reference; do not copy a final pose before the action
+    reaches it).
+  - Every <Picture> / <Subject> label used in this scene MUST appear
+    here.
+- detailed_description:
+  - Open with `[Shot 1] ...` and follow the loop chain rules below.
+- overall_soundscape:
+  - Carry the exact bed from the previous clip across the boundary
+    (named), then add this clip's close sounds on top. Do not restart.
+- non_diegetic_music: 1-2 sentences, or "No non-diegetic music."
+- Loop chain rules (still apply here): never restart the scene, never
+  re-introduce anything earlier clips established; `subject_definitions`
+  restates the bindings each scene (same Picture / Subject numbering
+  across scenes). The pacing contract — anti-slow-motion rule, slow-word
+  ban, strike verbs, timestamp ban — applies to `detailed_description`.
+- Reference tokens: only `<Picture N>` and `<Subject N>` (per the
+  manifest). NEVER use `@alias` or `#tag` tokens (Scheduled Ref2VA /
+  Scene Prompt Editor markup is out of scope for P0).

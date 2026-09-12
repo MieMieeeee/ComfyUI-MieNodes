@@ -16,6 +16,8 @@ Currently, the following services are supported:
   - [DeepSeek](https://platform.deepseek.com/) (`deepseek` key)
   - [Gemini](https://ai.google.dev/gemini) — multimodal-aware (image input is forwarded as inline data) (`gemini` key)
   - [Bailian 阿里云百炼](https://bailian.console.aliyun.com/) (`bailian` key)
+  - [Bailian 阿里云百炼 Token Plan](https://bailian.console.aliyun.com/) (`sk-sp-` key, `bailian_token_plan`) — fixed-fee multimodal subscription (text + vision + image + audio)
+  - [Bailian 阿里云百炼 Coding Plan](https://bailian.console.aliyun.com/) (`sk-cp-` key, `bailian_coding`) — Qwen-Coder-only programming subscription
   - [MiniMax](https://api.minimaxi.com/) — standard Open Platform (`sk-...` key, `minimax_open_platform`) + [Token Plan / Coding Plan](https://api.minimaxi.com/) (`sk-cp-...` key, `minimax`)
   - [Xiaomi MiMo](https://mimo.mi.com/) — standard Open Platform (`sk-...` key, `mimo`) + [Token Plan / Coding Plan](https://mimo.mi.com/) (`tp-...` key, `mimo_token_plan`)
   - [Ollama](https://ollama.com/) (local) — `SetOllamaLLMServiceConnector`, no API key required (the `Authorization` header is sent but ignored), `ollama` config_key (key is usually left empty)
@@ -87,6 +89,7 @@ The plugin provides a suite of nodes for prompt enhancement, offering:
 
 1. A collection of preset workflows that leverage large language models to automatically generate high-quality prompts from image and text inputs.
 2. Advanced prompt optimization, including automatic translation and enrichment of details, enabling richer, more expressive outputs for various creative tasks.
+3. **MiniMax H3 Storyboard / Loop Plan nodes** — `MiniMaxH3StoryboardGenerator` turns a concept + target shot count into a structured storyboard (beats, shot types, camera moves, transitions, durations); `MiniMaxH3LoopPromptGenerator` turns that storyboard into a `plan_json` that plugs straight into the [ComfyUI-MiniMaxH3-Context-Loop](https://github.com/ethanfel/ComfyUI-MiniMaxH3-Context-Loop) Production Plan node (`plan_json_input`), writing per-clip H3 prompts with explicit chain-continuation rules and a shared `prompt_prefix`.
 
 ---
 
