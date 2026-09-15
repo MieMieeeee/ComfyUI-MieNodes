@@ -26,8 +26,9 @@ the storyboard and the H3 prompt generator share one taxonomy.
 from __future__ import annotations
 
 import json
+import math
 import re
-from typing import Any
+from typing import Any, Optional
 
 try:
     from _mienodes_internal.core.utils import mie_log
@@ -216,8 +217,91 @@ def build_user_text(
     style: str,
     genre: str,
     language: str,
+    *,
+    total_duration_seconds: Any = None,
+    reference_digest: str = "",
+    genre_tags: Optional[list[str]] = None,
+    split_bias: str = "balanced",
 ) -> str:
-    """Build the storyboard user turn from the bundled template."""
+    """Build the storyboard user turn from the bundled template.
+
+    ``shot_count <= 0`` asks the LLM to decide the count itself (used by
+    the loop node's auto-storyboard). ``total_duration_seconds`` (loop
+    node only) injects a whole-board duration budget the per-shot
+    ``duration_seconds`` values must sum close to; None keeps the
+    standalone storyboard behaviour unchanged. ``reference_digest``
+    (loop node only, image modes) carries one digest line per reference
+    caption; the standalone node never passes it (the empty default
+    keeps existing callers byte-identical)."""
+    n = int(shot_count or 0)
+    bias_code = str(split_bias or "balanced").split(" - ", 1)[0].strip().lower()
+    if bias_code not in {"balanced", "conservative", "aggressive"}:
+        bias_code = "balanced"
+    split_bias_directive = {
+        "conservative": (
+            "- split bias: conservative. Prefer fewer, longer shots near "
+            "the upper half of the 4..14s band; only split when the beat "
+            "clearly changes audience understanding."
+        ),
+        "aggressive": (
+            "- split bias: aggressive. Prefer more, shorter shots near "
+            "the lower half of the 4..14s band, but still avoid empty "
+            "micro-splits with no narrative change."
+        ),
+        "balanced": (
+            "- split bias: balanced. Choose a natural middle cadence in "
+            "the 4..14s band and split only on meaningful beat changes."
+        ),
+    }[bias_code]
+    if n > 0:
+        count_directive = f"- shot_count: exactly {n} shots."
+        count_directive += "\n" + split_bias_directive
+        closing = f"exactly {n}"
+    else:
+        if total_duration_seconds and int(total_duration_seconds) > 0:
+            total = int(total_duration_seconds)
+            min_count = max(1, int(math.ceil(total / 14.0)))
+            max_count = max(min_count, int(total // 4))
+            count_directive = (
+                "- shot_count: you decide. Keep each shot duration_seconds "
+                "within 4..14 seconds, and split only when a new beat "
+                "changes viewer understanding (no meaningless micro-splits). "
+                f"For this ~{total}s budget, a natural range is roughly "
+                f"{min_count}..{max_count} shots; if the material truly "
+                "needs outside this range, explain it in notes."
+            )
+            count_directive += "\n" + split_bias_directive
+        else:
+            count_directive = (
+                "- shot_count: you decide. Keep each shot duration_seconds "
+                "within 4..14 seconds, and split only on meaningful beats "
+                "(no meaningless micro-splits)."
+            )
+            count_directive += "\n" + split_bias_directive
+        closing = "the count you chose"
+    if total_duration_seconds:
+        budget_directive = (
+            f"- total duration budget: ~{int(total_duration_seconds)} seconds "
+            "across ALL shots COMBINED. Choose each shot's duration_seconds so "
+            "the sum lands close to that budget (each clip later rounds up "
+            "onto the 17n+5 raw frame grid, so being a few seconds off is "
+            "fine). Spend longer on key beats, shorter on connective beats."
+        )
+    else:
+        budget_directive = ""
+    digest = (reference_digest or "").strip()
+    if digest:
+        reference_block = (
+            "- reference keyframes (BINDING): the cast, wardrobe, hero props and "
+            "key settings MUST come from the reference captions below. Use the "
+            "exact same character names in each shot's `characters` array; "
+            "never invent, rename, merge, or contradict them. Sequence the "
+            "beats so the story tours the keyframes in slot order.\n"
+            "- reference captions (slot order = story order):\n"
+            + "\n".join("  " + line for line in digest.splitlines())
+        )
+    else:
+        reference_block = ""
     style_code = parse_style(style)
     style_label = next(
         (s for s in STYLES if parse_style(s) == style_code), STYLES[0]
@@ -226,16 +310,57 @@ def build_user_text(
     advice = category_advice(genre_code).strip()
     if not advice:
         advice = "no genre-specific guidance; follow the concept as written"
+    norm_genre_tags: set[str] = set()
+    if isinstance(genre_tags, list):
+        for item in genre_tags:
+            if not isinstance(item, str):
+                continue
+            key = item.strip().lower()
+            if key:
+                norm_genre_tags.add(key)
+    spoken_hit = bool(
+        norm_genre_tags
+        & {"dialogue", "jokes", "banter", "monologue", "argue", "voiceover", "musical"}
+    )
+    spoken_guidance = ""
+    if spoken_hit:
+        if n > 0:
+            shot_shape_line = (
+                f"- spoken-scene guidance: keep the requested {n} shots, but cut by "
+                "complete speaking beats rather than partial lines."
+            )
+        elif total_duration_seconds and int(total_duration_seconds) <= 20:
+            shot_shape_line = (
+                "- spoken-scene guidance: prefer 2 to 3 shots for this duration budget; "
+                "only exceed that if the material truly needs more distinct speaking beats."
+            )
+        else:
+            shot_shape_line = (
+                "- spoken-scene guidance: prefer fewer, longer shots for speaking beats; "
+                "do not oversplit a simple talk scene into many tiny clips."
+            )
+        spoken_guidance = (
+            shot_shape_line + "\n"
+            "- spoken-scene guidance: align shot boundaries to a completed utterance or "
+            "a clear reaction beat. Do NOT cut in the middle of a spoken sentence.\n"
+            "- spoken-scene guidance: if dialogue continues across shots, finish the "
+            "audible sentence first, then hand off on the pause / breath / reaction / "
+            "camera continuation."
+        )
     lang = (language or DEFAULT_LANGUAGE).strip().lower()
     if lang not in LANGUAGES:
         lang = DEFAULT_LANGUAGE
     return _USER_TEMPLATE.format(
         concept=(concept or "").strip(),
-        shot_count=int(shot_count),
+        count_directive=count_directive,
         style_name=style_label,
         style_advice=style_advice(style_code),
         genre_advice=advice,
+        spoken_guidance=spoken_guidance,
         language=lang,
+        duration_budget=budget_directive,
+        reference_block=reference_block,
+        closing_directive=closing,
     )
 
 
@@ -259,9 +384,12 @@ _FULLWIDTH_MAP = str.maketrans(
 
 # Appended as a corrective user turn when a storyboard reply fails to parse.
 PARSE_RETRY_CORRECTION = (
-    "Your previous reply could not be parsed as a JSON array. Reply again "
-    "with ONLY the JSON array of storyboard entries — no prose, no markdown "
-    "fences, no code block: start directly with [ and end with ]."
+    "Your previous reply could not be parsed as a JSON array — it was cut "
+    "off before the closing ]. Reply again with ONLY the complete JSON "
+    "array of storyboard entries: no prose, no markdown fences, no code "
+    "block, compact JSON without extra whitespace, SHORT strings (each "
+    "description at most 2 sentences, each notes at most 1 short "
+    "sentence). Start directly with [ and END with ]."
 )
 
 
@@ -270,6 +398,113 @@ def _repaired(text: str) -> str:
     fullwidth quotes). Returns the input unchanged when already clean."""
     normalized = text.translate(_FULLWIDTH_MAP)
     return _TRAILING_COMMA_RE.sub(r"\1", normalized)
+
+
+def _salvage_truncated_array(text: str) -> list[Any] | None:
+    """Salvage a JSON array that was cut off before its closing ``]``
+    (a max_tokens truncation — the live failure mode for long boards).
+
+    Scans with a string-aware state machine, notes the end offset of
+    every COMPLETE top-level element, then re-parses the text truncated
+    after the last complete element plus a closing bracket. Returns the
+    parsed list, or None when not even one complete element exists."""
+    normalized = text.translate(_FULLWIDTH_MAP).strip()
+    if not normalized.startswith("["):
+        return None
+    depth = 0
+    in_string = False
+    escaped = False
+    last_complete = -1  # offset just past the last complete element's '}'
+    for i, ch in enumerate(normalized):
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch in "[{":
+            depth += 1
+        elif ch in "]}":
+            depth -= 1
+            if depth == 1 and ch == "}" and normalized.startswith("["):
+                # A top-level array element just closed.
+                last_complete = i + 1
+            elif depth == 0 and ch == "]":
+                return None  # the array closes — not truncated; let
+                # the normal candidates handle it
+    if last_complete < 0:
+        return None
+    salvaged = normalized[:last_complete] + "]"
+    try:
+        data = json.loads(salvaged)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(data, list) or not data:
+        return None
+    mie_log(
+        f"H3SB salvage: storyboard reply was truncated; recovered "
+        f"{len(data)} complete entries"
+    )
+    return data
+
+
+def _salvage_elementwise(text: str) -> list[Any] | None:
+    """Element-wise salvage for a board whose JSON is corrupted INSIDE one
+    element (live failure: an unescaped quote in a description string
+    breaks json.loads for the whole array). Scans with a string-aware
+    state machine for every top-level ``{...}`` span, parses each element
+    on its own, and keeps the ones that load. Returns the surviving
+    dicts (>=2 — a single survivor is more likely a false-positive span
+    than a board), or None."""
+    normalized = text.translate(_FULLWIDTH_MAP)
+    elements: list[str] = []
+    depth = 0
+    in_string = False
+    escaped = False
+    obj_start = -1
+    for i, ch in enumerate(normalized):
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch == "{":
+            if depth == 0:
+                obj_start = i
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0 and obj_start >= 0:
+                elements.append(normalized[obj_start : i + 1])
+                obj_start = -1
+            if depth < 0:
+                depth = 0
+    out: list[dict] = []
+    for elem in elements:
+        for cand in (elem, _repaired(elem)):
+            try:
+                data = json.loads(cand)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(data, dict) and data.get("description", data.get("id")):
+                out.append(data)
+                break
+    if len(out) < 2:
+        return None
+    mie_log(
+        f"H3SB salvage: storyboard array corrupted mid-element; recovered "
+        f"{len(out)} of {len(elements)} entries element-wise"
+    )
+    return out
 
 
 def extract_json_array(text: str) -> list[Any]:
@@ -285,9 +520,21 @@ def extract_json_array(text: str) -> list[Any]:
     bases: list[str] = [text.strip()]
     bases.extend(m.strip() for m in _FENCE_RE.findall(text))
     depth = 0
+    in_string = False
+    escaped = False
     start = -1
     for i, ch in enumerate(text):
-        if ch == "[":
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch == "[":
             if depth == 0:
                 start = i
             depth += 1
@@ -316,6 +563,17 @@ def extract_json_array(text: str) -> list[Any]:
             and unwrapped_shots is None
         ):
             unwrapped_shots = data["shots"]
+    # Last resorts, in order: a reply cut off before the closing ] (max
+    # token / mid-stream cutoff), then a board corrupted inside one
+    # element (unescaped quote). Both recover the complete entries.
+    for base in bases:
+        salvaged = _salvage_truncated_array(base)
+        if salvaged is not None:
+            return salvaged
+    for base in bases:
+        salvaged = _salvage_elementwise(base)
+        if salvaged is not None:
+            return salvaged
     if unwrapped_shots is not None:
         return unwrapped_shots
     raise ValueError("no JSON array found in storyboard reply")
@@ -443,15 +701,16 @@ def normalize_shots(
             seen[base] = 1
 
     expected = int(expected_count)
-    if len(shots) > expected:
-        warnings.append(
-            f"LLM returned {len(shots)} shots; trimmed to requested {expected}"
-        )
-        shots = shots[:expected]
-    elif len(shots) < expected:
-        warnings.append(
-            f"LLM returned {len(shots)} shots; requested {expected} — kept actual count"
-        )
+    if expected > 0:
+        if len(shots) > expected:
+            warnings.append(
+                f"LLM returned {len(shots)} shots; trimmed to requested {expected}"
+            )
+            shots = shots[:expected]
+        elif len(shots) < expected:
+            warnings.append(
+                f"LLM returned {len(shots)} shots; requested {expected} — kept actual count"
+            )
     for w in warnings:
         mie_log(f"H3SB normalize: {w}")
     return shots, warnings

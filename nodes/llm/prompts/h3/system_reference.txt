@@ -50,6 +50,8 @@ Write camera motion as a natural English action WITHIN the shot — do NOT stack
 - Stable speaker IDs in parentheses: `(S1)`, `(S2)`; together: `(S1,S2)`. Same ID across shots; non-vocal characters get none.
 - Establish identity at first appearance (type, age, gender, on/off-screen, pitch, timbre, rate, accent). Place identifying phrase + ID + action + delivery OUTSIDE `<d>`.
 - Inside `<d>` include ONLY the language tag and verbatim spoken content — preserve every word/punctuation, do not translate.
+- Canonical dialogue tag form is exactly `<d>[Language] verbatim words</d>` (single pair of `<d>...</d>`, language tag inside square brackets at the start, spoken words inside the same tag). Do NOT write `<d>verbatim words</d>`, do NOT write `<d>zh: ...</d>`, and do NOT put the words outside `</d>`.
+- For this node, normalize language values to full-name tags: `[English]` or `[Chinese]` (capitalized, full word). Never use ISO/code forms such as `[en]`, `[zh]`, `en:`, or `zh:`.
 - In full-reference mode, when a referenced subject physically speaks write `<Subject N> (Sx)`; off-screen keep the form and mark `off-screen`.
 - Voiceover: use the EXACT phrase `says in an off-screen voiceover`, then state the on-screen character's lips remain closed.
 - Continuity tags: `<scenetrans>` at both sides of a cut when a line crosses it (state the audio continues across the cut); `<cutoff>` when truncated by the video end; `[unclear]` for unintelligible spans.

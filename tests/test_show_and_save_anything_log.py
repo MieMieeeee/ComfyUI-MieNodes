@@ -258,6 +258,17 @@ def test_execute_default_saves_log(general, tmp_log_dir):
     entry = json.loads(log_path.read_text(encoding="utf-8").strip().splitlines()[-1])
     assert entry["result"] == "data"
 
+
+def test_execute_log_result_never_truncates(general, tmp_log_dir):
+    node = general.ShowAndSaveAnythingMie()
+    payload = json.dumps({"plan_json": "x" * 12000}, ensure_ascii=False)
+    node.execute(payload, log_file_name="full.log")
+    log_path = tmp_log_dir / "full.log"
+    entry = json.loads(log_path.read_text(encoding="utf-8").strip().splitlines()[-1])
+    assert entry["result"] == payload
+    assert "truncated" not in entry["result"]
+
+
 def test_show_anything_node_unchanged(general):
     # The original ShowAnythingMie still has its original single input.
     inputs = general.ShowAnythingMie.INPUT_TYPES()

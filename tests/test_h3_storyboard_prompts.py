@@ -93,13 +93,13 @@ def test_build_user_text_contains_everything(sbp):
         "一个江南院落的夏天",
         5,
         "narrative_arc",
-        "cinematic-story - 电影短片/MV/戏剧",
+        "action - 动作戏/打斗/飙车",
         "zh",
     )
     assert "一个江南院落的夏天" in text
     assert "exactly 5 shots" in text
     assert "narrative_arc" in text
-    assert "cinematic" in text  # genre advice
+    assert "motion blur" in text  # action-category advice reaches the template
     assert "zh" in text
 
 

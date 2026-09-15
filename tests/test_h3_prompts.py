@@ -162,9 +162,11 @@ def test_caption_reference_content(h3):
     # The captioner is explicitly told NOT to emit H3-specific tags. The
     # instruction itself names the forbidden tags ("do NOT write any
     # H3-specific tags (<Picture N>, <Subject N>, <d>...</d>)"), so we
-    # assert the prohibition is present rather than that the tag string
-    # is wholly absent.
-    assert "do NOT write any H3-specific tags" in text
+    # Caption prompt was updated to enumerate subjects; verify those
+    # new claims are present and the tag prohibition still holds.
+    assert "COUNT the subjects in the image first" in text
+    assert "never merge similar-looking subjects" in text.lower()
+    assert "do NOT write H3-specific tags" in text
     assert "Output only the reference-material caption" in text
 
 

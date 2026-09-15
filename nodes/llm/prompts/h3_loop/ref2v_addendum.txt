@@ -11,6 +11,10 @@ overall_soundscape:
 non_diegetic_music:
 - Do NOT use the three-section header list; do NOT use the localized
   "Header: <label>" form. Bare field names only.
+- Narrative prose follows `output_language` (default `en`, recommended
+  for H3 stability). Dialogue policy is independent: unless the user
+  explicitly asks for English speech, default spoken lines to Chinese
+  (`<d>[Chinese] ...</d>`).
 - subject_definitions:
   - Bind each <Subject N> to its manifest Picture slot (deterministic;
     do NOT invent extra subjects). Identity-role slots bind to <Subject>;
@@ -33,14 +37,18 @@ non_diegetic_music:
 - detailed_description:
   - Open with `[Shot 1] ...` and follow the loop chain rules below.
 - overall_soundscape:
-  - Carry the exact bed from the previous clip across the boundary
-    (named), then add this clip's close sounds on top. Do not restart.
+  - Carry the previous ambience as ONE short state-delta clause, then
+    add only this clip's new close sounds. Do not restate long lists of
+    old events from prior scenes.
 - non_diegetic_music: 1-2 sentences, or "No non-diegetic music."
 - Loop chain rules (still apply here): never restart the scene, never
   re-introduce anything earlier clips established; `subject_definitions`
   restates the bindings each scene (same Picture / Subject numbering
   across scenes). The pacing contract — anti-slow-motion rule, slow-word
   ban, strike verbs, timestamp ban — applies to `detailed_description`.
+- Timestamp ban (strict): in `detailed_description`, do NOT write clock
+  or explicit second-span notation such as `At 00:03.500`, `at 5.2s`,
+  `from 0.0s to 5.2s`, or `0.0s-5.2s`.
 - Reference tokens: only `<Picture N>` and `<Subject N>` (per the
   manifest). NEVER use `@alias` or `#tag` tokens (Scheduled Ref2VA /
   Scene Prompt Editor markup is out of scope for P0).

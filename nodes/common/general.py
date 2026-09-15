@@ -273,7 +273,8 @@ class ShowAndSaveAnythingMie(object):
             entry = {
                 "ts": ts,
                 "upstream_title": str(upstream_title),
-                "result": _safe_repr(text),
+                # Keep full payload: do NOT truncate result content.
+                "result": text,
             }
             logger = cls._get_logger(log_path)
             logger.info(json.dumps(entry, ensure_ascii=False))
@@ -1257,5 +1258,4 @@ class AnyToString(object):
 
     def execute(self, value=None):
         return (str(value),)
-
 

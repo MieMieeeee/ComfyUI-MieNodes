@@ -1,6 +1,21 @@
 # -*- coding: utf-8 -*-
 """Tests for ``minimax_h3_loop_prompts`` (17k+5 grid, three-section
-split, shots/overrides parsing, plan assembly + validation, reports)."""
+split, plan assembly + validation, reports, template builders).
+
+NOTE (test drift fix, 2026-09-14):
+  * Removed test cases for APIs deleted in the one-node-rewrite:
+      - parse_shots_text family            (now auto-storyboard inside the enhancer)
+      - parse_per_shot_overrides family    (overrides dropped from the node)
+      - apply_overrides                    (overrides dropped from the node)
+  * build_plan no longer emits a top-level ``defaults`` key and no longer
+    accepts a per-shot ``steps`` field — sampling parameters live on the
+    Production Plan widgets.
+  * build_shot_user_text / build_single_call_user_text dropped the
+    ``width`` / ``height`` arguments (canvas stays on the Plan node).
+  * build_shots_digest now appends ``# all_shots=.../first_seen=...``
+    roster hints so the prefix-synthesis LLM can tell recurring vs.
+    one-off subjects apart.
+"""
 import importlib.util
 import json
 import sys
@@ -206,94 +221,6 @@ def test_description_and_sound_bodies(lp):
 
 
 # --------------------------------------------------------------------------- #
-# Shots text parsing
-# --------------------------------------------------------------------------- #
-def test_parse_shots_text_json_array(lp):
-    shots = lp.parse_shots_text(
-        json.dumps(
-            [
-                {"id": "Scene One", "description": "d1", "duration_seconds": 8},
-                {"description": "d2"},
-            ],
-            ensure_ascii=False,
-        )
-    )
-    assert shots[0]["id"] == "scene_one"
-    assert shots[0]["duration_seconds"] == 8
-    assert shots[1]["id"] == "clip_0002"
-
-
-def test_parse_shots_text_object_with_shots(lp):
-    shots = lp.parse_shots_text(
-        json.dumps({"shots": [{"id": "a", "description": "d"}]})
-    )
-    assert len(shots) == 1 and shots[0]["id"] == "a"
-
-
-def test_parse_shots_text_natural_language(lp):
-    shots = lp.parse_shots_text("第一场：她端起碗\n\n第二场：冰块轻响\n")
-    assert len(shots) == 2
-    assert shots[0]["description"].startswith("第一场")
-    assert shots[1]["id"] == "clip_0002"
-
-
-def test_parse_shots_text_errors(lp):
-    with pytest.raises(ValueError, match="empty"):
-        lp.parse_shots_text("   \n ")
-    with pytest.raises(ValueError, match="empty description"):
-        lp.parse_shots_text('[{"id": "x"}]')
-    with pytest.raises(ValueError, match="maximum"):
-        lp.parse_shots_text(json.dumps([{"description": "d"}] * 129))
-
-
-def test_parse_shots_text_prompt_alias(lp):
-    shots = lp.parse_shots_text('[{"id": "a", "prompt": "via prompt key"}]')
-    assert shots[0]["description"] == "via prompt key"
-    assert "prompt" not in shots[0]
-
-
-# --------------------------------------------------------------------------- #
-# Overrides
-# --------------------------------------------------------------------------- #
-def test_parse_overrides_valid(lp):
-    ov = lp.parse_per_shot_overrides(
-        "scene_01:length=243\nscene_02:seed=4480\nscene_02:steps=30\n# a comment\n\n"
-    )
-    assert ov["scene_01"] == {"length": 243}
-    assert ov["scene_02"] == {"seed": "4480", "steps": 30}
-
-
-@pytest.mark.parametrize(
-    "line",
-    [
-        "scene_01:width=1280",   # unknown key
-        "scene_01 length 243",   # malformed
-        "scene_01:length=240",   # off grid
-        "scene_01:seed=-5",      # not uint64
-        "scene_01:steps=0",      # out of range
-        "length=243",            # missing id
-    ],
-)
-def test_parse_overrides_invalid(lp, line):
-    with pytest.raises(ValueError):
-        lp.parse_per_shot_overrides(line)
-
-
-def test_apply_overrides(lp):
-    shots = [
-        {"id": "scene_01", "description": "a"},
-        {"id": "scene_02", "description": "b"},
-    ]
-    out = lp.apply_overrides(
-        shots, {"scene_02": {"length": 481, "seed": "4480"}}
-    )
-    assert out[1]["length"] == 481 and out[1]["seed"] == "4480"
-    assert "length" not in out[0]
-    with pytest.raises(ValueError, match="unknown shot id"):
-        lp.apply_overrides(shots, {"nope": {"steps": 5}})
-
-
-# --------------------------------------------------------------------------- #
 # Seeds
 # --------------------------------------------------------------------------- #
 def test_derive_seed(lp):
@@ -323,27 +250,24 @@ _CLIP_PROMPT_LINES = [
 ]
 
 
-def _plan_entry(i, prompt=None, length=243, seed=None, steps=None):
-    entry = {
+def _plan_entry(i, prompt=None, length=243, seed=None):
+    return {
         "id": f"scene_{i:02d}",
         "prompt": prompt or list(_CLIP_PROMPT_LINES),
         "length": length,
         "seed": seed or str(1926 + i),
     }
-    if steps:
-        entry["steps"] = steps
-    return entry
 
 
 def test_build_plan_and_validate_clean(lp):
     plan = lp.build_plan(
-        [_plan_entry(1), _plan_entry(2, steps=30)], ["Shared prefix line."]
+        [_plan_entry(1), _plan_entry(2)], ["Shared prefix line."]
     )
     assert lp.validate_plan(plan) == []
-    assert set(plan.keys()) == {"defaults", "shots", "prompt_prefix"}
-    assert plan["defaults"] == {"steps": 20}
-    assert list(plan["shots"][0].keys()) == ["id", "prompt", "steps", "length", "seed"]
-    assert plan["shots"][1]["steps"] == 30
+    # ``defaults`` lives on the Production Plan node now — the prompt
+    # generator only emits shots + prompt_prefix.
+    assert set(plan.keys()) == {"shots", "prompt_prefix"}
+    assert list(plan["shots"][0].keys()) == ["id", "prompt", "length", "seed"]
     assert isinstance(plan["shots"][0]["seed"], str)
 
 
@@ -364,7 +288,7 @@ def test_validate_plan_catches_drift(lp):
     bad_len = json.loads(json.dumps(good))
     bad_len["shots"][0]["length"] = 240
     assert any("grid" in e for e in lp.validate_plan(bad_len))
-    # Empty prompt_prefix is tolerated (D3: absent OR empty are both fine);
+    # Empty prompt_prefix is tolerated (absent OR empty are both fine);
     # only absent-from-required or malformed entries error.
     bad_prefix = json.loads(json.dumps(good))
     bad_prefix["prompt_prefix"] = []
@@ -375,10 +299,13 @@ def test_validate_plan_catches_drift(lp):
     assert any("prompt_prefix" in e for e in lp.validate_plan(bad_prefix))
     bad_prefix["prompt_prefix"] = "not a list"
     assert any("prompt_prefix" in e for e in lp.validate_plan(bad_prefix))
-    # Continuation_mode / width must never appear.
+    # Continuation_mode / width / steps must never appear in a shot.
     bad_extra = json.loads(json.dumps(good))
     bad_extra["shots"][0]["continuation_mode"] = "guide"
     assert any("unexpected keys" in e for e in lp.validate_plan(bad_extra))
+    bad_extra2 = json.loads(json.dumps(good))
+    bad_extra2["shots"][0]["steps"] = 30
+    assert any("unexpected keys" in e for e in lp.validate_plan(bad_extra2))
 
 
 def test_plan_json_serialization_matches_reference_shape(lp):
@@ -389,7 +316,8 @@ def test_plan_json_serialization_matches_reference_shape(lp):
     )
     text = lp.plan_to_json_string(plan)
     parsed = json.loads(text)
-    assert list(parsed.keys()) == ["defaults", "shots", "prompt_prefix"]
+    # Sampling parameters live on the Plan node now — no ``defaults``.
+    assert set(parsed.keys()) == {"shots", "prompt_prefix"}
     shot = parsed["shots"][0]
     assert shot["prompt"][0] == "integrated_multimodal_description:"
     assert shot["prompt"][3] == "overall_soundscape:"
@@ -450,6 +378,8 @@ def test_pacing_directive_continued_clip(lp):
 
 
 def test_shot_user_text_carries_pacing(lp):
+    # NOTE: width/height arguments were removed — canvas now lives on
+    # the Production Plan node.
     user = lp.build_shot_user_text(
         concept="courtyard summer",
         prefix_text="Same woman, white blouse.",
@@ -458,8 +388,6 @@ def test_shot_user_text_carries_pacing(lp):
         shot={"id": "scene_01", "description": "she stirs"},
         clip_index=2,
         clip_count=3,
-        width=544,
-        height=960,
         duration_seconds=10.13,  # actual grid length 243 frames
         language_name="English",
     )
@@ -487,6 +415,8 @@ def test_shot_system_prompt_has_anti_slow_motion(lp):
 
 
 def test_template_builders(lp):
+    # NOTE: build_shot_user_text / build_single_call_user_text no longer
+    # take width/height — canvas lives on the Production Plan widgets.
     user = lp.build_shot_user_text(
         concept="courtyard summer",
         prefix_text="Same woman, white blouse.",
@@ -495,8 +425,6 @@ def test_template_builders(lp):
         shot={"id": "scene_01", "description": "she stirs"},
         clip_index=1,
         clip_count=3,
-        width=544,
-        height=960,
         duration_seconds=10,
         language_name="English",
     )
@@ -504,16 +432,12 @@ def test_template_builders(lp):
     assert "Same woman, white blouse." in user
     assert "CONTINUATION RULES" in user
     assert "clip 1 of 3" in user
-    assert "544x960" in user
-    assert "34:60" in user or "17:30" in user  # aspect_ratio_string output
 
     single = lp.build_single_call_user_text(
         concept="c",
         prefix_text="p",
         category="none - 不指定",
         shots=[{"id": "a", "description": "d"}],
-        width=544,
-        height=960,
         duration_seconds=10,
         language_name="English",
     )
@@ -552,10 +476,17 @@ def test_build_shots_digest(lp):
     ]
     digest = lp.build_shots_digest(shots)
     lines = digest.split("\n")
-    assert lines[0] == "- scene_01: First scene description."
+    # New format appends roster-hint flags (``# all_shots=...,
+    # first_seen=...``) to the end of each line when the heuristic
+    # roster extractor finds subject-name tokens.  Assert on
+    # starts-with so the test stays stable whether tokens are found.
+    assert lines[0].startswith("- scene_01: First scene description.")
     assert lines[1].startswith("- scene_02: ")
-    assert lines[1].endswith("...")
-    assert len(lines[1]) <= 160 + len("- scene_02: ") + 3
+    # Long description is still capped with the ellipsis marker before
+    # any trailing flag comment.
+    body = lines[1].split("  # ", 1)[0] if "  # " in lines[1] else lines[1]
+    assert body.endswith("...")
+    assert len(body) <= 160 + len("- scene_02: ") + 3
 
 
 def test_prefix_user_text_carries_storyboard(lp):
@@ -566,7 +497,12 @@ def test_prefix_user_text_carries_storyboard(lp):
         shots_digest="- scene_01: a cat and a dog duel on a rooftop",
     )
     assert "- scene_01: a cat and a dog duel on a rooftop" in user
-    assert "storyboard's stated art style" in user or "art style" in user
+    # The prefix synth template always ships the genre advice block for
+    # non-"none" categories and the two-artifact footer (prefix paragraph
+    # then the CAST sheet header).  Assert on the actual template text
+    # instead of the obsolete "art style" phrasing.
+    assert "cinematic-story" in user or "cinematic" in user.lower()
+    assert "CAST sheet" in user
     # Without a digest the placeholder keeps the template well-formed.
     user_default = lp.build_prefix_user_text("c", "none - 不指定", "English")
     assert "(no storyboard provided)" in user_default

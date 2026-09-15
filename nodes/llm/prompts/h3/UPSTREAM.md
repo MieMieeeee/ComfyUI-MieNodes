@@ -59,6 +59,6 @@ field layout and are NOT byte-level copies of any single upstream file.
 Placeholders like `{duration}`, `{idea}`, `{caption}` are preserved verbatim by
 the loader (`prompts/loader.py` never calls `.format()`); they are substituted
 at runtime by the wrapper functions in `h3_prompts.py`. Angle-bracket material
-tags such as `<Picture 1>`, `<d>[zh] ...</d>` are NOT str.format placeholders
+tags such as `<Picture 1>`, `<d>[Language] ...</d>` are NOT str.format placeholders
 and pass through untouched. If a future example contains a literal `{` or `}`
 it must be doubled (`{{` / `}}`).

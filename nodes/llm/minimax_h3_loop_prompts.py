@@ -8,18 +8,16 @@ Owns everything that must NOT depend on LLM whims:
   prompt line-array shape used by the Production Plan workflow
   (``["integrated_multimodal_description:", ..., "", "overall_soundscape:",
   ..., "", "non_diegetic_music:", ...]``);
-* ``parse_shots_text`` — accept the storyboard generator's ``shots_json``
-  (JSON array / object with ``shots``) or one-line-per-shot natural language;
-* ``parse_per_shot_overrides`` / ``apply_overrides`` — ``id:length=N`` /
-  ``id:seed=NNNN`` / ``id:steps=N`` overrides;
 * ``build_plan`` + ``validate_plan`` — assemble and assert the strict
-  plan shape (top-level keys exactly ``defaults`` / ``shots`` /
-  ``prompt_prefix``; ``prompt`` and ``prompt_prefix`` are arrays; seeds
-  are digit strings; no continuation_mode / context_length / width /
-  height ever enters the JSON — those live on the Plan node's widgets);
+  plan shape (top-level keys ``shots`` / ``prompt_prefix`` only;
+  ``prompt`` and ``prompt_prefix`` are arrays; seeds are digit strings;
+  no steps / duration_seconds / continuation_mode / context_length /
+  width / height ever enters the JSON — generation parameters live on
+  the Plan node's widgets);
 * preflight report + markdown preview rendering;
-* prompt-template builders for the three LLM stages (prefix synthesis,
-  per-shot generation, single-call generation).
+* prompt-template builders for the three LLM stages (storyboard split
+  with a whole-board duration budget, prefix synthesis, per-shot
+  generation, single-call generation);
 * reference / keyframe mode wiring (t2va / i2va / fl2va / ref2va).
 
 Schema source: H3_CHAIN_FORMAT_GUIDE.md + the real Production Plan
@@ -32,7 +30,7 @@ import json
 import math
 import re
 import time
-from typing import Any
+from typing import Any, Optional
 
 try:
     from _mienodes_internal.nodes.llm.prompts.loader import load_prompt_text
@@ -41,7 +39,6 @@ except ImportError:
 
 try:
     from _mienodes_internal.nodes.llm.h3_prompts import (
-        aspect_ratio_string,
         category_advice,
         parse_category,
         system_t2v_prompt,
@@ -49,7 +46,6 @@ try:
     )
 except ImportError:
     from .h3_prompts import (
-        aspect_ratio_string,
         category_advice,
         parse_category,
         system_t2v_prompt,
@@ -74,15 +70,13 @@ MAX_LENGTH_FRAMES = 3592  # 17*211+5; ~149.667 s
 GRID_STEP = 17
 
 UINT64_MAX = 0xFFFFFFFFFFFFFFFF
-MIN_STEPS = 1
-MAX_STEPS = 10000
 MIN_SHOTS = 1
 MAX_SHOTS = 128
-DEFAULT_STEPS = 20
 
-# Prompted per-clip duration default (10 s -> 243 frames, the grid value
-# used by the reference workflow).
-DEFAULT_DURATION_SECONDS = 10
+# Whole-board duration budget default (seconds). The storyboard LLM
+# distributes it across shots; each shot's length then rounds UP onto
+# the 17k+5 grid, so the delivered total lands close to this.
+DEFAULT_TOTAL_DURATION_SECONDS = 15
 
 
 def seconds_to_length(duration_seconds: Any) -> int:
@@ -265,7 +259,11 @@ def _parse_manifest_slot_label(raw: Any) -> str:
     return f"{kind.capitalize()} {int(num)}"
 
 
-def parse_references_text(text: str) -> list[dict]:
+def parse_references_text(
+    text: str,
+    *,
+    reference_mode: Optional[str] = None,
+) -> list[dict]:
     """Parse ``references_text`` into a canonical manifest list.
 
     Each entry is ``{"slot": "Picture 1", "about": "...", "role":
@@ -277,7 +275,13 @@ def parse_references_text(text: str) -> list[dict]:
     - One natural line per picture: ``Picture 1: courier face, ...``.
       The ``<Picture 1>`` bracket form is also accepted.
 
-    Role defaults: slot 1 -> ``identity``; other slots -> ``destination``.
+    Role defaults (applied in DESCENDING PRIORITY — higher wins):
+      1. Explicit ``role`` key in the parsed line wins always.
+      2. When ``reference_mode`` is explicitly ``ref2va``: EVERY Picture
+         slot defaults to ``identity`` (Ref2VA = every reference image
+         is an identity anchor; destinations are explicitly opted-in).
+      3. Otherwise: slot 1 -> ``identity``; other slots -> ``destination``.
+
     Invalid lines / Video / Audio slots / gaps in numbering raise
     ``ValueError`` with the offending line number.
 
@@ -289,6 +293,7 @@ def parse_references_text(text: str) -> list[dict]:
     manifest[N] when present, otherwise alternating manifest[0] /
     manifest[1] so legacy 2-image workflows keep their A->B->A rhythm.
     """
+    ref_code = parse_reference_mode(reference_mode) if reference_mode else None
     raw = (text or "").strip()
     if not raw:
         return []
@@ -384,8 +389,17 @@ def parse_references_text(text: str) -> list[dict]:
             raise ValueError(
                 f"manifest line {i}: numbering must start at Picture 1 and stay contiguous, got {slot!r}"
             )
-        role = entry.get("role") or ("identity" if i == 1 else "destination")
-        role = str(role).strip().lower()
+        # Role defaults, applied in DESCENDING PRIORITY:
+        #   explicit role (user wrote it) > ref2va-mode broad default >
+        #   legacy i==1 default.
+        explicit_role = entry.get("role")
+        if explicit_role:
+            default_role = str(explicit_role).strip().lower()
+        elif ref_code == "ref2va" or i == 1:
+            default_role = "identity"
+        else:
+            default_role = "destination"
+        role = default_role
         if role not in _MANIFEST_ROLES:
             raise ValueError(
                 f"manifest line {i}: role must be one of {_MANIFEST_ROLES}, got {role!r}"
@@ -505,14 +519,17 @@ def _identity_subject_slots(manifest: list[dict]) -> dict[int, int]:
     return out
 
 
-def validate_label_policy(plan: dict, mode: str, manifest: list[dict]) -> list[str]:
+def validate_label_policy(
+    plan: dict,
+    mode: str,
+    manifest: list[dict],
+) -> list[str]:
     """Per-mode native-label + @alias / #tag contract. Returns errors.
     Empty list = the plan's text matches the mode's label contract.
 
     Universal: any ``@alias`` or ``#tag`` token anywhere in the plan
     text is an error (D9). P0 does not support Scheduled Ref2VA / the
-    Scene Prompt Editor's dialogue markup — only native labels.
-    """
+    Scene Prompt Editor's dialogue markup — only native labels."""
     code = parse_reference_mode(mode)
     chunks = _shot_texts(plan)
     errors: list[str] = []
@@ -881,30 +898,54 @@ def previous_tail(prompt_lines: list[str], max_chars: int = 480) -> str:
 # --------------------------------------------------------------------------- #
 # Pacing: beat density must scale with the clip's real duration
 # --------------------------------------------------------------------------- #
-def pacing_directive(seconds: Any, *, continued: bool = False) -> str:
+def pacing_directive(seconds: Any, *, continued: bool = False, reference_mode: str = "t2va") -> str:
     """Beat-density guidance scaled to the clip's actual raw duration.
 
     A thin prompt makes H3 dilate time — one small gesture stretched over
     10 seconds reads as slow motion. Naming an explicit beat budget keeps
     long clips densely choreographed and short clips uncluttered.
     ``continued=True`` (clips 2+) notes that the beat budget must fit the
-    new action that follows the carried overlap, not the raw length."""
+    new action that follows the carried overlap, not the raw length.
+
+    Keyframe modes (fl2va / i2va) have a heavier load because every
+    action beat also has to anchor against a wired reference image —
+    too many beats crowds the frame and dilutes the anchor. We halve
+    the budget for these modes plus add a "carry-over is a state delta,
+    not a recap" rule so the LLM doesn't restate the previous beat
+    inside the current scene's body."""
     s = float(seconds)
+    is_keyframe = reference_mode in ("fl2va", "i2va")
     if s <= 3:
         beats = "one single clear gesture"
         extra = "hold one camera state; do not add events"
     elif s <= 7:
-        beats = "1-2 action beats"
-        extra = "one camera development (the start or end of one move)"
+        beats = "1-2 action beats" if not is_keyframe else "1 short action beat"
+        extra = (
+            "one camera development (the start or end of one move)"
+            if not is_keyframe
+            else "keep the beat simple so the reference image stays the visual anchor"
+        )
     elif s <= 12:
-        beats = "2-3 distinct action beats"
-        extra = "a camera move that develops across the clip, plus one change of light or blocking"
+        beats = "2-3 distinct action beats" if not is_keyframe else "1-2 distinct action beats"
+        extra = (
+            "a camera move that develops across the clip, plus one change of light or blocking"
+            if not is_keyframe
+            else "one camera development; keep the beat simple so the reference image stays the visual anchor"
+        )
     elif s <= 20.1:  # 20.1 covers the 20s request's grid value (481 = 20.04s)
-        beats = "3-4 distinct action beats"
-        extra = "evolving camera and blocking with at least one clear energy shift"
+        beats = "3-4 distinct action beats" if not is_keyframe else "2-3 distinct action beats"
+        extra = (
+            "evolving camera and blocking with at least one clear energy shift"
+            if not is_keyframe
+            else "evolving camera and blocking; do not pad"
+        )
     else:
-        beats = "4-6 distinct action beats"
-        extra = "vary distance and energy across the clip; include one in-clip setup or location change if the story allows"
+        beats = "4-6 distinct action beats" if not is_keyframe else "3-4 distinct action beats"
+        extra = (
+            "vary distance and energy across the clip; include one in-clip setup or location change if the story allows"
+            if not is_keyframe
+            else "vary distance and energy across the clip"
+        )
     text = (
         f"Pacing (this clip generates ~{s:.1f}s): plan {beats}. {extra}. "
         "Each beat is a short burst with a clear impact instant, not a "
@@ -920,155 +961,13 @@ def pacing_directive(seconds: Any, *, continued: bool = False) -> str:
         text += (
             " The opening overlap carried from the previous clip does not "
             "count toward this budget: fit the beats into the new action "
-            "that follows it."
+            "that follows it. Also, do NOT recap the previous scene's body "
+            "inside this scene — the carried overlap is a one-sentence state "
+            "delta (where the previous clip ended mid-action), NOT a recap. "
+            "Write the new action beginning where the previous one ended; "
+            "do not re-narrate the previous beat."
         )
     return text
-
-
-# --------------------------------------------------------------------------- #
-# Shots input parsing
-# --------------------------------------------------------------------------- #
-_KNOWN_SHOT_KEYS = (
-    "id",
-    "description",
-    "prompt",
-    "shot_type",
-    "camera_movement",
-    "transition_in",
-    "duration_seconds",
-    "narrative_beat",
-    "characters",
-    "props",
-    "notes",
-)
-_ID_SAFE_RE = re.compile(r"[^0-9a-zA-Z_]+")
-
-
-def slugify_id(raw: Any, index: int) -> str:
-    """Production-Plan-safe shot id (unsafe filename chars -> ``_``,
-    <= 96 chars); falls back to ``clip_NNNN`` (the plan node's default)."""
-    text = _ID_SAFE_RE.sub("_", str(raw or "").strip().lower()).strip("_")
-    text = re.sub(r"_+", "_", text)[:96]
-    return text or f"clip_{index:04d}"
-
-
-def parse_shots_text(text: str) -> list[dict]:
-    """Parse the ``shots_text`` input into canonical shot dicts.
-
-    Accepts (in order of attempt): a JSON array, a JSON object with a
-    ``shots`` array, or plain text with one non-empty line per shot.
-    Raises ``ValueError`` on empty input or an empty shot list.
-    """
-    raw = (text or "").strip()
-    if not raw:
-        raise ValueError("shots_text is empty — connect a storyboard or list one shot per line")
-
-    items: list[Any] | None = None
-    if raw.startswith("[") or raw.startswith("{"):
-        try:
-            data = json.loads(raw)
-        except json.JSONDecodeError:
-            data = None
-        if isinstance(data, list):
-            items = data
-        elif isinstance(data, dict) and isinstance(data.get("shots"), list):
-            items = data["shots"]
-    if items is None:
-        items = [ln for ln in raw.split("\n") if ln.strip()]
-
-    shots: list[dict] = []
-    for i, item in enumerate(items, start=1):
-        if isinstance(item, str):
-            item = {"description": item}
-        if not isinstance(item, dict):
-            raise ValueError(f"shot {i}: expected an object, got {type(item).__name__}")
-        desc = str(item.get("description") or item.get("prompt") or "").strip()
-        if not desc:
-            raise ValueError(f"shot {i}: empty description")
-        shot = {k: item[k] for k in _KNOWN_SHOT_KEYS if k in item}
-        shot.pop("prompt", None)  # alias already folded into description
-        shot["description"] = desc
-        shot["id"] = slugify_id(item.get("id"), i)
-        shots.append(shot)
-
-    if not shots:
-        raise ValueError("shots_text parsed to zero shots")
-    if len(shots) > MAX_SHOTS:
-        raise ValueError(f"{len(shots)} shots exceeds the plan maximum of {MAX_SHOTS}")
-    return shots
-
-
-# --------------------------------------------------------------------------- #
-# Per-shot overrides: "id:length=N" / "id:seed=NNNN" / "id:steps=N"
-# --------------------------------------------------------------------------- #
-_OVERRIDE_KEYS = ("length", "seed", "steps")
-
-
-def parse_per_shot_overrides(text: str) -> dict[str, dict[str, Any]]:
-    """Parse override lines into ``{id_lower: {key: value}}``.
-
-    ``length`` is validated against the grid, ``seed`` against uint64
-    (stored as string), ``steps`` against 1..10000. Malformed lines,
-    unknown keys, or bad values raise ``ValueError``.
-    """
-    overrides: dict[str, dict[str, Any]] = {}
-    for line_no, line in enumerate((text or "").split("\n"), start=1):
-        entry = line.split("#", 1)[0].strip()
-        if not entry:
-            continue
-        if "=" not in entry:
-            raise ValueError(f"per_shot_overrides line {line_no}: expected 'id:key=value', got {entry!r}")
-        left, _, value = entry.partition("=")
-        shot_id, sep, key = left.strip().partition(":")
-        if not shot_id or not sep:
-            raise ValueError(f"per_shot_overrides line {line_no}: expected 'id:key=value', got {entry!r}")
-        key = key.strip().lower()
-        value = value.strip()
-        if key not in _OVERRIDE_KEYS:
-            raise ValueError(
-                f"per_shot_overrides line {line_no}: unknown key {key!r} (allowed: {', '.join(_OVERRIDE_KEYS)})"
-            )
-        if key == "length":
-            n = int(value) if value.lstrip("-").isdigit() else -1
-            if not is_valid_length(n):
-                raise ValueError(
-                    f"per_shot_overrides line {line_no}: length {value!r} is off the H3 grid (length % 17 == 5, 5..3592)"
-                )
-            overrides.setdefault(shot_id.lower(), {})["length"] = n
-        elif key == "seed":
-            if not value.isdigit() or int(value) > UINT64_MAX:
-                raise ValueError(
-                    f"per_shot_overrides line {line_no}: seed {value!r} is not a uint64"
-                )
-            overrides.setdefault(shot_id.lower(), {})["seed"] = value
-        else:  # steps
-            n = int(value) if value.lstrip("-").isdigit() else -1
-            if not (MIN_STEPS <= n <= MAX_STEPS):
-                raise ValueError(
-                    f"per_shot_overrides line {line_no}: steps {value!r} outside 1..10000"
-                )
-            overrides.setdefault(shot_id.lower(), {})["steps"] = n
-    return overrides
-
-
-def apply_overrides(
-    shots: list[dict],
-    overrides: dict[str, dict[str, Any]],
-) -> list[dict]:
-    """Return shot copies with overrides applied. Unknown override ids
-    raise ``ValueError`` (a typo must fail loudly, not silently pass)."""
-    remaining = dict(overrides)
-    out: list[dict] = []
-    for shot in shots:
-        shot = dict(shot)
-        ov = remaining.pop(shot["id"].lower(), None)
-        if ov:
-            shot.update(ov)
-        out.append(shot)
-    if remaining:
-        unknown = ", ".join(sorted(remaining))
-        raise ValueError(f"per_shot_overrides reference unknown shot id(s): {unknown}")
-    return out
 
 
 # --------------------------------------------------------------------------- #
@@ -1098,29 +997,25 @@ def derive_seed(seed_base: int, index: int, unified: bool = False) -> str:
 # --------------------------------------------------------------------------- #
 # Plan assembly + validation
 # --------------------------------------------------------------------------- #
-def build_plan(
-    shot_entries: list[dict],
-    prefix_lines: list[str],
-    default_steps: int = DEFAULT_STEPS,
-) -> dict:
+def build_plan(shot_entries: list[dict], prefix_lines: list[str]) -> dict:
     """Assemble the strict plan dict.
 
-    ``shot_entries``: ``{"id", "prompt": [lines], "length", "seed",
-    "steps" (optional)}`` — field order matches the reference workflow's
-    Production Plan JSON (id, prompt, steps, length, seed).
+    ``shot_entries``: ``{"id", "prompt": [lines], "length", "seed"}`` —
+    field order (id, prompt, length, seed). Sampler steps and every
+    other generation parameter stay on the Plan node's widgets; the
+    JSON carries only prompt / timing / seed content.
     """
     shots_out: list[dict] = []
     for entry in shot_entries:
-        shot = {
-            "id": entry["id"],
-            "prompt": list(entry["prompt"]),
-            "steps": int(entry.get("steps") or default_steps),
-            "length": int(entry["length"]),
-            "seed": str(entry["seed"]),
-        }
-        shots_out.append(shot)
+        shots_out.append(
+            {
+                "id": entry["id"],
+                "prompt": list(entry["prompt"]),
+                "length": int(entry["length"]),
+                "seed": str(entry["seed"]),
+            }
+        )
     return {
-        "defaults": {"steps": int(default_steps)},
         "shots": shots_out,
         "prompt_prefix": [str(ln) for ln in prefix_lines],
     }
@@ -1130,10 +1025,9 @@ def validate_plan(plan: dict, *, schema: str = SCHEMA_THREE) -> list[str]:
     """Return a list of contract violations (empty list = valid).
 
     Schema-aware:
-    - Top-level keys: ``defaults`` + ``shots`` always required;
-      ``prompt_prefix`` is OPTIONAL (D3: keyframe modes may emit just
-      defaults + shots; ref2va always emits one). Any other top-level
-      key is an error.
+    - Top-level keys: ``shots`` always required; ``prompt_prefix`` is
+      OPTIONAL (keyframe modes may emit shots only; ref2va always emits
+      one). Any other top-level key is an error.
     - Three-section: each shot's prompt array must start with
       ``integrated_multimodal_description:`` and end with
       ``non_diegetic_music:``.
@@ -1142,14 +1036,12 @@ def validate_plan(plan: dict, *, schema: str = SCHEMA_THREE) -> list[str]:
     """
     errors: list[str] = []
     top = set(plan.keys())
-    # ``prompt_prefix`` is OPTIONAL (D3); only unknown extras or a
-    # missing ``defaults`` / ``shots`` are errors.
-    if top - {"defaults", "shots", "prompt_prefix"}:
+    # ``prompt_prefix`` is OPTIONAL; only unknown extras or a missing
+    # ``shots`` are errors.
+    if top - {"shots", "prompt_prefix"}:
         errors.append(
-            f"top-level keys must be a subset of {{'defaults', 'shots', 'prompt_prefix'}}, got {sorted(top)}"
+            f"top-level keys must be a subset of {{'shots', 'prompt_prefix'}}, got {sorted(top)}"
         )
-    if "defaults" not in top:
-        errors.append("top-level key 'defaults' is required")
     if "shots" not in top:
         errors.append("top-level key 'shots' is required")
     shots = plan.get("shots")
@@ -1218,26 +1110,20 @@ def validate_plan(plan: dict, *, schema: str = SCHEMA_THREE) -> list[str]:
         seed = shot.get("seed")
         if not isinstance(seed, str) or not seed.isdigit() or int(seed) > UINT64_MAX:
             errors.append(f"shot {i}: seed must be a uint64 digit string")
-        steps = shot.get("steps")
-        if not isinstance(steps, int) or not (MIN_STEPS <= steps <= MAX_STEPS):
-            errors.append(f"shot {i}: steps {steps!r} outside 1..10000")
-        extra = set(shot.keys()) - {"id", "prompt", "steps", "length", "seed"}
+        extra = set(shot.keys()) - {"id", "prompt", "length", "seed"}
         if extra:
             errors.append(f"shot {i}: unexpected keys {sorted(extra)}")
     prefix = plan.get("prompt_prefix")
     if prefix is not None:
-        # D3: prompt_prefix may be absent (defaults/shots only) OR an
-        # empty list (ref2va style-only prefix); when present and
-        # non-empty, every line must be a non-empty string.
+        # prompt_prefix may be absent (shots only) OR an empty list
+        # (ref2va style-only prefix); when present, every line must be a
+        # non-empty string.
         if not isinstance(prefix, list) or not all(
             isinstance(ln, str) and ln.strip() for ln in prefix
         ):
             errors.append(
                 "prompt_prefix, when present, must be an array of non-empty strings"
             )
-    defaults = plan.get("defaults")
-    if not isinstance(defaults, dict) or set(defaults.keys()) != {"steps"}:
-        errors.append("defaults must contain exactly a 'steps' key")
     return errors
 
 
@@ -1307,7 +1193,7 @@ def build_preflight_report(
     for i, s in enumerate(shots, start=1):
         lines.append(
             f"  {i}. {s.get('id')}  length={s.get('length')} "
-            f"({length_to_seconds(s.get('length') or 0):.2f}s)  steps={s.get('steps')}  "
+            f"({length_to_seconds(s.get('length') or 0):.2f}s)  "
             f"seed={s.get('seed')}  prompt_lines={len(s.get('prompt') or [])}"
         )
 
@@ -1414,6 +1300,7 @@ def build_prefix_user_text(
     *,
     mode_note: str = "",
     manifest_digest: str = "",
+    cast_roster: str = "(none named)",
 ) -> str:
     return _PREFIX_SYNTH_USER_TEMPLATE.format(
         concept=(concept or "").strip(),
@@ -1422,20 +1309,90 @@ def build_prefix_user_text(
         language_name=language_name,
         mode_note=(mode_note or "").strip(),
         manifest_digest=(manifest_digest or "no reference images").strip(),
+        cast_roster=(cast_roster or "(none named)").strip(),
     )
 
 
+# Heuristic roster fallback: capitalized proper-noun-like tokens and
+# Chinese 2-4 char noun phrases from a shot's description text. Only
+# used when the structured ``characters`` array is empty.
+EN_PROPER_RE = re.compile(r"\b[A-Z][a-z]+(?:[ _-][A-Z][a-z]+)*\b")
+ZH_PHRASE_RE = re.compile(r"[\u4e00-\u9fff]{2,4}")
+
+# Stopwords filtered from the heuristic fallback: capitalized
+# sentence-initial words the EN proper-noun regex would otherwise sweep
+# up as cast members ("The", "Then", "During", ...).
+_ROSTER_STOPWORDS = frozenset(
+    {
+        "the", "a", "an", "then", "when", "during", "after", "before",
+        "his", "her", "its", "their", "this", "that", "camera", "shot",
+        "she", "he", "they", "it", "as", "in", "on", "at",
+    }
+)
+
+
+def _shot_roster_tokens(shot: dict) -> set[str]:
+    """Per-shot on-screen subject tokens. The structured ``characters``
+    array is the authoritative roster (the storyboard LLM's own cast
+    assignment) and is used verbatim when present; the capitalized-word
+    + Chinese-phrase heuristic on the description text is only a
+    fallback for boards that left ``characters`` empty."""
+    roster = shot.get("characters") or []
+    named = {str(c).strip().lower() for c in roster if str(c).strip()}
+    if named:
+        return named
+    desc = str(shot.get("description") or "")
+    tokens: set[str] = set()
+    for match in EN_PROPER_RE.findall(desc):
+        # A multi-word match may open with a capitalized stopword
+        # ("The Cat" matches as one compound) — drop stopword words
+        # instead of discarding the whole compound.
+        kept = [
+            w for w in match.split() if w.lower() not in _ROSTER_STOPWORDS
+        ]
+        if kept:
+            tokens.add(" ".join(kept).lower())
+    tokens.update(ZH_PHRASE_RE.findall(desc))
+    return tokens
+
+
 def build_shots_digest(shots: list[dict], max_desc_chars: int = 160) -> str:
-    """One line per shot (``- id: description``) grounding the prefix
+    """One line per shot with presence hints grounding the prefix
     synthesis in the actual storyboard — without this, a thin concept
-    lets the prefix drift (e.g. inventing human protagonists)."""
+    lets the prefix drift (e.g. inventing human protagonists), AND
+    sequences with a late-arriving character (e.g. "two fighters, then
+    a third drops from the sky") collapse every scene into a single
+    over-packed frame because the prefix declares ALL characters as
+    recurring. Each line tags the shot with which named subjects appear
+    here (first_seen) vs. which appear across the whole board (all_shots).
+    The prefix synth uses this to keep one-shot characters out of the
+    shared prefix."""
     lines: list[str] = []
     for shot in shots:
         desc = str(shot.get("description") or "").strip().replace("\n", " ")
         if len(desc) > max_desc_chars:
             desc = desc[: max_desc_chars - 3] + "..."
         lines.append(f"- {shot.get('id')}: {desc}")
-    return "\n".join(lines)
+    if not lines:
+        return ""
+    per_shot = [_shot_roster_tokens(shot) for shot in shots]
+    all_set = set.intersection(*per_shot) if per_shot else set()
+    decorated: list[str] = []
+    for shot, tokens in zip(shots, per_shot):
+        only_here = sorted(tokens - all_set)
+        recurring = sorted(tokens & all_set)
+        flags: list[str] = []
+        if recurring:
+            flags.append("all_shots=" + ",".join(recurring))
+        if only_here:
+            flags.append("first_seen=" + ",".join(only_here))
+        # Recompute desc per-shot — do NOT reuse the outer loop's binding.
+        desc = str(shot.get("description") or "").strip().replace("\n", " ")
+        if len(desc) > max_desc_chars:
+            desc = desc[: max_desc_chars - 3] + "..."
+        suffix = ("  # " + "; ".join(flags)) if flags else ""
+        decorated.append(f"- {shot.get('id')}: {desc}{suffix}")
+    return "\n".join(decorated)
 
 
 def build_continuation_block(
@@ -1488,16 +1445,28 @@ def build_reference_directive(
     manifest: list[dict],
     clip_index: int,
     seconds: Any,
+    *,
+    category: Optional[str] = None,
 ) -> str:
     """Per-mode reference directive woven into the first sentence of
     the description block (D6). Returns "" for t2va (no labels).
 
-    - i2va scene 1: official opening idiom with Picture 1'''s about text.
-    - fl2va scene 1: D6 scene-1 idiom naming both pictures.
-    - fl2va scene N>=2: D6 L2VA end-target sentence converging on
+    - i2va scene 1: official opening idiom with Picture 1's about text.
+    - fl2va scene 1: scene-1 idiom naming both pictures.
+    - fl2va scene N>=2: end-target sentence converging on
       ``<Picture (N % 2) + 1>`` (alternates between Picture 1 / 2).
     - ref2va: deterministic subject_definitions + summary +
-      retention_analysis construction guide for the LLM (D5)."""
+      retention_analysis construction guide for the LLM (D5), plus
+      optional SPOKEN SCENE CONTRACT / GENRE CONTRACT blocks when
+      ``category`` is ``dialogue`` (set by the user via the category
+      widget).
+
+    ``category`` is the parsed code from the ``category`` widget — e.g.
+    ``"dialogue"``. When ``category == "dialogue"``, the ref2va branch
+    appends a one-rule SPOKEN SCENE CONTRACT (shot boundaries land on
+    completed utterances) and a two-rule GENRE CONTRACT (setup → beat →
+    punchline + verbatim <d>...</d> language tags).
+    """
     code = parse_reference_mode(mode)
     if code == "t2va":
         return ""
@@ -1507,24 +1476,25 @@ def build_reference_directive(
         about = manifest[0].get("about", "")
         return (
             f"At 0.00 seconds, <Picture 1> is fully referenced as the opening frame. "
-            f"Animate the exact {about} shown in <Picture 1>."
+            f"This scene animates <Picture 1> (exact: {about}) from its frozen pose "
+            f"to the next beat of the concept. Describe only the smooth visual path "
+            f"between them."
         )
     if code == "fl2va":
         if clip_index == 1:
             if len(manifest) < 2:
                 return ""
             a1 = manifest[0].get("about", "")
-            a2 = manifest[1].get("about", "")
             return (
-                f"<Picture 1> aligns with 0.00 seconds and <Picture 2> aligns "
-                f"with the final target frame. Begin from the exact {a1} shown in "
-                f"<Picture 1>. Progressively match the {a2} in <Picture 2>. "
-                f"Reach <Picture 2> only on the final frame; do not freeze early or cut."
+                f"<Picture 1> is the opening frame; <Picture 2> is the closing frame. "
+                f"Describe the smooth interpolation between them. "
+                f"<Picture 1> (exact: {a1}) is the opening pose; "
+                f"<Picture 2> is the closing pose the next scene arrives at."
             )
         # Scenes 2+: the L2VA gate exposes ONE image under <Picture 1> -
         # the per-scene end target. Pick that image's manifest entry when
         # the user supplied one (5-picture layout: Picture 1 = opening,
-        # Picture k>=2 = scene k's end target). Fall back to alternating
+        # Picture k>=2 = scene k end target). Fall back to alternating
         # manifest[0] / manifest[1] for legacy 2-image layouts so old
         # workflows keep their A->B->A rhythm.
         if clip_index < len(manifest):
@@ -1603,6 +1573,35 @@ def build_reference_directive(
                 "video slot as the motion source ('reference - choreography "
                 "and timing')."
             )
+        # Category-driven contracts. category is a single code string;
+        # the user picks it via the category widget. Only dialogue
+        # unlocks the spoken/genre contract blocks today.
+        category_code = parse_category(category) if category else ""
+        if category_code == "dialogue":
+            lines.append(
+                "---\n"
+                "[SPOKEN SCENE CONTRACT = dialogue "
+                "(selected via the category widget). Shot boundaries MUST "
+                "land after a completed utterance or a visible reaction "
+                "beat, never in the middle of a spoken sentence.\n"
+                "---"
+            )
+            lines.append(
+                "---\n"
+                "[GENRE CONTRACT = dialogue "
+                "(selected via the category widget).]\n"
+                "  (1) Every <d>...</d> dialogue line MUST follow the "
+                "THREE-BEAT structure: [setup sentence] → [beat pause "
+                "description] → [punchline sentence]. Never write only "
+                "the punchline without a setup.\n"
+                "  (2) Every dialogue description MUST use the "
+                "verbatim <d>[English] exact words</d> or "
+                "<d>[Chinese] exact words</d> tag with the speaker's "
+                "original language untranslated. The language tag value "
+                "MUST be `[English]` or `[Chinese]` (capitalised full "
+                "word; NOT `[en]` / `[zh]` / `en:` / `zh:` etc.).\n"
+                "---"
+            )
         return "\n".join(lines)
     return ""
 
@@ -1623,14 +1622,12 @@ _FL2VA_IDIOM_RE = re.compile(
     r"<?\s*Picture\s*2\s*>?\s*aligns\s+with\s+the\s+final\s+target\s+frame\.?",
     re.IGNORECASE,
 )
+# Matches the "Reach <Picture 2> only on the final frame" closing line
+# used by both fl2va scene 1 and scene 2+ enforcer paths.
 _FL2VA_REACH_RE = re.compile(
-    r"<\s*Picture\s*2\s*>[^.\n]{0,80}only\s+on\s+the\s+final\s+frame"
-    r"|only\s+on\s+the\s+final\s+frame[^.\n]{0,80}<\s*Picture\s*2\s*>",
+    r"<\s*Picture\s*[12]\s*>[^.\n]{0,80}only\s+on\s+the\s+final\s+frame"
+    r"|only\s+on\s+the\s+final\s+frame[^.\n]{0,80}<\s*Picture\s*[12]\s*>",
     re.IGNORECASE,
-)
-_FL2VA_END_TARGET_RE_TMPL = (
-    r"<\s*Picture\s*{target}\s*>[^.\n]{{0,160}}final\s+frame"
-    r"|final\s+frame[^.\n]{{0,160}}<\s*Picture\s*{target}\s*>"
 )
 
 
@@ -1643,13 +1640,18 @@ def ensure_keyframe_idiom(
 ) -> list[str]:
     """Enforce the official keyframe idiom on a split THREE-section prompt.
 
-    i2va scene 1 / fl2va scene 1: the canonical bracketed opening sentence
-    replaces whatever idiom-shaped segment the LLM wrote on the first
-    description body line (bracket-less variants match); when no idiom is
-    present the canonical sentence is prepended. fl2va additionally
-    guarantees the scene-1 reach sentence and the scene-N>=2 end-target
-    sentence (appended at the end of the description body when absent).
-    Returns a NEW list; t2va/ref2va return ``lines`` unchanged.
+    i2va scene 1: replace any idiom-shaped segment with the canonical
+    opening sentence; prepend when absent.
+    fl2va scene 1: replace any idiom-shaped segment with the canonical
+    opening sentence; prepend when absent; ensure the scene closes with
+    "Reach <Picture 2> only on the final frame; do not freeze early or
+    cut." when no reach sentence exists.
+    fl2va scene N>=2: ensure "Reach <Picture 1> only on the final frame;
+    do not freeze early or cut." closes the description body when no
+    reach sentence exists.
+    i2va scenes 2+ / t2va / ref2va: pass through unchanged.
+
+    Returns a NEW list.
     """
     code = parse_reference_mode(mode)
     if code not in ("i2va", "fl2va"):
@@ -1667,8 +1669,8 @@ def ensure_keyframe_idiom(
         return out
 
     if code == "i2va":
-        if clip_index != 1:
-            return out  # scenes 2+ must stay label-free
+        if clip_index != 1 or not manifest:
+            return out
         canonical = (
             "At 0.00 seconds, <Picture 1> is fully referenced as the opening frame."
         )
@@ -1684,7 +1686,6 @@ def ensure_keyframe_idiom(
             "with the final target frame."
         )
         _replace_or_prepend_idiom(out, body_start, _FL2VA_IDIOM_RE, canonical)
-        # Guarantee the reach sentence closes the description body.
         body_text = "\n".join(out[body_start:sound_header])
         if not _FL2VA_REACH_RE.search(body_text):
             insert_at = sound_header
@@ -1696,34 +1697,16 @@ def ensure_keyframe_idiom(
             )
         return out
 
-    # fl2va scene N>=2: L2VA end-target sentence. The check requires
-    # the literal <Picture 1> token near a final-frame phrase — live E2E
-    # showed the LLM writes token-free paraphrases ("aligning with the
-    # warrior's stance on the final frame") that must NOT count as
-    # present. The label is always <Picture 1> (verified against the
-    # upstream gate wiring — FrameIndexSwitch exposes the per-scene
-    # image under Picture 1, not Picture 2).
-    end_re = re.compile(
-        _FL2VA_END_TARGET_RE_TMPL.format(target=1), re.IGNORECASE
-    )
+    # fl2va scene N>=2: append the single-line reach sentence if missing.
     body_text = "\n".join(out[body_start:sound_header])
-    if end_re.search(body_text):
-        return out
-    if clip_index < len(manifest):
-        about = manifest[clip_index].get("about", "")
-    elif clip_index % 2 == 0:
-        about = manifest[0].get("about", "")
-    else:
-        about = manifest[1].get("about", "") if len(manifest) > 1 else ""
-    insert_at = sound_header
-    while insert_at > body_start and not out[insert_at - 1].strip():
-        insert_at -= 1
-    out.insert(
-        insert_at,
-        f"During the final seconds, progressively align the visible scene with "
-        f"{about} shown in <Picture 1>, reaching that picture only on the "
-        f"final frame without a cut or early hold.",
-    )
+    if not _FL2VA_REACH_RE.search(body_text):
+        insert_at = sound_header
+        while insert_at > body_start and not out[insert_at - 1].strip():
+            insert_at -= 1
+        out.insert(
+            insert_at,
+            "Reach <Picture 1> only on the final frame; do not freeze early or cut.",
+        )
     return out
 
 
@@ -1757,33 +1740,16 @@ def _manifest_digest(manifest: list[dict]) -> str:
 
 
 def _mode_note_for_prefix(mode: str) -> str:
-    """Per-mode policy note for the prefix synthesis user template
-    (D3): identity words vs. style-only vs. style/setting stub."""
-    code = parse_reference_mode(mode)
-    if code == "t2va":
-        return (
-            "Prefix policy: include the protagonist(s)''' exact identity, "
-            "wardrobe, recurring props, setting, lighting, palette, tempo, "
-            "art style, and global exclusions."
-        )
-    if code == "i2va" or code == "fl2va":
-        return (
-            "Prefix policy (keyframe mode): NO subject appearance words, "
-            "identities, or recurring props. The opening keyframe image "
-            "supplies identity; the per-clip continuation wording re-asserts "
-            "identity when needed. Cover ONLY style, lighting, palette, "
-            "tempo, art style, and the global exclusions (no text, no logo, "
-            "no extra people, no non-diegetic music)."
-        )
-    if code == "ref2va":
-        return (
-            "Prefix policy (ref2va): SHORTER style + setting stub. Identity "
-            "for every recurring subject is established in each scene'''s "
-            "subject_definitions (deterministic binding to <Subject N>), NOT "
-            "in the shared prefix. Cover ONLY the overall art style, light "
-            "direction, palette, tempo, and global exclusions."
-        )
-    return ""
+    """Policy note for the prefix synthesis user template. Unified across
+    all reference modes: the prefix NEVER carries characters — identity
+    anchoring travels per-clip through the deterministic cast blocks."""
+    return (
+        "Prefix policy (all modes): whole-video invariants only — art "
+        "style, setting, lighting/palette (non-exclusive), tempo, and "
+        "the global exclusions. NEVER any character, identity, or prop "
+        "in the prefix; identity travels per-clip through the cast "
+        "blocks built from your CAST sheet."
+    )
 
 
 def build_shot_user_text(
@@ -1795,12 +1761,12 @@ def build_shot_user_text(
     shot: dict,
     clip_index: int,
     clip_count: int,
-    width: int,
-    height: int,
     duration_seconds: Any,
     language_name: str,
     reference_directive: str = "",
     manifest_digest: str = "",
+    cast_block: str = "",
+    reference_mode: str = "t2va",
 ) -> str:
     # ``duration_seconds`` should be the clip's ACTUAL grid-rounded length
     # (``length_to_seconds(length)``) so the pacing budget matches what H3
@@ -1814,14 +1780,16 @@ def build_shot_user_text(
         clip_index=int(clip_index),
         clip_count=int(clip_count),
         shot_json=json.dumps(shot, ensure_ascii=False, indent=2),
-        width=int(width),
-        height=int(height),
-        aspect=aspect_ratio_string(int(width), int(height)),
         duration_seconds=seconds,
-        pacing_directive=pacing_directive(seconds, continued=clip_index > 1),
+        pacing_directive=pacing_directive(
+            seconds,
+            continued=clip_index > 1,
+            reference_mode=reference_mode,
+        ),
         language_name=language_name,
         reference_directive=(reference_directive or "").strip(),
         manifest_digest=(manifest_digest or "no reference images").strip(),
+        cast_block=(cast_block or "(none named)").strip(),
     )
 
 
@@ -1831,19 +1799,22 @@ def build_single_call_user_text(
     prefix_text: str,
     category: str,
     shots: list[dict],
-    width: int,
-    height: int,
     duration_seconds: int,
     language_name: str,
+    cast_sheet: str = "",
 ) -> str:
     board = json.dumps(shots, ensure_ascii=False, indent=2)
     return (
         f"Concept (whole production):\n{(concept or '').strip()}\n\n"
-        f"Shared identity / style prefix (binding for every clip):\n{prefix_text.strip()}\n\n"
+        f"Shared style/setting prefix (binding for every clip):\n{prefix_text.strip()}\n\n"
+        f"Cast sheet (pick each clip's on-screen members by exact name):\n"
+        f"{cast_sheet or '(none named)'}\n\n"
         f"{_genre_advice_block(category)}\n\n"
         f"Storyboard entries (ALL {len(shots)} clips, in order):\n{board}\n\n"
-        f"Canvas: {int(width)}x{int(height)} ({aspect_ratio_string(int(width), int(height))}). "
-        f"Clip duration: {int(duration_seconds)} seconds. Output language: {language_name}.\n\n"
+        f"Average clip duration: {int(duration_seconds)} seconds (each entry's own "
+        f"duration_seconds in the board above is binding). Output language: {language_name}.\n\n"
+        f"Language policy: narrative prose follows {language_name}; dialogue is Chinese "
+        f"by default unless the concept explicitly requests English speech.\n\n"
         f"{SINGLE_CALL_FORMAT.format(clip_count=len(shots)).strip()}"
     )
 
@@ -1855,6 +1826,66 @@ def split_prefix_paragraphs(text: str) -> list[str]:
         p.strip() for p in re.split(r"\n\s*\n", (text or "").strip()) if p.strip()
     ]
     return paragraphs
+
+
+def split_prefix_and_cast(raw: str) -> tuple[list[str], dict[str, str]]:
+    """Split a stage-1 reply into ``(prefix paragraphs, cast sheet)``.
+
+    Expected shape: one or more prefix paragraphs, then a line starting
+    with ``CAST:`` followed by one ``name: identity`` line per named
+    character. A missing CAST marker yields an empty dict (the caller's
+    retry trigger when a roster was requested). Cast keys are normalized
+    to lowercase for roster matching; malformed lines are skipped."""
+    text = (raw or "").strip()
+    if not text:
+        return [], {}
+    lines = text.split("\n")
+    cast_idx = next(
+        (
+            i
+            for i, ln in enumerate(lines)
+            if ln.strip().lower().startswith("cast:")
+        ),
+        -1,
+    )
+    if cast_idx < 0:
+        return split_prefix_paragraphs(text), {}
+    prefix_part = "\n".join(lines[:cast_idx])
+    cast: dict[str, str] = {}
+    for ln in lines[cast_idx + 1 :]:
+        entry = ln.strip()
+        if not entry or ":" not in entry:
+            continue
+        name, _, identity = entry.partition(":")
+        name = name.strip()
+        identity = identity.strip()
+        if name and identity:
+            cast[name.lower()] = identity
+    return split_prefix_paragraphs(prefix_part), cast
+
+
+def build_cast_block(cast: dict[str, str], roster: list[str]) -> str:
+    """Identity lines for THIS clip's on-screen roster, drawn from the
+    cast sheet. Names match case-insensitively; an empty roster (boards
+    without ``characters`` arrays) falls back to the whole sheet so
+    identity anchoring still happens. Empty sheet -> ``""``."""
+    if not cast:
+        return ""
+    if roster:
+        lines = [
+            f"{name}: {cast[name.lower()]}"
+            for name in roster
+            if name.lower() in cast
+        ]
+    else:
+        lines = [f"{name}: {identity}" for name, identity in cast.items()]
+    return "\n".join(lines)
+
+
+def build_cast_sheet_text(cast: dict[str, str]) -> str:
+    """The whole cast sheet as text (single-call mode writes every clip
+    in one reply and picks from the sheet itself)."""
+    return "\n".join(f"{name}: {identity}" for name, identity in cast.items())
 
 
 def log_pipeline(message: str) -> None:

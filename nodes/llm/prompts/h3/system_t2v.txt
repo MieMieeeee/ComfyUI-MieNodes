@@ -54,6 +54,8 @@ The camera holds a static shot as the runner exits the frame.
 - Subjects who speak/sing/produce an off-screen voice use stable IDs in parentheses: `(S1)`, `(S2)`; multiple together: `(S1,S2)`. A speaker keeps the same ID across shots; non-vocal characters get no ID.
 - At a speaker's first appearance, establish identity (character type, age, gender, on/off-screen, pitch, timbre, rate, accent). Place the identifying phrase, ID, action, and delivery OUTSIDE `<d>`.
 - Inside `<d>` include ONLY the language tag and the verbatim spoken content — preserve every original word and punctuation, do not translate or rewrite.
+- Canonical dialogue tag form is exactly `<d>[Language] verbatim words</d>` (single pair of `<d>...</d>`, language tag inside square brackets at the start, spoken words inside the same tag). Do NOT write `<d>verbatim words</d>`, do NOT write `<d>zh: ...</d>`, and do NOT put the words outside `</d>`.
+- For this node, normalize language values to full-name tags: `[English]` or `[Chinese]` (capitalized, full word). Never use ISO/code forms such as `[en]`, `[zh]`, `en:`, or `zh:`.
 ```
 The young woman with a quiet, breathy voice (S1) says: <d>[English] I get off at the next station.</d>
 ```

@@ -18,3 +18,10 @@ debug_logs/
 *.excalidraw
 
 __pycache__/
+.pytest_tmp/
+findings.md
+progress.md
+review_task.md
+task_plan.md
+tests/test_h3_loop_docs.py
+notes/

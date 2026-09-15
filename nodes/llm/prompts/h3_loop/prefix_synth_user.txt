@@ -4,6 +4,9 @@ Concept:
 Storyboard the prefix must fit (every clip, in order):
 {storyboard_digest}
 
+Named cast roster (use these EXACT names in the CAST sheet):
+{cast_roster}
+
 {genre_advice}
 
 {mode_note}
@@ -13,4 +16,4 @@ Reference manifest (binding):
 
 Output language: {language_name}
 
-Write the shared prompt prefix now (one paragraph, nothing else). Anchor the protagonists exactly as they appear above and keep the storyboard's stated art style.
+Write the TWO artifacts now: first the shared prompt prefix paragraph (whole-video invariants only, NO characters), then the CAST sheet with one identity line per roster name.

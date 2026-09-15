@@ -89,7 +89,25 @@
 
 1. Kontext预设工作流，结合大语言模型，可根据图片和文本输入自动生成高质量的Kontext提示词，支持添加和移除自己的预设。
 2. 高级提示词优化，支持自动翻译与细节丰富，输出更具表现力和创意的内容，适用于各类创作任务。
-3. **MiniMax H3 分镜 / Loop 计划节点** — `MiniMaxH3StoryboardGenerator` 输入概念与期望分镜数，生成结构化分镜（叙事节拍、景别、运镜、转场、时长建议）；`MiniMaxH3LoopPromptGenerator` 基于概念与分镜生成 `plan_json`，直连 [ComfyUI-MiniMaxH3-Context-Loop](https://github.com/ethanfel/ComfyUI-MiniMaxH3-Context-Loop) 的 Production Plan 节点（`plan_json_input`），逐段撰写带链式续写规则与共享 `prompt_prefix` 的 H3 提示词。
+3. **MiniMax H3 分镜 / Loop 计划节点** — `MiniMaxH3StoryboardGenerator` 输入概念与期望分镜数，生成结构化分镜（叙事节拍、景别、运镜、转场、时长建议）；`MiniMaxH3LoopPromptGenerator` 基于概念与分镜生成 `plan_json`，直连 [ComfyUI-MiniMaxH3-Context-Loop](https://github.com/ethanfel/ComfyUI-MiniMaxH3-Context-Loop) 的 Production Plan 节点（`plan_json_input`），逐段撰写带链式续写规则与共享 `prompt_prefix` 的 H3 提示词。Loop Plan 节点同时提供统一的 `IMAGE` 批输入端口——把同一根 `LoadImage` 线分别拉进两个节点，节点按 `reference_mode` 自动把图分配到对应上游槽位（i2va 只用第一张；fl2va 1..N 循环；ref2va 每场全部激活）；场景间的切换（如“从图一到图二”/“A→B→A→B”）写在 `user_input` 里。
+
+### 术语表
+
+四个术语都来自上游 [`ComfyUI-MiniMaxH3-Context-Loop`](https://github.com/ethanfel/ComfyUI-MiniMaxH3-Context-Loop) 项目（`docs/README.md` + `H3_CHAIN_FORMAT_GUIDE.md`），其中 `clip` 是上游真实词汇但不是生成单元名词。
+
+- **Storyboard shot** — 规划单元。`MiniMaxH3StoryboardGenerator` 输出的一条 JSON（`shot_type`、`camera_movement`、`transition_in`、`duration_seconds`、`narrative_beat`、`characters`、`props`、`notes`）。
+- **Plan entry**（`plan_json["shots"][i]`）— 执行单元。一条对应一次 Context-Loop 生成。本仓库用 `clip_index` / `clip_count` 枚举（历史命名，保留以维持 diff 稳定）。默认 id 形如 `scene_01`。
+- **上游 Scene** — `H3_CHAIN_FORMAT_GUIDE.md` 原文："one planned H3 generation"。每个 plan entry 对应一个 Scene。
+- **上游 Segment** — 同源："the delivered media saved for one scene." 落盘：`segments/clip_NNNN.<id>.mp4`。
+
+**词汇说明（非单元）**
+
+- **`prompt_prefix` 不是上游单元。** 六个官方 `example_workflows/` 都没有顶层 `prompt_prefix` 字段；`H3_CHAIN_FORMAT_GUIDE.md` 的 music-video 模板展示了一个，但官方示例选择把同样的身份/风格内容写在每个 shot 的 prompt 里——让每场自包含。在本仓库，`prompt_prefix` 是 `MiniMaxH3LoopPromptGenerator` 引入的扩展字段（让全片风格跨场共享），不是上游计划的术语词。
+- **`@`-别名（`@courier_arrival`、`@greenhouse_delivery`）不由本节点生成。** 它们来自上游 Project Asset Carousel / Ref2V Tagged Conditioning。本节点只输出 `<Picture N>` / `<Subject N>`。
+- **场景内 `[Shot 1]`** — loop pipeline 的小节开头标记，**不是切镜**。多切镜 `[Shot N] At 00:03.500` 是 H3 模型原生语法，只在 `prompts/h3/system_t2v.txt`（独立 T2V）里；不要混用。
+- **MiniMax-H3 模型时长上限** — `MiniMax-AI/MiniMax-H3/README.md`："Output duration | 4–15 seconds"；H3-Max 5–15 秒（platform API）。`MiniMaxH3LoopPromptGenerator` 把每场硬封顶 14 秒。
+
+> `nodes/llm/prompts/h3_loop/` 下的 `shot_*.txt` 文件名是历史命名，指 Scene 级别单元。修改前先同步改 `minimax_h3_loop_prompts.py` 的 `_SHOT_USER_TEMPLATE`。
 
 
 ---

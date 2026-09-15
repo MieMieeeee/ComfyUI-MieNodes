@@ -74,6 +74,7 @@ CATEGORIES = (
     "product-commercial - 商业广告/UGC带货",
     "music-video - 音乐卡点MV",
     "action - 动作戏/打斗/飙车",
+    "dialogue - 对白/对话/相声",
     "anime - 二次元/漫画风",
     "gameplay - 游戏/玩家视角",
     "fashion - 时装片/街拍",
@@ -98,6 +99,7 @@ CATEGORY_CODES = (
     "product-commercial",
     "music-video",
     "action",
+    "dialogue",
     "anime",
     "gameplay",
     "fashion",
@@ -130,6 +132,14 @@ CATEGORY_ADVICE = {
         "all action at real-time speed with no slow motion; snappy "
         "strike-and-recoil verbs (launch -> connect -> recoil); combat "
         "beats 4-6 seconds per clip"
+    ),
+    "dialogue": (
+        "spoken-scene cinematography: medium-close framing on speakers, "
+        "shot/reverse-shot on turns, eyeline matching; natural room tone "
+        "with breath and lip movement foregrounded; dialogue language "
+        "defaults to Chinese unless the concept specifies otherwise; "
+        "no on-screen subtitles, no captions, no watermark, no SFX stings "
+        "during speech"
     ),
     "anime": "2D anime look, flat lighting, clean linework, limited but saturated palette",
     "gameplay": "player POV, HUD overlay feel, lower-fps texture, direct-control camera",

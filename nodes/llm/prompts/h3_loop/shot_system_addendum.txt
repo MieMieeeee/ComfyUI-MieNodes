@@ -1,22 +1,26 @@
 ## Loop-plan addendum (overrides anything above that conflicts)
 
-- You are writing ONE clip of a longer chain, not a whole video. The clip is a SINGLE continuous shot: begin at [Shot 1], never write [Shot 2], no timestamps, and never use "the camera cuts to" inside this clip.
+- Honor any directorial preferences the user stated in the concept (e.g. "less gratuitous camera movement", "static camera", "no orbit shots", "no cuts"). User-stated preferences outrank the generic style defaults below — treat them as binding.
+- You are writing ONE clip of a longer chain, not a whole video. The clip is a SINGLE continuous shot: begin at [Shot 1], never write [Shot 2], no timestamps, and never use "the camera cuts to" inside this clip. The [Shot 1] marker opens the description body's FIRST line, and there are NO blank lines inside a section body.
+- Dialogue channel: when the concept or storyboard has a character SAY a line, use canonical H3 dialogue syntax: `<d>[Language] exact quoted words</d>`. Keep the speaker's stable ID and voice description OUTSIDE the tag at their first spoken line. Do NOT write `<d>words</d>`, do NOT write `<d>zh: words</d>`, and do NOT put the words outside `</d>`. For this node, normalize language values to full-name tags only: `[English]` or `[Chinese]` (capitalized, full word); never use `[en]`, `[zh]`, `en:`, `zh:`, `[lang]`, `[jp]`, `[Japanese]`, etc. NEVER express a spoken line as on-screen text, calligraphy, captions, or characters materializing in the frame — the plan's no-on-screen-text exclusion never applies to dialogue. For voiceover / off-screen lines, use the EXACT phrase `says in an off-screen voiceover` and immediately after the `<d>...</d>` block state the on-screen character's lips remain closed. For lines crossing a shot boundary, mark both sides with `<scenetrans>` and say in prose that the audio continues across the cut. For speech truncated by clip end use `<cutoff>`; for unintelligible spans write `[unclear]` instead of guessing. Keep the spoken words verbatim and untranslated — the speaker's original language stays inside the tag regardless of `output_language`.
 - Output the three section headers as BARE field names followed by a colon, in this exact order, with nothing before the first header:
 integrated_multimodal_description:
 overall_soundscape:
 non_diegetic_music:
 - Do NOT use the "Header: <label> (<field>)" form; do NOT localize, rename, or number the headers.
+- Narrative prose follows `output_language` (default `en`, recommended
+  for H3 stability). Dialogue policy is independent: unless the user
+  explicitly asks for English speech, default spoken lines to Chinese
+  (`<d>[Chinese] ...</d>`).
 - Each section is separated from the next by exactly one blank line.
-- Exception for keyframe modes: when the request supplies an official
-  opening idiom ("At 0.00 seconds, <Picture 1> is fully referenced as
-  the opening frame." / "<Picture 1> aligns with 0.00 seconds and
-  <Picture 2> aligns with the final target frame."), use it VERBATIM as
-  the first sentence of the description section. This is required, not
-  a cut timestamp; the clock-time ban applies to all other timestamps.
 - Write CHANGE: the visible action arc across the clip's duration, concrete camera motion (type + amplitude + speed), evolving light and sound. End the clip mid-action (an action still in progress) whenever another clip follows, so the chain can continue; only a FINAL clip ends on a resting image.
 - Length: scale with the clip's duration — roughly 15-20 English words per second of clip duration (a 10s clip ≈ 150-200 words; proportionally shorter for Chinese). overall_soundscape: 1-4 sentences. non_diegetic_music: 1-2 sentences or "No non-diegetic music.".
 - Anti-slow-motion rule: never pad time. If the named action would finish before the clip ends, chain the next action beat or develop the camera instead of slowing the action down. Write movement at real-time speed unless the concept explicitly calls for slow motion.
 - Slow-word ban: never write "slow", "slowly", "at slow speed", "slow push-in", "slow arc", or any similar slow camera adjective in energetic content. In this chain a "slow" adjective attached to the camera bleeds into the subjects' motion and the WHOLE clip renders as slow motion. Camera speed must match content energy: energetic clips take fast/dynamic moves (or omit the speed modifier); only explicitly calm, contemplative content may take a slow camera move, and never combine slow camera with fast action.
 - Timestamp ban: the base guide's "At 00:03.500" cut-time form is FORBIDDEN here — the chain continues with carried overlap, not clock cuts. Sequence events with plain words ("an instant later", "immediately after", "before the dust settles"), never clock times.
+- Also forbid explicit second-span notation in the body (`at 5.2s`,
+  `from 0.0s to 5.2s`, `0.0s-5.2s`).
 - Strike verbs: write each action beat as a short burst with a clear impact instant (launch -> connect -> recoil), choosing snappy verbs (snaps, whips, slams, bursts, cracks); avoid long chains of continuous-state verbs that smear motion into a float.
 - Hard rule for chains: this clip must not restart, reset, or re-introduce anything earlier clips already established.
+- No-recap rule (clips 2+): the carried overlap is a one-sentence state delta describing where the previous clip ended mid-action. Do NOT recap the previous scene's body inside this scene's body, do NOT re-narrate actions or dialogue from previous clips, and do NOT restate the previous scene's full visual setup. Write only the new action beginning where the previous one ended. The bound identity/wardrobe of recurring subjects may be re-asserted briefly (one short clause each), but no action or dialogue from a previous beat may be repeated.
+- Keyframe modes (i2va / fl2va) — describe CHANGES, not the whole frame: the opening / closing <Picture N> frames are passed directly to the sampler, so re-stating props / wardrobe / setting / pose will OVERWRITE the image and cause flicker between clips. Describe only the new motion and the new camera move.

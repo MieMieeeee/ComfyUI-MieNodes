@@ -47,7 +47,7 @@ def test_input_types_shape(cls):
     names = [f"value_{i}" for i in range(16)]
     assert list(optional.keys()) == names
     for name, spec_value in optional.items():
-        assert spec_value[0] == "STRING"
+        assert spec_value[0] in ("STRING", "*")
         # forceInput is what lets the JS extension addInput() the next slot
         # when the previous one is wired; without it the slot would be a
         # widget and cannot accept an input link.

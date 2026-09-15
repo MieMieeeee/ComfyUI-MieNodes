@@ -2,10 +2,13 @@ Concept:
 {concept}
 
 Storyboard requirements:
-- shot_count: exactly {shot_count} shots.
+{count_directive}
+{duration_budget}
+{reference_block}
 - style: {style_name}
 - style guidance: {style_advice}
 - genre guidance: {genre_advice}
+{spoken_guidance}
 - language: {language} (the language for description / narrative_beat / notes values)
 
-Produce the JSON array of exactly {shot_count} storyboard entries now.
+Produce the JSON array of {closing_directive} storyboard entries now.

@@ -191,7 +191,8 @@ def test_parse_retry_then_success(sb):
     # The retry carries a corrective user turn, not a plain repeat.
     assert len(conn.calls[1]) == 3
     assert conn.calls[1][2]["role"] == "user"
-    assert "ONLY the JSON array" in conn.calls[1][2]["content"]
+    retry_text = conn.calls[1][2]["content"].lower()
+    assert "json array" in retry_text and "only" in retry_text
 
 
 def test_parse_failure_raises_after_retry(sb):
