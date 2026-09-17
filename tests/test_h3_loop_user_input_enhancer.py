@@ -238,11 +238,13 @@ def test_enhance_happy_path_returns_extracted_block(enh):
 
 
 def test_enhance_raises_when_block_missing(enh):
-    """No BEGIN/END in the reply -> RuntimeError (silent fallback is
-    forbidden by design — user choice)."""
-    conn = _make_connector_with_replies(
-        ["Sure! Here is the rewritten user_input: it starts now..."]
-    )
+    """No BEGIN/END in ANY reply -> RuntimeError after 3 attempts
+    (silent fallback is forbidden by design — user choice)."""
+    conn = _make_connector_with_replies([
+        "Sure! Here is the rewritten user_input: it starts now...",
+        "Still no markers, trust me.",
+        "Third time, no markers either.",
+    ])
     node = enh.MiniMaxH3LoopUserInputEnhancer()
     with pytest.raises(RuntimeError) as exc:
         node.enhance(
@@ -251,14 +253,17 @@ def test_enhance_raises_when_block_missing(enh):
             category="none - 不指定",
             reference_mode="t2va - 文生视频链(默认)",
         )
-    # Error message must include the raw reply head for diagnosis.
-    assert "BEGIN user_input" in str(exc.value)
-    assert "Sure!" in str(exc.value)
+    # All three attempts were spent before raising.
+    assert len(conn.calls) == 3
+    # Error message must include the attempt count + raw head.
+    assert "after 3 attempts" in str(exc.value)
+    assert "Third time" in str(exc.value)
 
 
-def test_enhance_raises_when_reply_is_empty(enh):
-    """Connector returns '' -> RuntimeError, not silent fallback."""
-    conn = _make_connector_with_replies([""])
+def test_enhance_raises_when_reply_is_always_empty(enh):
+    """Connector returns '' every time -> 3 attempts, then RuntimeError
+    (never a silent fallback to the raw draft)."""
+    conn = _make_connector_with_replies(["", "", ""])
     node = enh.MiniMaxH3LoopUserInputEnhancer()
     with pytest.raises(RuntimeError):
         node.enhance(
@@ -267,6 +272,28 @@ def test_enhance_raises_when_reply_is_empty(enh):
             category="none - 不指定",
             reference_mode="t2va - 文生视频链(默认)",
         )
+    assert len(conn.calls) == 3
+
+
+def test_enhance_retries_empty_reply_then_succeeds(enh):
+    """Regression (MiniMax-M3 empty-200 flake): the FIRST attempt may
+    return an empty string; the second attempt (fresh seed) succeeds —
+    the node must return the block instead of killing the run."""
+    conn = _make_connector_with_replies(["", _good_reply_body()])
+    node = enh.MiniMaxH3LoopUserInputEnhancer()
+    out = node.enhance(
+        conn,
+        draft="two cats in a cafe",
+        category="none - 不指定",
+        reference_mode="t2va - 文生视频链(默认)",
+        seed=7,
+    )
+    assert len(conn.calls) == 2
+    assert out[0].startswith("场景设定")
+    # The retry used a FRESH seed (same seed could deterministically
+    # reproduce the same empty answer).
+    assert conn.calls[0]["seed"] == 7
+    assert conn.calls[1]["seed"] == 8
 
 
 def test_enhance_passes_category_and_reference_mode_to_user_message(enh):

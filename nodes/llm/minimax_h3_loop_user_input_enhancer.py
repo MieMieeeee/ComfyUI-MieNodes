@@ -133,7 +133,6 @@ class _UserInputEnhancer:
     Thin wrapper around the connector with a per-call timeout override,
     mirroring the ``Krea2PromptEnhancer`` shape.
     """
-
     def __init__(
         self,
         llm_service_connector,
@@ -226,6 +225,72 @@ class _UserInputEnhancer:
             {"role": "user", "content": user_msg},
         ]
         return self._invoke(messages, seed=seed)
+
+
+def run_enhancer(
+    llm_service_connector,
+    draft: str,
+    *,
+    category: str,
+    reference_mode: str,
+    seed=None,
+    temperature: float = _DEFAULT_TEMPERATURE,
+    max_tokens: int = _MAX_TOKENS_DEFAULT,
+    timeout: int = _DEFAULT_TIMEOUT,
+    usage_sink=None,
+    attempts: int = 3,
+):
+    """Run the rewrite with automatic retries on empty / block-less
+    replies, then return ``(user_input_block, advice_header)``.
+
+    Some providers occasionally answer HTTP 200 with an EMPTY content
+    string (observed with MiniMax-M3: ``response_chars=0`` after ~16s).
+    The connector only retries transport/HTTP errors, so without this
+    wrapper a single empty reply kills the whole run. Retry policy: a
+    reply that is empty or has no BEGIN/END block is retried with a
+    fresh seed (same seed could deterministically reproduce the same
+    empty answer); a genuine refusal that keeps its shape across all
+    attempts still raises ``RuntimeError`` with the last reply head.
+    """
+    enhancer = _UserInputEnhancer(
+        llm_service_connector,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        timeout=timeout,
+        usage_sink=usage_sink,
+    )
+    last_head = ""
+    for attempt in range(1, max(1, attempts) + 1):
+        attempt_seed = seed if attempt == 1 else (
+            None if seed is None else int(seed) + attempt - 1
+        )
+        raw = enhancer(
+            draft,
+            category=category,
+            reference_mode=reference_mode,
+            seed=attempt_seed,
+        )
+        block, header = split_enhancer_reply(raw)
+        if block:
+            if attempt > 1:
+                mie_log(
+                    "h3_loop_user_input_enhancer: succeeded on attempt "
+                    f"{attempt}/{attempts}"
+                )
+            return block, header
+        last_head = (raw or "")[:400]
+        if attempt < attempts:
+            mie_log(
+                "h3_loop_user_input_enhancer: attempt "
+                f"{attempt}/{attempts} reply had no user_input block "
+                f"({len(raw or '')} chars); retrying with a fresh seed"
+            )
+    raise RuntimeError(
+        "MiniMax H3 Loop user-input enhancer: the LLM reply did not "
+        "contain a `--- BEGIN user_input ---` ... "
+        f"`--- END user_input ---` block after {attempts} attempts. "
+        f"Raw reply head: {last_head!r}"
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -342,26 +407,16 @@ class MiniMaxH3LoopUserInputEnhancer:
         max_tokens=_MAX_TOKENS_DEFAULT,
         timeout=_DEFAULT_TIMEOUT,
     ):
-        enhancer = _UserInputEnhancer(
+        block, _header = run_enhancer(
             llm_service_connector,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            timeout=timeout,
-        )
-        raw = enhancer(
             draft,
             category=category,
             reference_mode=reference_mode,
             seed=seed,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            timeout=timeout,
         )
-        block = extract_user_input_block(raw)
-        if not block:
-            head = (raw or "")[:400]
-            raise RuntimeError(
-                "MiniMax H3 Loop user-input enhancer: the LLM reply did "
-                "not contain a `--- BEGIN user_input ---` ... "
-                f"`--- END user_input ---` block. Raw reply head: {head!r}"
-            )
         return (block,)
 
     def is_changed(

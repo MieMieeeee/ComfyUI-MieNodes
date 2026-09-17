@@ -732,7 +732,11 @@ def test_auto_enhance_on_rewrites_before_pipeline(lg):
 
 
 def test_auto_enhance_parse_failure_raises_no_silent_fallback(lg):
-    conn = ScriptedConnector(["Sure! Here is your rewrite, trust me."])
+    conn = ScriptedConnector([
+        "Sure! Here is your rewrite, trust me.",
+        "Still nothing structured.",
+        "Third unstructured reply.",
+    ])
     with pytest.raises(RuntimeError, match="BEGIN user_input"):
         lg.H3LoopPromptEnhancer(conn)(
             user_input="courtyard summer",
@@ -740,8 +744,31 @@ def test_auto_enhance_parse_failure_raises_no_silent_fallback(lg):
             seed=1,
             enhance_user_input=True,
         )
-    # Nothing downstream ran — no storyboard/prefix/shot calls spent.
-    assert len(conn.calls) == 1
+    # Nothing downstream ran — 3 enhancer attempts, no storyboard /
+    # prefix / shot calls spent.
+    assert len(conn.calls) == 3
+
+
+def test_auto_enhance_survives_empty_llm_reply(lg):
+    """Regression (MiniMax-M3 empty-200 flake): an empty first reply is
+    retried with a fresh seed; the pipeline then continues normally."""
+    conn = ScriptedConnector([
+        "",  # empty first attempt
+        _enhancer_reply_block(),
+        _extract_dialogue_empty(),
+        _auto_storyboard_reply(1),
+        PREFIX_REPLY,
+        _clip_reply(1),
+    ])
+    out = lg.H3LoopPromptEnhancer(conn)(
+        user_input="courtyard summer",
+        scene_count=1,
+        seed=1,
+        enhance_user_input=True,
+    )
+    assert len(json.loads(out["plan_json"])["shots"]) == 1
+    # Both enhancement attempts were recorded in the usage summary.
+    assert "user_input_enhance 2" in out["summary"]
 
 
 def test_auto_enhance_off_by_default_skips_rewrite(lg):

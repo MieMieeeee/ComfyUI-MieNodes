@@ -1231,57 +1231,47 @@ class H3LoopPromptEnhancer:
     ) -> tuple[str, str]:
         """Run the standalone enhancer's rewrite inline (toggle on).
 
-        Reuses ``MiniMaxH3LoopUserInputEnhancer``'s implementation —
-        single code path for the prompt contract. Imported lazily (both
-        deployment paths) because that module imports ``LOOP_CATEGORIES``
-        from this one; a module-level import would be circular.
+        Reuses ``MiniMaxH3LoopUserInputEnhancer``'s ``run_enhancer``
+        (single code path for the prompt contract AND for the
+        empty-reply retry policy — providers sometimes answer HTTP 200
+        with empty content, which must not kill a whole multi-round
+        run). Imported lazily (both deployment paths) because that
+        module imports ``LOOP_CATEGORIES`` from this one; a module-
+        level import would be circular.
 
         Returns ``(rewritten_user_input, advice_header)``. Raises
-        ``RuntimeError`` when the reply has no BEGIN/END block — no
-        silent fallback to the raw draft: an unverified rewrite must
-        not flow into the pipeline, and a raw draft that was never
-        meant to be canonical would silently degrade the board.
+        ``RuntimeError`` after the retries are exhausted — no silent
+        fallback to the raw draft: an unverified rewrite must not flow
+        into the pipeline, and a raw draft that was never meant to be
+        canonical would silently degrade the board.
         """
         try:
             from _mienodes_internal.nodes.llm.minimax_h3_loop_user_input_enhancer import (
-                _MAX_TOKENS_DEFAULT as _ENH_MAX_TOKENS,
-                _DEFAULT_TEMPERATURE as _ENH_TEMPERATURE,
-                _UserInputEnhancer as _InputEnhancer,
-                split_enhancer_reply as _split_reply,
+                run_enhancer as _run_input_enhancer,
             )
         except ImportError:
             from .minimax_h3_loop_user_input_enhancer import (
-                _MAX_TOKENS_DEFAULT as _ENH_MAX_TOKENS,
-                _DEFAULT_TEMPERATURE as _ENH_TEMPERATURE,
-                _UserInputEnhancer as _InputEnhancer,
-                split_enhancer_reply as _split_reply,
+                run_enhancer as _run_input_enhancer,
             )
         _check_interrupt("user_input_enhance")
-        enhancer = _InputEnhancer(
-            self.llm,
-            # The rewrite is tuned for the standalone node's sampling
-            # defaults; only the per-call timeout follows this node.
-            temperature=_ENH_TEMPERATURE,
-            max_tokens=_ENH_MAX_TOKENS,
-            timeout=int(self._timeout_override or _DEFAULT_TIMEOUT),
-            usage_sink=self._record_usage,
-        )
-        raw = enhancer(
-            draft,
-            category=category,
-            reference_mode=reference_mode,
-            seed=seed,
-        )
-        block, header = _split_reply(raw)
-        if not block:
-            head = (raw or "")[:400]
-            raise RuntimeError(
-                "MiniMax H3 Loop Plan Generator (auto-enhance): the "
-                "enhancer reply did not contain a "
-                "`--- BEGIN user_input ---` ... `--- END user_input ---` "
-                f"block. Raw reply head: {head!r}"
+        try:
+            return _run_input_enhancer(
+                self.llm,
+                draft,
+                category=category,
+                reference_mode=reference_mode,
+                seed=seed,
+                # The rewrite is tuned for the standalone node's
+                # sampling defaults; only the per-call timeout follows
+                # this node.
+                timeout=int(self._timeout_override or _DEFAULT_TIMEOUT),
+                usage_sink=self._record_usage,
             )
-        return block, header
+        except RuntimeError as exc:
+            raise RuntimeError(
+                "MiniMax H3 Loop Plan Generator (auto-enhance): "
+                f"{exc}"
+            ) from exc
 
     # ------------------------------------------------------------------ #
     # Dialogue extraction (LLM with mechanical span verification)
