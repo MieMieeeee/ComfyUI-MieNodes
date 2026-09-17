@@ -332,7 +332,7 @@ def test_plan_json_serialization_matches_reference_shape(lp):
 def test_reports(lp):
     plan = lp.build_plan([_plan_entry(1), _plan_entry(2)], ["prefix"])
     report = lp.build_preflight_report(plan, warnings=["watch out"])
-    assert "Shots: 2" in report
+    assert "Scenes: 2" in report
     assert "486" in report  # total frames
     assert "watch out" in report
     preview = lp.build_plan_preview(plan)
@@ -448,6 +448,36 @@ def test_template_builders(lp):
     assert "slow motion" in single
 
 
+def test_single_call_user_text_carries_spatial_layout(lp):
+    """Single-call mode must inject the same binding spatial-layout
+    directive the per-shot path injects — the prefix alone is not the
+    binding channel for positions."""
+    layout = {"Subject 1": "left of frame", "Subject 2": "right of frame"}
+    single = lp.build_single_call_user_text(
+        concept="c",
+        prefix_text="p",
+        category="none - 不指定",
+        shots=[{"id": "a", "description": "d"}],
+        duration_seconds=10,
+        language_name="English",
+        spatial_layout=layout,
+    )
+    assert "Spatial layout" in single
+    assert "Subject 1 stays at left of frame" in single
+    assert "Subject 2 stays at right of frame" in single
+    # No layout declared -> the neutral fallback line fills the slot
+    # (mirrors build_spatial_layout_directive's contract).
+    bare = lp.build_single_call_user_text(
+        concept="c",
+        prefix_text="p",
+        category="none - 不指定",
+        shots=[{"id": "a", "description": "d"}],
+        duration_seconds=10,
+        language_name="English",
+    )
+    assert "no spatial_layout declared" in bare
+
+
 def test_continuation_block_carries_full_context(lp):
     block = lp.build_continuation_block(
         "scene_01",
@@ -515,3 +545,313 @@ def test_genre_advice_block(lp):
     assert "action" in user
     user_none = lp.build_prefix_user_text("concept", "none - 不指定", "English")
     assert "none" in user_none
+
+
+# --------------------------------------------------------------------- #
+# Speaker-ID contract (official H3 rule: a speaker keeps the same
+# (S<n>) across shots; non-vocal characters get no ID).
+# --------------------------------------------------------------------- #
+def test_build_speaker_id_map_orders_by_first_appearance(lp):
+    shots = [
+        {"id": "scene_01", "_turn_speaker": "莎莉猫"},
+        {"id": "scene_02", "_turn_speaker": "哈利猫"},
+        {"id": "scene_03", "_turn_speaker": "莎莉猫"},  # repeat, no new slot
+        {"id": "scene_04"},  # narration shot, ignored
+        {"id": "scene_05", "_turn_speaker": "教授"},
+    ]
+    assert lp.build_speaker_id_map(shots) == {
+        "莎莉猫": "S1",
+        "哈利猫": "S2",
+        "教授": "S3",
+    }
+
+
+def test_build_speaker_id_map_empty_for_narration(lp):
+    assert lp.build_speaker_id_map([{"id": "scene_01"}, {"id": "scene_02"}]) == {}
+    assert lp.build_speaker_id_map([]) == {}
+    assert lp.build_speaker_id_map(None) == {}
+
+
+def test_format_speaker_id_map_text(lp):
+    text = lp.format_speaker_id_map_text({"莎莉猫": "S1", "哈利猫": "S2"})
+    assert text == "莎莉猫=(S1), 哈利猫=(S2)"
+    assert lp.format_speaker_id_map_text({}) == ""
+
+
+def test_repair_speaker_ids_rewrites_wrong_number(lp):
+    lines = [
+        "integrated_multimodal_description:",
+        "[Shot 1] The cream cat, adult female, soft timbre (S2), says "
+        "<d>[Chinese] 今天天气真好。</d>",
+        "",
+        "overall_soundscape:",
+        "quiet.",
+    ]
+    out, problems = lp.repair_speaker_ids(lines, "莎莉猫", "S1")
+    assert problems == []
+    assert "(S1)" in out[1]
+    assert "(S2)" not in out[1]
+    # Non-speaking lines untouched, structure preserved.
+    assert out[0] == lines[0]
+    assert out[3] == "overall_soundscape:"
+
+
+def test_repair_speaker_ids_flags_missing_tag(lp):
+    lines = [
+        "integrated_multimodal_description:",
+        "[Shot 1] The cat says <d>[Chinese] 今天天气真好。</d>",
+    ]
+    out, problems = lp.repair_speaker_ids(lines, "莎莉猫", "S1")
+    assert out == lines  # nothing repairable without a tag
+    assert len(problems) == 1
+    assert "no (S<n>) tag" in problems[0]
+
+
+def test_repair_speaker_ids_first_appearance_requires_gender(lp):
+    lines_with_gender = [
+        "The cat (S1) says <d>[Chinese] 你好。</d> with an adult female voice"
+    ]
+    out, problems = lp.repair_speaker_ids(
+        lines_with_gender, "莎莉猫", "S1", first_appearance=True
+    )
+    assert problems == []
+    lines_without_gender = [
+        "The cat (S1) says <d>[Chinese] 你好。</d> quietly"
+    ]
+    out, problems = lp.repair_speaker_ids(
+        lines_without_gender, "莎莉猫", "S1", first_appearance=True
+    )
+    assert len(problems) == 1
+    assert "voice identity" in problems[0]
+    # Non-first appearances do not need the gender restated.
+    out, problems = lp.repair_speaker_ids(
+        lines_without_gender, "莎莉猫", "S1", first_appearance=False
+    )
+    assert problems == []
+
+
+def test_repair_speaker_ids_no_dialogue_is_noop(lp):
+    lines = [
+        "integrated_multimodal_description:",
+        "[Shot 1] A cat sleeps. The other cat (S2) watches.",
+    ]
+    out, problems = lp.repair_speaker_ids(lines, "莎莉猫", "S1")
+    assert out == lines
+    assert problems == []
+
+
+def test_shot_user_text_carries_speaker_id_directive(lp):
+    user = lp.build_shot_user_text(
+        concept="coffee shop cats",
+        prefix_text="Warm amber coffee shop.",
+        category="dialogue - 对白/对话/相声",
+        continuation_block="CONTINUATION RULES",
+        shot={"id": "scene_02", "_turn_speaker": "哈利猫"},
+        clip_index=2,
+        clip_count=3,
+        duration_seconds=6.0,
+        language_name="English",
+        dialogue_lines=["好？你凭什么定义好。"],
+        turn_index=2,
+        turn_speaker="哈利猫",
+        speaker_id_map={"莎莉猫": "S1", "哈利猫": "S2"},
+    )
+    assert "Speaker ID map" in user
+    assert "莎莉猫=(S1), 哈利猫=(S2)" in user
+    assert "line 1=哈利猫 (S2)" in user
+    assert "Non-vocal on-screen characters get NO (S<n>) tag" in user
+
+
+def test_shot_user_text_without_map_omits_directive(lp):
+    user = lp.build_shot_user_text(
+        concept="courtyard summer",
+        prefix_text="Same woman, white blouse.",
+        category="none - 不指定",
+        continuation_block="CONTINUATION RULES",
+        shot={"id": "scene_01", "description": "she stirs"},
+        clip_index=1,
+        clip_count=1,
+        duration_seconds=5.0,
+        language_name="English",
+    )
+    assert "Speaker ID map" not in user
+
+
+def test_single_call_user_text_carries_speaker_map(lp):
+    user = lp.build_single_call_user_text(
+        concept="coffee shop cats",
+        prefix_text="Warm amber.",
+        category="dialogue - 对白/对话/相声",
+        shots=[{"id": "scene_01", "_turn_speaker": "莎莉猫"}],
+        duration_seconds=20,
+        language_name="English",
+        speaker_id_map={"莎莉猫": "S1", "哈利猫": "S2"},
+    )
+    assert "莎莉猫=(S1), 哈利猫=(S2)" in user
+    assert "never renumber" in user
+
+
+def test_system_prompts_carry_speaker_id_rules(lp):
+    # Three-section (t2va/i2va/fl2va) addendum.
+    system = lp.shot_system_prompt()
+    assert "Speaker IDs `(S1)`, `(S2)`" in system
+    assert "never renumber, never swap, never invent new IDs" in system
+    assert "get NO `(S<n>)` tag" in system
+    # Six-section (ref2va) addendum.
+    system6 = lp.shot_system_prompt_ref2v()
+    assert "Speaker IDs `(S1)`, `(S2)`" in system6
+    assert "never renumber, never swap, never invent new IDs" in system6
+    assert "must not suddenly carry" in system6
+
+
+# --------------------------------------------------------------------- #
+# repair_speaker_ids_for_lines — multi-speaker variant used by packed
+# scenes (split_bias != aggressive). Each <d> block has its own
+# speaker; the function rewrites the (S<n>) tag in the delivery prose
+# BEFORE that block to that speaker's mapped ID.
+# --------------------------------------------------------------------- #
+def test_repair_speaker_ids_for_lines_rewrites_two_blocks(lp):
+    """The model emits Sahli with the wrong (S9) tag and Harry with
+    (S2) in a packed scene — only the FIRST block's delivery prose
+    carries the wrong number; the second block is already correct.
+    The function must rewrite the wrong tag to Sahli's mapped S1,
+    leave Harry's correct S2 alone, and not flag anything."""
+    lines = [
+        "integrated_multimodal_description:",
+        "The cream cat, adult female, soft timbre (S9), says "
+        "<d>[Chinese] 今天天气真好。</d> The orange cat, adult male, "
+        "mid pitch (S2), then says <d>[Chinese] 好？你凭什么定义好。</d>",
+        "",
+        "overall_soundscape:",
+        "Cafe hush.",
+    ]
+    sid_map = {"莎莉猫": "S1", "哈利猫": "S2"}
+    out, problems = lp.repair_speaker_ids_for_lines(
+        lines, ["莎莉猫", "哈利猫"], sid_map
+    )
+    assert problems == [], f"unexpected problems: {problems}"
+    prompt_text = "\n".join(out)
+    # Sahli's delivery prose now carries the FIXED (S1) tag.
+    assert "(S1)" in prompt_text
+    assert "(S9)" not in prompt_text
+    # Harry's (S2) survives untouched (no false rewrite).
+    assert "(S2)" in prompt_text
+    # Both <d> blocks kept verbatim.
+    assert "<d>[Chinese] 今天天气真好。</d>" in prompt_text
+    assert "<d>[Chinese] 好？你凭什么定义好。</d>" in prompt_text
+
+
+def test_repair_speaker_ids_for_lines_flags_mismatch(lp):
+    """If the LLM reply has 2 <d> blocks but the caller only declared
+    1 speaker, the contract cannot be enforced — flag and bail."""
+    lines = [
+        "[Shot 1] Beat one: <d>[Chinese] 第一句。</d> "
+        "Beat two: <d>[Chinese] 第二句。</d>"
+    ]
+    out, problems = lp.repair_speaker_ids_for_lines(
+        lines, ["only_one_speaker"], {"only_one_speaker": "S1"}
+    )
+    assert any("mismatch" in p and "2 <d>" in p for p in problems), (
+        f"expected mismatch problem; got {problems}"
+    )
+
+
+def test_repair_speaker_ids_for_lines_missing_tag_first_block(lp):
+    """A speaker's FIRST block in this shot must carry their tag. If
+    the delivery prose has no (S<n>) tag, the function flags it."""
+    lines = [
+        "[Shot 1] The cream cat says <d>[Chinese] 第一句。</d> "
+        "Harry, adult male, mid pitch (S2), then says "
+        "<d>[Chinese] 第二句。</d>"
+    ]
+    out, problems = lp.repair_speaker_ids_for_lines(
+        lines, ["莎莉猫", "哈利猫"],
+        {"莎莉猫": "S1", "哈利猫": "S2"},
+    )
+    assert any("carries no" in p and "莎莉猫" in p for p in problems), (
+        f"expected missing-tag problem for 莎莉猫; got {problems}"
+    )
+
+
+def test_repair_speaker_ids_for_lines_first_appearance_needs_gender(lp):
+    """A speaker making their FIRST spoken appearance in the video
+    must state gender/pitch/timbre beside the tag at their first
+    block in this shot. The tag is present but no gender word — flag."""
+    lines = [
+        "[Shot 1] Sahli quietly (S1) says <d>[Chinese] 你好。</d>"
+    ]
+    out, problems = lp.repair_speaker_ids_for_lines(
+        lines, ["Sahli"], {"Sahli": "S1"},
+        first_appearance_speakers={"Sahli"},
+    )
+    assert any("first spoken appearance" in p and "Sahli" in p for p in problems), (
+        f"expected first-appearance gender problem; got {problems}"
+    )
+
+
+def test_repair_speaker_ids_for_lines_first_appearance_with_gender_passes(lp):
+    """Same setup but gender IS stated → no first-appearance problem."""
+    lines = [
+        "[Shot 1] Sahli, adult female, soft timbre (S1), says "
+        "<d>[Chinese] 你好。</d>"
+    ]
+    out, problems = lp.repair_speaker_ids_for_lines(
+        lines, ["Sahli"], {"Sahli": "S1"},
+        first_appearance_speakers={"Sahli"},
+    )
+    assert problems == [], f"unexpected problems: {problems}"
+    assert "(S1)" in "\n".join(out)
+
+
+def test_repair_speaker_ids_for_lines_tail_not_rewritten(lp):
+    """Text AFTER the last <d> block on a line is the closing reaction
+    — its tag ownership is ambiguous, so the function must NOT rewrite
+    it (only the segment before the next block counts as 'delivery
+    prose' for that line)."""
+    lines = [
+        "[Shot 1] Sahli, adult female (S1), says "
+        "<d>[Chinese] 你好。</d> The cat then turns to Harry (S9) "
+        "and waits.",
+    ]
+    out, problems = lp.repair_speaker_ids_for_lines(
+        lines, ["Sahli"], {"Sahli": "S1"},
+    )
+    # The (S9) tag in the tail is left untouched.
+    assert "(S9)" in "\n".join(out), (
+        "tail-text tags must not be rewritten; got:\n" + "\n".join(out)
+    )
+    # And the first-block delivery prose was rewritten to S1.
+    assert "Sahli, adult female (S1)" in "\n".join(out)
+
+
+def test_repair_speaker_ids_for_lines_no_dialogue_is_noop(lp):
+    """Lines without <d> blocks pass through untouched and produce
+    no problems."""
+    lines = [
+        "integrated_multimodal_description:",
+        "[Shot 1] A cat sleeps on the chair.",
+        "",
+        "overall_soundscape:",
+        "Cafe hush.",
+    ]
+    out, problems = lp.repair_speaker_ids_for_lines(
+        lines, [], {"Sahli": "S1"},
+    )
+    assert out == lines
+    assert problems == []
+
+
+def test_repair_speaker_ids_for_lines_block_count_match_no_problems(lp):
+    """Sanity: balanced two-speaker packed scene with two well-formed
+    <d> blocks (each carrying the correct tag) produces no problems."""
+    lines = [
+        "Sahli, adult female, soft timbre (S1), says "
+        "<d>[Chinese] 你好。</d> Harry, adult male, mid pitch (S2), "
+        "then says <d>[Chinese] 你也好。</d>"
+    ]
+    out, problems = lp.repair_speaker_ids_for_lines(
+        lines, ["Sahli", "Harry"],
+        {"Sahli": "S1", "Harry": "S2"},
+        first_appearance_speakers={"Sahli", "Harry"},
+    )
+    assert problems == [], f"unexpected problems: {problems}"

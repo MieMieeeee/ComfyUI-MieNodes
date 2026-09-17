@@ -52,3 +52,13 @@ non_diegetic_music:
 - Reference tokens: only `<Picture N>` and `<Subject N>` (per the
   manifest). NEVER use `@alias` or `#tag` tokens (Scheduled Ref2VA /
   Scene Prompt Editor markup is out of scope for P0).
+- Speaker IDs `(S1)`, `(S2)`, ... are FIXED by the map given in the
+  per-shot user template ("Speaker ID map"). A speaker keeps the SAME
+  ID in every clip; never renumber, never swap, never invent new IDs —
+  `<Subject 2>` must not suddenly carry `<Subject 1>`'s voice tag.
+  Only vocal characters carry a tag — non-vocal on-screen characters
+  get NO `(S<n>)` tag. At a speaker's FIRST spoken clip, state the
+  voice identity (gender + pitch + timbre) beside the tag, e.g.
+  `<Subject 2> (S1), adult female, light mid-range pitch, soft rounded
+  timbre, says ...`. Wrong or missing IDs are repaired / rejected
+  mechanically.

@@ -11,7 +11,9 @@ Pipeline:
     decides the per-shot ``duration_seconds`` so the whole board lands
     close to the ``total_duration_seconds`` budget (each scene later
     rounds UP onto the H3 17k+5 grid, so "close" is exact enough).
-    ``shot_count`` pins the number of scenes; 0 lets the LLM decide.
+    ``scene_count`` pins the number of scenes; 0 lets the pipeline
+    decide (dialogue boards: natural turn packing; narration boards:
+    the LLM).
   * Stage 0 (deterministic) — grid-convert durations, derive per-shot
     seeds, sanity-check the summed duration against the budget.
   * Stage 1 (LLM) — derive the shared ``prompt_prefix``.
@@ -122,16 +124,17 @@ try:
         SCHEMA_SIX,
         build_continuation_block,
         build_continuation_block_ref2v,
-        build_plan,
-        build_plan_preview,
         build_prefix_user_text,
-        build_preflight_report,
         build_reference_directive,
         build_shot_user_text,
         build_shots_digest,
         build_single_call_user_text,
+        build_spatial_layout_directive,
         build_cast_block,
         build_cast_sheet_text,
+        extract_spatial_layout,
+        validate_spatial_layout_invariant,
+        build_speaker_id_map,
         derive_seed,
         derive_seed_base,
         description_body,
@@ -139,6 +142,7 @@ try:
         length_to_seconds,
         log_pipeline,
         plan_to_json_string,
+        repair_speaker_ids_for_lines,
         SCHEMA_THREE,
         schema_for_mode,
         parse_reference_mode,
@@ -153,6 +157,7 @@ try:
         validate_label_policy,
         validate_manifest,
         validate_plan,
+        validate_dialogue_invariantity,
         SIX_SECTION_FIELDS,
         _manifest_digest,
         _mode_note_for_prefix,
@@ -170,6 +175,19 @@ try:
         image_tensor_batch_to_data_urls,
         mie_log,
     )
+    from _mienodes_internal.nodes.llm.dialogue_segmenter import (
+        PACING_PRESETS as _DLG_PACING_PRESETS,
+        DialogueTurn as _DLG_DialogueTurn,
+        ExtractedLine as _DLG_ExtractedLine,
+        estimate_shot_budget as _dlg_estimate_shot_budget,
+        group_budgets_into_scenes as _dlg_group_budgets_into_scenes,
+        narrator_fallback_turn as _dlg_narrator_fallback_turn,
+        pacing_report_text as _dlg_pacing_report_text,
+        distribute_lines_to_scenes as _dlg_distribute_lines_to_scenes,
+        scale_shots_to_total as _dlg_scale_shots_to_total,
+        scene_raw_seconds as _dlg_scene_raw_seconds,
+        validate_extracted_lines as _dlg_validate_extracted_lines,
+    )
 except ImportError:
     from .minimax_h3_loop_prompts import (
         DEFAULT_MUSIC_LINE,
@@ -180,16 +198,17 @@ except ImportError:
         SCHEMA_SIX,
         build_continuation_block,
         build_continuation_block_ref2v,
-        build_plan,
-        build_plan_preview,
         build_prefix_user_text,
-        build_preflight_report,
         build_reference_directive,
         build_shot_user_text,
         build_shots_digest,
         build_single_call_user_text,
+        build_spatial_layout_directive,
         build_cast_block,
         build_cast_sheet_text,
+        extract_spatial_layout,
+        validate_spatial_layout_invariant,
+        build_speaker_id_map,
         derive_seed,
         derive_seed_base,
         description_body,
@@ -211,6 +230,8 @@ except ImportError:
         validate_label_policy,
         validate_manifest,
         validate_plan,
+        validate_dialogue_invariantity,
+        repair_speaker_ids_for_lines,
         SIX_SECTION_FIELDS,
         _manifest_digest,
         _mode_note_for_prefix,
@@ -227,6 +248,19 @@ except ImportError:
     from ...core.utils import (
         image_tensor_batch_to_data_urls,
         mie_log,
+    )
+    from .dialogue_segmenter import (
+        PACING_PRESETS as _DLG_PACING_PRESETS,
+        DialogueTurn as _DLG_DialogueTurn,
+        ExtractedLine as _DLG_ExtractedLine,
+        estimate_shot_budget as _dlg_estimate_shot_budget,
+        group_budgets_into_scenes as _dlg_group_budgets_into_scenes,
+        narrator_fallback_turn as _dlg_narrator_fallback_turn,
+        pacing_report_text as _dlg_pacing_report_text,
+        distribute_lines_to_scenes as _dlg_distribute_lines_to_scenes,
+        scale_shots_to_total as _dlg_scale_shots_to_total,
+        scene_raw_seconds as _dlg_scene_raw_seconds,
+        validate_extracted_lines as _dlg_validate_extracted_lines,
     )
 
 
@@ -300,17 +334,54 @@ _DEFAULT_MAX_TOKENS_CAPTION = 4096
 # Cap on the ref2va manifest (matches upstream MAX_MANIFEST_PICTURES).
 _MAX_REFERENCE_IMAGES = 9
 
+# Pacing labels for the auto-length estimator (Dialogue segmenter).
+# Each maps 1:1 to a Pacing preset; default "normal - 正常(推荐)".
+_PACING_LABELS = (
+    "fast - 快",
+    "normal - 正常(推荐)",
+    "slow - 慢",
+)
+_PACING_LABEL_TO_KEY = {
+    "fast": "fast",
+    "normal": "normal",
+    "slow": "slow",
+}
+
+# Inline user-input enhancement toggle. "on" runs the standalone
+# ``MiniMaxH3LoopUserInputEnhancer`` rewrite once inside this node (one
+# extra LLM call) before planning; "off" (default) consumes user_input
+# verbatim. Default off because the rewrite's value is a visible,
+# editable intermediate — wire the dedicated enhancer node upstream when
+# you want that checkpoint, and keep this off so an already-canonical
+# text is never re-rewritten (double-enhance footgun).
+_ENHANCE_USER_INPUT_LABELS = (
+    "off - 不润色(默认)",
+    "on - 自动润色后再规划",
+)
+
+
+def parse_enhance_user_input(mode: str) -> bool:
+    """``on`` -> True; anything else (including a blank widget) -> False."""
+    return (mode or "").split(" - ", 1)[0].strip().lower() == "on"
+
 GENERATION_MODES = (
     "per_shot - 逐场生成(推荐)",
     "single_call - 单次调用(快/省)",
 )
 GENERATION_MODE_CODES = ("per_shot", "single_call")
 
+# Seed modes. per_scene_increment is the RECOMMENDED default: the
+# upstream ComfyUI-MiniMaxH3-Context-Loop plugin (chain_nodes.py) itself
+# derives per-scene seeds from one base — sha256(f"{base}:{index}:{shot_id}")
+# — whenever the plan omits seeds, and its checkpoint-recovery logic relies
+# on seeds being deterministic but distinct per scene. Identical seeds on
+# every clip make consecutive clips sample near-identical noise, which
+# reads as repeated motion rhythm across cuts.
 SEED_MODES = (
-    "same_across_scenes - 全场同seed(推荐)",
-    "per_scene_increment - 每场seed递增",
+    "per_scene_increment - 每场seed递增(推荐)",
+    "same_across_scenes - 全场同seed",
 )
-SEED_MODE_CODES = ("same_across_scenes", "per_scene_increment")
+SEED_MODE_CODES = ("per_scene_increment", "same_across_scenes")
 
 SPLIT_BIASES = (
     "balanced - 平衡(推荐)",
@@ -543,13 +614,21 @@ def parse_caption_mode(mode: str) -> str:
     return code if code in CAPTION_MODE_CODES else ""
 
 
-def resolve_seed_unified(seed_mode: str, unified_seed_compat: bool) -> bool:
+def resolve_seed_unified(seed_mode: str) -> bool:
+    """Resolve whether every scene shares one seed or each scene gets a
+    per-clip-incremented seed (recommended).
+
+    Defaults to per-scene increment when the widget value is
+    unrecognised — that matches the upstream Context-Loop plugin's own
+    default (per-scene seeds derived from one base; deterministic for
+    checkpoint recovery, distinct per scene so consecutive clips don't
+    repeat the same noise/motion rhythm) and this widget's
+    "per_scene_increment - 每场seed递增(推荐)" default label.
+    """
     code = parse_seed_mode(seed_mode)
     if code == "same_across_scenes":
         return True
-    if code == "per_scene_increment":
-        return False
-    return bool(unified_seed_compat)
+    return False
 
 
 def resolve_caption_controls(
@@ -570,63 +649,6 @@ def resolve_caption_controls(
     if scope not in {"memory_only", "memory_disk", "disabled"}:
         scope = "memory_disk"
     return bool(force_recaption_compat), scope
-
-
-def _parse_shots_text_fallback(shots_text: str) -> list[Any]:
-    raw = str(shots_text or "").strip()
-    if not raw:
-        return []
-    try:
-        data = json.loads(raw)
-    except (TypeError, ValueError):
-        data = None
-    if isinstance(data, dict) and isinstance(data.get("shots"), list):
-        data = data.get("shots")
-    if isinstance(data, list):
-        return data
-    lines = [ln.strip() for ln in raw.splitlines() if ln.strip()]
-    return [
-        {"id": f"clip_{i:04d}", "description": line}
-        for i, line in enumerate(lines, start=1)
-    ]
-
-
-def _apply_per_shot_overrides_local(plan: dict, overrides_text: str) -> dict:
-    out = dict(plan)
-    shots = [dict(s) for s in (plan.get("shots") or [])]
-    out["shots"] = shots
-    by_id = {str(s.get("id", "")): s for s in shots}
-    for raw in str(overrides_text or "").splitlines():
-        line = raw.strip()
-        if not line:
-            continue
-        m = re.match(r"^([^:\s]+)\s*:\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(.+)$", line)
-        if not m:
-            raise RuntimeError(f"invalid override line: {line!r}")
-        shot_id, field, value = m.group(1), m.group(2), m.group(3).strip()
-        shot = by_id.get(shot_id)
-        if shot is None:
-            raise RuntimeError(f"unknown shot id in overrides: {shot_id}")
-        if field == "length":
-            try:
-                length = int(value)
-            except ValueError as exc:
-                raise RuntimeError(f"invalid length override for {shot_id}: {value!r}") from exc
-            if length % 17 != 5:
-                raise RuntimeError(
-                    f"length override for {shot_id} is off the H3 grid (17k+5): {length}"
-                )
-            shot["length"] = length
-        elif field == "seed":
-            shot["seed"] = str(value)
-        elif field == "steps":
-            try:
-                shot["steps"] = int(value)
-            except ValueError as exc:
-                raise RuntimeError(f"invalid steps override for {shot_id}: {value!r}") from exc
-        else:
-            raise RuntimeError(f"unsupported override field for {shot_id}: {field}")
-    return out
 
 
 def postprocess_reply(raw_text: str) -> str:
@@ -666,6 +688,399 @@ def _default_concept() -> str:
     )
 
 
+def _build_shots_from_turns(
+    turns: list,
+    budgets: list,
+    *,
+    scenes: Optional[list] = None,
+    pacing=None,
+    scene_target_total_sec: Optional[float] = None,
+) -> list[dict]:
+    """Synthesise a storyboard straight from dialogue turns + pacing budgets.
+
+    This is the dialogue-driven short-circuit used by ``_auto_storyboard``
+    when the upstream parser produced turn structure. The output mirrors
+    the schema the LLM-backed path produces, so downstream stages don't
+    need to know which path ran.
+
+    Important: a turn may produce MULTIPLE budgets when it splits per-line
+    (see ``estimate_shot_budget`` overbudget handling). We iterate the
+    budget list, NOT the turn list — a ``zip(turns, budgets)`` here
+    silently drops sub-budgets and corrupts the remaining turn mapping.
+    The originating turn is looked up by ``budget.turn_index``.
+
+    ``scenes`` (from ``group_budgets_into_scenes``) packs consecutive
+    budgets into multi-turn scenes — used when split_bias=conservative.
+    Each scene becomes ONE shot carrying every line of its turns in
+    order (``_dialogue_lines`` + ``_line_speakers``), so all three
+    dialogue invariants still hold; only the scene granularity changes.
+
+    When the parser produced a single ``(narrator)`` fallback turn (no
+    ``speaker：text`` lines were found), we leave ``_dialogue_lines``
+    unset so the per-shot post-validator does not enforce the dialogue
+    invariant — there is nothing to enforce.
+    """
+    shots: list[dict] = []
+    is_fallback = (
+        len(turns) == 1 and turns[0].speaker == "(narrator)"
+    )
+    if scenes and pacing is not None:
+        return _build_shots_from_scenes(
+            turns,
+            scenes,
+            pacing,
+            is_fallback=is_fallback,
+            target_total_sec=scene_target_total_sec,
+        )
+    # Group budgets by turn_index so we can compute an intra-turn
+    # sub-budget index (1..N within the same turn). The first budget
+    # of a turn is index 1, etc.
+    intra_index_by_budget: dict[int, int] = {}
+    per_turn_counts: dict[int, int] = {}
+    for budget in budgets:
+        ti = budget.turn_index
+        per_turn_counts[ti] = per_turn_counts.get(ti, 0) + 1
+    seen_counts: dict[int, int] = {}
+    for budget in budgets:
+        ti = budget.turn_index
+        seen_counts[ti] = seen_counts.get(ti, 0) + 1
+        intra_index_by_budget[id(budget)] = seen_counts[ti]
+
+    for budget in budgets:
+        shot_idx = len(shots) + 1
+        shot_id = f"scene_{shot_idx:02d}"
+        # Look up the originating turn by the budget's turn_index
+        # (handles both 1:1 and split-per-line cases).
+        turn = turns[budget.turn_index] if budget.turn_index < len(turns) else None
+        if turn is None:
+            continue
+        first_line = budget.lines[0] if budget.lines else ""
+        if is_fallback:
+            description = first_line or "(empty concept)"
+            narrative_beat = "concept beat (no dialogue)"
+            notes = "no dialogue lines; dialogue invariant not enforced"
+            characters: list[str] = []
+        else:
+            sub_idx = intra_index_by_budget[id(budget)]
+            sub_total = per_turn_counts[budget.turn_index]
+            is_only_budget = sub_total == 1
+            if is_only_budget:
+                # One budget per turn -> single line OR multi-line single shot.
+                if budget.line_count == 1:
+                    description = (
+                        f"[Turn {turn.speaker}] {first_line}"
+                    )
+                    narrative_beat = (
+                        f"{turn.speaker} delivers the next line."
+                    )
+                else:
+                    description = (
+                        f"[Turn {turn.speaker}] {turn.speaker} delivers "
+                        f"{budget.line_count} lines in one continuous "
+                        f"shot: " + " / ".join(budget.lines)
+                    )
+                    narrative_beat = (
+                        f"{turn.speaker} continuous monologue."
+                    )
+            else:
+                # Turn was split across multiple sub-budgets.
+                description = (
+                    f"[Turn {turn.speaker} part {sub_idx}/{sub_total}] "
+                    f"{turn.speaker} delivers {budget.line_count} of "
+                    f"{turn.line_count} lines: " + " / ".join(budget.lines)
+                )
+                narrative_beat = (
+                    f"{turn.speaker} continuous monologue (part "
+                    f"{sub_idx}/{sub_total})."
+                )
+            notes = (
+                f"dialogue invariant: {budget.line_count} verbatim <d> "
+                f"block(s) required; do not split, paraphrase, or merge."
+            )
+            characters = [turn.speaker]
+        shot_dict = {
+            "id": shot_id,
+            "description": description,
+            "shot_type": "medium_shot",
+            "camera_movement": "locked_off",
+            "transition_in": "invisible_cut",
+            "duration_seconds": budget.duration_sec,
+            "narrative_beat": narrative_beat,
+            "characters": characters,
+            "props": [],
+            "notes": notes,
+            "_turn_speaker": turn.speaker,
+            "_turn_index": budget.turn_index,
+        }
+        if not is_fallback:
+            shot_dict["_dialogue_lines"] = list(budget.lines)
+            shot_dict["_line_speakers"] = [turn.speaker] * len(budget.lines)
+        shots.append(shot_dict)
+    if not is_fallback and shots:
+        log_pipeline(
+            f"shot->turn mapping: {len(turns)} turn(s) -> {len(shots)} shot(s) "
+            f"({len(shots) - len(turns)} split-per-line sub-shots)"
+        )
+    return shots
+
+
+def _build_shots_from_scenes(
+    turns: list,
+    scenes: list,
+    pacing,
+    *,
+    is_fallback: bool = False,
+    target_total_sec: Optional[float] = None,
+) -> list[dict]:
+    """One shot per packed scene (split_bias=conservative).
+
+    Every line of the scene's budgets lands in one shot, in order, with
+    a per-line speaker list (``_line_speakers``) so the speaker-ID
+    contract can be enforced per spoken line. The scene duration is
+    recomputed from the packing math (speech + intra pauses + one
+    inter-budget pause per boundary + a single head/tail pad) and
+    grid-rounded; a scene holding a single over-cap budget keeps that
+    budget's own duration. ``target_total_sec`` (explicit user total)
+    rescales every scene proportionally inside the 4-14 s band.
+    """
+    # First pass: per-scene metadata + raw durations.
+    meta: list[dict] = []
+    for scene in scenes:
+        if not scene:
+            continue
+        lines: list[str] = []
+        line_speakers: list[str] = []
+        turn_indices: list[int] = []
+        speakers: list[str] = []
+        for budget in scene:
+            if budget.turn_index >= len(turns):
+                continue
+            turn = turns[budget.turn_index]
+            lines.extend(budget.lines)
+            line_speakers.extend([turn.speaker] * len(budget.lines))
+            if turn.speaker not in speakers:
+                speakers.append(turn.speaker)
+            if budget.turn_index not in turn_indices:
+                turn_indices.append(budget.turn_index)
+        if not lines:
+            continue
+        raw = _dlg_scene_raw_seconds(scene, pacing)
+        if len(scene) == 1 and scene[0].raw_seconds > raw:
+            # Single-budget scene whose own (over-cap) budget is the
+            # honest duration — keep it instead of the packing math.
+            duration = scene[0].duration_sec
+        else:
+            duration = length_to_seconds(seconds_to_length(raw))
+        meta.append(
+            {
+                "lines": lines,
+                "line_speakers": line_speakers,
+                "turn_indices": turn_indices,
+                "speakers": speakers,
+                "duration": duration,
+            }
+        )
+    # Optional explicit total: scale scene durations proportionally,
+    # clamped to the H3 4-14 s single-generation band.
+    if target_total_sec and meta:
+        current = sum(m["duration"] for m in meta)
+        if current > 0:
+            factor = float(target_total_sec) / current
+            for m in meta:
+                scaled = min(14.0, max(4.0, m["duration"] * factor))
+                m["duration"] = length_to_seconds(seconds_to_length(scaled))
+    shots: list[dict] = []
+    for shot_idx, m in enumerate(meta, start=1):
+        names = " / ".join(m["speakers"])
+        lines = m["lines"]
+        description = (
+            f"[Exchange {names}] {len(lines)} lines in one continuous "
+            f"shot: " + " / ".join(lines[:3])
+            + (" ..." if len(lines) > 3 else "")
+        )
+        notes = (
+            f"dialogue invariant: {len(lines)} verbatim <d> block(s) "
+            f"required across speakers [{names}]; do not split, "
+            f"paraphrase, or merge; keep the lines in this order."
+        )
+        shots.append(
+            {
+                "id": f"scene_{shot_idx:02d}",
+                "description": description,
+                "shot_type": "medium_shot",
+                "camera_movement": "locked_off",
+                "transition_in": "invisible_cut",
+                "duration_seconds": m["duration"],
+                "narrative_beat": f"{names} multi-turn exchange.",
+                "characters": list(m["speakers"]),
+                "props": [],
+                "notes": notes,
+                "_turn_speaker": m["line_speakers"][0],
+                "_turn_index": m["turn_indices"][0],
+                "_turn_indices": m["turn_indices"],
+                "_dialogue_lines": list(lines),
+                "_line_speakers": m["line_speakers"],
+            }
+        )
+    if shots:
+        total_turns = len({ti for m in meta for ti in m["turn_indices"]})
+        log_pipeline(
+            f"shot->turn mapping (conservative packing): {total_turns} "
+            f"turn(s) -> {len(shots)} multi-turn shot(s), each within the "
+            f"H3 single-generation window"
+        )
+    return shots
+
+
+def _insert_reaction_cuts(
+    shots: list[dict],
+    needed: int,
+    warnings: list[str],
+) -> list[dict]:
+    """Mechanically top up a dialogue board with silent reaction shots.
+
+    Used when the user's ``scene_count`` exceeds the per-line ceiling
+    (one dialogue line per scene): the extra scenes become 切换镜头 —
+    the classic multi-cam "cut to the listener" beat. Insertion points
+    are speaker-change boundaries AFTER the first spoken shot (a
+    reaction before anyone speaks would react to nothing); the reaction
+    shot shows the NEXT speaker listening silently.
+
+    Contract guarantees:
+      - a reaction shot carries NO dialogue lines (no
+        ``_dialogue_lines`` / ``_line_speakers`` / ``_turn_speaker``
+        keys), so the 1-line -> 1-<d>-block invariant is untouched, the
+        speaker-ID map ignores it, and the per-shot prompt generator
+        writes a silent shot ("no dialogue lines assigned");
+      - boundaries cycle until ``needed`` cuts are placed;
+      - IDs are renumbered ``scene_01..N`` afterwards so downstream
+        id-keyed stages stay consistent.
+
+    When no speaker-change boundary exists (single-speaker monologue
+    squeezed into one scene), the board is returned unchanged with a
+    warning — we never invent speech to fill a count.
+    """
+    if needed <= 0 or not shots:
+        return shots
+
+    def _last_speaker(shot: dict) -> str:
+        spk = [s for s in (shot.get("_line_speakers") or []) if s]
+        return spk[-1] if spk else ""
+
+    def _first_speaker(shot: dict) -> str:
+        spk = [s for s in (shot.get("_line_speakers") or []) if s]
+        return spk[0] if spk else ""
+
+    # Boundary after original index i exists when shot i ends a spoken
+    # run and some LATER shot opens a different speaker's run.
+    boundaries: list[tuple[int, str]] = []
+    for i in range(len(shots) - 1):
+        s_i = _last_speaker(shots[i])
+        if not s_i:
+            continue
+        for j in range(i + 1, len(shots)):
+            s_j = _first_speaker(shots[j])
+            if s_j:
+                if s_j != s_i:
+                    boundaries.append((i, s_j))
+                break
+    if not boundaries:
+        warnings.append(
+            f"scene_count: could not insert {needed} reaction cut(s) — no "
+            "speaker-change boundary on the board (single-speaker or "
+            "single-scene dialogue); emitting the dialogue scenes only"
+        )
+        return shots
+
+    cuts_after: dict[int, int] = {}
+    listeners_after: dict[int, str] = {}
+    for k in range(needed):
+        idx, listener = boundaries[k % len(boundaries)]
+        cuts_after[idx] = cuts_after.get(idx, 0) + 1
+        listeners_after.setdefault(idx, listener)
+
+    out: list[dict] = []
+    for i, shot in enumerate(shots):
+        out.append(shot)
+        n = cuts_after.get(i, 0)
+        for _ in range(n):
+            listener = listeners_after[i]
+            out.append(
+                {
+                    "id": "scene_??",  # renumbered below
+                    "description": (
+                        f"[Reaction cut] {listener} listens in silence as "
+                        "the previous line lands — a micro-expression "
+                        "shift, no speech, lips closed. Brief hold, then "
+                        "the exchange continues."
+                    ),
+                    "shot_type": "close_up",
+                    "camera_movement": "locked_off",
+                    "transition_in": "invisible_cut",
+                    "duration_seconds": 4.0,
+                    "narrative_beat": f"Silent reaction cut to {listener}.",
+                    "characters": [listener],
+                    "props": [],
+                    "notes": (
+                        "mechanically inserted reaction shot; NO dialogue "
+                        "lines — do not invent speech or lip movement"
+                    ),
+                }
+            )
+    for j, shot in enumerate(out, start=1):
+        shot["id"] = f"scene_{j:02d}"
+    warnings.append(
+        f"scene_count: inserted {needed} mechanical silent reaction "
+        f"cut(s) at speaker-change boundaries (no dialogue touched)"
+    )
+    log_pipeline(
+        f"reaction cuts: +{needed} silent scene(s); board is now "
+        f"{len(out)} scene(s)"
+    )
+    return out
+
+
+def _parse_first_json_object(text: str):
+    """Tolerantly extract the first balanced ``{...}`` JSON object.
+
+    The LLM extractor is told to emit a single line of JSON, but in
+    practice it may prefix a one-line preamble or wrap the reply in
+    markdown fences. This helper finds the first balanced top-level
+    ``{...}`` and returns ``json.loads(...)`` on it, or ``None``.
+    """
+    if not text:
+        return None
+    start = text.find("{")
+    while start != -1:
+        depth = 0
+        in_str = False
+        escape = False
+        for i in range(start, len(text)):
+            c = text[i]
+            if in_str:
+                if escape:
+                    escape = False
+                elif c == "\\":
+                    escape = True
+                elif c == '"':
+                    in_str = False
+                continue
+            if c == '"':
+                in_str = True
+            elif c == "{":
+                depth += 1
+            elif c == "}":
+                depth -= 1
+                if depth == 0:
+                    try:
+                        return json.loads(text[start:i + 1])
+                    except json.JSONDecodeError:
+                        break
+        # try next '{'
+        start = text.find("{", start + 1)
+    return None
+
+
 class H3LoopPromptEnhancer:
     """Loop-plan generator that talks to the project's
     LLMServiceConnector (shares the family logging + timeout pattern).
@@ -701,6 +1116,66 @@ class H3LoopPromptEnhancer:
         # named by sha256(pixels) + sha256(prompt) so a prompt upgrade
         # invalidates both tiers atomically.
         self._caption_cache_dir: Optional[str] = None
+        # LLM usage ledger for the node's ``summary`` output: one entry
+        # per connector invoke — stage label, prompt chars, reply chars.
+        # Token counts are ESTIMATES from the text (the connector API
+        # returns plain strings, no usage payload): ~4 ASCII chars per
+        # token, ~1 token per CJK char.
+        self._usage: list[dict] = []
+
+    def _record_usage(self, stage: str, messages, reply: str) -> None:
+        prompt_text = "\n".join(
+            str(m.get("content") or "") for m in messages or []
+        )
+        reply_text = reply or ""
+        # Aggregate on the BASE stage name -- per-attempt / per-scene
+        # suffixes ("shot[scene_02][attempt 2]") would fragment the
+        # summary line into one bucket per call.
+        base_stage = str(stage or "unknown").split("[", 1)[0]
+        self._usage.append(
+            {
+                "stage": base_stage,
+                "prompt_chars": len(prompt_text),
+                "reply_chars": len(reply_text),
+                "prompt_tokens": self._estimate_tokens(prompt_text),
+                "reply_tokens": self._estimate_tokens(reply_text),
+            }
+        )
+
+    @staticmethod
+    def _estimate_tokens(text: str) -> int:
+        """Rough token estimate: CJK chars ≈ 1 token each, everything
+        else ≈ 4 chars per token. Good enough for a summary line — the
+        connector gives us text, not billing data."""
+        if not text:
+            return 0
+        cjk = sum(1 for c in text if "\u4e00" <= c <= "\u9fff")
+        return cjk + (len(text) - cjk) // 4
+
+    def _usage_summary_lines(self) -> list[str]:
+        if not self._usage:
+            return ["LLM requests: 0"]
+        by_stage: dict[str, int] = {}
+        prompt_chars = reply_chars = 0
+        prompt_tokens = reply_tokens = 0
+        for entry in self._usage:
+            by_stage[entry["stage"]] = (
+                by_stage.get(entry["stage"], 0) + 1
+            )
+            prompt_chars += entry["prompt_chars"]
+            reply_chars += entry["reply_chars"]
+            prompt_tokens += entry["prompt_tokens"]
+            reply_tokens += entry["reply_tokens"]
+        total_tokens = prompt_tokens + reply_tokens
+        stage_text = ", ".join(
+            f"{name} {count}" for name, count in by_stage.items()
+        )
+        return [
+            f"LLM requests: {len(self._usage)} ({stage_text})",
+            f"Tokens (estimated): ~{total_tokens:,} "
+            f"(prompt ~{prompt_tokens:,} + reply ~{reply_tokens:,}; "
+            f"chars {prompt_chars:,} / {reply_chars:,})",
+        ]
 
     def _invoke(
         self,
@@ -723,6 +1198,7 @@ class H3LoopPromptEnhancer:
                 temperature=temperature,
                 max_tokens=int(max_tokens) if max_tokens else self.max_tokens,
             )
+            self._record_usage(stage, messages, out or "")
             elapsed = time.perf_counter() - t0
             model_name = getattr(self.llm, "model", "?")
             if not out:
@@ -744,6 +1220,249 @@ class H3LoopPromptEnhancer:
             {"role": "system", "content": system},
             {"role": "user", "content": user},
         ]
+
+    def enhance_user_input_draft(
+        self,
+        draft: str,
+        *,
+        category: str,
+        reference_mode: str,
+        seed: Optional[int],
+    ) -> tuple[str, str]:
+        """Run the standalone enhancer's rewrite inline (toggle on).
+
+        Reuses ``MiniMaxH3LoopUserInputEnhancer``'s implementation —
+        single code path for the prompt contract. Imported lazily (both
+        deployment paths) because that module imports ``LOOP_CATEGORIES``
+        from this one; a module-level import would be circular.
+
+        Returns ``(rewritten_user_input, advice_header)``. Raises
+        ``RuntimeError`` when the reply has no BEGIN/END block — no
+        silent fallback to the raw draft: an unverified rewrite must
+        not flow into the pipeline, and a raw draft that was never
+        meant to be canonical would silently degrade the board.
+        """
+        try:
+            from _mienodes_internal.nodes.llm.minimax_h3_loop_user_input_enhancer import (
+                _MAX_TOKENS_DEFAULT as _ENH_MAX_TOKENS,
+                _DEFAULT_TEMPERATURE as _ENH_TEMPERATURE,
+                _UserInputEnhancer as _InputEnhancer,
+                split_enhancer_reply as _split_reply,
+            )
+        except ImportError:
+            from .minimax_h3_loop_user_input_enhancer import (
+                _MAX_TOKENS_DEFAULT as _ENH_MAX_TOKENS,
+                _DEFAULT_TEMPERATURE as _ENH_TEMPERATURE,
+                _UserInputEnhancer as _InputEnhancer,
+                split_enhancer_reply as _split_reply,
+            )
+        _check_interrupt("user_input_enhance")
+        enhancer = _InputEnhancer(
+            self.llm,
+            # The rewrite is tuned for the standalone node's sampling
+            # defaults; only the per-call timeout follows this node.
+            temperature=_ENH_TEMPERATURE,
+            max_tokens=_ENH_MAX_TOKENS,
+            timeout=int(self._timeout_override or _DEFAULT_TIMEOUT),
+            usage_sink=self._record_usage,
+        )
+        raw = enhancer(
+            draft,
+            category=category,
+            reference_mode=reference_mode,
+            seed=seed,
+        )
+        block, header = _split_reply(raw)
+        if not block:
+            head = (raw or "")[:400]
+            raise RuntimeError(
+                "MiniMax H3 Loop Plan Generator (auto-enhance): the "
+                "enhancer reply did not contain a "
+                "`--- BEGIN user_input ---` ... `--- END user_input ---` "
+                f"block. Raw reply head: {head!r}"
+            )
+        return block, header
+
+    # ------------------------------------------------------------------ #
+    # Dialogue extraction (LLM with mechanical span verification)
+    # ------------------------------------------------------------------ #
+    # This single call replaces BOTH the old regex parser AND the
+    # intent classifier. The LLM does the semantic judgement (which
+    # characters speak, where each line lives in the source); the
+    # node does the mechanical judgement (does each returned span
+    # literally match the source). The invariant "1 line == 1 <d>
+    # block, verbatim" is now guaranteed by span anchoring rather
+    # than by any string-format convention on the user.
+    _EXTRACT_SYSTEM = (
+        "You are a span-anchored dialogue extractor for a "
+        "video-prompt generator. The user pasted a concept (any "
+        "language, free-form). Your ONLY job is to identify every "
+        "character utterance and return their character-exact "
+        "spans as JSON.\n\n"
+        "Output schema (single line of JSON, nothing else):\n"
+        '  {"turns": [\n'
+        '    {"speaker": "<name>", "lines": [\n'
+        '      {"text": "<spoken words only>", "start": N, "end": M}\n'
+        "    ]},\n"
+        "  ...]}\n\n"
+        "HARD RULES — violation of any rule invalidates the reply:\n"
+        "  1. ``text`` MUST be the spoken words only. Do NOT include "
+        "the lead verb (said, 问, 说), the surrounding quotes, or "
+        "any punctuation outside the utterance.\n"
+        "  2. concept[start:end] MUST equal ``text`` byte-for-byte "
+        "(whitespace outside the utterance is OK to drop on either "
+        "side; if you trim, adjust start/end accordingly). The node "
+        "verifies mechanically — paraphrases, translations, or "
+        "summaries will be rejected.\n"
+        "  3. A turn is one speaker's contiguous run of lines. "
+        "Same-speaker lines that are adjacent in the source merge "
+        "into one turn (sequential lines from the same speaker are "
+        "ONE turn with multiple lines, not multiple turns).\n"
+        "  4. ``start`` and ``end`` are character offsets into the "
+        "original concept string. ``start >= 0``; ``end <= "
+        "len(concept)``; ``start < end`` for every line.\n"
+        "  5. Spans are NON-OVERLAPPING and ORDERED. Do not reuse "
+        "characters. A line that ends at offset 200 cannot be "
+        "followed by another starting at offset 150.\n"
+        "  6. If the concept has NO dialogue at all, return "
+        '{"turns": []}.\n'
+        "  7. Do NOT invent dialogue. If a sentence is narrator "
+        "narration, leave it out. The user can always re-run.\n"
+        "  8. Output ONLY the JSON object on a single line, no "
+        "markdown, no commentary.\n"
+        "Example:\n"
+        '  concept = \'公猫问：\\"给够钱就行？\\" 母猫答：\\"给够钱。\\"\'\n'
+        "  reply:\n"
+        '  {"turns":[{"speaker":"公猫","lines":[{"text":"给够钱就行？","start":4,"end":10}]},'
+        '{"speaker":"母猫","lines":[{"text":"给够钱。","start":18,"end":22}]}]}'
+    )
+
+    def extract_dialogue(self, concept: str) -> list:
+        """Run the LLM span extractor and return a list of
+        ``DialogueTurn`` with verified spans.
+
+        The LLM is the ONLY source of the speaker/line judgements;
+        the node mechanically verifies the spans. If verification
+        fails (LLM paraphrased, hallucinated, or produced malformed
+        JSON), an empty list is returned and the caller falls back
+        to the narrator path.
+        """
+        if not concept or not concept.strip():
+            return []
+        user_prompt = (
+            "---BEGIN CONCEPT---\n"
+            f"{concept}"
+            "\n---END CONCEPT---\n\n"
+            "Reply with ONLY the single-line JSON object. Length of "
+            f"concept: {len(concept)} characters."
+        )
+        messages = self._messages(self._EXTRACT_SYSTEM, user_prompt)
+        # Budget for ~ N dialogue turns; each turn ~ 100 chars of
+        # JSON. 4096 covers the 22-line coffee-cat concept with
+        # comfortable headroom.
+        try:
+            raw = self._invoke(
+                messages,
+                temperature=0.0,
+                seed=None,
+                stage="dialogue_extract",
+                max_tokens=4096,
+            )
+        except Exception as exc:
+            log_pipeline(
+                f"dialogue extractor: invoke failed ({exc!r}); "
+                "falling back to narrator"
+            )
+            return []
+        if not raw:
+            return []
+        # Tolerant JSON parse: take the first {...} object.
+        parsed = _parse_first_json_object(raw)
+        if parsed is None:
+            log_pipeline(
+                f"dialogue extractor: no JSON object in reply "
+                f"(head={raw[:80]!r}); falling back to narrator"
+            )
+            return []
+        raw_turns = parsed.get("turns") or []
+        if not isinstance(raw_turns, list):
+            return []
+        # Flatten to an ExtractedLine list, then validate spans strictly.
+        flat: list[_DLG_ExtractedLine] = []
+        for t in raw_turns:
+            if not isinstance(t, dict):
+                continue
+            for entry in t.get("lines") or []:
+                if not isinstance(entry, dict):
+                    continue
+                text = str(entry.get("text") or "").strip()
+                try:
+                    s = int(entry.get("start"))
+                    e = int(entry.get("end"))
+                except (TypeError, ValueError):
+                    continue
+                if not text:
+                    continue
+                flat.append(_DLG_ExtractedLine(text=text, start=s, end=e))
+        # Mechanical validation — every span must literally equal the
+        # slice of the source text.
+        errors = _dlg_validate_extracted_lines(concept, flat)
+        if errors:
+            log_pipeline(
+                f"dialogue extractor: span validation failed, falling "
+                f"back to narrator ({len(errors)} errors, first: "
+                f"{errors[0][:120]!r})"
+            )
+            return []
+        # Re-walk the parsed JSON with speaker context, merging
+        # adjacent same-speaker turns so invariant (3) holds.
+        out: list[_DLG_DialogueTurn] = []
+        for t in raw_turns:
+            if not isinstance(t, dict):
+                continue
+            speaker = str(t.get("speaker") or "").strip()
+            if not speaker:
+                continue
+            entries = t.get("lines") or []
+            texts: list[str] = []
+            spans: list[tuple[int, int]] = []
+            for entry in entries:
+                if not isinstance(entry, dict):
+                    continue
+                text = str(entry.get("text") or "").strip()
+                try:
+                    s = int(entry.get("start"))
+                    e = int(entry.get("end"))
+                except (TypeError, ValueError):
+                    continue
+                if not text:
+                    continue
+                texts.append(text)
+                spans.append((s, e))
+            if not texts:
+                continue
+            # Merge with previous turn if same speaker and spans are
+            # adjacent or contiguous.
+            if out and out[-1].speaker == speaker and spans:
+                prev_end = out[-1].end
+                if spans[0][0] >= prev_end:
+                    out[-1].lines.extend(texts)
+                    out[-1].end = spans[-1][1]
+                    continue
+            out.append(
+                _DLG_DialogueTurn(
+                    speaker=speaker,
+                    lines=texts,
+                    start=spans[0][0],
+                    end=spans[-1][1],
+                )
+            )
+        if not out:
+            log_pipeline(
+                "dialogue extractor: produced 0 valid turns; "
+                "falling back to narrator"
+            )
+        return out
 
     # ------------------------------------------------------------------ #
     # Stage 1: style-only prompt_prefix + CAST sheet
@@ -1066,7 +1785,7 @@ class H3LoopPromptEnhancer:
     def _auto_storyboard(
         self,
         concept: str,
-        shot_count: int,
+        scene_count: int,
         total_duration_seconds: int,
         category: str,
         language: str,
@@ -1074,12 +1793,49 @@ class H3LoopPromptEnhancer:
         seed: Optional[int],
         reference_digest: str = "",
         split_bias: str = "balanced",
+        dialogue_turns: Optional[list] = None,
+        shot_budgets: Optional[list] = None,
+        turn_scenes: Optional[list] = None,
+        pacing_obj=None,
+        scene_target_total_sec: Optional[float] = None,
     ) -> tuple[list[dict], list[str]]:
         """Split user_input into a storyboard (one LLM call) whose
-        per-shot durations sum close to the whole-board budget."""
+        per-shot durations sum close to the whole-board budget.
+
+        When ``dialogue_turns`` + ``shot_budgets`` are supplied (the
+        dialogue-driven path), we bypass the LLM entirely and synthesise
+        a storyboard straight from the parser output. That guarantees the
+        turn structure survives intact — the LLM is not given a chance to
+        merge or split turns, so invariant (1) (1:1 line -> <d> block)
+        and invariant (3) (same-speaker consecutive lines in one scene)
+        are satisfied deterministically.
+
+        ``turn_scenes`` + ``pacing_obj`` (split_bias=conservative) pack
+        consecutive turns into multi-turn scenes; see
+        ``group_budgets_into_scenes``.
+        """
+        if dialogue_turns and shot_budgets and not (
+            len(dialogue_turns) == 1
+            and dialogue_turns[0].speaker == "(narrator)"
+        ):
+            shots = _build_shots_from_turns(
+                dialogue_turns,
+                shot_budgets,
+                scenes=turn_scenes,
+                pacing=pacing_obj,
+                scene_target_total_sec=scene_target_total_sec,
+            )
+            digest = ", ".join(s["id"] for s in shots)
+            log_pipeline(
+                f"auto-storyboard[turns]: built {len(shots)} shots from "
+                f"{len(dialogue_turns)} dialogue turn(s): {digest}"
+            )
+            return shots, []
+        # Empty concept or no dialogue lines: fall through to the LLM-backed
+        # storyboard path (legacy behaviour).
         user_text = build_storyboard_user_text(
             (concept or "").strip(),
-            int(shot_count or 0),
+            int(scene_count or 0),
             AUTO_STORYBOARD_STYLE,
             category,
             language,
@@ -1129,7 +1885,7 @@ class H3LoopPromptEnhancer:
                     f"auto-storyboard parse failed ({exc}); retry head={last_head!r}"
                 )
                 continue
-            shots, warnings = normalize_shots(raw_shots, int(shot_count))
+            shots, warnings = normalize_shots(raw_shots, int(scene_count))
             digest = ", ".join(s["id"] for s in shots)
             log_pipeline(f"auto-storyboard built {len(shots)} shots: {digest}")
             return shots, warnings
@@ -1161,6 +1917,13 @@ class H3LoopPromptEnhancer:
     prev_soundscape_ref2v: Optional[list[str]] = None,
     cast_block: str = "",
     reference_directive: str = "",
+    dialogue_lines: Optional[list[str]] = None,
+    turn_index: Optional[int] = None,
+    turn_speaker: Optional[str] = None,
+    speaker_id_map: Optional[dict] = None,
+    line_speakers: Optional[list[str]] = None,
+    first_appearance_speakers: Optional[set] = None,
+    spatial_layout: Optional[dict] = None,
     ) -> list[str]:
         code = parse_reference_mode(mode)
         schema = schema_for_mode(mode)
@@ -1211,6 +1974,13 @@ class H3LoopPromptEnhancer:
             manifest_digest=_manifest_digest(effective_manifest),
             cast_block=cast_block,
             reference_mode=mode,
+            dialogue_lines=dialogue_lines,
+            turn_index=turn_index,
+            turn_speaker=turn_speaker,
+            speaker_id_map=speaker_id_map,
+            line_speakers=line_speakers,
+            first_appearance_speakers=first_appearance_speakers,
+            spatial_layout=spatial_layout,
         )
         # System prompt dispatch: ref2va uses the six-section addendum.
         system = (
@@ -1273,6 +2043,60 @@ class H3LoopPromptEnhancer:
                         "timestamp (clock/seconds notation like 'At 00:03.500', "
                         "'from 0.0s to 5.2s')."
                     )
+                # Dialogue invariant: when this shot was assigned dialogue lines
+                # by the upstream turn-grouper, verify the LLM preserved the
+                # 1:1 line -> <d> block contract. Mismatch -> retry.
+                if dialogue_lines:
+                    errors = validate_dialogue_invariantity(
+                        [{"prompt": lines_out}],
+                        [_DLG_DialogueTurn(speaker=turn_speaker or "", lines=list(dialogue_lines))],
+                    )
+                    if errors:
+                        raise ValueError(
+                            "dialogue invariant violated for "
+                            f"{shot['id']}: {errors[0]}"
+                        )
+                # Speaker-ID contract: wrong tags inside the speaking
+                # paragraphs are rewritten deterministically to the
+                # speakers' mapped IDs (per <d> segment for packed
+                # multi-speaker scenes); a missing tag (or a genderless
+                # first appearance) retries once, then degrades to a
+                # logged warning — the verbatim <d> contract above is
+                # the hard guarantee, the ID tag is a voice-binding
+                # hint that survives imperfect compliance.
+                if dialogue_lines and speaker_id_map:
+                    spk_per_line = list(line_speakers or [])
+                    if len(spk_per_line) != len(dialogue_lines):
+                        spk_per_line = [
+                            (turn_speaker or "").strip()
+                        ] * len(dialogue_lines)
+                    if any(s in speaker_id_map for s in spk_per_line):
+                        before = "\n".join(lines_out)
+                        lines_out, sid_problems = (
+                            repair_speaker_ids_for_lines(
+                                lines_out,
+                                spk_per_line,
+                                speaker_id_map,
+                                first_appearance_speakers=(
+                                    first_appearance_speakers or set()
+                                ),
+                            )
+                        )
+                        if "\n".join(lines_out) != before:
+                            log_pipeline(
+                                f"shot {shot['id']}: repaired speaker "
+                                f"tags per line map"
+                            )
+                        if sid_problems:
+                            if attempt < _PARSE_RETRIES:
+                                raise ValueError(
+                                    "speaker-id contract for "
+                                    f"{shot['id']}: {sid_problems[0]}"
+                                )
+                            log_pipeline(
+                                f"shot {shot['id']}: accepted without full "
+                                f"speaker-ID contract ({sid_problems[0]})"
+                            )
                 return lines_out
             except ValueError as exc:
                 last_error = exc
@@ -1301,6 +2125,9 @@ class H3LoopPromptEnhancer:
         language_name: str,
         seed: Optional[int],
         cast_sheet: str = "",
+        dialogue_turns: Optional[list] = None,
+        speaker_id_map: Optional[dict] = None,
+        spatial_layout: Optional[dict] = None,
     ) -> dict[str, list[str]]:
         user_text = build_single_call_user_text(
             concept=concept,
@@ -1310,6 +2137,8 @@ class H3LoopPromptEnhancer:
             duration_seconds=duration_seconds,
             language_name=language_name,
             cast_sheet=cast_sheet,
+            speaker_id_map=speaker_id_map,
+            spatial_layout=spatial_layout,
         )
         messages = self._messages(shot_system_prompt(), user_text)
         last_error: Optional[Exception] = None
@@ -1318,8 +2147,15 @@ class H3LoopPromptEnhancer:
             _check_interrupt(f"single_call[attempt {attempt + 1}]")
             attempt_messages = messages
             if attempt > 0:
+                correction = PARSE_RETRY_CORRECTION
+                if last_error and "dialogue invariant" in str(last_error):
+                    correction += (
+                        " Ensure each shot's integrated_multimodal_description "
+                        "contains exactly the dialogue lines assigned to that shot "
+                        "(verbatim, no split, no paraphrase)."
+                    )
                 attempt_messages = messages + [
-                    {"role": "user", "content": PARSE_RETRY_CORRECTION}
+                    {"role": "user", "content": correction}
                 ]
             raw = postprocess_reply(
                 self._invoke(
@@ -1343,9 +2179,97 @@ class H3LoopPromptEnhancer:
                 )
                 continue
             result = self._split_single_call_items(items, shots)
-            if result is not None:
-                return result
-            last_error = ValueError("single-call reply missing clips")
+            if result is None:
+                last_error = ValueError("single-call reply missing clips")
+                continue
+            # Dialogue invariant post-validate (per-shot).
+            sid_errors: list[str] = []
+            if dialogue_turns:
+                errors: list[str] = []
+                for shot in shots:
+                    shot_id = shot["id"]
+                    if shot_id not in result:
+                        continue
+                    lines = shot.get("_dialogue_lines") or []
+                    if not lines:
+                        continue
+                    # Find the matching turn by index.
+                    t_idx = shot.get("_turn_index")
+                    if t_idx is None or t_idx >= len(dialogue_turns):
+                        continue
+                    turn = dialogue_turns[t_idx]
+                    errs = validate_dialogue_invariantity(
+                        [{"prompt": result[shot_id]}],
+                        [_DLG_DialogueTurn(
+                            speaker=turn.speaker,
+                            lines=list(lines),
+                        )],
+                    )
+                    errors.extend(errs)
+                if errors:
+                    last_error = ValueError(
+                        f"dialogue invariant violated: {errors[0]}"
+                    )
+                    log_pipeline(
+                        f"single-call: {last_error}; retrying"
+                    )
+                    continue
+            # Speaker-ID contract post-validate + mechanical repair
+            # (same semantics as the per-shot path: wrong tags are
+            # rewritten deterministically per <d> segment — packed
+            # multi-speaker scenes included; missing tag / genderless
+            # first appearance retries once, then degrades to a
+            # logged warning).
+            if speaker_id_map:
+                seen_speakers: set = set()
+                for shot in shots:
+                    shot_id = shot["id"]
+                    if shot_id not in result:
+                        continue
+                    speaker = str(shot.get("_turn_speaker") or "").strip()
+                    if not speaker_id_map.get(speaker):
+                        continue
+                    dl = shot.get("_dialogue_lines") or []
+                    spk_per_line = list(shot.get("_line_speakers") or [])
+                    if len(spk_per_line) != len(dl):
+                        spk_per_line = [speaker] * len(dl)
+                    if not any(s in speaker_id_map for s in spk_per_line):
+                        continue
+                    before = "\n".join(result[shot_id])
+                    repaired, problems = repair_speaker_ids_for_lines(
+                        result[shot_id],
+                        spk_per_line,
+                        speaker_id_map,
+                        first_appearance_speakers={
+                            s for s in set(spk_per_line)
+                            if s not in seen_speakers
+                        },
+                    )
+                    if "\n".join(repaired) != before:
+                        log_pipeline(
+                            f"single-call {shot_id}: repaired speaker "
+                            f"tags per line map"
+                        )
+                    result[shot_id] = repaired
+                    if problems:
+                        sid_errors.extend(
+                            f"{shot_id}: {p}" for p in problems
+                        )
+                    seen_speakers.update(spk_per_line)
+                if sid_errors:
+                    if attempt < _PARSE_RETRIES:
+                        last_error = ValueError(
+                            f"speaker-id contract: {sid_errors[0]}"
+                        )
+                        log_pipeline(
+                            f"single-call: {last_error}; retrying"
+                        )
+                        continue
+                    log_pipeline(
+                        "single-call: accepted without full speaker-ID "
+                        f"contract ({sid_errors[0]})"
+                    )
+            return result
         raise RuntimeError(
             f"single-call reply unparseable after {1 + _PARSE_RETRIES} attempts: "
             f"{last_error}; last reply head: {last_head!r}"
@@ -1386,73 +2310,61 @@ class H3LoopPromptEnhancer:
     # ------------------------------------------------------------------ #
     def __call__(
         self,
-        concept: str = "",
-        shots_text: str = "",
         *,
-        # Baseline-compatible positional/kwarg surface.
-        duration_seconds: int = 0,
-        width: int = 544,
-        height: int = 960,
-        prompt_prefix_input: str = "",
-        per_shot_overrides: str = "",
-        unified_seed: bool = True,
-        seed_mode: str = "",
-        # Plan v4 widget surface.
         user_input: str = "",
-        total_duration_seconds: int = DEFAULT_TOTAL_DURATION_SECONDS,
-        shot_count: int = 0,
+        total_duration_seconds: int = 0,
+        scene_count: int = 0,
+        pacing: str = _PACING_LABELS[1],
         split_bias: str = SPLIT_BIASES[0],
         generation_mode: str = "per_shot",
         category: str = "",
         output_language: str = "en",
         seed: Optional[int] = None,
+        seed_mode: str = "",
         reference_mode: str = REFERENCE_MODES[0],
         references_text: str = "",
         images: Any = None,
         caption_mode: str = "",
         force_recaption: bool = False,
         caption_cache_scope: str = "memory_disk",
+        enhance_user_input: bool = False,
     ) -> dict:
         warnings: list[str] = []
-        # Resolve the two-API concept input.
-        raw_concept = concept or user_input or shots_text
-        idea = (raw_concept or "").strip() or _default_concept()
-        if not (raw_concept or "").strip():
-            warnings.append(
-                "concept/user_input empty: used the built-in default concept"
-            )
-
-        # Resolve the duration budget (single source of truth is
-        # total_duration_seconds; duration_seconds is legacy alias).
-        effective_total_duration = int(
-            total_duration_seconds or DEFAULT_TOTAL_DURATION_SECONDS
-        )
-        if duration_seconds and int(duration_seconds) > 0:
-            if int(total_duration_seconds or 0) != DEFAULT_TOTAL_DURATION_SECONDS:
-                if int(duration_seconds) != int(total_duration_seconds):
-                    warnings.append(
-                        f"both duration_seconds ({duration_seconds}s) and "
-                        f"total_duration_seconds ({total_duration_seconds}s) were set; "
-                        f"using total_duration_seconds"
-                    )
-            else:
-                effective_total_duration = int(duration_seconds)
-                warnings.append(
-                    f"legacy alias: duration_seconds={duration_seconds}s was used; "
-                    "prefer total_duration_seconds."
-                )
-
-        # Pre-built shots_text (baseline) wins; empty triggers Stage 0.5.
-        if shots_text and shots_text.strip():
-            canonical_shots_text = shots_text
-        else:
-            canonical_shots_text = "[]"
-        if canonical_shots_text == "[]" and not hasattr(self.llm, "invoke"):
+        if not hasattr(self.llm, "invoke"):
             raise RuntimeError(
                 "auto-storyboard requires an LLM connector with invoke(); "
-                "provide storyboard shots_text explicitly or connect a full "
-                "LLMServiceConnector"
+                "connect a full LLMServiceConnector"
             )
+        raw_input = (user_input or "").strip()
+        # Auto-enhance (toggle on + non-empty draft): rewrite the rough
+        # draft into the canonical user_input format first. The
+        # category / reference_mode passed down are THIS node's widget
+        # values — single source of truth, no mirrored widgets to keep
+        # in sync. Failure raises (see enhance_user_input_draft); we
+        # never silently plan from the raw draft after asking for a
+        # rewrite.
+        enhance_header: Optional[str] = None
+        if raw_input and enhance_user_input:
+            idea, enhance_header = self.enhance_user_input_draft(
+                raw_input,
+                category=category,
+                reference_mode=reference_mode,
+                seed=seed,
+            )
+            log_pipeline(
+                "auto-enhance: user_input rewritten "
+                f"({len(raw_input)} -> {len(idea)} chars)"
+            )
+        else:
+            idea = raw_input or _default_concept()
+            if not raw_input:
+                warnings.append(
+                    "user_input empty: used the built-in default concept"
+                )
+
+        # Single source of truth for the budget. 0 = auto: derived from
+        # dialogue pacing + line count below.
+        effective_total_duration = int(total_duration_seconds or 0)
 
         # Image socket detection (plan v4 surface).
         has_images = images is not None and (
@@ -1473,7 +2385,7 @@ class H3LoopPromptEnhancer:
         ref_code = parse_reference_mode(reference_mode)
         gen_code = parse_generation_mode(generation_mode)
         split_bias_code = parse_split_bias(split_bias)
-        seed_unified = resolve_seed_unified(seed_mode, bool(unified_seed))
+        seed_unified = resolve_seed_unified(seed_mode)
         effective_force_recaption, effective_caption_cache_scope = (
             resolve_caption_controls(
                 caption_mode,
@@ -1495,13 +2407,6 @@ class H3LoopPromptEnhancer:
                 f"{ref_code}"
             )
 
-        # Width/height validation (baseline).
-        if int(width) % 32 or int(height) % 32:
-            raise RuntimeError(
-                f"width/height must be multiples of 32 (got {width}x{height})"
-            )
-
-        # Parse references_text (baseline path; plan v4 callers skip).
         manifest: list[dict] = []
         if references_text and not has_images:
             try:
@@ -1553,46 +2458,221 @@ class H3LoopPromptEnhancer:
                         "returned no usable manifest; reconnect the image batch"
                     )
 
-        # ---- Stage 0.5: auto storyboard OR parse pre-built shots ----- #
-        storyboard_reply: str = canonical_shots_text
+        # ---- Stage 0.5: auto storyboard ------------------------------ #
         if _ns_lazy is None:
             shots = []
+            # Stage 2's single_call branch references the stage-0.5
+            # extraction; keep the name bound on this (degenerate) path
+            # too. The empty-entries RuntimeError below fires first in
+            # practice, so this list is never consumed.
+            turns: list = []
             warnings.append(
                 "auto-storyboard: skipped normalize_shots because the "
                 "storyboard-prompt module is unavailable in this runtime."
             )
-        elif storyboard_reply == "[]":
+        else:
             reference_digest = _manifest_digest(manifest) if manifest else ""
+            # ---- Dialogue-driven auto storyboard ---------------------- #
+            # 1) Extract dialogue turns via LLM span-anchored extractor.
+            #    Replaces the old regex parser + intent classifier pair
+            #    (see docs/H3_LOOP_CONCEPT_SPEC for the contract).
+            #    On extraction failure (LLM paraphrase, bad JSON,
+            #    malformed spans) we fall back to a single narrator
+            #    turn carrying the whole concept as one beat.
+            turns = self.extract_dialogue(idea)
+            pacing_key = _PACING_LABEL_TO_KEY.get(
+                (pacing or "").split(" - ", 1)[0].strip().lower(), "normal"
+            )
+            pacing_obj = _DLG_PACING_PRESETS[pacing_key]
+            if not turns:
+                # Pure narration, or extraction failed. We DO NOT
+                # warn — the LLM extractor said "no dialogue" and we
+                # trust that judgement (it's the only place semantic
+                # judgement lives in this path). The legacy LLM
+                # storyboard takes over.
+                turns = [_dlg_narrator_fallback_turn(idea)]
+            is_narrator_fallback = (
+                len(turns) == 1 and turns[0].speaker == "(narrator)"
+            )
+            budgets, pacing_report = _dlg_estimate_shot_budget(turns, pacing_obj)
+            if is_narrator_fallback:
+                # Pacing math is TTS-speech math — for a narration board
+                # (the whole prose paragraph as one fallback "line") it
+                # produces a meaningless number that must NOT be logged
+                # like a duration estimate; users read it as the final
+                # board length. The budget below is what actually rules.
+                log_pipeline(
+                    "pacing: narration board (no dialogue lines) — pacing "
+                    "estimate not used; the total_duration_seconds budget "
+                    "rules"
+                )
+            else:
+                log_pipeline(_dlg_pacing_report_text(pacing_report))
+            # 2) Resolve total_duration: 0 -> pacing estimate; >0 -> user override.
+            #    Track which case ran so step 4 knows whether to scale.
+            #    Narrator fallback (no dialogue lines): pacing math is
+            #    meaningless — fall back to the legacy DEFAULT_TOTAL.
+            if is_narrator_fallback and effective_total_duration <= 0:
+                effective_total_duration = DEFAULT_TOTAL_DURATION_SECONDS
+                log_pipeline(
+                    f"auto-length (narrator fallback): no dialogue lines "
+                    f"found; defaulting total_duration_seconds="
+                    f"{effective_total_duration}s"
+                )
+                auto_total = effective_total_duration
+            elif effective_total_duration <= 0:
+                auto_total = int(round(pacing_report.total_sec))
+                effective_total_duration = auto_total
+                log_pipeline(
+                    f"auto-length: derived total_duration_seconds={auto_total} "
+                    f"from {len(turns)} turn(s) @ pacing={pacing_key}"
+                )
+            else:
+                auto_total = 0  # signal: user gave an explicit total
+            # 3) Resolve the scene count under the TIME-ONLY model:
+            #    total_duration_seconds is the ONLY hard constraint;
+            #    everything else (exact scene count, whether the lines
+            #    fit) is a warning, never a reshape and never an error.
+            #      - scene_count=0: natural packing per split_bias.
+            #      - scene_count=N (dialogue): distribute the SPEAKING
+            #        evenly across N scenes by estimated speech time
+            #        (台词平均分配). If N exceeds the line count, the
+            #        extra scenes become mechanical silent reaction
+            #        cuts (切换镜头) — no spoken line is ever touched.
+            #      - Narration boards (no dialogue): the LLM storyboard
+            #        honours the count.
+            turn_scenes = _dlg_group_budgets_into_scenes(
+                budgets, pacing_obj, bias=split_bias_code
+            )
+            natural_shot_count = len(turn_scenes)
+            if natural_shot_count != len(budgets):
+                log_pipeline(
+                    f"split_bias={split_bias_code}: packed {len(budgets)} "
+                    f"turn(s)/sub-turn(s) into {natural_shot_count} scene(s)"
+                )
+            pending_reaction_cuts = 0
+            user_scene_count = int(scene_count or 0)
+            explicit_scene_count = (
+                not is_narrator_fallback and user_scene_count > 0
+            )
+            if is_narrator_fallback:
+                # Narration: the LLM storyboard honours the count (or
+                # decides it when scene_count=0). Leave as-is.
+                pass
+            elif explicit_scene_count:
+                # Per-line granularity, then spread the SPEECH evenly.
+                fine_budgets, _fine_report = _dlg_estimate_shot_budget(
+                    turns, pacing_obj, max_shot_seconds=0.0
+                )
+                total_lines = len(fine_budgets)
+                if user_scene_count > total_lines:
+                    # Ceiling: one line per scene; the rest become
+                    # silent reaction cuts after the board is built.
+                    turn_scenes = [[b] for b in fine_budgets]
+                    pending_reaction_cuts = (
+                        user_scene_count - total_lines
+                    )
+                    log_pipeline(
+                        f"scene_count={user_scene_count}: one line per "
+                        f"scene ({total_lines}) + "
+                        f"{pending_reaction_cuts} reaction cut(s)"
+                    )
+                else:
+                    turn_scenes = _dlg_distribute_lines_to_scenes(
+                        fine_budgets, scene_count=user_scene_count
+                    )
+                    log_pipeline(
+                        f"scene_count={user_scene_count}: distributed "
+                        f"{total_lines} line(s) evenly by speech time"
+                    )
+                natural_shot_count = len(turn_scenes)
+                # Whether the speech actually fits the budget is a
+                # WARNING, not a constraint (能否说完不重要).
+                speech_total = sum(
+                    b.estimated_speech_sec for b in fine_budgets
+                )
+                if speech_total > effective_total_duration:
+                    warnings.append(
+                        f"dialogue speech ≈{speech_total:.0f}s exceeds the "
+                        f"{effective_total_duration}s time budget; lines "
+                        "were distributed evenly anyway — some lines may "
+                        "not finish inside their clip"
+                    )
+            else:
+                scene_count = natural_shot_count
+            # 4) Duration model. Auto path (scene_count=0): scene
+            #    durations come from the pacing packing math — the auto
+            #    total IS their sum. Explicit budget (user total, or an
+            #    explicit scene count receiving an even share of the
+            #    auto budget): after the board is built every scene gets
+            #    an EQUAL share of the budget (T / scene_count); Stage 0
+            #    then grid-rounds and clamps to the H3 4..14s window
+            #    with its own warnings. Proportional pacing math never
+            #    overrides the user's time preference.
+            use_packed = (
+                explicit_scene_count
+                or (
+                    split_bias_code != "aggressive"
+                    and natural_shot_count != len(budgets)
+                )
+            )
+            even_time_split = (
+                not is_narrator_fallback
+                and (explicit_scene_count or auto_total == 0)
+            )
+            # Note: there is no "rebalance shots down" helper anymore.
+            # When a turn splits into multiple budgets (overbudget per-line
+            # packing), we accept more shots than turns rather than merge
+            # — merging would either cut a line in half (forbidden by the
+            # 1-line -> 1-<d>-block invariant) or merge across speakers
+            # (also forbidden). The user's scene_count is honoured via the
+            # even speech distribution + reaction cuts above, never by
+            # clipping a line.
+            # 5) Hand off: auto-storyboard now gets the dialogue-aware plan.
             shots, sb_warnings = self._auto_storyboard(
                 idea,
-                int(shot_count or 0),
+                int(scene_count or 0),
                 effective_total_duration,
                 category,
                 (output_language or "en").strip().lower(),
                 seed=seed,
                 reference_digest=reference_digest,
                 split_bias=split_bias_code,
+                dialogue_turns=turns,
+                shot_budgets=budgets,
+                turn_scenes=turn_scenes if use_packed else None,
+                pacing_obj=pacing_obj if use_packed else None,
+                scene_target_total_sec=None,
             )
             warnings.extend(f"auto-storyboard: {w}" for w in sb_warnings)
-        else:
-            raw_shots_obj = _parse_shots_text_fallback(storyboard_reply)
-            try:
-                expected_count = int(shot_count) if int(shot_count or 0) > 0 else len(raw_shots_obj)
-                normalized, ns_warnings = _ns_lazy(raw_shots_obj, expected_count)
-            except TypeError:
-                # Older normalize_shots that needs a different signature.
-                normalized, ns_warnings = _ns_lazy(raw_shots_obj)
-            warnings.extend(f"auto-storyboard: {w}" for w in ns_warnings)
-            if int(shot_count or 0) > 0 and len(raw_shots_obj) > int(shot_count):
-                warnings.append("trimmed incoming storyboard to requested shot_count")
-            explicit_default = int(duration_seconds) if int(duration_seconds or 0) > 0 else 10
-            for idx, shot in enumerate(normalized):
-                if idx >= len(raw_shots_obj):
-                    break
-                raw_item = raw_shots_obj[idx] if isinstance(raw_shots_obj[idx], dict) else {}
-                if "duration_seconds" not in raw_item:
-                    shot["duration_seconds"] = explicit_default
-            shots = normalized
+            # 5b) Even time split: every scene gets an equal share of
+            #     the budget (T / scene_count). Whether a scene's speech
+            #     fits its share was already warned about above; the
+            #     split itself is unconditional — TIME is the only
+            #     must.
+            if even_time_split and shots:
+                share = float(effective_total_duration) / max(
+                    1, len(shots)
+                )
+                for shot in shots:
+                    shot["duration_seconds"] = share
+                log_pipeline(
+                    f"time budget split evenly: {effective_total_duration}s "
+                    f"/ {len(shots)} scene(s) = {share:.2f}s each (Stage 0 "
+                    "clamps to the 4-14s H3 window)"
+                )
+            # 6) Reaction cuts: when the user's scene_count exceeded the
+            #    per-line ceiling, top the board up with mechanically
+            #    inserted silent reaction shots (切换镜头) at
+            #    speaker-change boundaries — multi-cam dialogue rhythm.
+            #    A reaction shot carries NO dialogue lines (the per-shot
+            #    prompt generation then writes a silent shot), never
+            #    touches the spoken text, and never joins the speaker-ID
+            #    map (no _line_speakers / _turn_speaker keys).
+            if pending_reaction_cuts > 0 and shots:
+                shots = _insert_reaction_cuts(
+                    shots, pending_reaction_cuts, warnings
+                )
 
         # ---- Stage 0: per-shot duration guardrail (H3 4..14s) --------- #
         MIN_PER_SHOT_SECONDS = 4
@@ -1634,7 +2714,6 @@ class H3LoopPromptEnhancer:
                     "source": shot,
                     "length": length,
                     "seed": shot_seed,
-                    "steps": 20,
                 }
             )
         if under_length_shots:
@@ -1648,7 +2727,7 @@ class H3LoopPromptEnhancer:
                 f"per-shot cap: MiniMax-H3 single-generation ceiling is "
                 f"{MAX_PER_SHOT_SECONDS}s; clamped "
                 f"{', '.join(over_length_shots)}. The original beats "
-                f"are shorter than intended; raise shot_count to keep "
+                f"are shorter than intended; raise scene_count to keep "
                 f"the climax."
             )
             warnings.append(
@@ -1659,18 +2738,23 @@ class H3LoopPromptEnhancer:
             )
         total_frames = sum(e["length"] for e in entries)
         total_seconds = total_frames / 24.0
-        drift = abs(total_seconds - effective_total_duration) / max(
-            1, effective_total_duration
-        )
-        if drift > 0.2:
-            warnings.append(
-                f"board duration {total_seconds:.1f}s drifts {drift:.0%} from the "
-                f"{effective_total_duration}s budget (each clip rounds up onto "
-                "the 17k+5 grid)"
+        # Drift is only meaningful when the user actually set a budget
+        # (effective_total_duration > 0). With the new 0 = auto default,
+        # pre-built shots_text / unscaled storyboards would otherwise
+        # always emit "drifts 520% from the 0s budget" garbage.
+        if effective_total_duration > 0:
+            drift = abs(total_seconds - effective_total_duration) / max(
+                1, effective_total_duration
             )
-        if int(shot_count or 0) > 0 and int(shot_count or 0) * MIN_PER_SHOT_SECONDS > int(effective_total_duration):
+            if drift > 0.2:
+                warnings.append(
+                    f"board duration {total_seconds:.1f}s drifts {drift:.0%} from the "
+                    f"{effective_total_duration}s budget (each clip rounds up onto "
+                    "the 17k+5 grid)"
+                )
+        if int(scene_count or 0) > 0 and int(scene_count or 0) * MIN_PER_SHOT_SECONDS > int(effective_total_duration):
             warnings.append(
-                f"requested shot_count={int(shot_count)} with total_duration_seconds="
+                f"requested scene_count={int(scene_count)} with total_duration_seconds="
                 f"{int(effective_total_duration)}s forces very short beats; with "
                 f"{MIN_PER_SHOT_SECONDS}-{MAX_PER_SHOT_SECONDS}s per Scene, this "
                 f"budget is better suited to <= {max(1, int(effective_total_duration) // MIN_PER_SHOT_SECONDS)} scenes."
@@ -1683,43 +2767,42 @@ class H3LoopPromptEnhancer:
         )
         if not entries:
             raise RuntimeError("no usable shots produced from shots_text / storyboard")
-        if per_shot_overrides:
-            probe_plan = {
-                "shots": [
-                    {
-                        "id": e["id"],
-                        "length": e["length"],
-                        "seed": str(e["seed"]),
-                        "steps": int(e.get("steps", 20)),
-                    }
-                    for e in entries
-                ]
-            }
-            probe_plan = _apply_per_shot_overrides_local(probe_plan, per_shot_overrides)
-            by_id = {str(s.get("id")): s for s in (probe_plan.get("shots") or [])}
-            for e in entries:
-                patched = by_id.get(e["id"], {})
-                e["length"] = int(patched.get("length", e["length"]))
-                e["seed"] = str(patched.get("seed", e["seed"]))
-                e["steps"] = int(patched.get("steps", e.get("steps", 20)))
 
         # ---- Stage 1: prefix + CAST ----------------------------------- #
-        if prompt_prefix_input:
-            prefix_lines = split_prefix_paragraphs(prompt_prefix_input)
-            cast: dict[str, str] = {}
-            prefix_text = "\n".join(prefix_lines)
-        else:
-            prefix_lines, cast = self._synth_prefix(
-                idea,
-                category,
+        prefix_lines, cast = self._synth_prefix(
+            idea,
+            category,
                 output_language,
                 shots,
                 seed=seed,
                 manifest=manifest,
             )
-            prefix_text = "\n".join(prefix_lines)
+        prefix_text = "\n".join(prefix_lines)
+
+        # ---- Stage 1.5: extract stable spatial layout (deterministic) -- #
+        # Pulls each subject's on-screen position out of the rewritten
+        # user_input via regex; the result is injected into both the
+        # prefix (via the synth system prompt's hard rule) AND every
+        # per-shot user template via build_spatial_layout_directive. No
+        # extra LLM call — this is a rule-based pass over the rewritten
+        # concept the enhancer already produced.
+        spatial_layout = extract_spatial_layout(idea)
+        if spatial_layout:
+            log_pipeline(
+                "spatial layout (extracted from user_input): "
+                + ", ".join(f"{n}={p}" for n, p in spatial_layout.items())
+            )
 
         # ---- Stage 2: per-clip or single_call ------------------------- #
+        # Deterministic speaker-ID map (official H3 rule: a speaker keeps
+        # the same (S<n>) across shots). Derived from the storyboard turn
+        # order so every per-shot LLM call sees the identical assignment.
+        speaker_id_map = build_speaker_id_map(shots)
+        if speaker_id_map:
+            log_pipeline(
+                "speaker ID map: "
+                + ", ".join(f"{n}=({s})" for n, s in speaker_id_map.items())
+            )
         if gen_code == "single_call" and ref_code == "t2va":
             all_shot_prompts = self._generate_all_shots_single_call(
                 concept=idea,
@@ -1730,6 +2813,12 @@ class H3LoopPromptEnhancer:
                 language_name=output_language,
                 seed=seed,
                 cast_sheet=build_cast_sheet_text(cast),
+                # Reuse the stage-0.5 extraction — a second LLM call
+                # here could disagree with the board that was actually
+                # built (and doubles the cost for no benefit).
+                dialogue_turns=turns,
+                speaker_id_map=speaker_id_map,
+                spatial_layout=spatial_layout,
             )
             for entry in entries:
                 entry["prompt"] = all_shot_prompts.get(entry["id"], [])
@@ -1738,6 +2827,7 @@ class H3LoopPromptEnhancer:
             # _generate_shot_prompt accepts prev_lines / prev_id /
             # prev_subject_definitions and builds the continuation
             # block + reference_directive internally.
+            seen_speakers: set = set()
             for clip_index, entry in enumerate(entries, start=1):
                 _check_interrupt(f"shot[{clip_index}/{len(entries)}]")
                 prev_entry = entries[clip_index - 2] if clip_index > 1 else None
@@ -1766,46 +2856,82 @@ class H3LoopPromptEnhancer:
                     seed=entry["seed"],
                     mode=ref_code,
                     manifest=manifest,
+                    dialogue_lines=entry["source"].get("_dialogue_lines"),
+                    turn_index=entry["source"].get("_turn_index"),
+                    turn_speaker=entry["source"].get("_turn_speaker"),
+                    speaker_id_map=speaker_id_map,
+                    line_speakers=entry["source"].get("_line_speakers"),
+                    first_appearance_speakers={
+                        s for s in set(
+                            entry["source"].get("_line_speakers")
+                            or [entry["source"].get("_turn_speaker", "")]
+                        )
+                        if s and s not in seen_speakers
+                    },
+                    spatial_layout=spatial_layout,
                 )
                 entry["prompt"] = shot_prompt
+                seen_speakers.update(
+                    s for s in (
+                        entry["source"].get("_line_speakers")
+                        or [entry["source"].get("_turn_speaker", "")]
+                    ) if s
+                )
+
+        # ---- Stage 2.5: spatial-layout drift preflight ---------------- #
+        # Re-extract each generated shot's declared positions from its
+        # emitted prompt text and compare — against the board layout
+        # declared in user_input AND against every other shot — using
+        # the same canonical buckets. Warning-level only: prose written
+        # by the per-shot LLM is advisory, the directive + prefix are
+        # the binding side, and a paraphrase here must not fail the run.
+        if spatial_layout:
+            scene_layouts = [{"spatial_layout": spatial_layout}]
+            for entry in entries:
+                prompt_text = "\n".join(entry.get("prompt") or [])
+                scene_layouts.append(
+                    {"spatial_layout": extract_spatial_layout(prompt_text)}
+                )
+            drift_errors = validate_spatial_layout_invariant(
+                spatial_layout, scene_layouts
+            )
+            for err in drift_errors:
+                warnings.append(f"spatial layout drift: {err}")
 
         # ---- Stage 3: assemble plan_json ------------------------------ #
-        shots_for_plan: list[dict] = []
-        for entry in entries:
-            shot_dict: dict[str, Any] = {
+        # Strict upstream contract: top-level keys are exactly
+        # ``shots`` + ``prompt_prefix``; each shot carries exactly
+        # ``id`` / ``prompt`` / ``length`` / ``seed``. Sampling
+        # parameters (steps / cfg / sampler / canvas / context_length
+        # / continuation_mode) live on the Production Plan widget and
+        # never enter this JSON — the Production Plan node reads its
+        # own widget values and the prompt array only.
+        #
+        # Note on ref2va: the LLM's ``subject_definitions`` body lands
+        # inside ``shot["prompt"][0]`` (the section header line is
+        # already ``subject_definitions:``) — the body itself follows
+        # on subsequent prompt-array lines per the six-section schema.
+        # We do NOT duplicate it as a top-level ``subject_definitions``
+        # key on the shot; that would be data redundancy the upstream
+        # compiler doesn't expect.
+        shots_for_plan: list[dict] = [
+            {
                 "id": entry["id"],
                 "prompt": entry.get("prompt", []),
                 "length": entry["length"],
                 "seed": str(entry["seed"]),
-                "steps": int(entry.get("steps", 20)),
             }
-            if entry["source"].get("subject_definitions"):
-                shot_dict["subject_definitions"] = entry["source"]["subject_definitions"]
-            shots_for_plan.append(shot_dict)
-        plan = {
-            "defaults": {"steps": 20},
+            for entry in entries
+        ]
+        plan: dict[str, Any] = {
             "shots": shots_for_plan,
             "prompt_prefix": list(prefix_lines),
         }
-        # Validate using the strict upstream contract shape while keeping
-        # node-level extension fields (defaults / steps) in emitted plan_json.
-        plan_for_validate = {
-            "shots": [
-                {
-                    "id": s["id"],
-                    "prompt": s["prompt"],
-                    "length": s["length"],
-                    "seed": s["seed"],
-                }
-                for s in shots_for_plan
-            ],
-            "prompt_prefix": list(prefix_lines),
-        }
-        plan_errors = validate_plan(plan_for_validate, schema=schema)
+        plan_errors = validate_plan(plan, schema=schema)
         if plan_errors:
             raise RuntimeError("plan validation failed: " + "; ".join(plan_errors))
         label_errors = validate_label_policy(
-            plan_for_validate,
+            plan,
             ref_code,
             manifest or [],
         )
@@ -1813,19 +2939,52 @@ class H3LoopPromptEnhancer:
             raise RuntimeError(
                 "label policy failed: " + "; ".join(label_errors)
             )
-        shots_json = plan_to_json_string(plan["shots"])
         plan_json = plan_to_json_string(plan)
-        preflight = build_preflight_report(
-            plan, warnings, mode=ref_code, manifest=manifest or []
+        # ---- Stage 4: summary (the node's only other output) -------- #
+        # Human-readable run report: LLM request count + estimated token
+        # usage + every warning. The old preflight / preview / prompts
+        # outputs are gone — plan_json carries the machine-readable plan
+        # and summary carries everything a human needs at a glance.
+        summary_lines = ["MiniMax H3 Loop Plan summary"]
+        if enhance_header is not None:
+            # Auto-enhance ran: surface the rewrite after the fact so
+            # the intermediate stays inspectable without the two-node
+            # checkpoint. The full advice header + rewritten text are
+            # appended at the bottom of this summary.
+            summary_lines.append(
+                "Auto-enhance: user_input was rewritten before planning "
+                "(see the rewrite appended below)"
+            )
+        summary_lines.extend(self._usage_summary_lines())
+        total_frames = sum(int(s.get("length") or 0) for s in plan["shots"])
+        summary_lines.append(
+            f"Plan: {len(plan['shots'])} scene(s), {total_frames} frames "
+            f"({total_frames / 24.0:.1f}s delivered vs "
+            f"{effective_total_duration}s budget), mode={gen_code}, "
+            f"reference={ref_code}"
         )
-        plan_preview = build_plan_preview(plan)
+        if warnings:
+            summary_lines.append(f"Warnings ({len(warnings)}):")
+            summary_lines.extend(f"  - {w}" for w in warnings)
+        else:
+            summary_lines.append("Warnings: none")
+        if enhance_header is not None:
+            summary_lines.append("")
+            summary_lines.append("Auto-enhance rewrite (what the pipeline consumed):")
+            summary_lines.append(f"{enhance_header.strip()}")
+            summary_lines.append("--- rewritten user_input ---")
+            summary_lines.append(idea.strip())
+            summary_lines.append("--- end rewritten user_input ---")
+        summary = "\n".join(summary_lines)
+        # Mirror the summary into mie_log (the ComfyUI console) so a
+        # run's request/token/warning footprint is visible without a
+        # Show-Anything node. mie_log only prints — it never writes
+        # files; logs/*.log entries come solely from the Show node
+        # writing whatever is wired into it.
+        log_pipeline(summary)
         return {
             "plan_json": plan_json,
-            "shots_json": shots_json,
-            "shot_prompts": shots_json,
-            "prompt_prefix_out": json.dumps(prefix_lines, ensure_ascii=False),
-            "preflight_report": preflight,
-            "plan_preview": plan_preview,
+            "summary": summary,
         }
 
 
@@ -1834,7 +2993,7 @@ class MiniMaxH3LoopPromptGenerator:
     """ComfyUI node: free-form user_input -> Production Plan ``plan_json``.
 
     Paste a concept paragraph or one beat per line into ``user_input``;
-    the node splits it into ``shot_count`` scenes whose durations sum
+    the node splits it into ``scene_count`` scenes whose durations sum
     close to ``total_duration_seconds``, then feeds ``plan_json`` into
     ``MiniMaxH3ChainPlanModern.plan_json_input``. The generated JSON only
     carries ``shots`` / ``prompt_prefix`` — sampler steps, canvas size,
@@ -1860,6 +3019,26 @@ class MiniMaxH3LoopPromptGenerator:
                         ),
                     },
                 ),
+                "enhance_user_input": (
+                    list(_ENHANCE_USER_INPUT_LABELS),
+                    {
+                        "default": _ENHANCE_USER_INPUT_LABELS[0],
+                        "tooltip": (
+                            "on: run the MiniMax H3 Loop User Input "
+                            "Enhancer's rewrite once inside this node (one "
+                            "extra LLM call) before planning — paste any "
+                            "rough draft. off (default): consume user_input "
+                            "verbatim. Keep off when you already write the "
+                            "canonical format or when the standalone "
+                            "Enhancer node is wired upstream (it would "
+                            "re-rewrite an already-canonical text). The "
+                            "rewrite (Classification + Notes + full text) "
+                            "is surfaced at the top of the preflight "
+                            "report. NOTE: with on, ANY widget change "
+                            "re-runs the rewrite too (single-node caching)."
+                        ),
+                    },
+                ),
                 "seed": (
                     "INT",
                     {
@@ -1876,41 +3055,72 @@ class MiniMaxH3LoopPromptGenerator:
                 ),
             },
             "optional": {
-                "shot_count": (
+                "scene_count": (
                     "INT",
                     {
                         "default": 0,
                         "min": 0,
                         "max": 128,
                         "tooltip": (
-                            "Number of scenes. 0 = auto: the LLM decides scene "
-                            "count from your material and total_duration_seconds "
-                            "while keeping each scene in the 4-14s band and "
-                            "avoiding meaningless oversplitting. >0 = exactly "
-                            "that many (explicit count is always honoured)."
+                            "Number of scenes. Your count is the TARGET and "
+                            "the node honours it as closely as the content "
+                            "allows — the dialogue line count does NOT "
+                            "dictate the board.\n\n"
+                            "0 = auto: dialogue boards pack turns into the "
+                            "fewest scenes that fit the 14s H3 window "
+                            "(split_bias=aggressive keeps one scene per "
+                            "turn); narration boards let the LLM decide.\n\n"
+                            ">0 on a dialogue board: fewer scenes = tighter "
+                            "packing of lines; more scenes = lines spread "
+                            "across more scenes (midpoint splits); above "
+                            "one-line-per-scene the node adds mechanical "
+                            "SILENT REACTION CUTS (cut to the listener) so "
+                            "your count is reached without touching a "
+                            "single spoken line. The only hard floor is "
+                            "physical: scenes never exceed 14s and a line "
+                            "is never cut mid-utterance — below that floor "
+                            "you get the minimum feasible count plus a "
+                            "warning (never an error).\n\n"
+                            ">0 on a narration board: the storyboard LLM "
+                            "produces exactly that many scenes."
                         ),
                     },
                 ),
                 "total_duration_seconds": (
                     "INT",
                     {
-                        "default": DEFAULT_TOTAL_DURATION_SECONDS,
-                        "min": 5,
+                        "default": 0,
+                        "min": 0,
                         "max": 1800,
                         "tooltip": (
                             "Whole-board duration budget. The storyboard LLM "
                             "distributes it across scenes; each scene rounds up "
                             "onto the 17k+5 frame grid, so the delivered total "
                             "lands close to this (±20% tolerated silently).\n\n"
-                            "MiniMax-H3 single-generation window: 4-15 s "
-                            "(MiniMax-H3-Max 5-15 s) per upstream "
-                            "MiniMax-AI/MiniMax-H3 README and "
-                            "platform.minimaxi.com API. Context-Loop "
-                            "accepts up to 149.667 s per Scene, but the H3 "
-                            "model will reject or degrade entries longer "
-                            "than 15 s. This node hard-caps every per-shot "
-                            "duration_seconds at 14 s and emits a preflight "
-                            "warning when clamping occurred."
+                            "0 = auto: derived from dialogue line count and the "
+                            "selected pacing preset (TTS rate + per-turn pause). "
+                            "For concepts without speaker:line dialogue the "
+                            "auto budget falls back to 15s. Set >0 to override "
+                            "the auto estimate. The override actually shrinks "
+                            "shots (clamped to 4-14s each); the old '15 default' "
+                            "no longer applies.\n\n"
+                            "MiniMax-H3 single-generation window: 4-15 s per "
+                            "upstream MiniMax-AI/MiniMax-H3 README. This node "
+                            "hard-caps every per-shot duration_seconds at 14 s "
+                            "and emits a preflight warning when clamping occurred."
+                        ),
+                    },
+                ),
+                "pacing": (
+                    list(_PACING_LABELS),
+                    {
+                        "default": _PACING_LABELS[1],
+                        "tooltip": (
+                            "Auto-length pacing preset (used when "
+                            "total_duration_seconds=0). fast: CN 4.5 chars/s "
+                            "+ 1.0s turn pause. normal: CN 3.5 chars/s + 1.5s. "
+                            "slow: CN 2.8 chars/s + 2.0s. English uses "
+                            "rate_en = 3.5 / 2.5 / 2.0 words/s respectively."
                         ),
                     },
                 ),
@@ -1945,10 +3155,18 @@ class MiniMaxH3LoopPromptGenerator:
                     {
                         "default": SEED_MODES[0],
                         "tooltip": (
-                            "same_across_scenes: every scene shares one seed "
-                            "(better identity/style hold, recommended). "
-                            "per_scene_increment: seed_base+index for each "
-                            "scene (more variety)."
+                            "per_scene_increment (recommended): seed_base+index "
+                            "per scene — deterministic but DISTINCT per scene. "
+                            "This mirrors the upstream ComfyUI-MiniMaxH3-Context-"
+                            "Loop plugin's own default, which derives per-scene "
+                            "seeds from one base (sha256(base:index:shot_id)) "
+                            "when the plan omits seeds and relies on that "
+                            "determinism for checkpoint recovery; identical "
+                            "seeds on every clip make consecutive clips sample "
+                            "near-identical noise (repeated motion rhythm). "
+                            "same_across_scenes: every scene shares one seed — "
+                            "use it only when you deliberately want the "
+                            "identical-noise look."
                         ),
                     },
                 ),
@@ -1958,8 +3176,18 @@ class MiniMaxH3LoopPromptGenerator:
                         "default": SPLIT_BIASES[0],
                         "tooltip": (
                             "How aggressively auto-splitting cuts scenes when "
-                            "shot_count=0. conservative: fewer/longer scenes; "
-                            "balanced: default; aggressive: more/shorter scenes "
+                            "scene_count=0. Dialogue-driven boards: every cut "
+                            "regenerates a carried overlap and risks visual "
+                            "discontinuity, so the DEFAULT (balanced) and "
+                            "conservative both PACK consecutive turns into "
+                            "the fewest multi-turn scenes that fit the 14 s "
+                            "H3 single-generation window — a speaker change "
+                            "alone never forces a cut, same-speaker lines "
+                            "never split, every line keeps its verbatim "
+                            "<d> block + fixed speaker ID. aggressive = one "
+                            "shot per dialogue turn (quick-cut rhythm). "
+                            "Narration boards: conservative -> fewer/longer "
+                            "scenes; aggressive -> more/shorter scenes "
                             "(all still constrained to 4-14s per scene)."
                         ),
                     },
@@ -2049,13 +3277,10 @@ class MiniMaxH3LoopPromptGenerator:
             },
         }
 
-    RETURN_TYPES = ("STRING", "STRING", "STRING", "STRING", "STRING")
+    RETURN_TYPES = ("STRING", "STRING")
     RETURN_NAMES = (
         "plan_json",
-        "shot_prompts",
-        "prompt_prefix_out",
-        "preflight_report",
-        "plan_preview",
+        "summary",
     )
     FUNCTION = "generate"
     CATEGORY = MY_CATEGORY
@@ -2063,23 +3288,15 @@ class MiniMaxH3LoopPromptGenerator:
     def generate(
         self,
         llm_service_connector,
-        concept: str = "",
-        shots_text: str = "",
         *,
         user_input: str = "",
         seed=None,
-        shot_count=0,
-        duration_seconds: int = 0,
-        total_duration_seconds=DEFAULT_TOTAL_DURATION_SECONDS,
+        scene_count=0,
+        total_duration_seconds=0,
         split_bias=SPLIT_BIASES[0],
         generation_mode=GENERATION_MODES[0],
         category="",
-        width: int = 544,
-        height: int = 960,
         output_language="en",
-        prompt_prefix_input: str = "",
-        per_shot_overrides: str = "",
-        unified_seed=True,
         seed_mode="",
         temperature=_DEFAULT_TEMPERATURE,
         max_tokens=_DEFAULT_MAX_TOKENS,
@@ -2090,6 +3307,8 @@ class MiniMaxH3LoopPromptGenerator:
         caption_mode="",
         force_recaption: bool = False,
         caption_cache_scope: str = "memory_disk",
+        pacing: str = _PACING_LABELS[1],
+        enhance_user_input: str = _ENHANCE_USER_INPUT_LABELS[0],
     ):
         enhancer = H3LoopPromptEnhancer(
             llm_service_connector,
@@ -2098,58 +3317,41 @@ class MiniMaxH3LoopPromptGenerator:
             timeout=timeout,
         )
         out = enhancer(
-            concept=concept,
-            shots_text=shots_text,
-            duration_seconds=duration_seconds,
-            width=width,
-            height=height,
-            prompt_prefix_input=prompt_prefix_input,
-            per_shot_overrides=per_shot_overrides,
-            shot_count=shot_count,
-            unified_seed=unified_seed,
-            seed_mode=seed_mode,
             user_input=user_input,
+            scene_count=scene_count,
             total_duration_seconds=total_duration_seconds,
             split_bias=split_bias,
             generation_mode=generation_mode,
             category=category,
             output_language=output_language,
             seed=seed,
+            seed_mode=seed_mode,
             reference_mode=reference_mode,
             references_text=references_text,
             images=images,
             caption_mode=caption_mode,
             force_recaption=force_recaption,
             caption_cache_scope=caption_cache_scope,
+            pacing=pacing,
+            enhance_user_input=parse_enhance_user_input(enhance_user_input),
         )
         return (
             out["plan_json"],
-            out["shot_prompts"],
-            out["prompt_prefix_out"],
-            out["preflight_report"],
-            out["plan_preview"],
+            out["summary"],
         )
 
     def is_changed(
         self,
         llm_service_connector,
-        concept: str = "",
-        shots_text: str = "",
         *,
         user_input: str = "",
         seed=None,
-        shot_count=0,
-        duration_seconds: int = 0,
-        total_duration_seconds=DEFAULT_TOTAL_DURATION_SECONDS,
+        scene_count=0,
+        total_duration_seconds=0,
         split_bias=SPLIT_BIASES[0],
         generation_mode=GENERATION_MODES[0],
         category="",
-        width: int = 544,
-        height: int = 960,
         output_language="en",
-        prompt_prefix_input: str = "",
-        per_shot_overrides: str = "",
-        unified_seed=True,
         seed_mode="",
         temperature=_DEFAULT_TEMPERATURE,
         max_tokens=_DEFAULT_MAX_TOKENS,
@@ -2160,28 +3362,20 @@ class MiniMaxH3LoopPromptGenerator:
         caption_mode="",
         force_recaption: bool = False,
         caption_cache_scope: str = "memory_disk",
+        pacing: str = _PACING_LABELS[1],
+        enhance_user_input: str = _ENHANCE_USER_INPUT_LABELS[0],
     ):
         h = hashlib.md5()
-        # Use both concept and user_input so we hash whatever the
-        # ComfyUI widget passes plus the historical alias.
-        effective_concept = concept or user_input
         for part in (
-            effective_concept,
-            shots_text,
+            user_input,
             str(seed),
-            str(shot_count),
-            str(duration_seconds),
-            str(bool(unified_seed)),
+            str(scene_count),
             parse_seed_mode(seed_mode),
             str(total_duration_seconds),
             parse_split_bias(split_bias),
             generation_mode,
             category,
-            str(width),
-            str(height),
             output_language,
-            prompt_prefix_input,
-            per_shot_overrides,
             str(temperature),
             str(max_tokens),
             str(timeout),
@@ -2189,6 +3383,8 @@ class MiniMaxH3LoopPromptGenerator:
             parse_caption_mode(caption_mode),
             str(bool(force_recaption)),
             str(caption_cache_scope or "memory_disk"),
+            pacing,
+            str(parse_enhance_user_input(enhance_user_input)),
         ):
             h.update((part or "").encode("utf-8"))
         # images: hash tensor shape (content is data, not signal; the

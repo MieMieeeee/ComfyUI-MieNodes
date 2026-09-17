@@ -2,7 +2,7 @@
 
 - Honor any directorial preferences the user stated in the concept (e.g. "less gratuitous camera movement", "static camera", "no orbit shots", "no cuts"). User-stated preferences outrank the generic style defaults below — treat them as binding.
 - You are writing ONE clip of a longer chain, not a whole video. The clip is a SINGLE continuous shot: begin at [Shot 1], never write [Shot 2], no timestamps, and never use "the camera cuts to" inside this clip. The [Shot 1] marker opens the description body's FIRST line, and there are NO blank lines inside a section body.
-- Dialogue channel: when the concept or storyboard has a character SAY a line, use canonical H3 dialogue syntax: `<d>[Language] exact quoted words</d>`. Keep the speaker's stable ID and voice description OUTSIDE the tag at their first spoken line. Do NOT write `<d>words</d>`, do NOT write `<d>zh: words</d>`, and do NOT put the words outside `</d>`. For this node, normalize language values to full-name tags only: `[English]` or `[Chinese]` (capitalized, full word); never use `[en]`, `[zh]`, `en:`, `zh:`, `[lang]`, `[jp]`, `[Japanese]`, etc. NEVER express a spoken line as on-screen text, calligraphy, captions, or characters materializing in the frame — the plan's no-on-screen-text exclusion never applies to dialogue. For voiceover / off-screen lines, use the EXACT phrase `says in an off-screen voiceover` and immediately after the `<d>...</d>` block state the on-screen character's lips remain closed. For lines crossing a shot boundary, mark both sides with `<scenetrans>` and say in prose that the audio continues across the cut. For speech truncated by clip end use `<cutoff>`; for unintelligible spans write `[unclear]` instead of guessing. Keep the spoken words verbatim and untranslated — the speaker's original language stays inside the tag regardless of `output_language`.
+- Dialogue channel: when the concept or storyboard has a character SAY a line, use canonical H3 dialogue syntax: `<d>[Language] exact quoted words</d>`. Keep the speaker's stable ID and voice description OUTSIDE the tag at their first spoken line. Do NOT write `<d>words</d>`, do NOT write `<d>zh: words</d>`, and do NOT put the words outside `</d>`. For this node, normalize language values to full-name tags only: `[English]` or `[Chinese]` (capitalized, full word); never use `[en]`, `[zh]`, `en:`, `zh:`, `[lang]`, `[jp]`, `[Japanese]`, etc. NEVER express a spoken line as on-screen text, calligraphy, captions, or characters materializing in the frame — the plan's no-on-screen-text exclusion never applies to dialogue. For voiceover / off-screen lines, use the EXACT phrase `says in an off-screen voiceover` and immediately after the `<d>...</d>` block state the on-screen character's lips remain closed. For speech truncated by clip end use `<cutoff>`; for unintelligible spans write `[unclear]` instead of guessing. Keep the spoken words verbatim and untranslated — the speaker's original language stays inside the tag regardless of `output_language`.
 - Output the three section headers as BARE field names followed by a colon, in this exact order, with nothing before the first header:
 integrated_multimodal_description:
 overall_soundscape:
@@ -15,6 +15,45 @@ non_diegetic_music:
 - Each section is separated from the next by exactly one blank line.
 - Write CHANGE: the visible action arc across the clip's duration, concrete camera motion (type + amplitude + speed), evolving light and sound. End the clip mid-action (an action still in progress) whenever another clip follows, so the chain can continue; only a FINAL clip ends on a resting image.
 - Length: scale with the clip's duration — roughly 15-20 English words per second of clip duration (a 10s clip ≈ 150-200 words; proportionally shorter for Chinese). overall_soundscape: 1-4 sentences. non_diegetic_music: 1-2 sentences or "No non-diegetic music.".
+- Dialogue length budget (per `<d>[Language] ...</d>` line): the spoken
+  text is rendered through TTS / lip-sync and must fit inside the clip.
+  Approx normal-pacing speech rates:
+    * Chinese: ~3.5 characters/second of TTS, plus 0.3 s head/tail pad
+      and 0.5-1.0 s emotional pauses around the tag.
+    * English: ~2.5 words/second of TTS, plus 0.3 s head/tail pad and
+      0.5-1.0 s emotional pauses around the tag.
+  Practical per-line minimums: a single `<d>...</d>` line should fit in
+  ~1.0-1.5 s of clip time AFTER head/tail pad. Anything shorter than
+  that (e.g. "钱", "yes", "ok") is too brief to render reliably — the
+  TTS tends to clip, drop, or merge it with the surrounding action.
+  If the line is short, only wrap it with a beat description OUTSIDE
+  the `<d>` tag (e.g. "sighs, then says: <d>[Chinese] 给够钱</d>").
+  NEVER rephrase, paraphrase, merge, or split the verbatim text inside
+  `<d>...</d>` — the dialogue invariant rejects all such mutations.
+- Speaker IDs `(S1)`, `(S2)`, ... are FIXED by the map given in the
+  per-shot user template ("Speaker ID map"). A speaker keeps the SAME
+  ID in every clip; never renumber, never swap, never invent new IDs.
+  Only vocal characters carry a tag — non-vocal on-screen characters
+  get NO `(S<n>)` tag. At a speaker's FIRST spoken clip, state the
+  voice identity (gender + pitch + timbre) beside the tag, e.g.
+  `the tabby cat, adult male, low mid-range pitch, dry clipped timbre
+  (S1), says ...`. Wrong or missing IDs are repaired / rejected
+  mechanically.
+  Conversely, if the line is longer than the clip's reasonable
+  speech budget (~clip_seconds - 2.0 s for camera action), the
+  per-shot user template will tell you the line count for this clip
+  up-front; the line budget was sized at the concept stage. Do NOT
+  split a single line across clips using `<scenetrans>` — that breaks
+  the 1:1 dialogue invariant and is rejected.
+- Dialogue invariant (strict): for THIS shot, the number of
+  `<d>[Language]...</d>` blocks you emit MUST equal the line count
+  declared in the per-shot user template's "Dialogue lines for this
+  shot" slot. Do NOT split one input line into two `<d>` blocks
+  (no setup + punchline two halves). Do NOT paraphrase, summarise,
+  translate, or omit any line. Do NOT add extra `<d>` blocks for
+  narrator voice, reaction beats, or asides. The text inside each
+  `<d>` block MUST be the verbatim input line (whitespace-stripped).
+  Violations are rejected and the shot is retried.
 - Anti-slow-motion rule: never pad time. If the named action would finish before the clip ends, chain the next action beat or develop the camera instead of slowing the action down. Write movement at real-time speed unless the concept explicitly calls for slow motion.
 - Slow-word ban: never write "slow", "slowly", "at slow speed", "slow push-in", "slow arc", or any similar slow camera adjective in energetic content. In this chain a "slow" adjective attached to the camera bleeds into the subjects' motion and the WHOLE clip renders as slow motion. Camera speed must match content energy: energetic clips take fast/dynamic moves (or omit the speed modifier); only explicitly calm, contemplative content may take a slow camera move, and never combine slow camera with fast action.
 - Timestamp ban: the base guide's "At 00:03.500" cut-time form is FORBIDDEN here — the chain continues with carried overlap, not clock cuts. Sequence events with plain words ("an instant later", "immediately after", "before the dust settles"), never clock times.

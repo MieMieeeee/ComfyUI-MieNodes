@@ -55,6 +55,7 @@ IGNORE_DIRS = {
     "debug_logs",
     "logs",
     "%TEMP%",
+    "notes",
 }
 
 # File names never copied from src; dst copies are preserved when present.

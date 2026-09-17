@@ -62,20 +62,17 @@ def lp():
     _load_file("_mienodes_internal.nodes.llm.h3_prompts", LLM_DIR / "h3_prompts.py")
     _load_file(
         "_mienodes_internal.nodes.llm.minimax_h3_storyboard_prompts",
-        LLM_DIR / "minimax_h3_storyboard_prompts.py",
-    )
+        LLM_DIR / "minimax_h3_storyboard_prompts.py")
     return _load_file(
         "_mienodes_internal.nodes.llm.minimax_h3_loop_prompts",
-        LLM_DIR / "minimax_h3_loop_prompts.py",
-    )
+        LLM_DIR / "minimax_h3_loop_prompts.py")
 
 
 @pytest.fixture(scope="module")
 def lg(lp):
     return _load_file(
         "_mienodes_internal.nodes.llm.minimax_h3_loop_prompt_generator",
-        LLM_DIR / "minimax_h3_loop_prompt_generator.py",
-    )
+        LLM_DIR / "minimax_h3_loop_prompt_generator.py")
 
 
 # --------------------------------------------------------------------------- #
@@ -86,8 +83,7 @@ def test_reference_mode_dropdown_format(lp):
         "t2va - 文生视频链(默认)",
         "i2va - 首帧关键帧(文生视频+首帧图)",
         "fl2va - 首尾帧关键帧(首帧+逐场尾帧)",
-        "ref2va - 参考图(N张/全场景)",
-    )
+        "ref2va - 参考图(N张/全场景)")
     assert lp.REFERENCE_MODE_CODES == ("t2va", "i2va", "fl2va", "ref2va")
 
 
@@ -209,8 +205,7 @@ def test_parse_references_text_alias_keys(lp):
                 {"slot": "Picture 2", "about": "y", "role": "destination"},
             ],
             "fl2va",
-            False,
-        ),
+            False),
         ([{"slot": "Picture 1", "about": "x", "role": "identity"}], "fl2va", True),
         ([], "fl2va", True),
         # ref2va: 1..9 contiguous pictures
@@ -220,22 +215,18 @@ def test_parse_references_text_alias_keys(lp):
                 {"slot": "Picture 2", "about": "y", "role": "destination"},
             ],
             "ref2va",
-            False,
-        ),
+            False),
         (
             [{"slot": f"Picture {i}", "about": "z", "role": "destination"} for i in range(1, 10)],
             "ref2va",
-            False,
-        ),
+            False),
         # >9 pictures rejected
         (
             [{"slot": f"Picture {i}", "about": "z", "role": "destination"} for i in range(1, 11)],
             "ref2va",
-            True,
-        ),
+            True),
         ([], "ref2va", True),
-    ],
-)
+    ])
 def test_validate_manifest_matrix(lp, manifest, mode, expect_error):
     errors = lp.validate_manifest(manifest, mode)
     if expect_error:
@@ -342,8 +333,7 @@ def test_split_six_sections_missing_section_raises(lp):
         "<Picture 1> defines <Subject 1>, the exact adult courier, "
         "including mustard jacket and bicycle.\n",
         "",
-        1,
-    )
+        1)
     with pytest.raises(ValueError, match="subject_definitions"):
         lp.split_six_sections(text)
 
@@ -351,8 +341,7 @@ def test_split_six_sections_missing_section_raises(lp):
 def test_split_six_sections_empty_body_raises(lp):
     text = _ref2va_clip_reply(lp).replace(
         "<Picture 1> defines <Subject 1>, the exact adult courier, including mustard jacket and bicycle.",
-        "",
-    )
+        "")
     with pytest.raises(ValueError, match="empty subject_definitions"):
         lp.split_six_sections(text)
 
@@ -410,8 +399,7 @@ def _three_shot_plan(lp):
                 "seed": "1002",
             },
         ],
-        ["Shared prefix."],
-    )
+        ["Shared prefix."])
 
 
 def _six_shot_plan(lp):
@@ -430,8 +418,7 @@ def _six_shot_plan(lp):
                 "seed": "1002",
             },
         ],
-        [],
-    )
+        [])
 
 
 def test_validate_plan_three_section_clean(lp):
@@ -580,8 +567,7 @@ def test_validate_label_policy_fl2va_scene3_targets_picture1(lp):
             }
             for i in range(1, 4)
         ],
-        ["prefix"],
-    )
+        ["prefix"])
     # Scene 3 with <Picture 1> PASSES (every scene 2+ targets Picture 1).
     plan["shots"][2]["prompt"][1] = "[Shot 1] converge on <Picture 1>."
     errs = lp.validate_label_policy(plan, "fl2va", [
@@ -608,8 +594,7 @@ def test_validate_label_policy_fl2va_scene3_rejects_picture2(lp):
             }
             for i in range(1, 4)
         ],
-        ["prefix"],
-    )
+        ["prefix"])
     plan["shots"][2]["prompt"][1] = "[Shot 1] converge on <Picture 2>."
     errs = lp.validate_label_policy(plan, "fl2va", [
         {"slot": "Picture 1", "about": "x", "role": "identity"},
@@ -941,14 +926,12 @@ def test_validate_manifest_ref2va_video(lp):
     three = [f"Video {i}" for i in (1, 2, 3)]
     ok = lp.validate_manifest(
         [{"slot": s, "about": "x", "role": "destination"} for s in three],
-        "ref2va",
-    )
+        "ref2va")
     assert ok == []
     four = lp.validate_manifest(
         [{"slot": f"Video {i}", "about": "x", "role": "destination"}
          for i in (1, 2, 3, 4)],
-        "ref2va",
-    )
+        "ref2va")
     assert any("up to 3 video" in e for e in four)
     # Pictures-then-videos combination is valid; video numbering must
     # restart at Video 1.
@@ -985,8 +968,7 @@ def test_validate_label_policy_ref2va_video_labels(lp):
     plan = lp.build_plan(
         [{"id": "s1", "prompt": lp.split_six_sections(six),
           "length": 175, "seed": "1"}],
-        ["prefix"],
-    )
+        ["prefix"])
     assert lp.validate_label_policy(plan, "ref2va", manifest) == []
     # <Video 2> is not in the manifest -> error.
     bad = json.loads(json.dumps(plan))
@@ -1085,8 +1067,7 @@ def _read_workflow_plan_json(workflow_path: Path) -> dict:
         ("I2V Normal - MiniMax H3 0.6.json", "three_section", "greenhouse_arrival"),
         ("FL2V Normal - MiniMax H3 0.6.json", "three_section", "arrival_to_delivery"),
         ("Ref2V Basic - MiniMax H3 0.6.json", "six_section", "reference_delivery"),
-    ],
-)
+    ])
 def test_official_workflow_round_trip_validates(lp, filename, schema, expected_id):
     plan = _read_workflow_plan_json(PLUGIN_DIR / "example_workflows" / filename)
     assert plan, f"no plan JSON found in {filename}"
@@ -1169,6 +1150,34 @@ class ScriptedConnector(FakeConnector):
 
 def _fake_images(n=1):
     return np.zeros((n, 4, 4, 3), dtype=np.float32)
+
+
+# Stub helpers for the v4 plan pipeline (extract_dialogue +
+# _auto_storyboard + prefix + per-shot). The v4 plan path always
+# runs these in order for natural-language inputs.
+_EXTRACT_DIALOGUE_EMPTY = json.dumps({"turns": []})
+
+
+def _auto_storyboard_reply(n=2, *, per_shot_seconds=10):
+    """Storyboard LLM reply used by v4 plan tests. Mirrors the helper
+    in test_h3_loop_prompt_generator.py."""
+    shots = []
+    for i in range(1, n + 1):
+        shots.append(
+            {
+                "id": f"scene_{i:02d}",
+                "description": f"Shot {i} description.",
+                "shot_type": "medium_shot",
+                "camera_movement": "slow_push_in",
+                "transition_in": "fade_from_black" if i == 1 else "hard_cut",
+                "duration_seconds": per_shot_seconds,
+                "narrative_beat": "establish",
+                "characters": ["young_woman"],
+                "props": ["porcelain_bowl"],
+                "notes": "Carry the bowl.",
+            }
+        )
+    return json.dumps(shots, ensure_ascii=False)
 
 
 def _storyboard_json(n=2, *, per_shot_seconds=10):
@@ -1362,19 +1371,26 @@ def test_e2e_i2va_happy_path(lg):
     manifest_json = json.dumps([
         {"slot": "Picture 1", "about": "courier face, yellow jacket", "role": "identity"},
     ], ensure_ascii=False)
-    conn = ScriptedConnector([_storyboard_json(2), _PREFIX_REPLY, _i2va_scene1_reply(), _i2va_scene2_reply()])
+    # caption stage is stubbed (spy); v4 plan chain order:
+    # extract_dialogue (narrator fallback) -> _auto_storyboard -> prefix
+    # -> 2 per-shot calls (i2va first-scene idiom).
+    conn = ScriptedConnector([
+        _EXTRACT_DIALOGUE_EMPTY,
+        _auto_storyboard_reply(2),
+        _PREFIX_REPLY,
+        _i2va_scene1_reply(),
+        _i2va_scene2_reply(),
+    ])
     enh = lg.H3LoopPromptEnhancer(conn)
     enh._caption_images = lambda *, images, ref_code, seed, **kwargs: (json.loads(manifest_json), [])
-    out = enh(
-        "concept",
-        shot_count=2,
+    out = enh(user_input="concept",
         generation_mode="per_shot",
         reference_mode="i2va - 首帧关键帧(文生视频+首帧图)",
         images=_fake_images(1),
-        seed=1,
-    )
+        seed=1)
     plan = json.loads(out["plan_json"])
-    assert set(plan.keys()) == {"defaults", "shots", "prompt_prefix"}
+    # Strict upstream contract: NO `defaults` key, NO `steps` on shots.
+    assert set(plan.keys()) == {"shots", "prompt_prefix"}
     assert len(plan["shots"]) == 2
     # Scene 1 contains the official opening idiom + <Picture 1>.
     s1_prompt = plan["shots"][0]["prompt"]
@@ -1384,12 +1400,9 @@ def test_e2e_i2va_happy_path(lg):
     s2_text = " ".join(plan["shots"][1]["prompt"])
     assert "<Picture" not in s2_text and "<Video" not in s2_text and "<Audio" not in s2_text
     assert "<Subject" not in s2_text
-    # Preflight contains D10 i2va wiring line.
-    assert "graph wiring: LoadImage -> MiniMax H3 First-Scene Image Gate" in out["preflight_report"]
-    assert (
-        "the Scene Prompt Editor may classify these prompts as T2VA" in out["preflight_report"]
-    )
-    assert "Reference mode: i2va" in out["preflight_report"]
+    # Summary carries the mode (the old preflight D10 wiring hints were
+    # dropped with the two-output reduction).
+    assert "reference=i2va" in out["summary"]
     # Plan validates three_section.
     plan_for_validate = {
         "shots": [
@@ -1402,7 +1415,7 @@ def test_e2e_i2va_happy_path(lg):
     assert errs == []
     # Stage 2 call injected the reference_directive (D6) and the
     # mode_note for the per-clip system policy.
-    shot_user = conn.calls[2][1]["content"]
+    shot_user = conn.calls[3][1]["content"]
     assert "At 0.00 seconds, <Picture 1> is fully referenced as the opening frame." in shot_user
     assert "courier face, yellow jacket" in shot_user
     assert "Reference manifest (binding):" in shot_user
@@ -1412,17 +1425,13 @@ def test_e2e_i2va_single_call_rejected(lg):
     enh = lg.H3LoopPromptEnhancer(ScriptedConnector([]))
     enh._caption_images = lambda *, images, ref_code, seed, **kwargs: (
         [{"slot": "Picture 1", "about": "x", "role": "identity"}],
-        [],
-    )
+        [])
     with pytest.raises(RuntimeError, match="single_call generation mode is not supported"):
-        enh(
-            "concept",
-            shot_count=1,
+        enh(user_input="concept",
             generation_mode="single_call - 单次调用(快/省)",
             reference_mode="i2va",
             images=_fake_images(1),
-            seed=1,
-        )
+            seed=1)
 
 
 # --------------------------------------------------------------------------- #
@@ -1434,6 +1443,7 @@ def test_e2e_fl2va_3shot_alternation(lg):
         {"slot": "Picture 2", "about": "parcel on table", "role": "destination"},
     ], ensure_ascii=False)
     conn = ScriptedConnector([
+        '{"turns": []}',
         _storyboard_json(3),
         _PREFIX_REPLY,
         _fl2va_scene1_reply(),
@@ -1442,14 +1452,11 @@ def test_e2e_fl2va_3shot_alternation(lg):
     ])
     enh = lg.H3LoopPromptEnhancer(conn)
     enh._caption_images = lambda *, images, ref_code, seed, **kwargs: (json.loads(manifest_json), [])
-    out = enh(
-        "concept",
-        shot_count=3,
+    out = enh(user_input="concept",
         generation_mode="per_shot",
         reference_mode="fl2va - 首尾帧关键帧(首帧+逐场尾帧)",
         images=_fake_images(2),
-        seed=1,
-    )
+        seed=1)
     plan = json.loads(out["plan_json"])
     assert len(plan["shots"]) == 3
     # Scene 1: both pictures + Reach <Picture 2> only on the final frame.
@@ -1478,9 +1485,7 @@ def test_e2e_fl2va_3shot_alternation(lg):
     assert lg.validate_plan(plan_for_validate, schema=lg.SCHEMA_THREE) == []
     errs = lg.validate_label_policy(plan, "fl2va", json.loads(manifest_json))
     assert errs == []
-    # Preflight contains the fl2va wiring hint + Scene Prompt Editor note.
-    assert "MiniMax H3 Chain Frame Index Switch" in out["preflight_report"]
-    assert "Reference mode: fl2va" in out["preflight_report"]
+    assert "reference=fl2va" in out["summary"]
 
 
 def test_e2e_fl2va_single_call_rejected(lg):
@@ -1490,17 +1495,13 @@ def test_e2e_fl2va_single_call_rejected(lg):
             {"slot": "Picture 1", "about": "x", "role": "identity"},
             {"slot": "Picture 2", "about": "y", "role": "destination"},
         ],
-        [],
-    )
+        [])
     with pytest.raises(RuntimeError, match="single_call"):
-        enh(
-            "c",
-            shot_count=1,
+        enh(user_input="c",
             generation_mode="single_call",
             reference_mode="fl2va",
             images=_fake_images(2),
-            seed=1,
-        )
+            seed=1)
 
 
 # --------------------------------------------------------------------------- #
@@ -1512,6 +1513,7 @@ def test_e2e_ref2va_six_sections(lg):
         {"slot": "Picture 2", "about": "greenhouse interior", "role": "destination"},
     ], ensure_ascii=False)
     conn = ScriptedConnector([
+        '{"turns": []}',
         _storyboard_json(2),
         _PREFIX_REPLY,
         _ref2va_scene1_reply(),
@@ -1519,14 +1521,11 @@ def test_e2e_ref2va_six_sections(lg):
     ])
     enh = lg.H3LoopPromptEnhancer(conn)
     enh._caption_images = lambda *, images, ref_code, seed, **kwargs: (json.loads(manifest_json), [])
-    out = enh(
-        "concept",
-        shot_count=2,
+    out = enh(user_input="concept",
         generation_mode="per_shot",
         reference_mode="ref2va - 参考图(N张/全场景)",
         images=_fake_images(2),
-        seed=1,
-    )
+        seed=1)
     plan = json.loads(out["plan_json"])
     assert len(plan["shots"]) == 2
     # All shots have six sections in order.
@@ -1557,17 +1556,15 @@ def test_e2e_ref2va_six_sections(lg):
     assert errs == []
     errs = lg.validate_label_policy(plan, "ref2va", json.loads(manifest_json))
     assert errs == []
-    # Preflight wiring line + mode line.
-    assert "MiniMax H3 Reference to Video" in out["preflight_report"]
-    assert "Reference mode: ref2va" in out["preflight_report"]
+    assert "reference=ref2va" in out["summary"]
     # Stage 1 call used the ref2va mode_note.
-    prefix_user = conn.calls[1][1]["content"]
+    prefix_user = conn.calls[2][1]["content"]
     assert "whole-video invariants only" in prefix_user.lower()
     # Stage 2 call used shot_system_prompt_ref2v (six-section rules).
-    shot_system = conn.calls[2][0]["content"]
+    shot_system = conn.calls[3][0]["content"]
     assert "Ref2VA addendum" in shot_system
     # Continuation uses ref2v template.
-    cont_user = conn.calls[3][1]["content"]
+    cont_user = conn.calls[4][1]["content"]
     assert "Ref2VA clip CONTINUES" in cont_user
 
 
@@ -1580,6 +1577,7 @@ def test_ref2va_retry_on_timestamp_contract(lg):
         {"slot": "Picture 2", "about": "greenhouse interior", "role": "destination"},
     ], ensure_ascii=False)
     conn = ScriptedConnector([
+        '{"turns": []}',
         _storyboard_json(2),
         _PREFIX_REPLY,
         _ref2va_scene1_reply(),
@@ -1588,19 +1586,16 @@ def test_ref2va_retry_on_timestamp_contract(lg):
     ])
     enh = lg.H3LoopPromptEnhancer(conn)
     enh._caption_images = lambda *, images, ref_code, seed, **kwargs: (json.loads(manifest_json), [])
-    out = enh(
-        "concept",
-        shot_count=2,
+    out = enh(user_input="concept",
         generation_mode="per_shot",
         reference_mode="ref2va - 参考图(N张/全场景)",
         images=_fake_images(2),
         output_language="en",
-        seed=1,
-    )
+        seed=1)
     plan = json.loads(out["plan_json"])
-    # storyboard + prefix + scene1 + scene2 attempt1 + scene2 retry
-    assert len(conn.calls) == 5
-    retry_call = conn.calls[4]
+    # extractor + storyboard + prefix + scene1 + scene2 attempt1 + scene2 retry
+    assert len(conn.calls) == 6
+    retry_call = conn.calls[5]
     assert len(retry_call) == 3
     assert "forbidden timestamp" in retry_call[2]["content"]
     s2_text = " ".join(plan["shots"][1]["prompt"])
@@ -1616,6 +1611,7 @@ def test_ref2va_continuation_carries_subject_body_only(lg):
         {"slot": "Picture 2", "about": "greenhouse interior", "role": "destination"},
     ], ensure_ascii=False)
     conn = ScriptedConnector([
+        '{"turns": []}',
         _storyboard_json(2),
         _PREFIX_REPLY,
         _ref2va_scene1_reply(),
@@ -1623,15 +1619,12 @@ def test_ref2va_continuation_carries_subject_body_only(lg):
     ])
     enh = lg.H3LoopPromptEnhancer(conn)
     enh._caption_images = lambda *, images, ref_code, seed, **kwargs: (json.loads(manifest_json), [])
-    out = enh(
-        "concept",
-        shot_count=2,
+    out = enh(user_input="concept",
         reference_mode="ref2va",
         images=_fake_images(2),
-        seed=1,
-    )
+        seed=1)
     assert json.loads(out["plan_json"])
-    cont_user = conn.calls[3][1]["content"]
+    cont_user = conn.calls[4][1]["content"]
     # The previous subject_definitions BODY is present...
     assert "defines <Subject 1>, the exact courier face" in cont_user
     # ...but the summary / retention_analysis bodies are NOT (the old slice
@@ -1644,27 +1637,22 @@ def test_e2e_ref2va_single_call_rejected(lg):
     enh = lg.H3LoopPromptEnhancer(ScriptedConnector([]))
     enh._caption_images = lambda *, images, ref_code, seed, **kwargs: (
         [{"slot": "Picture 1", "about": "x", "role": "identity"}],
-        [],
-    )
+        [])
     with pytest.raises(RuntimeError, match="single_call"):
-        enh(
-            "c",
-            shot_count=1,
+        enh(user_input="c",
             generation_mode="single_call",
             reference_mode="ref2va",
             images=_fake_images(1),
-            seed=1,
-        )
+            seed=1)
 
 
 def test_e2e_ref2va_missing_images_raises(lg):
     with pytest.raises(RuntimeError, match="ref2va requires images"):
         lg.H3LoopPromptEnhancer(ScriptedConnector([]))(
-            "c",
-            shot_count=1,
+            user_input="a quiet scene",
+            scene_count=1,
             reference_mode="ref2va",
-            seed=1,
-        )
+            seed=1)
 
 
 def test_e2e_ref2va_label_violation_raises(lg, lp):
@@ -1680,8 +1668,7 @@ def test_e2e_ref2va_label_violation_raises(lg, lp):
                 "seed": "1001",
             },
         ],
-        ["p"],
-    )
+        ["p"])
     errs = lg.validate_label_policy(plan, "ref2va", [
         {"slot": "Picture 1", "about": "x", "role": "destination"},
         {"slot": "Picture 2", "about": "y", "role": "destination"},
@@ -1702,16 +1689,20 @@ def test_e2e_t2va_regression(lg):
         "non_diegetic_music:\n"
         "No non-diegetic music.\n"
     )
-    conn = ScriptedConnector([_storyboard_json(1), _PREFIX_REPLY, t2va_reply])
-    # Without setting reference_mode, t2va is the default.
-    out = lg.H3LoopPromptEnhancer(conn)(
-        "concept",
-        shot_count=1,
-        seed=1,
+    conn = ScriptedConnector(
+        [
+            '{"intent": "narration"}',  # classifier (no dialogue lines)
+            _storyboard_json(1),
+            _PREFIX_REPLY,
+            t2va_reply,
+        ]
     )
+    # Without setting reference_mode, t2va is the default.
+    out = lg.H3LoopPromptEnhancer(conn)(user_input="concept",
+        seed=1)
     plan = json.loads(out["plan_json"])
     assert plan["prompt_prefix"]
-    assert "Reference mode: t2va" in out["preflight_report"]
+    assert "reference=t2va" in out["summary"]
     plan_for_validate = {
         "shots": [
             {k: v for k, v in shot.items() if k in {"id", "prompt", "length", "seed"}}
@@ -1730,17 +1721,15 @@ def _base_kwargs():
     return dict(
         user_input="c",
         seed=0,
-        shot_count=0,
+        scene_count=0,
         total_duration_seconds=10,
         generation_mode="per_shot - 逐场生成(推荐)",
         category="none - 不指定",
         output_language="en",
-        unified_seed=True,
-        temperature=0.4,
+                temperature=0.4,
         max_tokens=8192,
         timeout=120,
-        reference_mode="t2va - 文生视频链(默认)",
-    )
+        reference_mode="t2va - 文生视频链(默认)")
 
 
 def test_is_changed_reference_mode_affects_hash(lg):
@@ -1813,6 +1802,7 @@ def test_e2e_fl2va_real_image_grounding(lg):
         },
     ], ensure_ascii=False)
     conn = ScriptedConnector([
+        '{"turns": []}',
         _storyboard_json(2),
         _PREFIX_REPLY,
         _fl2va_scene1_reply(),
@@ -1820,23 +1810,19 @@ def test_e2e_fl2va_real_image_grounding(lg):
     ])
     enh = lg.H3LoopPromptEnhancer(conn)
     enh._caption_images = lambda *, images, ref_code, seed, **kwargs: (json.loads(manifest_json), [])
-    out = enh(
-        "concept",
-        shot_count=2,
+    out = enh(user_input="concept",
         generation_mode="per_shot",
         reference_mode="fl2va",
         images=_fake_images(2),
-        seed=1,
-    )
+        seed=1)
     # The real filenames are passed to the LLM via the per-clip user
     # template "Reference manifest (binding)" block + the reference
     # directive that weaves the manifest about text into the opening
     # idiom. A downstream LLM MUST echo them into the clip text.
-    shot1_user = conn.calls[1][1]["content"]
+    shot1_user = conn.calls[2][1]["content"]
     assert "First-Frame.png" in shot1_user
     assert "Last-Frame.jpeg" in shot1_user
-    # Preflight wires up the FL2VA path with the real-image wording.
-    assert "MiniMax H3 Chain Frame Index Switch" in out["preflight_report"]
+    assert "reference=fl2va" in out["summary"]
 
 
 # --------------------------------------------------------------------------- #
@@ -1860,8 +1846,7 @@ def test_parse_references_text_ref2va_defaults_every_slot_to_identity(lp):
     manifest = lp.parse_references_text(
         "Picture 1: tabby in suit\n"
         "Picture 2: cream cat with dress\n",
-        reference_mode="ref2va",
-    )
+        reference_mode="ref2va")
     assert len(manifest) == 2
     assert manifest[0]["role"] == "identity"
     assert manifest[1]["role"] == "identity"
@@ -1872,8 +1857,7 @@ def test_parse_references_text_i2va_keeps_legacy_other_destination(lp):
     default so FL2VA/I2VA contracts stay intact."""
     manifest = lp.parse_references_text(
         "Picture 1: tabby\nPicture 2: cream cat\n",
-        reference_mode="fl2va",
-    )
+        reference_mode="fl2va")
     assert manifest[0]["role"] == "identity"
     assert manifest[1]["role"] == "destination"
 
@@ -1895,8 +1879,7 @@ def test_parse_references_text_ref2va_no_h0_defaults_every_slot_to_identity(lp):
     role-defaulting rule that survives the H0 removal."""
     manifest = lp.parse_references_text(
         "Picture 1: tabby\nPicture 2: cream cat\n",
-        reference_mode="ref2va",
-    )
+        reference_mode="ref2va")
     assert manifest[0]["role"] == "identity"
     assert manifest[1]["role"] == "identity"
 
@@ -1912,8 +1895,7 @@ def test_build_reference_directive_ref2va_no_category_has_no_contract(lp):
         [{"slot": "Picture 1", "about": "tabby", "role": "identity"}],
         1,
         10,
-        category="none - 不指定",
-    )
+        category="none - 不指定")
     assert "GENRE CONTRACT" not in text
     assert "SPOKEN SCENE CONTRACT" not in text
     assert "[reference generation]" in text
@@ -1927,8 +1909,7 @@ def test_build_reference_directive_ref2va_action_has_no_contract(lp):
         [{"slot": "Picture 1", "about": "tabby", "role": "identity"}],
         1,
         10,
-        category="action - 动作戏/打斗/飙车",
-    )
+        category="action - 动作戏/打斗/飙车")
     assert "GENRE CONTRACT" not in text
     assert "SPOKEN SCENE CONTRACT" not in text
 
@@ -1942,12 +1923,14 @@ def test_build_reference_directive_ref2va_dialogue_injects_contracts(lp):
         ],
         1,
         10,
-        category="dialogue - 对白/对话/相声",
-    )
+        category="dialogue - 对白/对话/相声")
     assert "SPOKEN SCENE CONTRACT" in text
     assert "never in the middle of a spoken sentence" in text.lower()
     assert "GENRE CONTRACT" in text
-    assert "THREE-BEAT structure" in text
+    # Three-beat structure was removed in favour of the strict
+    # 1-line -> 1-<d>-block invariant (see dialogue_segmenter module).
+    assert "THREE-BEAT structure" not in text
+    assert "ONE input dialogue line = ONE <d>" in text
     assert "[reference generation]" in text
 
 
@@ -1969,7 +1952,6 @@ def test_build_reference_directive_i2va_fl2va_dialogue_no_contract(lp):
             manifest,
             clip_index,
             10,
-            category="dialogue - 对白/对话/相声",
-        )
+            category="dialogue - 对白/对话/相声")
         assert "GENRE CONTRACT" not in text, (mode, text)
         assert "SPOKEN SCENE CONTRACT" not in text, (mode, text)

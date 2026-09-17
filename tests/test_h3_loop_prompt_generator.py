@@ -132,6 +132,39 @@ def _single_call_reply(n):
     return json.dumps(items, ensure_ascii=False)
 
 
+# Stubs for the new v4 plan pipeline (extract_dialogue + storyboard +
+# prefix + per-shot). The v4 path always runs them in this order for
+# non-dialogue natural-language inputs (extract_dialogue returns an
+# empty turn list, falling back to the narrator path; _auto_storyboard
+# then emits a fresh board).
+def _extract_dialogue_empty():
+    """Reply the LLM span-extractor gives when the concept has no
+    `speaker：text` lines — the orchestrator falls back to a narrator
+    turn and asks _auto_storyboard to pick the scene count."""
+    return json.dumps({"turns": []})
+
+
+def _auto_storyboard_reply(n):
+    """Reply the storyboard LLM gives: a JSON array of n board entries."""
+    shots = []
+    for i in range(1, n + 1):
+        shots.append(
+            {
+                "id": f"scene_{i:02d}",
+                "description": f"Shot {i} description of the courtyard.",
+                "shot_type": "medium_shot",
+                "camera_movement": "slow_push_in",
+                "transition_in": "fade_from_black" if i == 1 else "hard_cut",
+                "duration_seconds": 10,
+                "narrative_beat": "establish",
+                "characters": ["young_woman"],
+                "props": ["porcelain_bowl"],
+                "notes": "Carry the bowl.",
+            }
+        )
+    return json.dumps(shots, ensure_ascii=False)
+
+
 PREFIX_REPLY = (
     "Always the same young woman in a Jiangnan courtyard at high summer: "
     "loosely pinned black hair, white cotton blouse, pale jade bracelet."
@@ -141,133 +174,9 @@ PREFIX_REPLY = (
 # --------------------------------------------------------------------------- #
 # per_shot happy path
 # --------------------------------------------------------------------------- #
-def test_e2e_per_shot_full_pipeline(lg):
-    conn = ScriptedConnector([PREFIX_REPLY, _clip_reply(1), _clip_reply(2), _clip_reply(3)])
-    out = lg.H3LoopPromptEnhancer(conn)(
-        "A Jiangnan courtyard summer",
-        _storyboard_json(3),
-        duration_seconds=10,
-        generation_mode="per_shot",
-        category="cinematic-story - 电影短片/MV/戏剧",
-        width=544,
-        height=960,
-        output_language="en",
-        seed=1000,
-    )
-    # 1 prefix call + 3 shot calls.
-    assert len(conn.calls) == 4
-    # Prefix call used the prefix templates; shot calls used the shot system.
-    assert "prompt prefix" in conn.calls[0][0]["content"].lower()
-    for call in conn.calls[1:]:
-        assert "Loop-plan addendum" in call[0]["content"]
-    # Shots 2+ got the continuation block with the previous clip's FULL
-    # description and its exact soundscape bed.
-    assert "Motion Context" in conn.calls[2][1]["content"]
-    assert "Clip 1" in conn.calls[2][1]["content"]
-    assert "Cicadas hold" in conn.calls[2][1]["content"]
-    assert "Clip 2" in conn.calls[3][1]["content"]
-    assert "Cicadas hold" in conn.calls[3][1]["content"]
-    # Pacing: every shot call carries the beat budget scaled to the ACTUAL
-    # grid duration (10s request -> 243 frames -> 10.13s), and clips 2+
-    # note the carried overlap is excluded from the budget.
-    for call in conn.calls[1:]:
-        assert "2-3 distinct action beats" in call[1]["content"]
-        assert "10.1 seconds" in call[1]["content"]
-    assert "overlap" in conn.calls[2][1]["content"]
-    assert "overlap" not in conn.calls[1][1]["content"]
-    # Prefix synthesis is grounded in the storyboard digest.
-    prefix_user = conn.calls[0][1]["content"]
-    assert "scene_01" in prefix_user and "Shot 1 description" in prefix_user
-
-    plan = json.loads(out["plan_json"])
-    assert list(plan.keys()) == ["defaults", "shots", "prompt_prefix"]
-    assert plan["defaults"] == {"steps": 20}
-    assert len(plan["shots"]) == 3
-    for i, shot in enumerate(plan["shots"], start=1):
-        assert shot["id"] == f"scene_{i:02d}"
-        assert shot["length"] == 243
-        assert shot["steps"] == 20
-        assert shot["seed"] == "1000"  # unified seed (default)
-        assert shot["prompt"][0] == "integrated_multimodal_description:"
-        assert shot["prompt"][3] == "overall_soundscape:"
-        assert shot["prompt"][6] == "non_diegetic_music:"
-    assert plan["prompt_prefix"] == [PREFIX_REPLY]
-    assert json.loads(out["prompt_prefix_out"]) == [PREFIX_REPLY]
-    assert len(json.loads(out["shot_prompts"])) == 3
-    assert "Shots: 3" in out["preflight_report"]
-    assert "729" in out["preflight_report"]  # 3 * 243 frames total
-    assert "| 3 | `scene_03` | 243 |" in out["plan_preview"]
-
-
-def test_e2e_user_prefix_skips_stage1(lg):
-    conn = ScriptedConnector([_clip_reply(1)])
-    out = lg.H3LoopPromptEnhancer(conn)(
-        "concept",
-        '[{"id": "s1", "description": "d"}]',
-        prompt_prefix_input="My prefix paragraph one.\n\nMy prefix paragraph two.",
-        seed=5,
-    )
-    assert len(conn.calls) == 1  # no prefix call
-    plan = json.loads(out["plan_json"])
-    assert plan["prompt_prefix"] == [
-        "My prefix paragraph one.",
-        "My prefix paragraph two.",
-    ]
-
-
-def test_e2e_duration_from_storyboard_and_node_default(lg):
-    board = json.dumps(
-        [
-            {"id": "a", "description": "d", "duration_seconds": 5},  # -> 124
-            {"id": "b", "description": "d"},                          # -> 243 (10s default)
-        ]
-    )
-    conn = ScriptedConnector([_clip_reply(1), _clip_reply(2)])
-    out = lg.H3LoopPromptEnhancer(conn)(
-        "c", board, duration_seconds=10, prompt_prefix_input="p", seed=1
-    )
-    plan = json.loads(out["plan_json"])
-    assert plan["shots"][0]["length"] == 124
-    assert plan["shots"][1]["length"] == 243
-
-
-def test_e2e_overrides_applied(lg):
-    board = _storyboard_json(2)
-    conn = ScriptedConnector([_clip_reply(1), _clip_reply(2)])
-    out = lg.H3LoopPromptEnhancer(conn)(
-        "c",
-        board,
-        prompt_prefix_input="p",
-        per_shot_overrides="scene_02:length=481\nscene_02:seed=4480\nscene_01:steps=30",
-        seed=1,
-    )
-    plan = json.loads(out["plan_json"])
-    assert plan["shots"][1]["length"] == 481
-    assert plan["shots"][1]["seed"] == "4480"
-    assert plan["shots"][0]["steps"] == 30
-    assert plan["shots"][0]["seed"] == "1"  # unified seed (default), base=1
-
-
 # --------------------------------------------------------------------------- #
 # single_call mode
 # --------------------------------------------------------------------------- #
-def test_e2e_single_call(lg):
-    conn = ScriptedConnector([PREFIX_REPLY, _single_call_reply(3)])
-    out = lg.H3LoopPromptEnhancer(conn)(
-        "c",
-        _storyboard_json(3),
-        generation_mode="single_call - 单次调用(快/省)",
-        prompt_prefix_input=None or "",
-        seed=9,
-    )
-    assert len(conn.calls) == 2  # prefix + one big call
-    assert "SINGLE-CALL FORMAT OVERRIDE" in conn.calls[1][1]["content"]
-    plan = json.loads(out["plan_json"])
-    assert len(plan["shots"]) == 3
-    assert plan["shots"][2]["prompt"][1] == "[Shot 1] Clip 3 body text."
-    assert all(s["seed"] == "9" for s in plan["shots"])  # unified seed (default)
-
-
 def test_parse_generation_mode(lg):
     assert lg.parse_generation_mode("per_shot - 逐场生成(推荐)") == "per_shot"
     assert lg.parse_generation_mode("single_call") == "single_call"
@@ -276,232 +185,145 @@ def test_parse_generation_mode(lg):
 
 
 # --------------------------------------------------------------------------- #
-# Auto-storyboard mode (shot_count) + trimming
+# Auto-storyboard mode (scene_count) + trimming
 # --------------------------------------------------------------------------- #
-def test_auto_storyboard_standalone(lg):
-    """shots_text empty + shot_count>0 -> one-node pipeline: storyboard
-    call, prefix call, then per-shot calls. The inline storyboard always
-    uses the chain-compatible single_continuous style."""
-    conn = ScriptedConnector(
-        [_storyboard_json(2), PREFIX_REPLY, _clip_reply(1), _clip_reply(2)]
-    )
-    out = lg.H3LoopPromptEnhancer(conn)(
-        "一只水墨风格的猫与狗在屋顶大战",
-        "",
-        shot_count=2,
-        seed=100,
-    )
-    assert len(conn.calls) == 4  # storyboard + prefix + 2 shots
-    # First call is the storyboard pipeline, pinned to single_continuous.
-    assert "storyboard" in conn.calls[0][0]["content"].lower()
-    assert "exactly 2 shots" in conn.calls[0][1]["content"]
-    assert "single_continuous" in conn.calls[0][1]["content"]
-    assert "水墨" in conn.calls[0][1]["content"]
-    # Prefix call is grounded in the auto-storyboard digest.
-    assert "scene_01" in conn.calls[1][1]["content"]
-    plan = json.loads(out["plan_json"])
-    assert [s["id"] for s in plan["shots"]] == ["scene_01", "scene_02"]
-    assert plan["shots"][0]["seed"] == "100"  # unified seed (default)
-    assert "Shots: 2" in out["preflight_report"]
-
-
-def test_shot_count_trims_incoming(lg):
-    conn = ScriptedConnector([PREFIX_REPLY, _clip_reply(1), _clip_reply(2)])
-    out = lg.H3LoopPromptEnhancer(conn)(
-        "c", _storyboard_json(3), shot_count=2, prompt_prefix_input=None or "", seed=1
-    )
-    plan = json.loads(out["plan_json"])
-    assert [s["id"] for s in plan["shots"]] == ["scene_01", "scene_02"]
-    assert "trimmed incoming storyboard" in out["preflight_report"]
-
-
-def test_empty_shots_and_zero_count_still_raises(lg):
-    with pytest.raises(RuntimeError):
-        lg.H3LoopPromptEnhancer(FakeConnector())("c", "", shot_count=0, seed=1)
-
-
-def test_auto_storyboard_parse_retry(lg):
-    conn = ScriptedConnector(
-        ["garbage", _storyboard_json(1), PREFIX_REPLY, _clip_reply(1)]
-    )
-    out = lg.H3LoopPromptEnhancer(conn)("c", "", shot_count=1, seed=1)
-    assert len(json.loads(out["plan_json"])["shots"]) == 1
-    assert len(conn.calls) == 4  # 2 storyboard attempts + prefix + shot
-    # Retry carries the corrective user turn.
-    assert len(conn.calls[1]) == 3
-    assert "ONLY the JSON array" in conn.calls[1][2]["content"]
-
-
-def test_auto_storyboard_accepts_shots_wrapped_object(lg):
-    """A model that replies {"shots": [...]} instead of a bare array is
-    unwrapped instead of failing the node."""
-    wrapped = json.dumps({"shots": json.loads(_storyboard_json(2))})
-    conn = ScriptedConnector([wrapped, PREFIX_REPLY, _clip_reply(1), _clip_reply(2)])
-    out = lg.H3LoopPromptEnhancer(conn)("c", "", shot_count=2, seed=1)
-    assert len(json.loads(out["plan_json"])["shots"]) == 2
-    assert len(conn.calls) == 4  # no wasted retry
-
-
 # --------------------------------------------------------------------------- #
 # Natural-language input + validation errors
 # --------------------------------------------------------------------------- #
-def test_e2e_natural_language_shots(lg):
-    conn = ScriptedConnector([_clip_reply(1), _clip_reply(2)])
-    out = lg.H3LoopPromptEnhancer(conn)(
-        "c",
-        "第一场：她端起碗\n第二场：冰块轻响",
-        prompt_prefix_input="p",
-        seed=1,
-    )
-    plan = json.loads(out["plan_json"])
-    assert plan["shots"][0]["id"] == "clip_0001"
-    assert plan["shots"][1]["id"] == "clip_0002"
-
-
-def test_empty_shots_text_raises(lg):
-    with pytest.raises(RuntimeError):
-        lg.H3LoopPromptEnhancer(FakeConnector())("c", "   ", seed=1)
-
-
-def test_bad_canvas_raises(lg):
-    with pytest.raises(RuntimeError, match="multiples of 32"):
-        lg.H3LoopPromptEnhancer(FakeConnector())(
-            "c", _storyboard_json(1), width=550, height=960, seed=1
-        )
-
-
-def test_bad_overrides_raise(lg):
-    with pytest.raises(RuntimeError, match="unknown shot id"):
-        lg.H3LoopPromptEnhancer(FakeConnector())(
-            "c", _storyboard_json(1), per_shot_overrides="nope:steps=5", seed=1
-        )
-    with pytest.raises(RuntimeError, match="off the H3 grid"):
-        lg.H3LoopPromptEnhancer(FakeConnector())(
-            "c", _storyboard_json(1), per_shot_overrides="scene_01:length=240", seed=1
-        )
-
-
 # --------------------------------------------------------------------------- #
 # Retry behavior
 # --------------------------------------------------------------------------- #
 def test_shot_parse_retry_then_success(lg):
-    conn = ScriptedConnector(
-        [
-            PREFIX_REPLY,
-            "garbage reply",
-            _clip_reply(1),
-            _clip_reply(2),
-        ]
-    )
+    conn = ScriptedConnector([
+        _extract_dialogue_empty(),
+        _auto_storyboard_reply(2),
+        PREFIX_REPLY,
+        "garbage reply",  # shot1 attempt 1 -> raises -> retry
+        _clip_reply(1),    # shot1 attempt 2 -> succeeds
+        _clip_reply(2),    # shot2
+    ])
     out = lg.H3LoopPromptEnhancer(conn)(
-        "c", _storyboard_json(2), prompt_prefix_input=None or "", seed=1
+        user_input="a quiet courtyard summer afternoon",
+        scene_count=2,
+        seed=1,
     )
     assert len(json.loads(out["plan_json"])["shots"]) == 2
-    assert len(conn.calls) == 4  # prefix + retry + retry + shot2
-    # The parse retry carries a corrective user turn naming the expected
-    # headers (live E2E: identical resends taught the model nothing).
-    retry_call = conn.calls[2]
+    # extract + storyboard + prefix + shot1(garbage) + shot1(retry) + shot2
+    assert len(conn.calls) == 6
+    retry_call = conn.calls[4]
     assert len(retry_call) == 3
     assert "could not be parsed" in retry_call[2]["content"]
     assert "integrated_multimodal_description:" in retry_call[2]["content"]
 
-
 def test_shot_parse_failure_raises_no_partial_plan(lg):
-    conn = ScriptedConnector([PREFIX_REPLY, "bad", "still bad", _clip_reply(2)])
+    # Storyboard emits 2 shots; shot1 attempt 1 + attempt 2 both
+    # garbage -> 2 attempts raise, no shot2 ever runs.
+    conn = ScriptedConnector([
+        _extract_dialogue_empty(),
+        _auto_storyboard_reply(2),
+        PREFIX_REPLY,
+        "bad",
+        "still bad",
+    ])
     with pytest.raises(RuntimeError, match="scene_01"):
         lg.H3LoopPromptEnhancer(conn)(
-            "c", _storyboard_json(2), prompt_prefix_input=None or "", seed=1
+            user_input="a quiet courtyard summer afternoon",
+            scene_count=2,
+            seed=1,
         )
 
-
 def test_prefix_retry(lg):
-    conn = ScriptedConnector(["", PREFIX_REPLY, _clip_reply(1)])
-    out = lg.H3LoopPromptEnhancer(conn)("c", _storyboard_json(1), seed=1)
-    assert len(conn.calls) == 3  # 2 prefix attempts + 1 shot
+    # First prefix reply is empty -> 'no prefix paragraph' retry trigger.
+    conn = ScriptedConnector([
+        _extract_dialogue_empty(),
+        _auto_storyboard_reply(1),
+        "",  # empty reply -> prefix retry
+        PREFIX_REPLY,
+        _clip_reply(1),
+    ])
+    out = lg.H3LoopPromptEnhancer(conn)(
+        user_input="a quiet courtyard summer afternoon",
+        scene_count=1,
+        seed=1,
+    )
+    # extract + storyboard + prefix(attempt 1, empty) +
+    # prefix(attempt 2, ok) + shot1
+    assert len(conn.calls) == 5
     assert json.loads(out["plan_json"])["prompt_prefix"] == [PREFIX_REPLY]
-
 
 def test_think_block_stripped(lg):
     reply = "<think>chain of thought</think>\n" + _clip_reply(1)
-    conn = ScriptedConnector([PREFIX_REPLY, reply])
+    conn = ScriptedConnector([
+        _extract_dialogue_empty(),
+        _auto_storyboard_reply(1),
+        PREFIX_REPLY,
+        reply,
+    ])
     out = lg.H3LoopPromptEnhancer(conn)(
-        "c", _storyboard_json(1), prompt_prefix_input=None or "", seed=1
+        user_input="a quiet courtyard summer afternoon",
+        scene_count=1,
+        seed=1,
     )
     plan = json.loads(out["plan_json"])
     assert "think" not in json.dumps(plan["shots"][0]["prompt"])
 
-
-# --------------------------------------------------------------------------- #
-# unified_seed option
-# --------------------------------------------------------------------------- #
-def test_unified_seed_false_diversity(lg):
-    """unified_seed=False restores per-clip sequential seeds (base+N)."""
-    conn = ScriptedConnector([_clip_reply(1), _clip_reply(2)])
-    out = lg.H3LoopPromptEnhancer(conn)(
-        "c", _storyboard_json(2), unified_seed=False, prompt_prefix_input="p", seed=1000
-    )
-    plan = json.loads(out["plan_json"])
-    assert [s["seed"] for s in plan["shots"]] == ["1001", "1002"]
-
-
-def test_unified_seed_all_clips_share(lg):
-    conn = ScriptedConnector([_clip_reply(1), _clip_reply(2)])
-    out = lg.H3LoopPromptEnhancer(conn)(
-        "c", _storyboard_json(2), unified_seed=True, prompt_prefix_input="p", seed=1000
-    )
-    plan = json.loads(out["plan_json"])
-    assert [s["seed"] for s in plan["shots"]] == ["1000", "1000"]
-
-
-def test_unified_seed_zero_seed_derives_once(lg):
-    """seed=0 + unified: wall-clock base is derived ONCE and shared."""
-    conn = ScriptedConnector([_clip_reply(1), _clip_reply(2)])
-    out = lg.H3LoopPromptEnhancer(conn)(
-        "c", _storyboard_json(2), prompt_prefix_input="p", seed=0
-    )
-    seeds = [s["seed"] for s in json.loads(out["plan_json"])["shots"]]
-    assert seeds[0] == seeds[1] and int(seeds[0]) > 0
-
-
-def test_unified_seed_override_wins(lg):
-    conn = ScriptedConnector([_clip_reply(1), _clip_reply(2)])
-    out = lg.H3LoopPromptEnhancer(conn)(
-        "c",
-        _storyboard_json(2),
-        prompt_prefix_input="p",
-        seed=1000,
-        per_shot_overrides="scene_02:seed=4480",
-    )
-    seeds = [s["seed"] for s in json.loads(out["plan_json"])["shots"]]
-    assert seeds == ["1000", "4480"]
-
-
-# --------------------------------------------------------------------------- #
-# Node wrapper + is_changed
-# --------------------------------------------------------------------------- #
 def test_node_generate_returns_five_outputs(lg):
-    conn = ScriptedConnector([PREFIX_REPLY, _clip_reply(1), _clip_reply(2)])
+    conn = ScriptedConnector([
+        _extract_dialogue_empty(),
+        _auto_storyboard_reply(2),
+        PREFIX_REPLY,
+        _clip_reply(1),
+        _clip_reply(2),
+    ])
     node = lg.MiniMaxH3LoopPromptGenerator()
     result = node.generate(
         conn,
-        "concept",
-        _storyboard_json(2),
+        user_input="a quiet courtyard summer afternoon",
+        scene_count=2,
+        seed=42,
+        seed_mode="same_across_scenes - 全场同seed",
+        timeout=60,
+    )
+    assert len(result) == 2
+    plan_json, summary = result
+    plan = json.loads(plan_json)
+    # Strict upstream contract: only id / prompt / length / seed per shot.
+    # seed_mode passed explicitly: same_across_scenes keeps one shared seed.
+    assert [s["seed"] for s in plan["shots"]] == ["42", "42"]  # unified
+    assert "MiniMax H3 Loop Plan summary" in summary
+    assert "LLM requests: 5" in summary  # extract+storyboard+prefix+2 shots
+    assert "Tokens (estimated)" in summary
+    assert "reference=t2va" in summary
+    assert "defaults" not in plan
+    for s in plan["shots"]:
+        assert "steps" not in s
+
+
+def test_node_default_seed_mode_is_per_scene_increment(lg):
+    """The upstream Context-Loop plugin derives per-scene seeds from one
+    base (deterministic but distinct per scene) — our recommended
+    default matches: no seed_mode value -> seed_base + index per scene."""
+    conn = ScriptedConnector([
+        _extract_dialogue_empty(),
+        _auto_storyboard_reply(2),
+        PREFIX_REPLY,
+        _clip_reply(1),
+        _clip_reply(2),
+    ])
+    node = lg.MiniMaxH3LoopPromptGenerator()
+    result = node.generate(
+        conn,
+        user_input="a quiet courtyard summer afternoon",
+        scene_count=2,
         seed=42,
         timeout=60,
     )
-    assert len(result) == 5
-    plan_json, shot_prompts, prefix_out, report, preview = result
-    plan = json.loads(plan_json)
-    assert [s["seed"] for s in plan["shots"]] == ["42", "42"]  # unified
-    assert len(json.loads(shot_prompts)) == 2
-    assert json.loads(prefix_out)
-    assert "Shots: 2" in report
-    assert "`scene_01`" in preview
-
+    plan = json.loads(result[0])
+    assert [s["seed"] for s in plan["shots"]] == ["43", "44"]
 
 def test_node_input_types_parameter_surface_updated(lg):
     optional = lg.MiniMaxH3LoopPromptGenerator.INPUT_TYPES()["optional"]
-    assert optional["shot_count"][1]["max"] == 128
+    assert optional["scene_count"][1]["max"] == 128
     assert optional["output_language"][1]["default"] == "en"
     assert "seed_mode" in optional
     assert "split_bias" in optional
@@ -527,25 +349,18 @@ def test_node_input_types_parameter_surface_updated(lg):
     assert lg.LOOP_CATEGORY_ADVICE["none"] == ""
 
 
-def test_seed_mode_overrides_unified_seed_compat(lg):
-    conn = ScriptedConnector([_clip_reply(1), _clip_reply(2)])
-    out = lg.H3LoopPromptEnhancer(conn)(
-        "c",
-        _storyboard_json(2),
-        prompt_prefix_input="p",
-        seed=1000,
-        unified_seed=True,  # legacy flag says unified
-        seed_mode="per_scene_increment - 每场seed递增",  # new enum wins
-    )
-    seeds = [s["seed"] for s in json.loads(out["plan_json"])["shots"]]
-    assert seeds == ["1001", "1002"]
-
-
 def test_caption_mode_maps_to_cache_controls(lg):
     class SpyConnector(ScriptedConnector):
         pass
 
-    conn = SpyConnector([_clip_reply(1)])
+    # Caption stage is stubbed out (spy_caption), so the LLM call queue
+    # is extract_dialogue + storyboard + prefix + 1 shot.
+    conn = SpyConnector([
+        _extract_dialogue_empty(),
+        _auto_storyboard_reply(1),
+        PREFIX_REPLY,
+        _clip_reply(1),
+    ])
     seen = {}
     enh = lg.H3LoopPromptEnhancer(conn)
 
@@ -560,42 +375,50 @@ def test_caption_mode_maps_to_cache_controls(lg):
     enh._caption_images = _spy_caption
     fake_images = __import__("numpy").zeros((1, 4, 4, 3), dtype=float)
     enh(
-        "c",
-        _storyboard_json(1),
+        user_input="a quiet courtyard summer afternoon",
+        scene_count=1,
         reference_mode="i2va",
         images=fake_images,
         caption_mode="force_recaption_once - 本次强制重打标",
-        prompt_prefix_input="p",
         seed=1,
     )
     assert seen["force_recaption"] is True
     assert seen["caption_cache_scope"] == "disabled"
 
-
 def test_caption_cache_hits_on_second_run_memory_only(lg):
+    # Both runs share the SAME connector so the script is consumed
+    # across runs. Per-run LLM order: caption (cache miss) -> extract
+    # -> storyboard -> prefix -> shot. Run 2 caption is a memory
+    # cache hit so its LLM call is skipped.
     conn = ScriptedConnector([
+        # run 1: caption LLM + extract + storyboard + prefix + shot
         "orange_tabby_kitten in a red jacket under soft window light.",
+        _extract_dialogue_empty(),
+        _auto_storyboard_reply(1),
+        PREFIX_REPLY,
         _clip_reply(1),
+        # run 2: caption cached -> extract + storyboard + prefix + shot
+        _extract_dialogue_empty(),
+        _auto_storyboard_reply(1),
+        PREFIX_REPLY,
         _clip_reply(1),
     ])
     enh = lg.H3LoopPromptEnhancer(conn)
     fake_images = __import__("numpy").zeros((1, 4, 4, 3), dtype=float)
     kwargs = dict(
-        concept="quiet scene",
-        shots_text=_storyboard_json(1),
+        user_input="a quiet scene",
+        scene_count=1,
         reference_mode="i2va",
         images=fake_images,
         caption_mode="cache_memory_only - 缓存:仅内存",
-        prompt_prefix_input="p",
         seed=1,
     )
     first = enh(**kwargs)
     second = enh(**kwargs)
-    # first run: caption + shot; second run: shot only (caption from memory cache)
-    assert len(conn.calls) == 3
-    assert "frame(s) hit (0%)" in first["preflight_report"]
-    assert "frame(s) hit (100%)" in second["preflight_report"]
-
+    # 5 run-1 calls + 4 run-2 calls (caption from memory cache).
+    assert len(conn.calls) == 9
+    assert "hit (0%)" in first["summary"]
+    assert "hit (100%)" in second["summary"]
 
 def test_caption_cache_disk_root_prefers_comfy_output(monkeypatch, lg, tmp_path):
     fp = types.SimpleNamespace(get_output_directory=lambda: str(tmp_path))
@@ -607,17 +430,12 @@ def test_caption_cache_disk_root_prefers_comfy_output(monkeypatch, lg, tmp_path)
 def test_is_changed_stable_and_sensitive(lg):
     node = lg.MiniMaxH3LoopPromptGenerator()
     base = dict(
-        concept="c",
-        shots_text=_storyboard_json(2),
+        user_input="a quiet courtyard summer afternoon",
+        scene_count=2,
         seed=0,
-        duration_seconds=10,
         generation_mode="per_shot - 逐场生成(推荐)",
         category="none - 不指定",
-        width=544,
-        height=960,
         output_language="en",
-        prompt_prefix_input="",
-        per_shot_overrides="",
         temperature=0.4,
         max_tokens=8192,
         timeout=120,
@@ -627,30 +445,38 @@ def test_is_changed_stable_and_sensitive(lg):
     assert a == b
     for key, value in (
         ("seed", 1),
-        ("shots_text", _storyboard_json(3)),
-        ("per_shot_overrides", "scene_01:steps=25"),
+        ("scene_count", 3),
+        ("user_input", "a different concept"),
     ):
         assert node.is_changed(FakeConnector(), **dict(base, **{key: value})) != a
 
-
 def test_auto_storyboard_includes_split_bias_directive(lg):
-    conn = ScriptedConnector([_storyboard_json(1), PREFIX_REPLY, _clip_reply(1)])
+    # Stage 0.5 chain: extract_dialogue (returns empty) -> _auto_storyboard
+    # (1st garbage, 2nd OK) -> prefix -> shot1. The storyboard LLM user
+    # message is the second call (index 2: 0=extract, 1=garbage, 2=retry).
+    conn = ScriptedConnector([
+        _extract_dialogue_empty(),
+        "junk then real",  # storyboard attempt 1 fails JSON parse
+        _auto_storyboard_reply(1),  # storyboard attempt 2 succeeds
+        PREFIX_REPLY,
+        _clip_reply(1),
+    ])
     lg.H3LoopPromptEnhancer(conn)(
-        "c",
-        "",
-        shot_count=0,
-        split_bias="conservative - 更少分场/更长镜头",
+        user_input="a quiet courtyard summer afternoon",
+        scene_count=1,
+        split_bias="aggressive",
         seed=1,
     )
-    assert "split bias: conservative" in conn.calls[0][1]["content"]
+    # The storyboard retry carried the corrective user turn; the
+    # NEW attempt uses the user-supplied split_bias directive (which
+    # sits in the original user message, NOT in the corrective add-on).
+    # The prompt template uses space-separated ``split bias`` so the
+    # directive is recognised as the snake_case widget value
+    # anywhere in the user content.
+    retry_msg = conn.calls[2][1]["content"].lower()
+    assert "split bias" in retry_msg
+    assert "aggressive" in retry_msg
 
-
-# --------------------------------------------------------------------------- #
-# Per-shot 14s cap (plan v4 B4) — verifies the 17k+5 grid math that drives
-# the per-shot cap. seconds_to_length(14) = 345 frames, seconds_to_length
-# (15) = 362 frames (the round-1 P0 false-positive boundary). A 30-s
-# fixture rounds to 736 frames, well above the 4-15 s model window.
-# --------------------------------------------------------------------------- #
 def test_seconds_to_length_grid_math_for_per_shot_cap(lg):
     assert lg.seconds_to_length(4) == 107, (
         "4 s should be 107 frames on the 17k+5 grid (plan v4 §0.2)"
@@ -731,15 +557,21 @@ def test_invoke_aborts_on_interrupt_pressed(monkeypatch, lg):
 
 
 def test_no_interrupt_passes_through_cleanly(monkeypatch, lg):
-    """Default gate stays False: the node must NOT spuriously raise."""
+    """No interrupt -> orchestrator finishes and returns plan_json."""
     monkeypatch.setattr(lg, "_comfy_interrupt_pressed", lambda: False)
-    conn = ScriptedConnector([_storyboard_json(1), PREFIX_REPLY, _clip_reply(1)])
+    conn = ScriptedConnector([
+        _extract_dialogue_empty(),
+        _auto_storyboard_reply(2),
+        PREFIX_REPLY,
+        _clip_reply(1),
+        _clip_reply(2),
+    ])
     out = lg.H3LoopPromptEnhancer(conn)(
-        "c", "", shot_count=1, seed=1
+        user_input="a quiet courtyard summer afternoon",
+        scene_count=2,
+        seed=1,
     )
-    plan = json.loads(out["plan_json"])
-    assert len(plan["shots"]) == 1
-
+    assert json.loads(out["plan_json"])["shots"]
 
 def test_auto_storyboard_retry_aborts_on_interrupt(monkeypatch, lg):
     """Storyboard parses fine on attempt 1 but the gate fires before
@@ -772,31 +604,46 @@ def test_caption_images_aborts_on_interrupt(monkeypatch, lg):
 
 
 def test_generate_shot_prompt_aborts_after_first_reply(monkeypatch, lg):
-    """Two-shot board: shot 1 succeeds, gate fires before shot 2 — the
-    second ``_generate_shot_prompt`` must raise instead of starting the
-    next round-trip.
+    """Interrupt pressed -> the orchestrator's ``_check_interrupt``
+    raises InterruptProcessingException at the gate before each
+    LLM round-trip. ``extract_dialogue`` swallows that exception
+    for the narrator-fallback path (so narrative concepts still
+    degrade gracefully), but the gate fires at every other call
+    site: ``_check_interrupt`` propagates InterruptProcessingException
+    out of the orchestrator when it fires at the stage-1 prefix
+    call site.
 
-    Gate counters consumed by shot 1: per-shot loop check (1), shot 1
-    retry check (2), shot 1 retry's _invoke check (3). After shot 1
-    finishes (3 consumed), the per-shot loop check for shot 2 (4th
-    check) trips the gate. Set ``after_calls=3`` so the gate stays False
-    through shot 1 and flips True on shot 2.
+    The shot-prompt LLM call site is the contract we care about for
+    this test: monkeypatch the gate to fire at the SHOT call site
+    (after extract / storyboard / prefix have already happened) and
+    confirm the orchestrator raises without making the per-shot call.
     """
-    _install_interrupt_after(monkeypatch, after_calls=3, lg=lg)
-    conn = ScriptedConnector([PREFIX_REPLY, _clip_reply(1), _clip_reply(2)])
-    enh = lg.H3LoopPromptEnhancer(conn)
+    # State machine: allow first 3 LLM calls (extract, storyboard,
+    # prefix), then fire.
+    state = {"calls": 0}
+
+    def _pressed() -> bool:
+        state["calls"] += 1
+        # Fire at and after the 4th call (the first per-shot call).
+        return state["calls"] >= 4
+
+    monkeypatch.setattr(lg, "_comfy_interrupt_pressed", _pressed)
+    conn = ScriptedConnector([
+        _extract_dialogue_empty(),
+        _auto_storyboard_reply(1),
+        PREFIX_REPLY,
+        # No _clip_reply queued: the per-shot call should be aborted
+        # before consuming it.
+    ])
     with pytest.raises(Exception):
-        enh(
-            "c",
-            _storyboard_json(2),
-            prompt_prefix_input="p",
+        lg.H3LoopPromptEnhancer(conn)(
+            user_input="a quiet courtyard summer afternoon",
+            scene_count=1,
             seed=1,
         )
-    # prefix short-circuited (user-supplied), so only the per-shot loop
-    # for shot 1 consumed one real reply. shot 2's per-shot check tripped
-    # before any further reply was consumed.
-    assert len(conn.calls) == 1
-
+    # extract + storyboard ran; prefix's _check_interrupt fired before
+    # the actual LLM call so the stub queue was not consumed.
+    assert len(conn.calls) == 2
 
 def test_invoke_import_shim_degrades_outside_comfyui(lg):
     """When nodes / comfy_execution are not importable (this is exactly
@@ -817,3 +664,313 @@ def test_invoke_import_shim_degrades_outside_comfyui(lg):
             mod._check_interrupt("probe")
     finally:
         mod._comfy_interrupt_pressed = original  # type: ignore
+
+
+# --------------------------------------------------------------------------- #
+# Inline user-input enhancement (enhance_user_input toggle)
+# --------------------------------------------------------------------------- #
+def _enhancer_reply_block():
+    """A well-formed inline-enhancer reply: Classification + Notes +
+    BEGIN/END block carrying the canonical rewrite."""
+    return (
+        "Classification: Narration\n"
+        "Notes for the user: single paragraph, locked-off camera.\n"
+        "\n"
+        "--- BEGIN user_input ---\n"
+        "A quiet Jiangnan courtyard at high summer; a young woman in a "
+        "white cotton blouse carries a porcelain bowl across the frame. "
+        "Camera: locked-off medium shot.\n"
+        "--- END user_input ---"
+    )
+
+
+def test_parse_enhance_user_input(lg):
+    assert lg.parse_enhance_user_input("on - 自动润色后再规划") is True
+    assert lg.parse_enhance_user_input("on") is True
+    assert lg.parse_enhance_user_input("OFF - 不润色(默认)") is False
+    assert lg.parse_enhance_user_input("off - 不润色(默认)") is False
+    assert lg.parse_enhance_user_input("") is False
+    assert lg.parse_enhance_user_input("weird") is False
+
+
+def test_auto_enhance_on_rewrites_before_pipeline(lg):
+    conn = ScriptedConnector([
+        _enhancer_reply_block(),      # 1. inline enhancement
+        _extract_dialogue_empty(),    # 2. extractor runs on REWRITTEN text
+        _auto_storyboard_reply(1),
+        PREFIX_REPLY,
+        _clip_reply(1),
+    ])
+    out = lg.H3LoopPromptEnhancer(conn)(
+        user_input="courtyard summer",
+        scene_count=1,
+        seed=1,
+        enhance_user_input=True,
+    )
+    assert len(conn.calls) == 5
+    # The FIRST LLM call is the enhancement; its user message carries
+    # the raw draft (the enhancer's ---BEGIN DRAFT--- wrapper).
+    enh_user = conn.calls[0][1]["content"]
+    assert "---BEGIN DRAFT---" in enh_user
+    assert "courtyard summer" in enh_user
+    # Downstream consumed the REWRITTEN text, not the raw draft.
+    extractor_user = conn.calls[1][1]["content"]
+    assert "young woman in a white cotton blouse" in extractor_user
+    assert "courtyard summer" not in extractor_user
+    # The summary surfaces the rewrite after the fact: the Auto-enhance
+    # line, the advice header (Classification + Notes) and the exact
+    # rewritten text — plus the usage entry for the rewrite call.
+    summary = out["summary"]
+    assert "Auto-enhance" in summary
+    assert "Classification: Narration" in summary
+    assert "Notes for the user" in summary
+    assert "--- rewritten user_input ---" in summary
+    assert "porcelain bowl" in summary
+    assert "user_input_enhance 1" in summary
+    # The plan itself built normally off the rewrite.
+    assert len(json.loads(out["plan_json"])["shots"]) == 1
+
+
+def test_auto_enhance_parse_failure_raises_no_silent_fallback(lg):
+    conn = ScriptedConnector(["Sure! Here is your rewrite, trust me."])
+    with pytest.raises(RuntimeError, match="BEGIN user_input"):
+        lg.H3LoopPromptEnhancer(conn)(
+            user_input="courtyard summer",
+            scene_count=1,
+            seed=1,
+            enhance_user_input=True,
+        )
+    # Nothing downstream ran — no storyboard/prefix/shot calls spent.
+    assert len(conn.calls) == 1
+
+
+def test_auto_enhance_off_by_default_skips_rewrite(lg):
+    conn = ScriptedConnector([
+        _extract_dialogue_empty(),
+        _auto_storyboard_reply(1),
+        PREFIX_REPLY,
+        _clip_reply(1),
+    ])
+    out = lg.H3LoopPromptEnhancer(conn)(
+        user_input="a quiet courtyard summer afternoon",
+        scene_count=1,
+        seed=1,
+    )
+    # First call is the span extractor (---BEGIN CONCEPT---), not the
+    # enhancer (---BEGIN DRAFT---).
+    first_user = conn.calls[0][1]["content"]
+    assert "---BEGIN CONCEPT---" in first_user
+    assert "---BEGIN DRAFT---" not in first_user
+    # And no Auto-enhance section in the preflight.
+    assert "Auto-enhance" not in out["summary"]
+
+
+def test_generate_and_is_changed_carry_the_toggle(lg):
+    conn = ScriptedConnector([
+        _enhancer_reply_block(),
+        _extract_dialogue_empty(),
+        _auto_storyboard_reply(1),
+        PREFIX_REPLY,
+        _clip_reply(1),
+    ])
+    node = lg.MiniMaxH3LoopPromptGenerator()
+    node.generate(
+        conn,
+        user_input="courtyard summer",
+        scene_count=1,
+        seed=1,
+        enhance_user_input="on - 自动润色后再规划",
+    )
+    assert "---BEGIN DRAFT---" in conn.calls[0][1]["content"]
+
+    h_off = node.is_changed(
+        conn, user_input="draft", scene_count=1, seed=1,
+        enhance_user_input="off - 不润色(默认)",
+    )
+    h_on = node.is_changed(
+        conn, user_input="draft", scene_count=1, seed=1,
+        enhance_user_input="on - 自动润色后再规划",
+    )
+    assert h_off != h_on
+
+
+# --------------------------------------------------------------------------- #
+# scene_count drives the dialogue board (line count no longer dictates it)
+# --------------------------------------------------------------------------- #
+_DIALOGUE_CONCEPT = "莎莉猫：你好。\n哈利猫：为什么。\n莎莉猫：再见。"
+# Exact character spans into _DIALOGUE_CONCEPT (span-anchored extractor
+# reply the node verifies mechanically).
+_DIALOGUE_EXTRACT_REPLY = json.dumps({"turns": [
+    {"speaker": "莎莉猫", "lines": [{"text": "你好。", "start": 4, "end": 7}]},
+    {"speaker": "哈利猫", "lines": [{"text": "为什么。", "start": 12, "end": 16}]},
+    {"speaker": "莎莉猫", "lines": [{"text": "再见。", "start": 21, "end": 24}]},
+]}, ensure_ascii=False)
+_PREFIX_REPLY_DIALOGUE = (
+    "Hand-drawn 2D animation, warm cafe interior at dusk.\n"
+    "\n"
+    "CAST:\n"
+    "莎莉猫: cream-blonde fluffy cat, navy bow tie.\n"
+    "哈利猫: orange tabby cat, brown blazer.\n"
+)
+
+
+def _dlg_clip_reply(i, speaker, sid, gender, line):
+    """A three-section reply that satisfies BOTH the verbatim <d>
+    invariant and the speaker-ID contract (tag + voice identity)."""
+    return (
+        "integrated_multimodal_description:\n"
+        f"[Shot 1] Clip {i}: {speaker}, {gender} ({sid}), says: "
+        f"<d>[Chinese] {line}</d>\n"
+        "\n"
+        "overall_soundscape:\n"
+        "Warm cafe ambience.\n"
+        "\n"
+        "non_diegetic_music:\n"
+        "No non-diegetic music.\n"
+    )
+
+
+def test_scene_count_repacks_dialogue_to_exact_target(lg):
+    """scene_count=3 on a board whose natural packing is ONE scene: the
+    per-line budgets are regrouped into EXACTLY 3 scenes; every spoken
+    line lands verbatim in its own scene."""
+    conn = ScriptedConnector([
+        _DIALOGUE_EXTRACT_REPLY,
+        _PREFIX_REPLY_DIALOGUE,
+        _dlg_clip_reply(1, "莎莉猫", "S1", "adult female", "你好。"),
+        _dlg_clip_reply(2, "哈利猫", "S2", "adult male", "为什么。"),
+        _dlg_clip_reply(3, "莎莉猫", "S1", "adult female", "再见。"),
+    ])
+    out = lg.H3LoopPromptEnhancer(conn)(
+        user_input=_DIALOGUE_CONCEPT,
+        scene_count=3,
+        seed=1,
+    )
+    plan = json.loads(out["plan_json"])
+    assert len(plan["shots"]) == 3
+    assert [s["id"] for s in plan["shots"]] == ["scene_01", "scene_02", "scene_03"]
+    # extract + prefix + 3 shots — the storyboard LLM is bypassed on the
+    # dialogue-driven path.
+    assert len(conn.calls) == 5
+    for shot, line in zip(plan["shots"], ["你好。", "为什么。", "再见。"]):
+        prompt_text = "\n".join(shot["prompt"])
+        assert f"<d>[Chinese] {line}</d>" in prompt_text
+
+
+def test_scene_count_above_line_count_gets_reaction_cuts(lg):
+    """scene_count=5 with only 3 dialogue lines: the board tops up with
+    2 mechanical SILENT reaction cuts at speaker-change boundaries —
+    the user's count is reached without touching a single spoken line."""
+    conn = ScriptedConnector([
+        _DIALOGUE_EXTRACT_REPLY,
+        _PREFIX_REPLY_DIALOGUE,
+        _dlg_clip_reply(1, "莎莉猫", "S1", "adult female", "你好。"),
+        _clip_reply(1),  # reaction cut (silent)
+        _dlg_clip_reply(2, "哈利猫", "S2", "adult male", "为什么。"),
+        _clip_reply(2),  # reaction cut (silent)
+        _dlg_clip_reply(3, "莎莉猫", "S1", "adult female", "再见。"),
+    ])
+    out = lg.H3LoopPromptEnhancer(conn)(
+        user_input=_DIALOGUE_CONCEPT,
+        scene_count=5,
+        seed=1,
+    )
+    plan = json.loads(out["plan_json"])
+    assert len(plan["shots"]) == 5
+    assert [s["id"] for s in plan["shots"]] == [
+        "scene_01", "scene_02", "scene_03", "scene_04", "scene_05",
+    ]
+    # Shots 1/3/5 carry the dialogue verbatim; shots 2/4 are silent.
+    texts = ["\n".join(s["prompt"]) for s in plan["shots"]]
+    for line in ("你好。", "为什么。", "再见。"):
+        assert sum(f"<d>[Chinese] {line}</d>" in t for t in texts) == 1
+    assert "<d>" not in texts[1] and "<d>" not in texts[3]
+    # The reaction shots' per-shot user templates carried the mechanical
+    # storyboard entry + the no-dialogue notice.
+    reaction_user_texts = [conn.calls[i][1]["content"] for i in (3, 5)]
+    for txt in reaction_user_texts:
+        assert "Reaction cut" in txt
+        assert "no dialogue lines assigned to this turn" in txt
+    # And the preflight tells the user what was inserted.
+    assert "reaction cut" in out["summary"]
+
+
+def test_scene_count_one_squeezes_all_lines_time_only(lg):
+    """TIME-only model: scene_count=1 with two very long lines squeezes
+    EVERYTHING into one scene (lines are never dropped or split), the
+    clip clamps at the 14s H3 window, and the summary warns — never an
+    error, never a reshape (能否说完不重要)."""
+    long_a = "这是一句相当长的台词，" * 10
+    long_b = "另外一段同样很长的回答，" * 10
+    concept = f"甲猫：{long_a}\n乙猫：{long_b}"
+    # "甲猫：" is 3 chars, then long_a, a newline, "乙猫：" (3 chars), long_b.
+    a_start = 3
+    b_start = 3 + len(long_a) + 1 + 3
+    extract = json.dumps({"turns": [
+        {"speaker": "甲猫", "lines": [
+            {"text": long_a, "start": a_start, "end": a_start + len(long_a)}]},
+        {"speaker": "乙猫", "lines": [
+            {"text": long_b, "start": b_start, "end": b_start + len(long_b)}]},
+    ]}, ensure_ascii=False)
+    one_scene_reply = (
+        "integrated_multimodal_description:\n"
+        f"[Shot 1] 甲猫, adult male (S1), says: <d>[Chinese] {long_a}</d> "
+        f"乙猫, adult female (S2), replies: <d>[Chinese] {long_b}</d>\n"
+        "\n"
+        "overall_soundscape:\n"
+        "Quiet room tone.\n"
+        "\n"
+        "non_diegetic_music:\n"
+        "No non-diegetic music.\n"
+    )
+    conn = ScriptedConnector([
+        extract,
+        (
+            "Hand-drawn 2D animation, quiet room interior.\n"
+            "\n"
+            "CAST:\n"
+            "甲猫: grey tabby cat.\n"
+            "乙猫: white longhair cat.\n"
+        ),
+        one_scene_reply,
+    ])
+    out = lg.H3LoopPromptEnhancer(conn)(
+        user_input=concept,
+        scene_count=1,
+        seed=1,
+    )
+    plan = json.loads(out["plan_json"])
+    # Exactly ONE scene carrying BOTH lines verbatim, in order.
+    assert len(plan["shots"]) == 1
+    prompt_text = "\n".join(plan["shots"][0]["prompt"])
+    assert f"<d>[Chinese] {long_a}</d>" in prompt_text
+    assert f"<d>[Chinese] {long_b}</d>" in prompt_text
+    # The clip is clamped at the H3 window and the summary says so.
+    assert plan["shots"][0]["length"] <= 14 * 24 + 17
+    assert "per-shot cap" in out["summary"]
+
+
+def test_summary_is_logged_via_log_pipeline(lg, monkeypatch):
+    """The summary must mirror into mie_log (log_pipeline) so the run's
+    request/token/warning footprint lands in the console + h3_loop.log
+    without wiring a Show-Anything node."""
+    logged: list[str] = []
+    monkeypatch.setattr(lg, "log_pipeline", lambda msg: logged.append(str(msg)))
+    conn = ScriptedConnector([
+        _extract_dialogue_empty(),
+        _auto_storyboard_reply(1),
+        PREFIX_REPLY,
+        _clip_reply(1),
+    ])
+    out = lg.H3LoopPromptEnhancer(conn)(
+        user_input="a quiet courtyard summer afternoon",
+        scene_count=1,
+        seed=1,
+    )
+    joined = "\n".join(logged)
+    assert "MiniMax H3 Loop Plan summary" in joined
+    assert "LLM requests: 4" in joined
+    assert "Tokens (estimated)" in joined
+    assert "Warnings" in joined
+    # The logged copy matches the returned summary verbatim.
+    assert any(msg == out["summary"] for msg in logged)

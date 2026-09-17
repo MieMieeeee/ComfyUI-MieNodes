@@ -1151,7 +1151,7 @@ def build_preflight_report(
     lines = [
         "H3 Loop Plan preflight",
         f"Reference mode: {code}",
-        f"Shots: {len(shots)}",
+        f"Scenes: {len(shots)}",
         f"Total raw length: {total_frames} frames ({length_to_seconds(total_frames) if total_frames else 0:.2f}s at {FPS}fps)",
         f"prompt_prefix: {len(plan.get('prompt_prefix') or [])} line(s)",
         "",
@@ -1284,12 +1284,282 @@ def shot_system_prompt_ref2v() -> str:
     return f"{system_reference_prompt().rstrip()}\n\n{REF2V_ADDENDUM.strip()}\n"
 
 
+def build_spatial_layout_directive(spatial_layout: Optional[dict] = None) -> str:
+    """Render a spatial-layout dict (subject → on-screen position) as the
+    binding sentence injected into every per-shot user template.
+
+    The format is deterministic so the LLM cannot paraphrase the position
+    ("at left of frame" must not become "on the left side of the picture
+    frame" — paraphrases defeat the cross-clip continuity check).
+
+    A empty / None spatial_layout returns a single neutral line so the
+    template still has something in the slot. The per-shot LLM is then
+    instructed to mirror the prefix's spatial layout sentence verbatim.
+    """
+    if not spatial_layout:
+        return (
+            "(no spatial_layout declared for this board; mirror any "
+            "spatial layout sentence in the shared prefix above, and "
+            "preserve positions across consecutive clips)"
+        )
+    entries: list[str] = []
+    for name, pos in spatial_layout.items():
+        entries.append(f"{name} stays at {pos}")
+    if not entries:
+        return (
+            "(no spatial_layout declared for this board; mirror any "
+            "spatial layout sentence in the shared prefix above)"
+        )
+    return "; ".join(entries) + "."
+
+
 def _genre_advice_block(category: str) -> str:
     code = parse_category(category)
     advice = category_advice(code).strip()
     if advice:
         return f"Genre guidance ({code}): {advice}"
     return "Genre guidance: none; follow the concept as written."
+
+
+# Canonical position buckets. Every recognised token — English or
+# Chinese — normalises to ONE of three canonical strings so the
+# cross-clip invariant compares semantics, not spelling: "centre of
+# frame" / "camera-left" / "画面左" / "left slot" all collapse to
+# "left of frame". A phrase that mixes CONFLICTING buckets ("enters
+# from camera-left and stops at center-frame") is movement prose, not
+# a binding declaration — it normalises to None.
+_POSITION_CANON_EN = {
+    "left of frame": "left of frame",
+    "screen-left": "left of frame",
+    "camera-left": "left of frame",
+    "left slot": "left of frame",
+    "right of frame": "right of frame",
+    "screen-right": "right of frame",
+    "camera-right": "right of frame",
+    "right slot": "right of frame",
+    "center of frame": "center of frame",
+    "centre of frame": "center of frame",
+    "center-frame": "center of frame",
+    "centre-frame": "center of frame",
+    "center slot": "center of frame",
+}
+_POSITION_CANON_ZH = {
+    "画面左侧": "left of frame",
+    "画面左": "left of frame",
+    "画左": "left of frame",
+    "左侧": "left of frame",
+    "画面右侧": "right of frame",
+    "画面右": "right of frame",
+    "画右": "right of frame",
+    "右侧": "right of frame",
+    "画面中央": "center of frame",
+    "中央": "center of frame",
+}
+
+
+def _normalise_position(raw: str) -> Optional[str]:
+    """Map a raw position phrase to one of the three canonical buckets
+    (``left of frame`` / ``right of frame`` / ``center of frame``).
+    Returns ``None`` when the phrase is too generic to anchor
+    cross-clip continuity, or when it mixes conflicting buckets.
+
+    Chinese and English tokens collapse to the SAME canonical bucket,
+    so a board declared in Chinese ("画面左侧") stays comparable against
+    per-shot output prose written in English ("left of frame") — that
+    language-neutrality is what the cross-clip drift check keys on."""
+    s = str(raw or "").strip()
+    if not s:
+        return None
+    s_lower = s.lower()
+    buckets = set()
+    for tok, canon in _POSITION_CANON_EN.items():
+        if tok in s_lower:
+            buckets.add(canon)
+    for tok, canon in _POSITION_CANON_ZH.items():
+        if tok in s:
+            buckets.add(canon)
+    if len(buckets) == 1:
+        return buckets.pop()
+    return None
+
+
+# Patterns matched against the rewritten user_input (which the enhancer
+# has already normalised). The left side captures the subject name; the
+# right side captures the position phrase. Order matters — the first
+# match wins so the most specific pattern (Picture N → Subject N (left
+# slot)) should be tried before the generic "Subject sits at left of
+# frame".
+_SPATIAL_PATTERNS: tuple[tuple[re.Pattern, int], ...] = (
+    # Picture N -> Subject M (left slot / right slot)
+    (re.compile(
+        r"(?:Picture|图)\s*(\d+)\s*[-–—→]+\s*(?:Subject|主体|角色)?\s*(\d+)?"
+        r"\s*[:：]?\s*"
+        r"(?P<pos>[^。\n,，;；]+?\s*(?:slot|位|侧|frame))",
+        re.IGNORECASE,
+    ), 1),
+    # <Subject N> (right slot) / Subject 2 (left of frame)
+    (re.compile(
+        r"(?:<Subject\s+(\d+)>|Subject\s+(\d+)|主体\s*(\d+)|角色\s*(\d+))"
+        r"\s*[:：]?\s*[\(（]?\s*"
+        r"(?P<pos>[^。\n)）]+?\s*(?:slot|位|侧|frame))",
+        re.IGNORECASE,
+    ), 2),
+    # Chinese name explicitly named with parentheses: "哈利猫（坐画面左侧）"
+    # or "莎莉猫 (at left of frame)" — the parenthetical form is the
+    # canonical one the enhancer rule emits.
+    (re.compile(
+        r"(?P<name>[A-Za-z][A-Za-z0-9_-]{0,31}|[一-龥]{2,6})"
+        r"\s*[\(（]\s*"
+        r"(?:坐|站|seated|sits?|stands?|stays?)?"
+        r"\s*(?:at\s+)?(?P<pos>[^)）]+?\s*(?:左侧|右侧|中央|left\s+of\s+frame|right\s+of\s+frame|left\s+slot|right\s+slot))",
+        re.IGNORECASE,
+    ), 3),
+    # English named character: "Sahli sits at left of frame" /
+    # "the cream cat stays at right of frame throughout"
+    (re.compile(
+        r"(?P<name>[A-Z][a-z]+(?:[ _-][A-Z][a-z]+)*)"
+        r"\s+(?:sits?|seated|stays?|stands?|enters?)"
+        r"\s+(?:at\s+)?(?P<pos>[^。\n,，;；]+?\s*(?:left\s+of\s+frame|right\s+of\s+frame|center\s+of\s+frame|left\s+slot|right\s+slot))",
+    ), 4),
+    # 中文 "<角色名>坐画面左侧" (no parentheses — fallback when the
+    # enhancer didn't wrap the position in parens).
+    (re.compile(
+        r"(?P<name>[一-龥]{2,6}(?:猫|狗|人|男孩|女孩|男人|女人|角色|主体))"
+        r"\s*坐?\s*"
+        r"(?P<pos>[^。\n,，;；]+?\s*(?:画面?(?:左侧|右侧|中央)|画左|画右))",
+    ), 5),
+)
+
+
+# Chinese particles that almost certainly mean the preceding 2-3 char
+# token is a noun-phrase fragment, NOT a subject name. Used to filter
+# false positives like "金色窗光 从 左侧" -> reject "金色窗光"; allow
+# "金色窗光旁的猫 坐 画面左侧" -> reject "金色窗光旁的猫" because the
+# true subject is the noun after the possessive 的.
+_CHINESE_STOPWORDS = (
+    "光", "色", "窗", "光从", "光色", "色调", "灯", "门", "墙",
+    "桌子", "椅子", "地面", "房间", "屋内", "窗光", "窗光色",
+    "影", "光照", "影调",
+)
+
+
+def _looks_like_subject_name(raw: str) -> bool:
+    """Reject Chinese tokens that are clearly environmental nouns
+    (lighting, surfaces, furniture) being mistaken for subject names.
+    ASCII tokens are always accepted (English name 'Sahli', 'Harry')."""
+    if not raw:
+        return False
+    # ASCII identifier — assume OK; English rules apply.
+    if re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]{0,31}", raw):
+        return True
+    # Chinese 2-6 char token — must end with a subject noun marker or
+    # be inside the canonical name list (cat/dog/person/role etc.).
+    if re.fullmatch(r"[一-龥]{2,6}", raw):
+        if raw in _CHINESE_STOPWORDS:
+            return False
+        if raw.endswith(("猫", "狗", "人", "鸟", "兽", "角色", "主体",
+                         "男孩", "女孩", "男人", "女人", "公", "母")):
+            return True
+        # Bare Chinese 2-6 char that doesn't end with a subject marker
+        # is almost always something else (a room feature, a colour,
+        # an abstract noun). Reject — too risky to extract.
+        return False
+    return False
+
+
+def extract_spatial_layout(concept: str) -> dict[str, str]:
+    """Pull a stable per-subject on-screen position out of the rewritten
+    user_input. The function is rule-based and deterministic — it does
+    NOT call an LLM. The extracted dict is what gets carried into the
+    prefix sentence and into every per-shot user template via
+    ``build_spatial_layout_directive``.
+
+    Returns ``{}`` when the concept has no recognisable position tokens.
+    Callers MUST treat an empty dict as "no binding spatial layout" and
+    rely on the prefix-only path; the board-level preflight check
+    (``validate_spatial_layout_invariant`` over the declared layout +
+    every generated shot's re-extracted layout) flags any disagreement
+    as a warning.
+
+    Subject naming follows the cast roster convention: "<Subject N>"
+    tokens, plain "Subject N" / "主体 N" / "角色 N", or a Chinese name
+    that ends with a subject marker (猫/狗/人/角色/主体/...). Generic
+    Chinese nouns (lighting, furniture, surfaces) are filtered out
+    because they almost always produce false positives — a sentence
+    like "金色窗光从左侧洒入" is lighting info, not a spatial layout
+    declaration.
+    """
+    out: dict[str, str] = {}
+    text = (concept or "").strip()
+    if not text:
+        return out
+    for pattern, group_idx in _SPATIAL_PATTERNS:
+        for match in pattern.finditer(text):
+            pos_raw = match.group("pos")
+            pos = _normalise_position(pos_raw)
+            if not pos:
+                continue
+            # Find the subject key in this match — depends on which
+            # group captured it.
+            name: Optional[str] = None
+            if group_idx == 1:
+                pic = match.group(1)
+                subj = match.group(2) or pic
+                name = f"Subject {subj}" if subj else f"Picture {pic}"
+            elif group_idx == 2:
+                # groups (1..4) for <Subject N> / Subject N / 主体 N / 角色 N
+                for g in (1, 2, 3, 4):
+                    v = match.group(g)
+                    if v:
+                        name = f"Subject {v}"
+                        break
+            elif group_idx in (3, 4, 5):
+                raw_name = match.group("name")
+                if raw_name and _looks_like_subject_name(raw_name.strip()):
+                    name = raw_name.strip()
+            if not name:
+                continue
+            # First-match-wins per name. If the same subject shows up
+            # twice with different positions, that's a preflight
+            # warning (validated in scene-to-scene continuity check).
+            if name not in out:
+                out[name] = pos
+    return out
+
+
+def validate_spatial_layout_invariant(
+    spatial_layout: dict[str, str],
+    scenes: list[dict],
+) -> list[str]:
+    """Cross-clip spatial-layout invariant. When ``scenes`` each carry a
+    ``spatial_layout`` field (extracted from their shot description by
+    the per-shot LLM or supplied upstream), every subject whose position
+    is recorded must keep the same position across every scene it
+    appears in.
+
+    Returns an empty list when the board is consistent (or when no
+    scenes carry a layout to compare)."""
+    if not spatial_layout or not scenes:
+        return []
+    errors: list[str] = []
+    seen: dict[str, tuple[str, int]] = {}
+    for i, scene in enumerate(scenes, start=1):
+        layout = scene.get("spatial_layout") or {}
+        for name, pos in layout.items():
+            if name in seen:
+                prev_pos, prev_idx = seen[name]
+                if pos != prev_pos:
+                    errors.append(
+                        f"scene {prev_idx} declared {name} at {prev_pos!r}, "
+                        f"scene {i} declared {name} at {pos!r}; spatial "
+                        f"layout must stay constant across the board"
+                    )
+            else:
+                seen[name] = (pos, i)
+    return errors
+
+
+
 
 
 def build_prefix_user_text(
@@ -1590,16 +1860,18 @@ def build_reference_directive(
                 "---\n"
                 "[GENRE CONTRACT = dialogue "
                 "(selected via the category widget).]\n"
-                "  (1) Every <d>...</d> dialogue line MUST follow the "
-                "THREE-BEAT structure: [setup sentence] → [beat pause "
-                "description] → [punchline sentence]. Never write only "
-                "the punchline without a setup.\n"
-                "  (2) Every dialogue description MUST use the "
-                "verbatim <d>[English] exact words</d> or "
-                "<d>[Chinese] exact words</d> tag with the speaker's "
-                "original language untranslated. The language tag value "
-                "MUST be `[English]` or `[Chinese]` (capitalised full "
-                "word; NOT `[en]` / `[zh]` / `en:` / `zh:` etc.).\n"
+                "  (1) ONE input dialogue line = ONE <d>[Language]...</d> "
+                "block. Do NOT split a single line into setup + punchline "
+                "two <d> blocks. Do NOT paraphrase, summarise, or omit "
+                "any line. The number of <d> blocks in your output MUST "
+                "equal the number of dialogue lines provided for this "
+                "shot. Mismatches will be rejected and the shot retried.\n"
+                "  (2) Every dialogue description MUST use the verbatim "
+                "<d>[English] exact words</d> or <d>[Chinese] exact words</d> "
+                "tag with the speaker's original language untranslated. "
+                "The language tag value MUST be `[English]` or `[Chinese]` "
+                "(capitalised full word; NOT `[en]` / `[zh]` / `en:` / "
+                "`zh:` etc.).\n"
                 "---"
             )
         return "\n".join(lines)
@@ -1752,6 +2024,21 @@ def _mode_note_for_prefix(mode: str) -> str:
     )
 
 
+def _detect_dialogue_language(line: str) -> str:
+    """Pick the canonical H3 dialogue language tag for one line.
+
+    Heuristic: count CJK characters; if any CJK is present, the line
+    is treated as Chinese. Otherwise English. Empty / pure-punctuation
+    lines fall back to ``[Chinese]`` to preserve the policy default
+    the rest of the addendum enforces.
+    """
+    if any("\u4e00" <= c <= "\u9fff" for c in line):
+        return "[Chinese]"
+    if any(c.isascii() and c.isalpha() for c in line):
+        return "[English]"
+    return "[Chinese]"
+
+
 def build_shot_user_text(
     *,
     concept: str,
@@ -1767,14 +2054,94 @@ def build_shot_user_text(
     manifest_digest: str = "",
     cast_block: str = "",
     reference_mode: str = "t2va",
+    dialogue_lines: Optional[list[str]] = None,
+    turn_index: Optional[int] = None,
+    turn_speaker: Optional[str] = None,
+    speaker_id_map: Optional[dict] = None,
+    line_speakers: Optional[list[str]] = None,
+    first_appearance_speakers: Optional[set] = None,
+    spatial_layout: Optional[dict] = None,
 ) -> str:
     # ``duration_seconds`` should be the clip's ACTUAL grid-rounded length
     # (``length_to_seconds(length)``) so the pacing budget matches what H3
     # will really generate, not the requested seconds.
     seconds = float(duration_seconds)
+    sid_map = dict(speaker_id_map or {})
+    spk_per_line = list(line_speakers or [])
+    if dialogue_lines and len(spk_per_line) != len(dialogue_lines):
+        spk_per_line = [(turn_speaker or "")] * len(dialogue_lines)
+    if dialogue_lines:
+        dlg_lines = []
+        for i, line in enumerate(dialogue_lines):
+            prefix = ""
+            speaker = spk_per_line[i] if i < len(spk_per_line) else ""
+            sid = sid_map.get(speaker) if speaker else None
+            if speaker and sid:
+                prefix = f"{speaker} ({sid}): "
+            dlg_lines.append(
+                f"  {i + 1}. {prefix}<d>{_detect_dialogue_language(line)} "
+                f"{line}</d>"
+            )
+        dlg_block = (
+            f"Write exactly these {len(dialogue_lines)} line(s), verbatim "
+            "(language tag per line is chosen by CJK detection, do NOT "
+            "override it):\n" + "\n".join(dlg_lines)
+        )
+        t_idx = int(turn_index or 0)
+        t_spk = (turn_speaker or "(unknown)").strip()
+    else:
+        dlg_block = "(no dialogue lines assigned to this turn)"
+        t_idx = int(turn_index or 0)
+        t_spk = (turn_speaker or "(narrator)").strip()
+    # Fixed speaker-ID directive: the map is derived deterministically
+    # from the storyboard turn order, so every per-shot call sees the
+    # exact same (S<n>) assignment and cannot renumber voices.
+    if dialogue_lines and sid_map and spk_per_line:
+        clip_speakers: list[str] = []
+        for s in spk_per_line:
+            if s and s not in clip_speakers:
+                clip_speakers.append(s)
+        firsts = set(first_appearance_speakers or ())
+        firsts_in_clip = [s for s in clip_speakers if s in firsts]
+        per_line = ", ".join(
+            f"line {i + 1}={s} ({sid_map[s]})"
+            for i, s in enumerate(spk_per_line)
+            if s in sid_map
+        )
+        speaker_id_directive = (
+            "Speaker ID map (FIXED for the whole production — use EXACTLY "
+            "these parenthesised tags, never renumber, never invent new "
+            f"IDs): {format_speaker_id_map_text(sid_map)}\n"
+            "This clip's lines: " + per_line + ".\n"
+            "Each speaker's FIRST <d> block in this clip must carry their "
+            "tag attached to their voice identity (gender + pitch + "
+            "timbre) OUTSIDE the <d> tag"
+            + (
+                "; this clip contains the FIRST spoken clip of the video "
+                "for [" + ", ".join(firsts_in_clip) + "] — state their "
+                "gender explicitly"
+                if firsts_in_clip
+                else ""
+            )
+            + ". Non-vocal on-screen characters get NO (S<n>) tag."
+        )
+    elif dialogue_lines and t_spk in sid_map:
+        speaker_id_directive = (
+            "Speaker ID map (FIXED for the whole production — use EXACTLY "
+            "these parenthesised tags, never renumber, never invent new "
+            f"IDs): {format_speaker_id_map_text(sid_map)}\n"
+            f"This clip's speaker '{t_spk}' MUST carry the tag "
+            f"({sid_map[t_spk]}) attached to their voice identity "
+            "(gender + pitch + timbre; state gender at the speaker's FIRST "
+            "spoken clip) OUTSIDE the <d> tag. Non-vocal on-screen "
+            "characters get NO (S<n>) tag."
+        )
+    else:
+        speaker_id_directive = ""
     return _SHOT_USER_TEMPLATE.format(
         concept=(concept or "").strip(),
         prompt_prefix=prefix_text.strip(),
+        spatial_layout_directive=build_spatial_layout_directive(spatial_layout),
         genre_advice=_genre_advice_block(category),
         continuation_block=continuation_block.strip(),
         clip_index=int(clip_index),
@@ -1790,6 +2157,10 @@ def build_shot_user_text(
         reference_directive=(reference_directive or "").strip(),
         manifest_digest=(manifest_digest or "no reference images").strip(),
         cast_block=(cast_block or "(none named)").strip(),
+        turn_index=t_idx,
+        turn_speaker=t_spk,
+        dialogue_lines_block=dlg_block,
+        speaker_id_directive=speaker_id_directive,
     )
 
 
@@ -1802,14 +2173,34 @@ def build_single_call_user_text(
     duration_seconds: int,
     language_name: str,
     cast_sheet: str = "",
+    speaker_id_map: Optional[dict] = None,
+    spatial_layout: Optional[dict] = None,
 ) -> str:
     board = json.dumps(shots, ensure_ascii=False, indent=2)
+    map_text = format_speaker_id_map_text(speaker_id_map or {})
+    speaker_map_block = (
+        "Speaker ID map (FIXED for the whole production — every clip must "
+        "use EXACTLY these parenthesised tags, never renumber, never invent "
+        f"new IDs): {map_text}\n"
+        "Each speaker's FIRST spoken clip must state their voice identity "
+        "(gender + pitch + timbre) beside the tag; non-vocal on-screen "
+        "characters get NO (S<n>) tag.\n\n"
+        if map_text
+        else ""
+    )
+    spatial_block = (
+        "Spatial layout for every clip (binding — must match the prefix "
+        "above and must be preserved exactly from any prior clip that "
+        f"named these positions):\n{build_spatial_layout_directive(spatial_layout)}\n\n"
+    )
     return (
         f"Concept (whole production):\n{(concept or '').strip()}\n\n"
         f"Shared style/setting prefix (binding for every clip):\n{prefix_text.strip()}\n\n"
+        f"{spatial_block}"
         f"Cast sheet (pick each clip's on-screen members by exact name):\n"
         f"{cast_sheet or '(none named)'}\n\n"
         f"{_genre_advice_block(category)}\n\n"
+        f"{speaker_map_block}"
         f"Storyboard entries (ALL {len(shots)} clips, in order):\n{board}\n\n"
         f"Average clip duration: {int(duration_seconds)} seconds (each entry's own "
         f"duration_seconds in the board above is binding). Output language: {language_name}.\n\n"
@@ -1890,3 +2281,289 @@ def build_cast_sheet_text(cast: dict[str, str]) -> str:
 
 def log_pipeline(message: str) -> None:
     mie_log(f"H3LOOP: {message}")
+
+
+# --------------------------------------------------------------------------- #
+# Dialogue invariantity validator
+# --------------------------------------------------------------------------- #
+# Matches a single ``<d>[Chinese] ...</d>`` or ``<d>[English] ...</d>``
+# block. Used by ``validate_dialogue_invariantity`` to enforce:
+#   (1) every dialogue line in the concept lands as exactly one block
+#   (2) the text inside the block is verbatim (whitespace-stripped)
+#       equal to the input line.
+_D_TAG_RE = re.compile(
+    r"<d>\[(?:Chinese|English)\](?P<text>.*?)</d>", re.DOTALL
+)
+
+
+def extract_d_blocks(text: str) -> list[str]:
+    """Return the inner text of every ``<d>...</d>`` block (stripped)."""
+    return [m.group("text").strip() for m in _D_TAG_RE.finditer(text or "")]
+
+
+def count_d_blocks(text: str) -> int:
+    """Count well-formed ``<d>...</d>`` blocks (paired tags only).
+
+    Implemented on top of ``extract_d_blocks`` so the count and the
+    extracted list can never disagree about what counts as a block —
+    production paths only ever call ``extract_d_blocks`` so the old
+    head-only count was a footgun."""
+    return len(extract_d_blocks(text))
+
+
+def validate_dialogue_invariantity(
+    plan_shots: list[dict],
+    turns: list,  # list[DialogueTurn]; kept untyped to avoid circular import
+) -> list[str]:
+    """Verify each plan shot preserves the dialogue invariantity contract.
+
+    Errors returned (empty list = pass):
+      - shot count != turn count
+      - per-shot <d> block count != turn.line_count
+      - any <d> block inner text != turn.lines[i] (verbatim, stripped)
+
+    The function is intentionally strict; the generator calls it after
+    each per-shot LLM reply and retries on failure (max 2 attempts).
+    """
+    errors: list[str] = []
+    if len(plan_shots) != len(turns):
+        errors.append(
+            f"shot count {len(plan_shots)} != turn count {len(turns)}"
+        )
+    for idx, (shot, turn) in enumerate(zip(plan_shots, turns)):
+        prompt_field = shot.get("prompt") or shot.get("description") or ""
+        if isinstance(prompt_field, list):
+            prompt_text = "\n".join(prompt_field)
+        else:
+            prompt_text = str(prompt_field)
+        d_blocks = extract_d_blocks(prompt_text)
+        if len(d_blocks) != len(turn.lines):
+            errors.append(
+                f"shot {idx}: expected {len(turn.lines)} <d> blocks "
+                f"(turn '{turn.speaker}' has {len(turn.lines)} lines), "
+                f"got {len(d_blocks)}"
+            )
+            continue
+        for i, (block_text, expected) in enumerate(zip(d_blocks, turn.lines)):
+            if block_text != expected.strip():
+                errors.append(
+                    f"shot {idx} line {i}: verbatim mismatch "
+                    f"(speaker '{turn.speaker}')\n"
+                    f"  expected: {expected!r}\n"
+                    f"  got:      {block_text!r}"
+                )
+    return errors
+
+
+# --------------------------------------------------------------------- #
+# Speaker-ID contract (official H3 rule: "A speaker keeps the same ID
+# across shots; non-vocal characters get no ID"). Per-shot LLM calls
+# cannot keep IDs stable on their own — each call only sees one shot —
+# so the map is derived deterministically from the storyboard's turn
+# order and mechanically enforced on every reply.
+# --------------------------------------------------------------------- #
+_SPEAKER_ID_RE = re.compile(r"\(S(\d+)\)")
+_GENDER_WORD_RE = re.compile(
+    r"\b(?:female|male|woman|man|women|men|girl|boy|gentleman|lady)\b|[男女]",
+    re.IGNORECASE,
+)
+
+
+def build_speaker_id_map(shots: list) -> dict:
+    """Deterministic ``speaker -> "S<n>"`` map ordered by each speaker's
+    first spoken line across the storyboard (``_line_speakers`` when the
+    shot is a packed multi-turn scene, ``_turn_speaker`` otherwise).
+
+    Empty map for narration boards (no speaking lines anywhere) —
+    the legacy no-map behaviour applies there."""
+    order: list[str] = []
+    for shot in shots or []:
+        per_line = (shot or {}).get("_line_speakers") or []
+        candidates = (
+            [str(s).strip() for s in per_line]
+            if per_line
+            else [str((shot or {}).get("_turn_speaker") or "").strip()]
+        )
+        for speaker in candidates:
+            if speaker and speaker not in order:
+                order.append(speaker)
+    return {name: f"S{i + 1}" for i, name in enumerate(order)}
+
+
+def format_speaker_id_map_text(id_map: dict) -> str:
+    """Render a map as ``莎莉猫=(S1), 哈利猫=(S2)`` for prompt injection."""
+    return ", ".join(
+        f"{name}=({sid})" for name, sid in (id_map or {}).items()
+    )
+
+
+def repair_speaker_ids(
+    lines: list,
+    speaker: str,
+    sid: str,
+    *,
+    first_appearance: bool = False,
+) -> tuple:
+    """Mechanically enforce the speaker-ID contract on one shot reply.
+
+    ``lines`` is the split section body of a single shot. Every line
+    carrying a ``<d>`` block is a speaking paragraph; any ``(S<n>)``
+    tag inside it is rewritten to the speaker's mapped ``sid`` — the
+    model cannot renumber voices even when it tries. Non-speaking
+    lines are left untouched.
+
+    Returns ``(repaired_lines, problems)``. Problems are contract
+    violations a retry should fix (empty list = clean):
+      - the speaking paragraph carries no ``(S<n>)`` tag at all;
+      - the speaker's FIRST spoken clip lacks a gender word beside the
+        tag (the upstream guide requires identity — gender / pitch /
+        timbre — at first appearance).
+    """
+    speaking_idx = [i for i, ln in enumerate(lines) if "<d" in ln]
+    out_lines: list = []
+    for i, ln in enumerate(lines):
+        if i in speaking_idx:
+            ln = _SPEAKER_ID_RE.sub(f"({sid})", ln)
+        out_lines.append(ln)
+    problems: list[str] = []
+    if speaking_idx:
+        speaking_text = "\n".join(lines[i] for i in speaking_idx)
+        if not _SPEAKER_ID_RE.search(speaking_text):
+            problems.append(
+                f"speaking paragraph carries no (S<n>) tag; attach ({sid}) "
+                f"to speaker '{speaker}' OUTSIDE the <d> block, next to "
+                "their voice identity"
+            )
+        elif first_appearance and not _GENDER_WORD_RE.search(speaking_text):
+            problems.append(
+                f"first spoken appearance of '{speaker}' must state the "
+                f"voice identity (gender + pitch + timbre) beside the "
+                f"({sid}) tag"
+            )
+    return out_lines, problems
+
+
+_D_BLOCK_SPLIT_RE = re.compile(r"(<d>\[[^\]]*\].*?</d>)")
+
+
+def repair_speaker_ids_for_lines(
+    lines: list,
+    line_speakers: list,
+    sid_map: dict,
+    *,
+    first_appearance_speakers: Optional[set] = None,
+) -> tuple:
+    """Multi-speaker variant of ``repair_speaker_ids`` for packed scenes.
+
+    ``line_speakers[k]`` names the speaker of the k-th ``<d>`` block (in
+    order). Delivery prose for line k sits between the previous block's
+    ``</d>`` and block k's ``<d>`` — every ``(S<n>)`` tag in that segment
+    is rewritten to line k's mapped ID. Text after the LAST block on a
+    line is left untouched (closing reaction; ownership ambiguous).
+
+    Contract checks (retry-worthy problems):
+      - block-count vs speaker-list mismatch (cannot map reliably);
+      - a speaker's FIRST block in this shot carries no tag;
+      - a speaker's first spoken clip of the video (in
+        ``first_appearance_speakers``) lacks a gender word at their first
+        block in this shot.
+    Returns ``(repaired_lines, problems)``.
+    """
+    firsts = set(first_appearance_speakers or ())
+    out_lines: list = []
+    problems: list[str] = []
+    block_cursor = 0
+    seen_in_shot: set = set()
+    # Walk text lines that carry blocks; others pass through untouched.
+    for ln in lines:
+        if "<d>" not in ln:
+            out_lines.append(ln)
+            continue
+        parts = _D_BLOCK_SPLIT_RE.split(ln)
+        # parts alternate: text, block, text, block, ..., text
+        # Segment before block j introduces line (base + j); text after
+        # the last block is a tail (untouched for rewriting, but counts
+        # toward the LAST line's gender region).
+        rebuilt: list[str] = []
+        block_count = sum(1 for p in parts if p.startswith("<d>"))
+        first_base = block_cursor
+        block_cursor += block_count
+        tail_text = parts[-1] if len(parts) % 2 == 1 else ""
+        block_no = 0
+        for p in parts:
+            if p.startswith("<d>"):
+                rebuilt.append(p)
+                block_no += 1
+                continue
+            # Text segment: it introduces the NEXT block if any remains
+            # in this line; else it is the tail.
+            next_in_line = block_no < block_count
+            if not p:
+                rebuilt.append(p)
+                continue
+            if next_in_line:
+                line_idx = first_base + block_no
+                if line_idx >= len(line_speakers):
+                    rebuilt.append(p)
+                    continue
+                speaker = line_speakers[line_idx]
+                sid = (sid_map or {}).get(speaker)
+                new_p = (
+                    _SPEAKER_ID_RE.sub(f"({sid})", p)
+                    if sid
+                    else p
+                )
+                rebuilt.append(new_p)
+                seg = new_p
+                # Gender region for the last block also includes the tail.
+                extra = tail_text if line_idx == first_base + block_count - 1 else ""
+                _check_segment(
+                    seg + " " + extra,
+                    speaker,
+                    sid,
+                    line_idx,
+                    line_speakers,
+                    seen_in_shot,
+                    firsts,
+                    problems,
+                )
+            else:
+                rebuilt.append(p)
+        out_lines.append("".join(rebuilt))
+    if block_cursor != len(line_speakers):
+        problems.insert(
+            0,
+            f"speaker-ID map mismatch: {block_cursor} <d> block(s) but "
+            f"{len(line_speakers)} speaker entr(y|ies) provided",
+        )
+    return out_lines, problems
+
+
+def _check_segment(
+    region: str,
+    speaker: str,
+    sid,
+    line_idx: int,
+    line_speakers: list,
+    seen_in_shot: set,
+    firsts: set,
+    problems: list,
+) -> None:
+    """Shared per-line contract checks for the multi-speaker repair."""
+    if sid is None:
+        return
+    if speaker not in seen_in_shot:
+        seen_in_shot.add(speaker)
+        if not _SPEAKER_ID_RE.search(region):
+            problems.append(
+                f"line {line_idx + 1}: speaker '{speaker}' carries no "
+                f"(S<n>) tag; attach ({sid}) OUTSIDE the <d> block, next "
+                "to their voice identity"
+            )
+        elif speaker in firsts and not _GENDER_WORD_RE.search(region):
+            problems.append(
+                f"line {line_idx + 1}: first spoken appearance of "
+                f"'{speaker}' must state the voice identity (gender + "
+                f"pitch + timbre) beside the ({sid}) tag"
+            )
+
