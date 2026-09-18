@@ -1040,9 +1040,12 @@ def _dlg_conn(replies):
 
 
 def test_pacing_derives_scene_count_and_injects_tempo(lg):
-    """Same dialogue input + same 20s budget: fast pacing derives MORE
-    scenes than slow, and the fast tempo directive rides into every
-    per-shot user template."""
+    """Dialogue boards with scene_count=0 (auto) pack MINIMALLY — the
+    fewest scenes whose speech+pause math fits the 14s H3 window —
+    regardless of pacing; pacing still owns the SPEECH tempo (durations)
+    and injects the BRISK/MEASURED directive into every per-shot user
+    template. An explicit scene_count is honoured exactly via even
+    speech distribution."""
     CONCEPT = "甲猫：你好。\n乙猫：好的。\n甲猫：再见。\n乙猫：下次见。"
     # Line k starts at 7*k; the spoken text begins 3 chars into each line.
     EXTRACT = json.dumps({"turns": [
@@ -1058,7 +1061,7 @@ def test_pacing_derives_scene_count_and_injects_tempo(lg):
              ("甲猫", "S1", "adult male", "再见。"),
              ("乙猫", "S2", "adult female", "下次见。")]
 
-    def run(pacing, scenes):
+    def run(pacing, scenes, scene_count=0):
         # scenes = list of line-index groups matching the expected split
         replies = [EXTRACT, PREFIX]
         for group in scenes:
@@ -1077,23 +1080,36 @@ def test_pacing_derives_scene_count_and_injects_tempo(lg):
             user_input=CONCEPT,
             total_duration_seconds=20,
             pacing=pacing,
+            scene_count=scene_count,
             seed=1,
         )
         plan = json.loads(out["plan_json"])
         return out, plan, conn
 
-    # fast: 20s / 4.5s -> 4 scenes (one line each)
-    out_f, plan_f, conn_f = run("fast - 快", [[0], [1], [2], [3]])
-    assert len(plan_f["shots"]) == 4
-    # slow: 20s / 12s -> 2 scenes (2 lines each)
-    out_s, plan_s, conn_s = run("slow - 慢", [[0, 1], [2, 3]])
-    assert len(plan_s["shots"]) == 2
-    # The tempo directive reached every per-shot user template.
+    # auto (scene_count=0): MINIMAL-CUT packing — this 4-line exchange
+    # (~5.6s speech+pause math on fast) fits ONE scene under the 14s H3
+    # window, so both fast and slow pack to a single scene. Auto never
+    # multiplies cuts; the explicit 20s total just rescales/clamps it.
+    out_f, plan_f, conn_f = run("fast - 快", [[0, 1, 2, 3]])
+    assert len(plan_f["shots"]) == 1
+    assert plan_f["shots"][0]["length"] <= 345  # 14s H3 cap on the grid
+    out_s, plan_s, conn_s = run("slow - 慢", [[0, 1, 2, 3]])
+    assert len(plan_s["shots"]) == 1
+
+    # The tempo directive still rides into every per-shot user template —
+    # pacing owns the SPEECH tempo vocabulary, not the cut count.
     shot_calls_f = [c for c in conn_f.calls if "Clip duration" in c[1]["content"]]
-    assert len(shot_calls_f) == 4
+    assert len(shot_calls_f) == 1
     for c in shot_calls_f:
         assert "Tempo: BRISK" in c[1]["content"]
     shot_calls_s = [c for c in conn_s.calls if "Clip duration" in c[1]["content"]]
-    assert len(shot_calls_s) == 2
+    assert len(shot_calls_s) == 1
     for c in shot_calls_s:
         assert "Tempo: MEASURED" in c[1]["content"]
+
+    # Explicit scene_count is honoured EXACTLY: 2 scenes, speech evenly
+    # distributed (2 lines each), equal 10s time share per scene.
+    out_2, plan_2, conn_2 = run("fast - 快", [[0, 1], [2, 3]], scene_count=2)
+    assert len(plan_2["shots"]) == 2
+    for s in plan_2["shots"]:
+        assert s["length"] == 243  # 20s / 2 = 10s -> 243f on the grid

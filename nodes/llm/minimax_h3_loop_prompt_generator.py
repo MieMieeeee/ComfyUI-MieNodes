@@ -187,6 +187,7 @@ try:
         distribute_lines_to_scenes as _dlg_distribute_lines_to_scenes,
         scale_shots_to_total as _dlg_scale_shots_to_total,
         scene_raw_seconds as _dlg_scene_raw_seconds,
+        group_budgets_into_scenes as _dlg_group_budgets_into_scenes,
         validate_extracted_lines as _dlg_validate_extracted_lines,
     )
 except ImportError:
@@ -262,6 +263,7 @@ except ImportError:
         distribute_lines_to_scenes as _dlg_distribute_lines_to_scenes,
         scale_shots_to_total as _dlg_scale_shots_to_total,
         scene_raw_seconds as _dlg_scene_raw_seconds,
+        group_budgets_into_scenes as _dlg_group_budgets_into_scenes,
         validate_extracted_lines as _dlg_validate_extracted_lines,
     )
 
@@ -2546,86 +2548,105 @@ class H3LoopPromptEnhancer:
                 )
             else:
                 auto_total = 0  # signal: user gave an explicit total
-            # 3) Resolve the scene count under the TIME + TEMPO model:
-            #    total_duration_seconds is the ONLY hard constraint; the
-            #    pacing preset owns the TEMPO (cut density).
-            #      - scene_count=N given: honoured exactly — distribute
-            #        the SPEAKING evenly across N scenes by estimated
-            #        speech time (台词平均分配); above the line count the
-            #        extra scenes become silent reaction cuts (切换镜头),
-            #        never a touched spoken line.
-            #      - scene_count=0 (dialogue): derived from pacing —
-            #        round(total / target average scene length), where
-            #        fast ≈ 4.5s, normal ≈ 7s, slow ≈ 12s per scene.
-            #        Same 20s budget: fast cuts ~4 scenes, slow ~2.
+            # 3) Resolve the scene count:
+            #      - scene_count=N given (dialogue): honoured EXACTLY —
+            #        distribute the SPEAKING evenly across N scenes by
+            #        estimated speech time (台词平均分配); above the line
+            #        count the extra scenes become silent reaction cuts
+            #        (切换镜头), never a touched spoken line.
+            #      - scene_count=0 (dialogue): MINIMAL-CUT packing —
+            #        greedily pack consecutive turns into the fewest
+            #        scenes whose speech+pause math fits the 14s H3
+            #        single-generation window. Scene cuts are the chain's
+            #        most expensive operation (each cut regenerates a
+            #        carried overlap and risks identity/ambience drift),
+            #        so auto never multiplies cuts; pacing owns the SPEECH
+            #        tempo (rates + pauses that size each scene), NOT the
+            #        cut count.
             #      - Narration boards (no dialogue): the LLM storyboard
             #        honours the count; its split-bias directive is
-            #        derived from pacing (fast→aggressive etc.).
+            #        derived from pacing (fast→aggressive etc.) — cut
+            #        density stays a narration-only control.
             storyboard_bias = _PACING_TO_STORYBOARD_BIAS.get(
                 pacing_key, "balanced"
             )
             pending_reaction_cuts = 0
             user_scene_count = int(scene_count or 0)
+            even_time_split = False
             if is_narrator_fallback:
                 # Narration: the LLM storyboard honours the count (or
                 # decides it when scene_count=0). Leave as-is.
                 turn_scenes = []
             else:
-                if user_scene_count <= 0:
-                    user_scene_count = _dlg_scenes_for_duration(
-                        effective_total_duration, pacing_obj
+                if user_scene_count > 0:
+                    # Explicit count: per-line granularity, then spread
+                    # the SPEECH evenly across exactly N scenes.
+                    fine_budgets, _fine_report = _dlg_estimate_shot_budget(
+                        turns, pacing_obj, max_shot_seconds=0.0
                     )
-                    log_pipeline(
-                        f"scene_count auto: {effective_total_duration}s / "
-                        f"{pacing_key} target "
-                        f"{pacing_obj.target_scene_sec:.1f}s per scene -> "
-                        f"{user_scene_count} scene(s)"
+                    total_lines = len(fine_budgets)
+                    if user_scene_count > total_lines:
+                        # Ceiling: one line per scene; the rest become
+                        # silent reaction cuts after the board is built.
+                        turn_scenes = [[b] for b in fine_budgets]
+                        pending_reaction_cuts = (
+                            user_scene_count - total_lines
+                        )
+                        log_pipeline(
+                            f"scene_count={user_scene_count}: one line per "
+                            f"scene ({total_lines}) + "
+                            f"{pending_reaction_cuts} reaction cut(s)"
+                        )
+                    else:
+                        turn_scenes = _dlg_distribute_lines_to_scenes(
+                            fine_budgets, scene_count=user_scene_count
+                        )
+                        log_pipeline(
+                            f"scene_count={user_scene_count}: distributed "
+                            f"{total_lines} line(s) evenly by speech time"
+                        )
+                    # Whether the speech actually fits the budget is a
+                    # WARNING, not a constraint (能否说完不重要).
+                    speech_total = sum(
+                        b.estimated_speech_sec for b in fine_budgets
                     )
-                # Per-line granularity, then spread the SPEECH evenly.
-                fine_budgets, _fine_report = _dlg_estimate_shot_budget(
-                    turns, pacing_obj, max_shot_seconds=0.0
-                )
-                total_lines = len(fine_budgets)
-                if user_scene_count > total_lines:
-                    # Ceiling: one line per scene; the rest become
-                    # silent reaction cuts after the board is built.
-                    turn_scenes = [[b] for b in fine_budgets]
-                    pending_reaction_cuts = (
-                        user_scene_count - total_lines
-                    )
-                    log_pipeline(
-                        f"scene_count={user_scene_count}: one line per "
-                        f"scene ({total_lines}) + "
-                        f"{pending_reaction_cuts} reaction cut(s)"
-                    )
+                    if speech_total > effective_total_duration:
+                        warnings.append(
+                            f"dialogue speech ≈{speech_total:.0f}s exceeds "
+                            f"the {effective_total_duration}s time budget; "
+                            "lines were distributed evenly anyway — some "
+                            "lines may not finish inside their clip"
+                        )
+                    scene_count = user_scene_count
+                    even_time_split = True
                 else:
-                    turn_scenes = _dlg_distribute_lines_to_scenes(
-                        fine_budgets, scene_count=user_scene_count
+                    # Auto: minimal-cut packing to the 14s H3 window.
+                    # Scene durations come from the same speech+pause
+                    # math, so the lines fit by construction — no
+                    # fits-warning needed here.
+                    turn_scenes = _dlg_group_budgets_into_scenes(
+                        budgets, pacing_obj, bias="balanced"
                     )
+                    natural = len(turn_scenes)
                     log_pipeline(
-                        f"scene_count={user_scene_count}: distributed "
-                        f"{total_lines} line(s) evenly by speech time"
+                        f"scene_count auto (minimal-cut packing): "
+                        f"{len(budgets)} turn budget(s) -> {natural} "
+                        f"scene(s) within the 14s H3 single-generation "
+                        f"window (pacing={pacing_key} owns speech tempo, "
+                        f"not cut count)"
                     )
-                # Whether the speech actually fits the budget is a
-                # WARNING, not a constraint (能否说完不重要).
-                speech_total = sum(
-                    b.estimated_speech_sec for b in fine_budgets
-                )
-                if speech_total > effective_total_duration:
-                    warnings.append(
-                        f"dialogue speech ≈{speech_total:.0f}s exceeds the "
-                        f"{effective_total_duration}s time budget; lines "
-                        "were distributed evenly anyway — some lines may "
-                        "not finish inside their clip"
-                    )
-                scene_count = user_scene_count
-            # 4) Duration model: after the board is built every scene
-            #    gets an EQUAL share of the budget (T / scene_count);
-            #    Stage 0 then grid-rounds and clamps to the H3 4..14s
-            #    window with its own warnings. Proportional pacing math
-            #    never overrides the user's time preference.
+                    scene_count = natural
+            # 4) Duration model:
+            #      - Explicit count (dialogue): after the board is built
+            #        every scene gets an EQUAL share of the budget
+            #        (T / scene_count); Stage 0 then grid-rounds and
+            #        clamps to the H3 4..14s window with its own warnings.
+            #      - Auto packing (dialogue): per-scene durations come
+            #        from the packing math itself (speech + pauses +
+            #        one head/tail pad per scene); an explicit user total
+            #        rescales the packed scenes proportionally inside
+            #        _build_shots_from_scenes.
             use_packed = not is_narrator_fallback
-            even_time_split = not is_narrator_fallback
             # Note: there is no "rebalance shots down" helper anymore.
             # When a turn splits into multiple budgets (overbudget per-line
             # packing), we accept more shots than turns rather than merge
@@ -2635,6 +2656,15 @@ class H3LoopPromptEnhancer:
             # is honoured via even speech distribution + reaction cuts,
             # never by clipping a line.
             # 5) Hand off: auto-storyboard now gets the dialogue-aware plan.
+            #    For the packed-auto path, an EXPLICIT user total rescales
+            #    the packed scenes proportionally (auto_total==0 means the
+            #    user set total_duration_seconds); an auto total means the
+            #    packing math already IS the budget — no rescale.
+            packed_scale_total = (
+                float(effective_total_duration)
+                if (use_packed and not even_time_split and auto_total == 0)
+                else None
+            )
             shots, sb_warnings = self._auto_storyboard(
                 idea,
                 int(scene_count or 0),
@@ -2648,7 +2678,7 @@ class H3LoopPromptEnhancer:
                 shot_budgets=budgets,
                 turn_scenes=turn_scenes if use_packed else None,
                 pacing_obj=pacing_obj if use_packed else None,
-                scene_target_total_sec=None,
+                scene_target_total_sec=packed_scale_total,
             )
             warnings.extend(f"auto-storyboard: {w}" for w in sb_warnings)
             # 5b) Even time split: every scene gets an equal share of
