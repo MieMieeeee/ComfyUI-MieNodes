@@ -1347,9 +1347,12 @@ class H3LoopPromptEnhancer:
             f"concept: {len(concept)} characters."
         )
         messages = self._messages(self._EXTRACT_SYSTEM, user_prompt)
-        # Budget for ~ N dialogue turns; each turn ~ 100 chars of
-        # JSON. 4096 covers the 22-line coffee-cat concept with
-        # comfortable headroom.
+        # Token budget: the JSON reply itself is small (~100 chars per
+        # turn), but reasoning models spend hidden thinking tokens
+        # BEFORE the content — 4096 intermittently came back empty-
+        # content on MiniMax-M3 (finish by cap, content never emitted).
+        # 16384 matches every other stage's budget and leaves the
+        # thinking plenty of room.
         #
         # Empty-reply retries: some providers occasionally answer HTTP
         # 200 with EMPTY content (observed with MiniMax-M3). An empty
@@ -1364,7 +1367,7 @@ class H3LoopPromptEnhancer:
                     temperature=0.0,
                     seed=None,
                     stage=f"dialogue_extract[attempt {attempt}]",
-                    max_tokens=4096,
+                    max_tokens=16384,
                 )
             except Exception as exc:
                 log_pipeline(
