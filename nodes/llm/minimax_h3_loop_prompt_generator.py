@@ -1350,21 +1350,39 @@ class H3LoopPromptEnhancer:
         # Budget for ~ N dialogue turns; each turn ~ 100 chars of
         # JSON. 4096 covers the 22-line coffee-cat concept with
         # comfortable headroom.
-        try:
-            raw = self._invoke(
-                messages,
-                temperature=0.0,
-                seed=None,
-                stage="dialogue_extract",
-                max_tokens=4096,
-            )
-        except Exception as exc:
+        #
+        # Empty-reply retries: some providers occasionally answer HTTP
+        # 200 with EMPTY content (observed with MiniMax-M3). An empty
+        # string is a transport flake, NOT a "no dialogue" verdict —
+        # only a parsed ``{"turns": []}`` counts as narration. Retry
+        # up to 3 times before degrading to the narrator path.
+        raw = ""
+        for attempt in range(1, 4):
+            try:
+                raw = self._invoke(
+                    messages,
+                    temperature=0.0,
+                    seed=None,
+                    stage=f"dialogue_extract[attempt {attempt}]",
+                    max_tokens=4096,
+                )
+            except Exception as exc:
+                log_pipeline(
+                    f"dialogue extractor: invoke failed ({exc!r}); "
+                    "falling back to narrator"
+                )
+                return []
+            if raw:
+                break
             log_pipeline(
-                f"dialogue extractor: invoke failed ({exc!r}); "
-                "falling back to narrator"
+                f"dialogue extractor: empty reply on attempt "
+                f"{attempt}/3; retrying"
             )
-            return []
         if not raw:
+            log_pipeline(
+                "dialogue extractor: 3 empty replies; falling back to "
+                "narrator (this board will have no spoken lines)"
+            )
             return []
         # Tolerant JSON parse: take the first {...} object.
         parsed = _parse_first_json_object(raw)

@@ -1001,3 +1001,32 @@ def test_summary_is_logged_via_log_pipeline(lg, monkeypatch):
     assert "Warnings" in joined
     # The logged copy matches the returned summary verbatim.
     assert any(msg == out["summary"] for msg in logged)
+
+
+# --------------------------------------------------------------------------- #
+# dialogue_extract empty-reply retries (MiniMax-M3 empty-200 flake)
+# --------------------------------------------------------------------------- #
+def test_extract_dialogue_retries_empty_reply(lg):
+    """Empty first reply is a transport flake, not a 'no dialogue'
+    verdict: retry, then parse the turns from the second reply."""
+    concept = "甲猫：你好。\n乙猫：好的。"
+    # 甲猫：is 3 chars so 你好。 spans [3,6); newline + 乙猫：is 4 more so 好的。 spans [10,13).
+    extract = json.dumps({"turns": [
+        {"speaker": "甲猫", "lines": [{"text": "你好。", "start": 3, "end": 6}]},
+        {"speaker": "乙猫", "lines": [{"text": "好的。", "start": 10, "end": 13}]},
+    ]}, ensure_ascii=False)
+    conn = ScriptedConnector(["", extract])
+    enh = lg.H3LoopPromptEnhancer(conn, temperature=0.0, timeout=30)
+    turns = enh.extract_dialogue(concept)
+    assert len(conn.calls) == 2
+    assert [t.speaker for t in turns] == ["甲猫", "乙猫"]
+    assert turns[0].lines == ["你好。"]
+
+
+def test_extract_dialogue_all_empty_falls_back_to_narrator(lg):
+    """Three empty replies -> narrator fallback ([]), with all three
+    attempts spent."""
+    conn = ScriptedConnector(["", "", ""])
+    enh = lg.H3LoopPromptEnhancer(conn, temperature=0.0, timeout=30)
+    assert enh.extract_dialogue("甲猫：你好。") == []
+    assert len(conn.calls) == 3
