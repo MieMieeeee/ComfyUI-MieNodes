@@ -855,3 +855,15 @@ def test_repair_speaker_ids_for_lines_block_count_match_no_problems(lp):
         first_appearance_speakers={"Sahli", "Harry"},
     )
     assert problems == [], f"unexpected problems: {problems}"
+
+
+def test_build_tempo_directive(lp):
+    fast = lp.build_tempo_directive("fast")
+    assert "BRISK" in fast and "chain" in fast
+    slow = lp.build_tempo_directive("slow")
+    assert "MEASURED" in slow and "never slow motion" in slow
+    assert "NATURAL" in lp.build_tempo_directive("normal")
+    # Unknown keys fall back to natural tempo; the directive is binding
+    # prose, injected verbatim into every per-shot template.
+    assert "NATURAL" in lp.build_tempo_directive("")
+    assert "NATURAL" in lp.build_tempo_directive("weird")

@@ -373,7 +373,8 @@ def test_input_types_required_and_optional_widgets(enh):
     types = enh.MiniMaxH3LoopUserInputEnhancer.INPUT_TYPES()
     required = set(types["required"].keys())
     assert required == {
-        "llm_service_connector", "draft", "category", "reference_mode", "seed",
+        "llm_service_connector", "draft", "category", "reference_mode",
+        "pacing", "seed",
     }
     optional = set(types["optional"].keys())
     assert optional == {"temperature", "max_tokens", "timeout"}
@@ -495,3 +496,32 @@ def test_split_reply_missing_markers(enh):
     )
     assert block is None
     assert "Classification: X" in header
+
+
+def test_enhance_passes_pacing_to_user_message(enh):
+    """The pacing widget value reaches the rewrite prompt's context block
+    so the LLM shapes content density to match (fast -> more/shorter
+    beats, slow -> fewer/longer)."""
+    conn = _make_connector_with_replies([_good_reply_body()])
+    node = enh.MiniMaxH3LoopUserInputEnhancer()
+    node.enhance(
+        conn,
+        draft="two cats in a cafe",
+        category="none - 不指定",
+        reference_mode="t2va - 文生视频链(默认)",
+        pacing="fast - 快",
+        seed=0,
+    )
+    user_msg = conn.calls[0]["messages"][1]["content"]
+    assert "pacing: fast - 快" in user_msg
+    # Without a pacing value the context omits the line entirely.
+    conn2 = _make_connector_with_replies([_good_reply_body()])
+    node.enhance(
+        conn2,
+        draft="two cats",
+        category="none - 不指定",
+        reference_mode="t2va - 文生视频链(默认)",
+        pacing="",
+        seed=0,
+    )
+    assert "pacing:" not in conn2.calls[0]["messages"][1]["content"]

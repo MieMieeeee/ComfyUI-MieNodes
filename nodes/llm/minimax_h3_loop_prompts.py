@@ -1313,6 +1313,40 @@ def build_spatial_layout_directive(spatial_layout: Optional[dict] = None) -> str
     return "; ".join(entries) + "."
 
 
+# Binding tempo directives — one per pacing preset. Injected into every
+# per-shot user template (and the single-call text) so the WRITING tempo
+# matches the board's pacing: fast boards chain beats tightly, slow
+# boards let actions breathe. The per-shot system addendum's slow-word
+# ban exempts MEASURED-preset calm content from the camera-speed rule.
+_TEMPO_DIRECTIVES = {
+    "fast": (
+        "Tempo: BRISK (fast pacing preset). This board cuts fast: chain "
+        "action beats tightly one after another, keep visible motion "
+        "continuous, no lingering holds, no rest frames until the final "
+        "clip. Favor quick, complete actions over long setups."
+    ),
+    "normal": (
+        "Tempo: NATURAL (normal pacing preset). Real-time conversational "
+        "flow: let each beat land clearly, then move on; steady forward "
+        "motion without rushing."
+    ),
+    "slow": (
+        "Tempo: MEASURED (slow pacing preset). Let each action breathe: "
+        "longer holds, unhurried continuous motion, calm camera. Motion "
+        "stays at real-time speed — never slow motion."
+    ),
+}
+
+
+def build_tempo_directive(pacing_key: str) -> str:
+    """Render the binding tempo sentence for a pacing preset key
+    (unknown keys fall back to the natural-tempo directive)."""
+    return _TEMPO_DIRECTIVES.get(
+        str(pacing_key or "").strip().lower(),
+        _TEMPO_DIRECTIVES["normal"],
+    )
+
+
 def _genre_advice_block(category: str) -> str:
     code = parse_category(category)
     advice = category_advice(code).strip()
@@ -2061,6 +2095,7 @@ def build_shot_user_text(
     line_speakers: Optional[list[str]] = None,
     first_appearance_speakers: Optional[set] = None,
     spatial_layout: Optional[dict] = None,
+    tempo_directive: str = "",
 ) -> str:
     # ``duration_seconds`` should be the clip's ACTUAL grid-rounded length
     # (``length_to_seconds(length)``) so the pacing budget matches what H3
@@ -2161,6 +2196,7 @@ def build_shot_user_text(
         turn_speaker=t_spk,
         dialogue_lines_block=dlg_block,
         speaker_id_directive=speaker_id_directive,
+        tempo_directive=(tempo_directive or "").strip(),
     )
 
 
@@ -2175,6 +2211,7 @@ def build_single_call_user_text(
     cast_sheet: str = "",
     speaker_id_map: Optional[dict] = None,
     spatial_layout: Optional[dict] = None,
+    tempo_directive: str = "",
 ) -> str:
     board = json.dumps(shots, ensure_ascii=False, indent=2)
     map_text = format_speaker_id_map_text(speaker_id_map or {})
@@ -2193,10 +2230,16 @@ def build_single_call_user_text(
         "above and must be preserved exactly from any prior clip that "
         f"named these positions):\n{build_spatial_layout_directive(spatial_layout)}\n\n"
     )
+    tempo_block = (
+        f"{(tempo_directive or '').strip()}\n\n"
+        if (tempo_directive or "").strip()
+        else ""
+    )
     return (
         f"Concept (whole production):\n{(concept or '').strip()}\n\n"
         f"Shared style/setting prefix (binding for every clip):\n{prefix_text.strip()}\n\n"
         f"{spatial_block}"
+        f"{tempo_block}"
         f"Cast sheet (pick each clip's on-screen members by exact name):\n"
         f"{cast_sheet or '(none named)'}\n\n"
         f"{_genre_advice_block(category)}\n\n"

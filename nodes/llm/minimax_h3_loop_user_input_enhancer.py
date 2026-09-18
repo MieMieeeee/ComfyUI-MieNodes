@@ -40,12 +40,13 @@ try:
     )
     from _mienodes_internal.nodes.llm.minimax_h3_loop_prompt_generator import (
         LOOP_CATEGORIES,
+        _PACING_LABELS,
     )
     from _mienodes_internal.core.utils import mie_log
 except ImportError:
     from .prompts.loader import load_prompt_text
     from .minimax_h3_loop_prompts import REFERENCE_MODES
-    from .minimax_h3_loop_prompt_generator import LOOP_CATEGORIES
+    from .minimax_h3_loop_prompt_generator import LOOP_CATEGORIES, _PACING_LABELS
     from ...core.utils import mie_log
 
 
@@ -202,17 +203,24 @@ class _UserInputEnhancer:
         *,
         category: str,
         reference_mode: str,
+        pacing: str = "",
         seed=None,
     ) -> str:
         sys_text = load_prompt_text(_PROMPT_NAME)
+        context_lines = [
+            f"  category: {category}",
+            f"  reference_mode: {reference_mode}",
+        ]
+        if (pacing or "").strip():
+            context_lines.append(f"  pacing: {pacing}")
         user_msg = (
             "---BEGIN DRAFT---\n"
             f"{draft or ''}"
             "\n---END DRAFT---\n\n"
             "Context for this rewrite (mirrors the H3 Loop Plan Generator "
             "node widgets so the preprocessor picks the right branch):\n"
-            f"  category: {category}\n"
-            f"  reference_mode: {reference_mode}\n\n"
+            + "\n".join(context_lines)
+            + "\n\n"
             "Reply with the standard shape:\n"
             "  Classification: <Dialogue|Action|Narration|Reference-driven>\n"
             "  Notes for the user: <1-3 short lines>\n"
@@ -233,6 +241,7 @@ def run_enhancer(
     *,
     category: str,
     reference_mode: str,
+    pacing: str = "",
     seed=None,
     temperature: float = _DEFAULT_TEMPERATURE,
     max_tokens: int = _MAX_TOKENS_DEFAULT,
@@ -268,6 +277,7 @@ def run_enhancer(
             draft,
             category=category,
             reference_mode=reference_mode,
+            pacing=pacing,
             seed=attempt_seed,
         )
         block, header = split_enhancer_reply(raw)
@@ -352,6 +362,20 @@ class MiniMaxH3LoopUserInputEnhancer:
                         ),
                     },
                 ),
+                "pacing": (
+                    list(_PACING_LABELS),
+                    {
+                        "default": _PACING_LABELS[1],
+                        "tooltip": (
+                            "Mirrors the H3 Loop node's pacing widget. The "
+                            "rewrite matches this tempo: fast -> more, "
+                            "shorter beats/dialogue lines with quick "
+                            "back-and-forth and dense chained action; "
+                            "normal -> default shaping; slow -> fewer, "
+                            "longer beats, calm unhurried action."
+                        ),
+                    },
+                ),
                 "seed": (
                     "INT",
                     {
@@ -402,6 +426,7 @@ class MiniMaxH3LoopUserInputEnhancer:
         draft,
         category,
         reference_mode,
+        pacing=_PACING_LABELS[1],
         seed=None,
         temperature=_DEFAULT_TEMPERATURE,
         max_tokens=_MAX_TOKENS_DEFAULT,
@@ -412,6 +437,7 @@ class MiniMaxH3LoopUserInputEnhancer:
             draft,
             category=category,
             reference_mode=reference_mode,
+            pacing=pacing,
             seed=seed,
             temperature=temperature,
             max_tokens=max_tokens,
@@ -425,6 +451,7 @@ class MiniMaxH3LoopUserInputEnhancer:
         draft,
         category,
         reference_mode,
+        pacing=_PACING_LABELS[1],
         seed=None,
         temperature=_DEFAULT_TEMPERATURE,
         max_tokens=_MAX_TOKENS_DEFAULT,
@@ -435,6 +462,7 @@ class MiniMaxH3LoopUserInputEnhancer:
             draft or "",
             category or "",
             reference_mode or "",
+            pacing or "",
             str(seed),
             str(temperature),
             str(timeout),

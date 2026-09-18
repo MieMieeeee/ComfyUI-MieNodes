@@ -326,7 +326,7 @@ def test_node_input_types_parameter_surface_updated(lg):
     assert optional["scene_count"][1]["max"] == 128
     assert optional["output_language"][1]["default"] == "en"
     assert "seed_mode" in optional
-    assert "split_bias" in optional
+    assert "split_bias" not in optional
     assert "caption_mode" in optional
     assert "category" in optional
     assert "task_mode" not in optional
@@ -450,7 +450,7 @@ def test_is_changed_stable_and_sensitive(lg):
     ):
         assert node.is_changed(FakeConnector(), **dict(base, **{key: value})) != a
 
-def test_auto_storyboard_includes_split_bias_directive(lg):
+def test_auto_storyboard_includes_pacing_derived_bias_directive(lg):
     # Stage 0.5 chain: extract_dialogue (returns empty) -> _auto_storyboard
     # (1st garbage, 2nd OK) -> prefix -> shot1. The storyboard LLM user
     # message is the second call (index 2: 0=extract, 1=garbage, 2=retry).
@@ -464,7 +464,7 @@ def test_auto_storyboard_includes_split_bias_directive(lg):
     lg.H3LoopPromptEnhancer(conn)(
         user_input="a quiet courtyard summer afternoon",
         scene_count=1,
-        split_bias="aggressive",
+        pacing="fast - 快",
         seed=1,
     )
     # The storyboard retry carried the corrective user turn; the
@@ -1030,3 +1030,70 @@ def test_extract_dialogue_all_empty_falls_back_to_narrator(lg):
     enh = lg.H3LoopPromptEnhancer(conn, temperature=0.0, timeout=30)
     assert enh.extract_dialogue("甲猫：你好。") == []
     assert len(conn.calls) == 3
+
+
+# --------------------------------------------------------------------------- #
+# Pacing owns the tempo: derived scene count + binding tempo directive
+# --------------------------------------------------------------------------- #
+def _dlg_conn(replies):
+    return ScriptedConnector(replies)
+
+
+def test_pacing_derives_scene_count_and_injects_tempo(lg):
+    """Same dialogue input + same 20s budget: fast pacing derives MORE
+    scenes than slow, and the fast tempo directive rides into every
+    per-shot user template."""
+    CONCEPT = "甲猫：你好。\n乙猫：好的。\n甲猫：再见。\n乙猫：下次见。"
+    # Line k starts at 7*k; the spoken text begins 3 chars into each line.
+    EXTRACT = json.dumps({"turns": [
+        {"speaker": "甲猫", "lines": [{"text": "你好。", "start": 3, "end": 6}]},
+        {"speaker": "乙猫", "lines": [{"text": "好的。", "start": 10, "end": 13}]},
+        {"speaker": "甲猫", "lines": [{"text": "再见。", "start": 17, "end": 20}]},
+        {"speaker": "乙猫", "lines": [{"text": "下次见。", "start": 24, "end": 28}]},
+    ]}, ensure_ascii=False)
+    PREFIX = "Hand-drawn 2D animation.\n\nCAST:\n甲猫: grey tabby.\n乙猫: white cat.\n"
+
+    LINES = [("甲猫", "S1", "adult male", "你好。"),
+             ("乙猫", "S2", "adult female", "好的。"),
+             ("甲猫", "S1", "adult male", "再见。"),
+             ("乙猫", "S2", "adult female", "下次见。")]
+
+    def run(pacing, scenes):
+        # scenes = list of line-index groups matching the expected split
+        replies = [EXTRACT, PREFIX]
+        for group in scenes:
+            body = " ".join(
+                f"{spk}, {g} ({sid}), says: <d>[Chinese] {line}</d>"
+                for spk, sid, g, line in (LINES[i] for i in group)
+            )
+            replies.append(
+                "integrated_multimodal_description:\n"
+                f"[Shot 1] {body}\n"
+                "\noverall_soundscape:\nRoom tone.\n\n"
+                "non_diegetic_music:\nNo non-diegetic music.\n"
+            )
+        conn = _dlg_conn(replies)
+        out = lg.H3LoopPromptEnhancer(conn, temperature=0.4, timeout=60)(
+            user_input=CONCEPT,
+            total_duration_seconds=20,
+            pacing=pacing,
+            seed=1,
+        )
+        plan = json.loads(out["plan_json"])
+        return out, plan, conn
+
+    # fast: 20s / 4.5s -> 4 scenes (one line each)
+    out_f, plan_f, conn_f = run("fast - 快", [[0], [1], [2], [3]])
+    assert len(plan_f["shots"]) == 4
+    # slow: 20s / 12s -> 2 scenes (2 lines each)
+    out_s, plan_s, conn_s = run("slow - 慢", [[0, 1], [2, 3]])
+    assert len(plan_s["shots"]) == 2
+    # The tempo directive reached every per-shot user template.
+    shot_calls_f = [c for c in conn_f.calls if "Clip duration" in c[1]["content"]]
+    assert len(shot_calls_f) == 4
+    for c in shot_calls_f:
+        assert "Tempo: BRISK" in c[1]["content"]
+    shot_calls_s = [c for c in conn_s.calls if "Clip duration" in c[1]["content"]]
+    assert len(shot_calls_s) == 2
+    for c in shot_calls_s:
+        assert "Tempo: MEASURED" in c[1]["content"]

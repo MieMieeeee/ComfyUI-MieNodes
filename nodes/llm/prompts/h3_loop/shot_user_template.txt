@@ -7,6 +7,8 @@ Shared identity / style prefix (binding for every clip):
 Spatial layout for THIS clip (binding — must match the prefix above and must be preserved exactly from any prior clip that named these positions):
 {spatial_layout_directive}
 
+{tempo_directive}
+
 {genre_advice}
 
 {continuation_block}

@@ -509,3 +509,25 @@ def test_distribute_one_huge_line_falls_back_to_count_split(seg):
     assert all(scenes)
     packed = [b for s in scenes for b in s]
     assert packed == budgets
+
+
+# --------------------------------------------------------------------------- #
+# scenes_for_duration — pacing owns the cut density
+# --------------------------------------------------------------------------- #
+def test_scenes_for_duration_per_pacing(seg):
+    """Same budget, different tempo -> different cut counts: fast cuts
+    ~4.5s scenes, normal ~7s, slow ~12s."""
+    fast = seg.PACING_PRESETS["fast"]
+    normal = seg.PACING_PRESETS["normal"]
+    slow = seg.PACING_PRESETS["slow"]
+    assert seg.scenes_for_duration(20, fast) == 4      # 20/4.5 = 4.4
+    assert seg.scenes_for_duration(20, normal) == 3    # 20/7 = 2.9
+    assert seg.scenes_for_duration(20, slow) == 2      # 20/12 = 1.7
+    assert seg.scenes_for_duration(10, fast) == 2
+    assert seg.scenes_for_duration(0, fast) == 1
+    assert seg.scenes_for_duration(-5, normal) == 1
+
+
+def test_pacing_presets_carry_target_scene_sec(seg):
+    for key, expect in (("fast", 4.5), ("normal", 7.0), ("slow", 12.0)):
+        assert seg.PACING_PRESETS[key].target_scene_sec == expect

@@ -185,6 +185,21 @@ Rewrite rules:
       SCENE CONTRACT for dialogue)
   Without this switch the rewritten user_input is wasted.
 
+## Pacing hint (when the context carries a `pacing` value)
+
+The rewrite must MATCH the requested tempo in its CONTENT density:
+
+- `fast`: MORE, SHORTER units. Dialogue: quick back-and-forth with 4-8
+  short lines, snappy phrasing. Action: more, tighter beats, each a
+  quick complete action. Narration: pick a busy, kinetic subject.
+- `normal`: default shaping (follow the rules above as written).
+- `slow`: FEWER, LONGER units. Dialogue: 2-3 longer, unhurried lines.
+  Action: 2-3 extended beats with breathing room between. Narration:
+  calm, contemplative subject with long developing motion.
+
+Do NOT mention the pacing value in the rewritten user_input itself —
+just shape the content to match it.
+
 # Output format (always this exact shape)
 
 Classification: <one of: Dialogue / Action / Narration / Reference-driven>

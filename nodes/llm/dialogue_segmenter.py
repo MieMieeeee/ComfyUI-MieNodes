@@ -94,13 +94,21 @@ class DialogueTurn:
 
 @dataclass
 class Pacing:
-    """A pacing preset for the length estimator."""
+    """A pacing preset: TTS rates for duration estimates plus the
+    creative TEMPO the preset implies (target average scene length).
+
+    ``target_scene_sec`` is the cut-density rule: for a given time
+    budget, scene_count auto = total / target_scene_sec — fast pacing
+    cuts more often (shorter scenes), slow pacing holds longer (fewer,
+    longer scenes). It is a creative guideline, not a hard clamp.
+    """
 
     name: str
     rate_cn: float           # Chinese characters per second
     rate_en: float           # English words per second
     pause_sec: float         # pause between consecutive lines in a turn
     head_tail_pad_sec: float  # pad at the start and end of the turn
+    target_scene_sec: float = 7.0  # average scene length the tempo implies
 
     def per_line_seconds(self, line: str) -> float:
         """Estimate the spoken duration of one line."""
@@ -157,6 +165,7 @@ PACING_PRESETS: dict[str, Pacing] = {
         rate_en=3.5,
         pause_sec=1.0,
         head_tail_pad_sec=0.3,
+        target_scene_sec=4.5,
     ),
     "normal": Pacing(
         name="normal",
@@ -164,6 +173,7 @@ PACING_PRESETS: dict[str, Pacing] = {
         rate_en=2.5,
         pause_sec=1.5,
         head_tail_pad_sec=0.3,
+        target_scene_sec=7.0,
     ),
     "slow": Pacing(
         name="slow",
@@ -171,8 +181,25 @@ PACING_PRESETS: dict[str, Pacing] = {
         rate_en=2.0,
         pause_sec=2.0,
         head_tail_pad_sec=0.4,
+        target_scene_sec=12.0,
     ),
 }
+
+
+def scenes_for_duration(total_sec: float, pacing: Pacing) -> int:
+    """The scene count a pacing preset implies for a time budget:
+    ``round(total / target average scene length)``, at least one.
+
+    This is the AUTO cut-density rule — fast pacing cuts more often for
+    the same duration, slow pacing holds shots longer. An explicit
+    scene_count always overrides it; time stays the only hard
+    constraint."""
+    if total_sec is None or total_sec <= 0:
+        return 1
+    target = float(getattr(pacing, "target_scene_sec", 0) or 0)
+    if target <= 0:
+        return 1
+    return max(1, int(round(float(total_sec) / target)))
 
 
 # --------------------------------------------------------------------------- #

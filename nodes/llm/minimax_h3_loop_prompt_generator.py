@@ -127,6 +127,7 @@ try:
         build_prefix_user_text,
         build_reference_directive,
         build_shot_user_text,
+        build_tempo_directive,
         build_shots_digest,
         build_single_call_user_text,
         build_spatial_layout_directive,
@@ -180,7 +181,7 @@ try:
         DialogueTurn as _DLG_DialogueTurn,
         ExtractedLine as _DLG_ExtractedLine,
         estimate_shot_budget as _dlg_estimate_shot_budget,
-        group_budgets_into_scenes as _dlg_group_budgets_into_scenes,
+        scenes_for_duration as _dlg_scenes_for_duration,
         narrator_fallback_turn as _dlg_narrator_fallback_turn,
         pacing_report_text as _dlg_pacing_report_text,
         distribute_lines_to_scenes as _dlg_distribute_lines_to_scenes,
@@ -201,6 +202,7 @@ except ImportError:
         build_prefix_user_text,
         build_reference_directive,
         build_shot_user_text,
+        build_tempo_directive,
         build_shots_digest,
         build_single_call_user_text,
         build_spatial_layout_directive,
@@ -254,7 +256,7 @@ except ImportError:
         DialogueTurn as _DLG_DialogueTurn,
         ExtractedLine as _DLG_ExtractedLine,
         estimate_shot_budget as _dlg_estimate_shot_budget,
-        group_budgets_into_scenes as _dlg_group_budgets_into_scenes,
+        scenes_for_duration as _dlg_scenes_for_duration,
         narrator_fallback_turn as _dlg_narrator_fallback_turn,
         pacing_report_text as _dlg_pacing_report_text,
         distribute_lines_to_scenes as _dlg_distribute_lines_to_scenes,
@@ -383,12 +385,14 @@ SEED_MODES = (
 )
 SEED_MODE_CODES = ("per_scene_increment", "same_across_scenes")
 
-SPLIT_BIASES = (
-    "balanced - 平衡(推荐)",
-    "conservative - 更少分场/更长镜头",
-    "aggressive - 更细分场/更高节奏",
-)
-SPLIT_BIAS_CODES = ("balanced", "conservative", "aggressive")
+# Storyboard split bias is DERIVED from the pacing preset — pacing owns
+# the whole tempo story now (the old split_bias widget was merged into
+# it): fast cuts aggressively (one beat per scene), slow packs long.
+_PACING_TO_STORYBOARD_BIAS = {
+    "fast": "aggressive",
+    "normal": "balanced",
+    "slow": "conservative",
+}
 
 CAPTION_MODES = (
     "cache_memory_disk - 缓存:内存+磁盘(推荐)",
@@ -604,11 +608,6 @@ def parse_seed_mode(mode: str) -> str:
     return code if code in SEED_MODE_CODES else ""
 
 
-def parse_split_bias(bias: str) -> str:
-    code = (bias or "").split(" - ", 1)[0].strip()
-    return code if code in SPLIT_BIAS_CODES else ""
-
-
 def parse_caption_mode(mode: str) -> str:
     code = (mode or "").split(" - ", 1)[0].strip()
     return code if code in CAPTION_MODE_CODES else ""
@@ -710,7 +709,7 @@ def _build_shots_from_turns(
     The originating turn is looked up by ``budget.turn_index``.
 
     ``scenes`` (from ``group_budgets_into_scenes``) packs consecutive
-    budgets into multi-turn scenes — used when split_bias=conservative.
+    budgets into multi-turn scenes — used by the scene builder.
     Each scene becomes ONE shot carrying every line of its turns in
     order (``_dialogue_lines`` + ``_line_speakers``), so all three
     dialogue invariants still hold; only the scene granularity changes.
@@ -832,7 +831,7 @@ def _build_shots_from_scenes(
     is_fallback: bool = False,
     target_total_sec: Optional[float] = None,
 ) -> list[dict]:
-    """One shot per packed scene (split_bias=conservative).
+    """One shot per packed scene (multi-turn packing).
 
     Every line of the scene's budgets lands in one shot, in order, with
     a per-line speaker list (``_line_speakers``) so the speaker-ID
@@ -1227,7 +1226,8 @@ class H3LoopPromptEnhancer:
         *,
         category: str,
         reference_mode: str,
-        seed: Optional[int],
+        pacing: str = "",
+        seed: Optional[int] = None,
     ) -> tuple[str, str]:
         """Run the standalone enhancer's rewrite inline (toggle on).
 
@@ -1260,6 +1260,7 @@ class H3LoopPromptEnhancer:
                 draft,
                 category=category,
                 reference_mode=reference_mode,
+                pacing=pacing,
                 seed=seed,
                 # The rewrite is tuned for the standalone node's
                 # sampling defaults; only the per-call timeout follows
@@ -1488,6 +1489,7 @@ class H3LoopPromptEnhancer:
         seed: Optional[int],
         mode: str = "t2va",
         manifest: Optional[list[dict]] = None,
+        tempo_directive: str = "",
     ) -> tuple[list[str], dict[str, str]]:
         """One LLM call producing (a) the whole-video-invariant prefix
         (art style / setting / palette / tempo / exclusions — never any
@@ -1512,7 +1514,8 @@ class H3LoopPromptEnhancer:
                 category,
                 language_name,
                 shots_digest=build_shots_digest(shots),
-                mode_note=_mode_note_for_prefix(mode),
+                mode_note=_mode_note_for_prefix(mode)
+                + ("\n" + tempo_directive.strip() if tempo_directive.strip() else ""),
                 manifest_digest=_manifest_digest(manifest or []),
                 cast_roster=roster_text,
             ),
@@ -1803,7 +1806,7 @@ class H3LoopPromptEnhancer:
         *,
         seed: Optional[int],
         reference_digest: str = "",
-        split_bias: str = "balanced",
+        storyboard_bias: str = "balanced",
         dialogue_turns: Optional[list] = None,
         shot_budgets: Optional[list] = None,
         turn_scenes: Optional[list] = None,
@@ -1821,7 +1824,7 @@ class H3LoopPromptEnhancer:
         and invariant (3) (same-speaker consecutive lines in one scene)
         are satisfied deterministically.
 
-        ``turn_scenes`` + ``pacing_obj`` (split_bias=conservative) pack
+        ``turn_scenes`` + ``pacing_obj`` pack
         consecutive turns into multi-turn scenes; see
         ``group_budgets_into_scenes``.
         """
@@ -1852,7 +1855,7 @@ class H3LoopPromptEnhancer:
             language,
             total_duration_seconds=int(total_duration_seconds),
             reference_digest=reference_digest,
-            split_bias=split_bias,
+            split_bias=storyboard_bias,
         )
         messages = self._messages(SYSTEM_STORYBOARD_PROMPT, user_text)
         # The storyboard reply is the pipeline's longest single output; a
@@ -1935,6 +1938,7 @@ class H3LoopPromptEnhancer:
     line_speakers: Optional[list[str]] = None,
     first_appearance_speakers: Optional[set] = None,
     spatial_layout: Optional[dict] = None,
+    tempo_directive: str = "",
     ) -> list[str]:
         code = parse_reference_mode(mode)
         schema = schema_for_mode(mode)
@@ -1992,6 +1996,7 @@ class H3LoopPromptEnhancer:
             line_speakers=line_speakers,
             first_appearance_speakers=first_appearance_speakers,
             spatial_layout=spatial_layout,
+            tempo_directive=tempo_directive,
         )
         # System prompt dispatch: ref2va uses the six-section addendum.
         system = (
@@ -2139,6 +2144,7 @@ class H3LoopPromptEnhancer:
         dialogue_turns: Optional[list] = None,
         speaker_id_map: Optional[dict] = None,
         spatial_layout: Optional[dict] = None,
+        tempo_directive: str = "",
     ) -> dict[str, list[str]]:
         user_text = build_single_call_user_text(
             concept=concept,
@@ -2150,6 +2156,7 @@ class H3LoopPromptEnhancer:
             cast_sheet=cast_sheet,
             speaker_id_map=speaker_id_map,
             spatial_layout=spatial_layout,
+            tempo_directive=tempo_directive,
         )
         messages = self._messages(shot_system_prompt(), user_text)
         last_error: Optional[Exception] = None
@@ -2326,7 +2333,6 @@ class H3LoopPromptEnhancer:
         total_duration_seconds: int = 0,
         scene_count: int = 0,
         pacing: str = _PACING_LABELS[1],
-        split_bias: str = SPLIT_BIASES[0],
         generation_mode: str = "per_shot",
         category: str = "",
         output_language: str = "en",
@@ -2360,6 +2366,7 @@ class H3LoopPromptEnhancer:
                 raw_input,
                 category=category,
                 reference_mode=reference_mode,
+                pacing=pacing,
                 seed=seed,
             )
             log_pipeline(
@@ -2395,7 +2402,6 @@ class H3LoopPromptEnhancer:
 
         ref_code = parse_reference_mode(reference_mode)
         gen_code = parse_generation_mode(generation_mode)
-        split_bias_code = parse_split_bias(split_bias)
         seed_unified = resolve_seed_unified(seed_mode)
         effective_force_recaption, effective_caption_cache_scope = (
             resolve_caption_controls(
@@ -2540,37 +2546,41 @@ class H3LoopPromptEnhancer:
                 )
             else:
                 auto_total = 0  # signal: user gave an explicit total
-            # 3) Resolve the scene count under the TIME-ONLY model:
-            #    total_duration_seconds is the ONLY hard constraint;
-            #    everything else (exact scene count, whether the lines
-            #    fit) is a warning, never a reshape and never an error.
-            #      - scene_count=0: natural packing per split_bias.
-            #      - scene_count=N (dialogue): distribute the SPEAKING
-            #        evenly across N scenes by estimated speech time
-            #        (台词平均分配). If N exceeds the line count, the
-            #        extra scenes become mechanical silent reaction
-            #        cuts (切换镜头) — no spoken line is ever touched.
+            # 3) Resolve the scene count under the TIME + TEMPO model:
+            #    total_duration_seconds is the ONLY hard constraint; the
+            #    pacing preset owns the TEMPO (cut density).
+            #      - scene_count=N given: honoured exactly — distribute
+            #        the SPEAKING evenly across N scenes by estimated
+            #        speech time (台词平均分配); above the line count the
+            #        extra scenes become silent reaction cuts (切换镜头),
+            #        never a touched spoken line.
+            #      - scene_count=0 (dialogue): derived from pacing —
+            #        round(total / target average scene length), where
+            #        fast ≈ 4.5s, normal ≈ 7s, slow ≈ 12s per scene.
+            #        Same 20s budget: fast cuts ~4 scenes, slow ~2.
             #      - Narration boards (no dialogue): the LLM storyboard
-            #        honours the count.
-            turn_scenes = _dlg_group_budgets_into_scenes(
-                budgets, pacing_obj, bias=split_bias_code
+            #        honours the count; its split-bias directive is
+            #        derived from pacing (fast→aggressive etc.).
+            storyboard_bias = _PACING_TO_STORYBOARD_BIAS.get(
+                pacing_key, "balanced"
             )
-            natural_shot_count = len(turn_scenes)
-            if natural_shot_count != len(budgets):
-                log_pipeline(
-                    f"split_bias={split_bias_code}: packed {len(budgets)} "
-                    f"turn(s)/sub-turn(s) into {natural_shot_count} scene(s)"
-                )
             pending_reaction_cuts = 0
             user_scene_count = int(scene_count or 0)
-            explicit_scene_count = (
-                not is_narrator_fallback and user_scene_count > 0
-            )
             if is_narrator_fallback:
                 # Narration: the LLM storyboard honours the count (or
                 # decides it when scene_count=0). Leave as-is.
-                pass
-            elif explicit_scene_count:
+                turn_scenes = []
+            else:
+                if user_scene_count <= 0:
+                    user_scene_count = _dlg_scenes_for_duration(
+                        effective_total_duration, pacing_obj
+                    )
+                    log_pipeline(
+                        f"scene_count auto: {effective_total_duration}s / "
+                        f"{pacing_key} target "
+                        f"{pacing_obj.target_scene_sec:.1f}s per scene -> "
+                        f"{user_scene_count} scene(s)"
+                    )
                 # Per-line granularity, then spread the SPEECH evenly.
                 fine_budgets, _fine_report = _dlg_estimate_shot_budget(
                     turns, pacing_obj, max_shot_seconds=0.0
@@ -2596,7 +2606,6 @@ class H3LoopPromptEnhancer:
                         f"scene_count={user_scene_count}: distributed "
                         f"{total_lines} line(s) evenly by speech time"
                     )
-                natural_shot_count = len(turn_scenes)
                 # Whether the speech actually fits the budget is a
                 # WARNING, not a constraint (能否说完不重要).
                 speech_total = sum(
@@ -2609,36 +2618,22 @@ class H3LoopPromptEnhancer:
                         "were distributed evenly anyway — some lines may "
                         "not finish inside their clip"
                     )
-            else:
-                scene_count = natural_shot_count
-            # 4) Duration model. Auto path (scene_count=0): scene
-            #    durations come from the pacing packing math — the auto
-            #    total IS their sum. Explicit budget (user total, or an
-            #    explicit scene count receiving an even share of the
-            #    auto budget): after the board is built every scene gets
-            #    an EQUAL share of the budget (T / scene_count); Stage 0
-            #    then grid-rounds and clamps to the H3 4..14s window
-            #    with its own warnings. Proportional pacing math never
-            #    overrides the user's time preference.
-            use_packed = (
-                explicit_scene_count
-                or (
-                    split_bias_code != "aggressive"
-                    and natural_shot_count != len(budgets)
-                )
-            )
-            even_time_split = (
-                not is_narrator_fallback
-                and (explicit_scene_count or auto_total == 0)
-            )
+                scene_count = user_scene_count
+            # 4) Duration model: after the board is built every scene
+            #    gets an EQUAL share of the budget (T / scene_count);
+            #    Stage 0 then grid-rounds and clamps to the H3 4..14s
+            #    window with its own warnings. Proportional pacing math
+            #    never overrides the user's time preference.
+            use_packed = not is_narrator_fallback
+            even_time_split = not is_narrator_fallback
             # Note: there is no "rebalance shots down" helper anymore.
             # When a turn splits into multiple budgets (overbudget per-line
             # packing), we accept more shots than turns rather than merge
             # — merging would either cut a line in half (forbidden by the
             # 1-line -> 1-<d>-block invariant) or merge across speakers
-            # (also forbidden). The user's scene_count is honoured via the
-            # even speech distribution + reaction cuts above, never by
-            # clipping a line.
+            # (also forbidden). The scene count (given or pacing-derived)
+            # is honoured via even speech distribution + reaction cuts,
+            # never by clipping a line.
             # 5) Hand off: auto-storyboard now gets the dialogue-aware plan.
             shots, sb_warnings = self._auto_storyboard(
                 idea,
@@ -2648,7 +2643,7 @@ class H3LoopPromptEnhancer:
                 (output_language or "en").strip().lower(),
                 seed=seed,
                 reference_digest=reference_digest,
-                split_bias=split_bias_code,
+                storyboard_bias=storyboard_bias,
                 dialogue_turns=turns,
                 shot_budgets=budgets,
                 turn_scenes=turn_scenes if use_packed else None,
@@ -2780,6 +2775,10 @@ class H3LoopPromptEnhancer:
             raise RuntimeError("no usable shots produced from shots_text / storyboard")
 
         # ---- Stage 1: prefix + CAST ----------------------------------- #
+        # The pacing preset's binding tempo directive rides into the
+        # prefix note AND every per-shot / single-call prompt below, so
+        # the WRITING tempo matches the board's pacing end to end.
+        tempo_directive = build_tempo_directive(pacing_key)
         prefix_lines, cast = self._synth_prefix(
             idea,
             category,
@@ -2787,6 +2786,7 @@ class H3LoopPromptEnhancer:
                 shots,
                 seed=seed,
                 manifest=manifest,
+                tempo_directive=tempo_directive,
             )
         prefix_text = "\n".join(prefix_lines)
 
@@ -2830,6 +2830,7 @@ class H3LoopPromptEnhancer:
                 dialogue_turns=turns,
                 speaker_id_map=speaker_id_map,
                 spatial_layout=spatial_layout,
+                tempo_directive=tempo_directive,
             )
             for entry in entries:
                 entry["prompt"] = all_shot_prompts.get(entry["id"], [])
@@ -2872,6 +2873,7 @@ class H3LoopPromptEnhancer:
                     turn_speaker=entry["source"].get("_turn_speaker"),
                     speaker_id_map=speaker_id_map,
                     line_speakers=entry["source"].get("_line_speakers"),
+                    tempo_directive=tempo_directive,
                     first_appearance_speakers={
                         s for s in set(
                             entry["source"].get("_line_speakers")
@@ -3077,10 +3079,10 @@ class MiniMaxH3LoopPromptGenerator:
                             "the node honours it as closely as the content "
                             "allows — the dialogue line count does NOT "
                             "dictate the board.\n\n"
-                            "0 = auto: dialogue boards pack turns into the "
-                            "fewest scenes that fit the 14s H3 window "
-                            "(split_bias=aggressive keeps one scene per "
-                            "turn); narration boards let the LLM decide.\n\n"
+                            "0 = auto: the pacing preset decides the cut "
+                            "density (total_duration / target scene length: "
+                            "fast ≈ 4.5s, normal ≈ 7s, slow ≈ 12s per "
+                            "scene). Narration boards let the LLM decide.\n\n"
                             ">0 on a dialogue board: fewer scenes = tighter "
                             "packing of lines; more scenes = lines spread "
                             "across more scenes (midpoint splits); above "
@@ -3127,11 +3129,28 @@ class MiniMaxH3LoopPromptGenerator:
                     {
                         "default": _PACING_LABELS[1],
                         "tooltip": (
-                            "Auto-length pacing preset (used when "
-                            "total_duration_seconds=0). fast: CN 4.5 chars/s "
-                            "+ 1.0s turn pause. normal: CN 3.5 chars/s + 1.5s. "
-                            "slow: CN 2.8 chars/s + 2.0s. English uses "
-                            "rate_en = 3.5 / 2.5 / 2.0 words/s respectively."
+                            "TEMPO of the whole board — this is the "
+                            "faster/slower rhythm control.\n\n"
+                            "1. Cut density (scene_count=0): the scene "
+                            "count is derived from total_duration / target "
+                            "average scene length — fast ≈ 4.5s, normal ≈ "
+                            "7s, slow ≈ 12s per scene. The same 20s budget "
+                            "cuts ~4 scenes on fast, ~2 on slow.\n"
+                            "2. Prompt tempo: a binding tempo directive is "
+                            "injected into the prefix and every per-shot "
+                            "prompt (fast: chain beats tightly, no holds; "
+                            "slow: measured pace, longer holds, real-time "
+                            "motion).\n"
+                            "3. Auto length (total=0): speech estimate "
+                            "uses the preset's TTS rate + turn pause "
+                            "(fast CN 4.5 chars/s + 1.0s, normal 3.5 + "
+                            "1.5s, slow 2.8 + 2.0s).\n"
+                            "Narration boards also map fast/normal/slow to "
+                            "the storyboard's aggressive/balanced/"
+                            "conservative split bias. An explicit "
+                            "scene_count overrides the cut density; "
+                            "total_duration_seconds stays the only hard "
+                            "constraint."
                         ),
                     },
                 ),
@@ -3178,28 +3197,6 @@ class MiniMaxH3LoopPromptGenerator:
                             "same_across_scenes: every scene shares one seed — "
                             "use it only when you deliberately want the "
                             "identical-noise look."
-                        ),
-                    },
-                ),
-                "split_bias": (
-                    list(SPLIT_BIASES),
-                    {
-                        "default": SPLIT_BIASES[0],
-                        "tooltip": (
-                            "How aggressively auto-splitting cuts scenes when "
-                            "scene_count=0. Dialogue-driven boards: every cut "
-                            "regenerates a carried overlap and risks visual "
-                            "discontinuity, so the DEFAULT (balanced) and "
-                            "conservative both PACK consecutive turns into "
-                            "the fewest multi-turn scenes that fit the 14 s "
-                            "H3 single-generation window — a speaker change "
-                            "alone never forces a cut, same-speaker lines "
-                            "never split, every line keeps its verbatim "
-                            "<d> block + fixed speaker ID. aggressive = one "
-                            "shot per dialogue turn (quick-cut rhythm). "
-                            "Narration boards: conservative -> fewer/longer "
-                            "scenes; aggressive -> more/shorter scenes "
-                            "(all still constrained to 4-14s per scene)."
                         ),
                     },
                 ),
@@ -3304,7 +3301,6 @@ class MiniMaxH3LoopPromptGenerator:
         seed=None,
         scene_count=0,
         total_duration_seconds=0,
-        split_bias=SPLIT_BIASES[0],
         generation_mode=GENERATION_MODES[0],
         category="",
         output_language="en",
@@ -3331,7 +3327,6 @@ class MiniMaxH3LoopPromptGenerator:
             user_input=user_input,
             scene_count=scene_count,
             total_duration_seconds=total_duration_seconds,
-            split_bias=split_bias,
             generation_mode=generation_mode,
             category=category,
             output_language=output_language,
@@ -3359,7 +3354,6 @@ class MiniMaxH3LoopPromptGenerator:
         seed=None,
         scene_count=0,
         total_duration_seconds=0,
-        split_bias=SPLIT_BIASES[0],
         generation_mode=GENERATION_MODES[0],
         category="",
         output_language="en",
@@ -3383,7 +3377,6 @@ class MiniMaxH3LoopPromptGenerator:
             str(scene_count),
             parse_seed_mode(seed_mode),
             str(total_duration_seconds),
-            parse_split_bias(split_bias),
             generation_mode,
             category,
             output_language,
