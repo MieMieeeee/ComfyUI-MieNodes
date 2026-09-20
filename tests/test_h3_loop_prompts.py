@@ -677,10 +677,17 @@ def test_shot_user_text_carries_speaker_id_directive(lp):
         turn_speaker="哈利猫",
         speaker_id_map={"莎莉猫": "S1", "哈利猫": "S2"},
     )
-    assert "Speaker ID map" in user
+    # Dialogue-as-data contract: the lock instruction, the fixed map,
+    # and the no-tags-in-prose rule.
+    assert "Dialogue is LOCKED" in user
+    assert "appends the verbatim <d>[Language]...</d> speech blocks" in user
     assert "莎莉猫=(S1), 哈利猫=(S2)" in user
-    assert "line 1=哈利猫 (S2)" in user
-    assert "Non-vocal on-screen characters get NO (S<n>) tag" in user
+    assert "Speaker tags are owned by the node" in user
+    assert "Write NO (S<n>) tag in your prose" in user
+    assert "non-vocal on-screen characters get NO tag" in user
+    # The locked line rides as CONTEXT ONLY — a bare line, not a <d>
+    # block the model could copy.
+    assert "1. 哈利猫 (S2): 好？你凭什么定义好。" in user
 
 
 def test_shot_user_text_without_map_omits_directive(lp):
@@ -709,7 +716,24 @@ def test_single_call_user_text_carries_speaker_map(lp):
         speaker_id_map={"莎莉猫": "S1", "哈利猫": "S2"},
     )
     assert "莎莉猫=(S1), 哈利猫=(S2)" in user
-    assert "never renumber" in user
+    # No dialogue on the board -> no lock block.
+    assert "Dialogue is LOCKED" not in user
+
+
+def test_single_call_user_text_locks_dialogue(lp):
+    user = lp.build_single_call_user_text(
+        concept="coffee shop cats",
+        prefix_text="Warm amber.",
+        category="dialogue - 对白/对话/相声",
+        shots=[{"id": "scene_01", "_turn_speaker": "莎莉猫",
+                "_dialogue_lines": ["你好。"]}],
+        duration_seconds=20,
+        language_name="English",
+        speaker_id_map={"莎莉猫": "S1"},
+    )
+    assert "Dialogue is LOCKED as data" in user
+    assert "no <d> blocks, no quoted or unquoted spoken words" in user
+    assert "the node attaches each speaker's (s<n>) tag" in user.lower()
 
 
 def test_system_prompts_carry_speaker_id_rules(lp):
@@ -888,3 +912,94 @@ def test_build_tempo_directive(lp):
     # prose, injected verbatim into every per-shot template.
     assert "NATURAL" in lp.build_tempo_directive("")
     assert "NATURAL" in lp.build_tempo_directive("weird")
+
+
+# --------------------------------------------------------------------- #
+# Dialogue-as-data: assemble / scrub / append helpers
+# --------------------------------------------------------------------- #
+def test_assemble_dialogue_line_blocks_first_appearance_identity(lp):
+    blocks = lp.assemble_dialogue_line_blocks(
+        ["你好。", "好的。"],
+        line_speakers=["莎莉猫", "哈利猫"],
+        turn_speaker="",
+        speaker_id_map={"莎莉猫": "S1", "哈利猫": "S2"},
+        speaker_identities={"莎莉猫": "cream cat", "哈利猫": "tabby"},
+        first_appearance_speakers={"莎莉猫", "哈利猫"},
+    )
+    assert blocks == [
+        "莎莉猫, cream cat (S1): <d>[Chinese] 你好。</d>",
+        "哈利猫, tabby (S2): <d>[Chinese] 好的。</d>",
+    ]
+
+
+def test_assemble_dialogue_line_blocks_later_appearance_bare(lp):
+    blocks = lp.assemble_dialogue_line_blocks(
+        ["再见。"],
+        line_speakers=["莎莉猫"],
+        turn_speaker="莎莉猫",
+        speaker_id_map={"莎莉猫": "S1"},
+        speaker_identities={"莎莉猫": "cream cat"},
+        first_appearance_speakers=set(),
+    )
+    assert blocks == ["莎莉猫 (S1): <d>[Chinese] 再见。</d>"]
+
+
+def test_assemble_dialogue_line_blocks_english_tag_and_no_map(lp):
+    blocks = lp.assemble_dialogue_line_blocks(
+        ["hello there."],
+        line_speakers=["Sahli"],
+        turn_speaker="Sahli",
+        first_appearance_speakers=set(),
+    )
+    assert blocks == ["Sahli: <d>[English] hello there.</d>"]
+    blocks = lp.assemble_dialogue_line_blocks(
+        ["hello."], line_speakers=["Sahli"], turn_speaker="Sahli",
+        speaker_id_map={"Sahli": "S1"}, first_appearance_speakers=set(),
+    )
+    assert blocks == ["Sahli (S1): <d>[English] hello.</d>"]
+
+
+def test_scrub_dialogue_from_prompt_text(lp):
+    text = "he says: <d>[Chinese] 你好。</d> and again 你好。 plus ok"
+    out, notes = lp.scrub_dialogue_from_prompt_text(text, ["你好。"])
+    assert "<d>" not in out
+    assert "你好。" not in out
+    assert "ok" in out and "…" in out
+    assert notes
+
+
+def test_scrub_dialogue_from_prompt_text_clean_passthrough(lp):
+    out, notes = lp.scrub_dialogue_from_prompt_text(
+        "she gestures, ambient rain", ["你好。"]
+    )
+    assert out == "she gestures, ambient rain"
+    assert notes == []
+
+
+def test_append_dialogue_blocks_to_sections_three(lp):
+    lines = [
+        "integrated_multimodal_description:", "body",
+        "", "overall_soundscape:", "s",
+        "", "non_diegetic_music:", "m",
+    ]
+    out = lp.append_dialogue_blocks_to_sections(
+        lines, ["B1"], schema="three_section"
+    )
+    assert out == [
+        "integrated_multimodal_description:", "body", "B1",
+        "", "overall_soundscape:", "s",
+        "", "non_diegetic_music:", "m",
+    ]
+
+
+def test_append_dialogue_blocks_to_sections_six(lp):
+    lines = [
+        "subject_definitions:", "x", "summary:", "y",
+        "retention_analysis:", "z", "detailed_description:", "d1",
+        "", "overall_soundscape:", "s",
+        "", "non_diegetic_music:", "m",
+    ]
+    out = lp.append_dialogue_blocks_to_sections(
+        lines, ["B1"], schema="six_section"
+    )
+    assert out[6:10] == ["detailed_description:", "d1", "B1", ""]

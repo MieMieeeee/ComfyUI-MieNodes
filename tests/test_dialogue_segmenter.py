@@ -572,3 +572,57 @@ def test_scenes_for_duration_per_pacing(seg):
 def test_pacing_presets_carry_target_scene_sec(seg):
     for key, expect in (("fast", 4.5), ("normal", 7.0), ("slow", 12.0)):
         assert seg.PACING_PRESETS[key].target_scene_sec == expect
+
+
+# --------------------------------------------------------------------------- #
+# parse_structured_dialogue_turns — deterministic canonical-format path
+# --------------------------------------------------------------------------- #
+def test_parse_structured_dialogue_turns_canonical(seg):
+    concept = "莎莉猫：你好。\n哈利猫：为什么。\n莎莉猫：再见。"
+    turns, prologue = seg.parse_structured_dialogue_turns(concept)
+    assert [t.speaker for t in turns] == ["莎莉猫", "哈利猫", "莎莉猫"]
+    assert prologue == ""
+    for t in turns:
+        assert concept[t.start:t.end] == t.lines[0]
+
+
+def test_parse_structured_dialogue_turns_prologue_and_exact_spans(seg):
+    concept = "夏日午后的庭院，阳光斜照。\n莎莉猫：你好。\n哈利猫：好的。"
+    turns, prologue = seg.parse_structured_dialogue_turns(concept)
+    assert prologue == "夏日午后的庭院，阳光斜照。"
+    for t in turns:
+        assert concept[t.start:t.end] == t.lines[0]
+
+
+def test_parse_structured_dialogue_turns_merges_adjacent_same_speaker(seg):
+    turns, _ = seg.parse_structured_dialogue_turns(
+        "甲：第一句。\n甲：第二句。\n乙：回话。"
+    )
+    assert [(t.speaker, t.lines) for t in turns] == [
+        ("甲", ["第一句。", "第二句。"]), ("乙", ["回话。"]),
+    ]
+
+
+def test_parse_structured_dialogue_turns_rejects_directives(seg):
+    assert seg.parse_structured_dialogue_turns(
+        "镜头：缓慢推进\n音乐：轻快"
+    ) == (None, "")
+
+
+def test_parse_structured_dialogue_turns_rejects_mixed_tail(seg):
+    assert seg.parse_structured_dialogue_turns(
+        "甲：你好。\n乙：好的。\n突然，画外传来巨响。"
+    ) == (None, "")
+
+
+def test_parse_structured_dialogue_turns_single_line_not_confident(seg):
+    # One colon line is too weak a signal — falls back to the LLM.
+    assert seg.parse_structured_dialogue_turns("注意：这是一段说明。") == (None, "")
+    assert seg.parse_structured_dialogue_turns("") == (None, "")
+
+
+def test_parse_structured_dialogue_turns_english_speakers(seg):
+    turns, _ = seg.parse_structured_dialogue_turns(
+        "Sahli: hello there.\nMolly: hi back."
+    )
+    assert [t.speaker for t in turns] == ["Sahli", "Molly"]

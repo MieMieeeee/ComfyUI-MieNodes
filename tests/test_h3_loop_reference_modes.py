@@ -1952,10 +1952,10 @@ def test_build_reference_directive_ref2va_dialogue_injects_contracts(lp):
     assert "SPOKEN SCENE CONTRACT" in text
     assert "never in the middle of a spoken sentence" in text.lower()
     assert "GENRE CONTRACT" in text
-    # Three-beat structure was removed in favour of the strict
-    # 1-line -> 1-<d>-block invariant (see dialogue_segmenter module).
-    assert "THREE-BEAT structure" not in text
-    assert "ONE input dialogue line = ONE <d>" in text
+    # Dialogue-as-data: the node appends the verbatim blocks; the
+    # model writes none of them (see assemble_dialogue_line_blocks).
+    assert "Dialogue on this clip is LOCKED as data" in text
+    assert "ONE input dialogue line = ONE appended block" in text
     assert "[reference generation]" in text
 
 

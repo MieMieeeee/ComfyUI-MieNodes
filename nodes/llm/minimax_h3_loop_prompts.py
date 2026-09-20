@@ -1900,18 +1900,17 @@ def build_reference_directive(
                 "---\n"
                 "[GENRE CONTRACT = dialogue "
                 "(selected via the category widget).]\n"
-                "  (1) ONE input dialogue line = ONE <d>[Language]...</d> "
-                "block. Do NOT split a single line into setup + punchline "
-                "two <d> blocks. Do NOT paraphrase, summarise, or omit "
-                "any line. The number of <d> blocks in your output MUST "
-                "equal the number of dialogue lines provided for this "
-                "shot. Mismatches will be rejected and the shot retried.\n"
-                "  (2) Every dialogue description MUST use the verbatim "
-                "<d>[English] exact words</d> or <d>[Chinese] exact words</d> "
-                "tag with the speaker's original language untranslated. "
-                "The language tag value MUST be `[English]` or `[Chinese]` "
-                "(capitalised full word; NOT `[en]` / `[zh]` / `en:` / "
-                "`zh:` etc.).\n"
+                "  (1) Dialogue on this clip is LOCKED as data: the node "
+                "appends the verbatim <d>[Language]...</d> speech blocks "
+                "itself. You write NO <d> blocks and NO spoken words, "
+                "quoted or unquoted — any copy is stripped automatically. "
+                "ONE input dialogue line = ONE appended block; never "
+                "split, paraphrase, or reorder the lines in your "
+                "choreography.\n"
+                "  (2) The appended blocks keep the speaker's original "
+                "language untranslated with full-name tags "
+                "(`[English]` / `[Chinese]`). Refer to speech by speaker "
+                "and beat, never by restating the words.\n"
                 "---"
             )
         return "\n".join(lines)
@@ -2079,6 +2078,128 @@ def _detect_dialogue_language(line: str) -> str:
     return "[Chinese]"
 
 
+_THREE_SECTION_HEADERS = (
+    "integrated_multimodal_description:",
+    "overall_soundscape:",
+    "non_diegetic_music:",
+)
+_SIX_SECTION_HEADERS = (
+    "subject_definitions:",
+    "summary:",
+    "retention_analysis:",
+    "detailed_description:",
+    "overall_soundscape:",
+    "non_diegetic_music:",
+)
+
+
+def assemble_dialogue_line_blocks(
+    dialogue_lines: list[str],
+    *,
+    line_speakers: Optional[list[str]] = None,
+    turn_speaker: str = "",
+    speaker_id_map: Optional[dict] = None,
+    speaker_identities: Optional[dict] = None,
+    first_appearance_speakers: Optional[set] = None,
+) -> list[str]:
+    """Assemble the verbatim ``<d>[Language]...</d>`` blocks in code.
+
+    Dialogue-as-data: the spoken words are already exact strings by the
+    time stage 2 runs, so the blocks are built from those strings —
+    never re-written by a model. Each block carries the speaker name,
+    their fixed ``(S<n>)`` tag, and (at the speaker's first spoken
+    clip) their CAST identity line as the voice/appearance hint.
+    """
+    sid_map = dict(speaker_id_map or {})
+    identities = dict(speaker_identities or {})
+    spk_per_line = list(line_speakers or [])
+    if len(spk_per_line) != len(dialogue_lines):
+        spk_per_line = [(turn_speaker or "").strip()] * len(dialogue_lines)
+    firsts = set(first_appearance_speakers or ())
+    blocks: list[str] = []
+    for i, line in enumerate(dialogue_lines):
+        speaker = (spk_per_line[i] if i < len(spk_per_line) else "").strip()
+        sid = sid_map.get(speaker)
+        tag = f" ({sid})" if sid else ""
+        identity = ""
+        if speaker and speaker in firsts:
+            raw = str(identities.get(speaker) or "").strip()
+            if raw:
+                identity = f", {raw}"
+        blocks.append(
+            f"{speaker or (turn_speaker or '(speaker)')}{identity}{tag}: "
+            f"<d>{_detect_dialogue_language(line)} {line}</d>"
+        )
+    return blocks
+
+
+def scrub_dialogue_from_prompt_text(
+    text: str,
+    dialogue_lines: list[str],
+) -> tuple[str, list[str]]:
+    """Strip any dialogue the stage-2 model wrote despite the lock.
+
+    The stage-2 contract for a dialogue shot is "write visuals only";
+    the node appends the verbatim blocks itself. If the model leaked
+    anyway, this removes (a) every ``<d>...</d>`` block it emitted —
+    otherwise the 1 line = 1 block invariant would double-count — and
+    (b) bare verbatim copies of the locked lines, replaced by an
+    ellipsis so surrounding prose still reads. Returns
+    ``(scrubbed_text, notes)``; notes name what was removed.
+    """
+    notes: list[str] = []
+    out = text
+    model_blocks = re.findall(r"<d>\[[^\]]*\].*?</d>", out, re.DOTALL)
+    for block in model_blocks:
+        out = out.replace(block, "…", 1)
+        notes.append(f"removed model-written {block[:40]!r}")
+    for line in dialogue_lines:
+        if line and line in out:
+            out = out.replace(line, "…")
+            notes.append(f"replaced leaked line {line[:40]!r}")
+    return out, notes
+
+
+def append_dialogue_blocks_to_sections(
+    prompt_lines: list[str],
+    blocks: list[str],
+    *,
+    schema: str = SCHEMA_THREE,
+) -> list[str]:
+    """Append the assembled dialogue blocks inside the right section.
+
+    Three-section schema: end of ``integrated_multimodal_description``.
+    Six-section schema: end of ``detailed_description``. Returns a new
+    list; the input is not mutated.
+    """
+    if not blocks:
+        return list(prompt_lines)
+    headers = _SIX_SECTION_HEADERS if schema == SCHEMA_SIX else _THREE_SECTION_HEADERS
+    target = "detailed_description:" if schema == SCHEMA_SIX else "integrated_multimodal_description:"
+    header_set = {h for h in headers}
+    header_idx = None
+    for i, ln in enumerate(prompt_lines):
+        if ln.strip().lower() in header_set:
+            if ln.strip().lower() == target:
+                header_idx = i
+            elif header_idx is not None:
+                break
+    if header_idx is None:
+        # Unknown shape: append at the end rather than lose the lines.
+        return list(prompt_lines) + list(blocks)
+    # Walk to the last non-empty line of the section body so the
+    # blocks land after the prose, before the blank separator line.
+    insert_at = header_idx + 1
+    for i in range(header_idx + 1, len(prompt_lines)):
+        if prompt_lines[i].strip().lower() in header_set:
+            break
+        if prompt_lines[i].strip():
+            insert_at = i + 1
+    out = list(prompt_lines)
+    out[insert_at:insert_at] = blocks
+    return out
+
+
 def build_shot_user_text(
     *,
     concept: str,
@@ -2119,14 +2240,20 @@ def build_shot_user_text(
             sid = sid_map.get(speaker) if speaker else None
             if speaker and sid:
                 prefix = f"{speaker} ({sid}): "
-            dlg_lines.append(
-                f"  {i + 1}. {prefix}<d>{_detect_dialogue_language(line)} "
-                f"{line}</d>"
-            )
+            elif speaker:
+                prefix = f"{speaker}: "
+            dlg_lines.append(f"  {i + 1}. {prefix}{line}")
         dlg_block = (
-            f"Write exactly these {len(dialogue_lines)} line(s), verbatim "
-            "(language tag per line is chosen by CJK detection, do NOT "
-            "override it):\n" + "\n".join(dlg_lines)
+            f"Dialogue is LOCKED for this shot (turn {int(turn_index or 0)}, "
+            f"speaker {(turn_speaker or '(unknown)').strip()}). The node "
+            "appends the verbatim <d>[Language]...</d> speech blocks to "
+            "your reply AFTER you write it — you write NO dialogue: no "
+            "<d> blocks, no quoted or unquoted spoken words in any "
+            "section (any copy you write is stripped automatically). "
+            "Describe only the visual performance around the speech "
+            "(expressions, lip movement, gestures, blocking, camera) and "
+            "the ambient sound, choreographed to this context:\n"
+            + "\n".join(dlg_lines)
         )
         t_idx = int(turn_index or 0)
         t_spk = (turn_speaker or "(unknown)").strip()
@@ -2136,46 +2263,17 @@ def build_shot_user_text(
         t_spk = (turn_speaker or "(narrator)").strip()
     # Fixed speaker-ID directive: the map is derived deterministically
     # from the storyboard turn order, so every per-shot call sees the
-    # exact same (S<n>) assignment and cannot renumber voices.
-    if dialogue_lines and sid_map and spk_per_line:
-        clip_speakers: list[str] = []
-        for s in spk_per_line:
-            if s and s not in clip_speakers:
-                clip_speakers.append(s)
-        firsts = set(first_appearance_speakers or ())
-        firsts_in_clip = [s for s in clip_speakers if s in firsts]
-        per_line = ", ".join(
-            f"line {i + 1}={s} ({sid_map[s]})"
-            for i, s in enumerate(spk_per_line)
-            if s in sid_map
-        )
+    # exact same (S<n>) assignment and cannot renumber voices. On a
+    # dialogue shot the tags ride on the node-appended speech blocks,
+    # so the model is told to write NO tags in prose.
+    if dialogue_lines:
         speaker_id_directive = (
-            "Speaker ID map (FIXED for the whole production — use EXACTLY "
-            "these parenthesised tags, never renumber, never invent new "
-            f"IDs): {format_speaker_id_map_text(sid_map)}\n"
-            "This clip's lines: " + per_line + ".\n"
-            "Each speaker's FIRST <d> block in this clip must carry their "
-            "tag attached to their voice identity (gender + pitch + "
-            "timbre) OUTSIDE the <d> tag"
-            + (
-                "; this clip contains the FIRST spoken clip of the video "
-                "for [" + ", ".join(firsts_in_clip) + "] — state their "
-                "gender explicitly"
-                if firsts_in_clip
-                else ""
-            )
-            + ". Non-vocal on-screen characters get NO (S<n>) tag."
-        )
-    elif dialogue_lines and t_spk in sid_map:
-        speaker_id_directive = (
-            "Speaker ID map (FIXED for the whole production — use EXACTLY "
-            "these parenthesised tags, never renumber, never invent new "
-            f"IDs): {format_speaker_id_map_text(sid_map)}\n"
-            f"This clip's speaker '{t_spk}' MUST carry the tag "
-            f"({sid_map[t_spk]}) attached to their voice identity "
-            "(gender + pitch + timbre; state gender at the speaker's FIRST "
-            "spoken clip) OUTSIDE the <d> tag. Non-vocal on-screen "
-            "characters get NO (S<n>) tag."
+            "Speaker tags are owned by the node: each appended speech "
+            "block already carries its speaker's fixed (S<n>) tag and, "
+            "at the speaker's first spoken clip, their CAST identity "
+            f"({format_speaker_id_map_text(sid_map) or 'no map'}). "
+            "Write NO (S<n>) tag in your prose; non-vocal on-screen "
+            "characters get NO tag either."
         )
     else:
         speaker_id_directive = ""
@@ -2226,12 +2324,12 @@ def build_single_call_user_text(
     board = json.dumps(shots, ensure_ascii=False, indent=2)
     map_text = format_speaker_id_map_text(speaker_id_map or {})
     speaker_map_block = (
-        "Speaker ID map (FIXED for the whole production — every clip must "
-        "use EXACTLY these parenthesised tags, never renumber, never invent "
-        f"new IDs): {map_text}\n"
-        "Each speaker's FIRST spoken clip must state their voice identity "
-        "(gender + pitch + timbre) beside the tag; non-vocal on-screen "
-        "characters get NO (S<n>) tag.\n\n"
+        "Speaker ID map (FIXED for the whole production): "
+        f"{map_text}\n"
+        "The node attaches each speaker's (S<n>) tag — and, at their "
+        "first spoken clip, their CAST identity — to the appended speech "
+        "blocks. Write NO (S<n>) tag in your prose; non-vocal on-screen "
+        "characters get NO tag.\n\n"
         if map_text
         else ""
     )
@@ -2245,6 +2343,18 @@ def build_single_call_user_text(
         if (tempo_directive or "").strip()
         else ""
     )
+    has_dialogue = any(shot.get("_dialogue_lines") for shot in shots)
+    dialogue_lock_block = (
+        "Dialogue is LOCKED as data: the node appends the verbatim "
+        "<d>[Language]...</d> speech blocks to every clip that has a "
+        "_dialogue_lines field AFTER your reply. You write NO dialogue "
+        "anywhere: no <d> blocks, no quoted or unquoted spoken words "
+        "(any copy is stripped automatically). Describe only the visual "
+        "performance around the speech — expressions, lip movement, "
+        "gestures, blocking, camera — and the ambient sound.\n\n"
+        if has_dialogue
+        else ""
+    )
     return (
         f"Concept (whole production):\n{(concept or '').strip()}\n\n"
         f"Shared style/setting prefix (binding for every clip):\n{prefix_text.strip()}\n\n"
@@ -2254,6 +2364,7 @@ def build_single_call_user_text(
         f"{cast_sheet or '(none named)'}\n\n"
         f"{_genre_advice_block(category)}\n\n"
         f"{speaker_map_block}"
+        f"{dialogue_lock_block}"
         f"Storyboard entries (ALL {len(shots)} clips, in order):\n{board}\n\n"
         f"Average clip duration: {int(duration_seconds)} seconds (each entry's own "
         f"duration_seconds in the board above is binding). Output language: {language_name}.\n\n"

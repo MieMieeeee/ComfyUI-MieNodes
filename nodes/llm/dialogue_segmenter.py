@@ -233,6 +233,124 @@ class ExtractedLine:
     end: int
 
 
+# Speakers that look like ``speaker：line`` but are production
+# directives, not characters — a concept line like ``镜头：缓慢推进``
+# must never become a spoken turn.
+_NON_SPEAKER_PREFIXES = {
+    "镜头", "画面", "场景", "音乐", "字幕", "旁白", "画外音",
+    "备注", "注", "风格", "节奏", "时长", "camera", "scene", "shot",
+    "music", "subtitle", "note", "style", "pacing",
+}
+
+_STRUCTURED_LINE_RE = None  # compiled lazily below (module keeps no re dep)
+
+
+def _structured_line_re():
+    global _STRUCTURED_LINE_RE
+    if _STRUCTURED_LINE_RE is None:
+        import re as _re
+
+        _STRUCTURED_LINE_RE = _re.compile(
+            r"^(?P<speaker>[^\s：:]{1,16})\s*[：:]\s*(?P<text>\S.*)$"
+        )
+    return _STRUCTURED_LINE_RE
+
+
+def parse_structured_dialogue_turns(
+    concept: str,
+) -> tuple[Optional[list[DialogueTurn]], str]:
+    """Deterministically parse a canonical ``speaker：line`` concept.
+
+    The enhancer (and the skill's canonical format) emits one
+    ``莎莉猫：你好。`` line per utterance. When EVERY non-empty line
+    after an optional narration prologue matches that shape, the LLM
+    extractor adds nothing — this parser computes exact spans for free
+    and the extraction call is skipped.
+
+    Confidence guards (any miss returns ``(None, "")`` so the caller
+    falls back to the LLM extractor):
+      - at least 2 dialogue lines (a single colon line is too weak a
+        signal — prose like ``注意：以下…`` must not become speech);
+      - the speaker slot is 1-16 chars, no inner whitespace-only, and
+        not a production directive (镜头/画面/音乐/…);
+      - once the first dialogue line appears, no later non-empty line
+        may be non-dialogue (mixed tails go to the LLM).
+
+    Same-speaker consecutive lines merge into one turn (invariant 3).
+    Returns ``(turns, prologue_text)``; ``prologue_text`` is the joined
+    narration lines before the first dialogue line ("" when absent).
+    """
+    if not concept or not concept.strip():
+        return None, ""
+    pattern = _structured_line_re()
+    matches: list[tuple[int, int, str, str]] = []  # (line_start, line_end, speaker, text)
+    prologue_lines: list[str] = []
+    in_dialogue = False
+    offset = 0
+    for raw_line in concept.split("\n"):
+        stripped = raw_line.strip()
+        next_offset = offset + len(raw_line) + 1
+        if stripped:
+            m = pattern.match(stripped)
+            speaker = m.group("speaker").strip() if m else ""
+            plausible = (
+                bool(m)
+                and speaker.lower() not in _NON_SPEAKER_PREFIXES
+                and any(
+                    "\u4e00" <= c <= "\u9fff" or c.isalpha()
+                    for c in speaker
+                )
+                and m.group("text").strip()
+            )
+            if plausible:
+                if not in_dialogue:
+                    in_dialogue = True
+                # Locate the spoken text's exact span inside the raw
+                # line so concept[start:end] == text holds exactly.
+                colon_pos = raw_line.find("：") if "：" in raw_line else raw_line.find(":")
+                # Prefer the colon the regex matched on the stripped
+                # line: same character in the raw line (strip only
+                # removes surrounding whitespace).
+                text_start_in_line = colon_pos + 1
+                while (
+                    text_start_in_line < len(raw_line)
+                    and raw_line[text_start_in_line].isspace()
+                ):
+                    text_start_in_line += 1
+                text = m.group("text").rstrip()
+                text_end_in_line = text_start_in_line + len(text)
+                matches.append(
+                    (
+                        offset + text_start_in_line,
+                        offset + min(text_end_in_line, len(raw_line)),
+                        speaker,
+                        text,
+                    )
+                )
+            elif in_dialogue:
+                # Non-dialogue content after dialogue started -> not
+                # confidently structured.
+                return None, ""
+            else:
+                prologue_lines.append(stripped)
+        offset = next_offset
+    if len(matches) < 2:
+        return None, ""
+    turns: list[DialogueTurn] = []
+    for start, end, speaker, text in matches:
+        if turns and turns[-1].speaker == speaker and start >= turns[-1].end:
+            turns[-1].lines.append(text)
+            turns[-1].end = end
+            continue
+        turns.append(
+            DialogueTurn(speaker=speaker, lines=[text], start=start, end=end)
+        )
+    if not turns:
+        return None, ""
+    prologue = "\n".join(prologue_lines).strip()
+    return turns, prologue
+
+
 def turns_from_extraction(
     raw_turns: list[dict],
 ) -> list[DialogueTurn]:

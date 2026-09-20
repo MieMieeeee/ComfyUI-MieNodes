@@ -123,6 +123,8 @@ try:
         REFERENCE_MODES,
         REFERENCE_MODE_CODES,
         SCHEMA_SIX,
+        append_dialogue_blocks_to_sections,
+        assemble_dialogue_line_blocks,
         build_continuation_block,
         build_continuation_block_ref2v,
         build_prefix_user_text,
@@ -135,6 +137,7 @@ try:
         build_cast_block,
         build_cast_sheet_text,
         extract_spatial_layout,
+        scrub_dialogue_from_prompt_text,
         validate_spatial_layout_invariant,
         build_speaker_id_map,
         derive_seed,
@@ -144,7 +147,6 @@ try:
         length_to_seconds,
         log_pipeline,
         plan_to_json_string,
-        repair_speaker_ids_for_lines,
         SCHEMA_THREE,
         schema_for_mode,
         parse_reference_mode,
@@ -185,6 +187,7 @@ try:
         narrator_fallback_turn as _dlg_narrator_fallback_turn,
         pacing_report_text as _dlg_pacing_report_text,
         distribute_lines_to_scenes as _dlg_distribute_lines_to_scenes,
+        parse_structured_dialogue_turns as _dlg_parse_structured_dialogue_turns,
         scene_raw_seconds as _dlg_scene_raw_seconds,
         group_budgets_into_scenes as _dlg_group_budgets_into_scenes,
         relocate_extracted_lines as _dlg_relocate_extracted_lines,
@@ -198,6 +201,8 @@ except ImportError:
         REFERENCE_MODES,
         REFERENCE_MODE_CODES,
         SCHEMA_SIX,
+        append_dialogue_blocks_to_sections,
+        assemble_dialogue_line_blocks,
         build_continuation_block,
         build_continuation_block_ref2v,
         build_prefix_user_text,
@@ -210,6 +215,7 @@ except ImportError:
         build_cast_block,
         build_cast_sheet_text,
         extract_spatial_layout,
+        scrub_dialogue_from_prompt_text,
         validate_spatial_layout_invariant,
         build_speaker_id_map,
         derive_seed,
@@ -234,7 +240,6 @@ except ImportError:
         validate_manifest,
         validate_plan,
         validate_dialogue_invariantity,
-        repair_speaker_ids_for_lines,
         SIX_SECTION_FIELDS,
         _manifest_digest,
         _mode_note_for_prefix,
@@ -260,6 +265,7 @@ except ImportError:
         narrator_fallback_turn as _dlg_narrator_fallback_turn,
         pacing_report_text as _dlg_pacing_report_text,
         distribute_lines_to_scenes as _dlg_distribute_lines_to_scenes,
+        parse_structured_dialogue_turns as _dlg_parse_structured_dialogue_turns,
         scene_raw_seconds as _dlg_scene_raw_seconds,
         group_budgets_into_scenes as _dlg_group_budgets_into_scenes,
         relocate_extracted_lines as _dlg_relocate_extracted_lines,
@@ -314,6 +320,12 @@ LOOP_CATEGORY_ADVICE = {
 # Structured output: 0.4 keeps the three-section contract stable (the
 # h3 sibling uses the same value for stage-2 enhancement).
 _DEFAULT_TEMPERATURE = 0.4
+# Short-dialogue local-prefix path: skip the stage-1 prefix LLM call
+# when the board is dialogue-only, small, and has no reference images —
+# the prefix is cut deterministically from the concept's own
+# scene-setting text instead.
+_LOCAL_PREFIX_MAX_TURNS = 4
+_LOCAL_PREFIX_MAX_LINES = 8
 # One-stop pipeline: the storyboard stage now emits a full duration-
 # budgeted board and every stage writes richer prose, so the budget and
 # deadline both moved up from the old 8192 / 120s defaults.
@@ -328,11 +340,14 @@ _DEFAULT_MAX_TOKENS_CAPTION = 4096
 _MAX_REFERENCE_IMAGES = 9
 
 # Pacing labels for the auto-length estimator (Dialogue segmenter).
-# Each maps 1:1 to a Pacing preset; default "normal - 正常(推荐)".
+# Each maps 1:1 to a Pacing preset; default "normal - 正常(语速)(推荐)".
+# The label says 语速 up front: on dialogue boards this widget is SPEECH
+# tempo only — it never adds or removes cuts. Legacy stored values
+# ("fast - 快" etc.) still parse: the key lookup splits on " - ".
 _PACING_LABELS = (
-    "fast - 快",
-    "normal - 正常(推荐)",
-    "slow - 慢",
+    "fast - 快（语速）",
+    "normal - 正常（语速·推荐）",
+    "slow - 慢（语速）",
 )
 _PACING_LABEL_TO_KEY = {
     "fast": "fast",
@@ -1487,6 +1502,55 @@ class H3LoopPromptEnhancer:
     # ------------------------------------------------------------------ #
     # Stage 1: style-only prompt_prefix + CAST sheet
     # ------------------------------------------------------------------ #
+    def _derive_local_prefix(
+        self,
+        idea: str,
+        turns: list,
+        tempo_directive: str,
+    ) -> tuple[list[str], dict[str, str]]:
+        """Deterministic stage-1 replacement for short dialogue boards.
+
+        The prefix paragraph is the concept's own narration text (the
+        scene-setting prose outside the dialogue spans); when the
+        concept has none, a minimal whole-video invariant line stands
+        in. The CAST sheet maps every speaker to a consistency
+        instruction — thin by LLM-prefix standards, but the verbatim
+        speech blocks carry each speaker's name + fixed (S<n>) tag +
+        CAST identity on first appearance, which is where the voice
+        binding actually rides on this path.
+        """
+        spans = sorted((t.start, t.end) for t in turns if t.end > t.start)
+        pieces: list[str] = []
+        cursor = 0
+        for s, e in spans:
+            if s > cursor:
+                pieces.append(idea[cursor:s])
+            cursor = max(cursor, e)
+        if cursor < len(idea):
+            pieces.append(idea[cursor:])
+        narration = " ".join(
+            p.strip() for p in pieces if p and p.strip()
+        )
+        narration = " ".join(narration.split())
+        prefix_lines = [
+            narration
+            or (
+                "Consistent visual style, setting and characters across "
+                "every clip of this production."
+            )
+        ]
+        if (tempo_directive or "").strip():
+            prefix_lines.append(tempo_directive.strip())
+        cast = {
+            t.speaker: (
+                "speaking character; keep appearance and voice "
+                "consistent across all clips"
+            )
+            for t in turns
+            if t.speaker and t.speaker != "(narrator)"
+        }
+        return prefix_lines, cast
+
     def _synth_prefix(
         self,
         concept: str,
@@ -1942,10 +2006,11 @@ class H3LoopPromptEnhancer:
     turn_index: Optional[int] = None,
     turn_speaker: Optional[str] = None,
     speaker_id_map: Optional[dict] = None,
-    line_speakers: Optional[list[str]] = None,
-    first_appearance_speakers: Optional[set] = None,
-    spatial_layout: Optional[dict] = None,
-    tempo_directive: str = "",
+        line_speakers: Optional[list[str]] = None,
+        first_appearance_speakers: Optional[set] = None,
+        spatial_layout: Optional[dict] = None,
+        tempo_directive: str = "",
+        speaker_identities: Optional[dict] = None,
     ) -> list[str]:
         code = parse_reference_mode(mode)
         schema = schema_for_mode(mode)
@@ -2066,10 +2131,35 @@ class H3LoopPromptEnhancer:
                         "timestamp (clock/seconds notation like 'At 00:03.500', "
                         "'from 0.0s to 5.2s')."
                     )
-                # Dialogue invariant: when this shot was assigned dialogue lines
-                # by the upstream turn-grouper, verify the LLM preserved the
-                # 1:1 line -> <d> block contract. Mismatch -> retry.
+                # Dialogue-as-data: the spoken words never pass through
+                # the model on this path. Scrub anything it wrote
+                # despite the lock, then append the verbatim <d> blocks
+                # assembled from the locked lines. The invariant check
+                # below is a self-check — it cannot fire by
+                # construction, but stays as the hard gate.
                 if dialogue_lines:
+                    scrubbed_text, scrub_notes = scrub_dialogue_from_prompt_text(
+                        "\n".join(lines_out), list(dialogue_lines)
+                    )
+                    if scrub_notes:
+                        log_pipeline(
+                            f"shot {shot['id']}: scrubbed model-written "
+                            "dialogue ("
+                            + "; ".join(scrub_notes[:3])
+                            + ")"
+                        )
+                        lines_out = scrubbed_text.split("\n")
+                    blocks = assemble_dialogue_line_blocks(
+                        list(dialogue_lines),
+                        line_speakers=line_speakers,
+                        turn_speaker=turn_speaker or "",
+                        speaker_id_map=speaker_id_map,
+                        speaker_identities=speaker_identities,
+                        first_appearance_speakers=first_appearance_speakers,
+                    )
+                    lines_out = append_dialogue_blocks_to_sections(
+                        lines_out, blocks, schema=schema
+                    )
                     errors = validate_dialogue_invariantity(
                         [{"prompt": lines_out}],
                         [_DLG_DialogueTurn(speaker=turn_speaker or "", lines=list(dialogue_lines))],
@@ -2079,47 +2169,15 @@ class H3LoopPromptEnhancer:
                             "dialogue invariant violated for "
                             f"{shot['id']}: {errors[0]}"
                         )
-                # Speaker-ID contract: wrong tags inside the speaking
-                # paragraphs are rewritten deterministically to the
-                # speakers' mapped IDs (per <d> segment for packed
-                # multi-speaker scenes); a missing tag (or a genderless
-                # first appearance) retries once, then degrades to a
-                # logged warning — the verbatim <d> contract above is
-                # the hard guarantee, the ID tag is a voice-binding
-                # hint that survives imperfect compliance.
-                if dialogue_lines and speaker_id_map:
-                    spk_per_line = list(line_speakers or [])
-                    if len(spk_per_line) != len(dialogue_lines):
-                        spk_per_line = [
-                            (turn_speaker or "").strip()
-                        ] * len(dialogue_lines)
-                    if any(s in speaker_id_map for s in spk_per_line):
-                        before = "\n".join(lines_out)
-                        lines_out, sid_problems = (
-                            repair_speaker_ids_for_lines(
-                                lines_out,
-                                spk_per_line,
-                                speaker_id_map,
-                                first_appearance_speakers=(
-                                    first_appearance_speakers or set()
-                                ),
-                            )
-                        )
-                        if "\n".join(lines_out) != before:
-                            log_pipeline(
-                                f"shot {shot['id']}: repaired speaker "
-                                f"tags per line map"
-                            )
-                        if sid_problems:
-                            if attempt < _PARSE_RETRIES:
-                                raise ValueError(
-                                    "speaker-id contract for "
-                                    f"{shot['id']}: {sid_problems[0]}"
-                                )
-                            log_pipeline(
-                                f"shot {shot['id']}: accepted without full "
-                                f"speaker-ID contract ({sid_problems[0]})"
-                            )
+                # Speaker-ID contract: with dialogue-as-data the tags
+                # are code-owned — every appended block carries the
+                # speaker's name, fixed (S<n>) tag, and CAST identity
+                # (first appearance only) straight from the stage-0.5
+                # turn data. The old post-hoc repair (rewriting tags the
+                # model misplaced, retrying on genderless first
+                # appearances) targeted model-written speech and is
+                # obsolete on this path; the invariant check above is
+                # the hard gate.
                 return lines_out
             except ValueError as exc:
                 last_error = exc
@@ -2152,6 +2210,7 @@ class H3LoopPromptEnhancer:
         speaker_id_map: Optional[dict] = None,
         spatial_layout: Optional[dict] = None,
         tempo_directive: str = "",
+        speaker_identities: Optional[dict] = None,
     ) -> dict[str, list[str]]:
         user_text = build_single_call_user_text(
             concept=concept,
@@ -2207,6 +2266,49 @@ class H3LoopPromptEnhancer:
             if result is None:
                 last_error = ValueError("single-call reply missing clips")
                 continue
+            # Dialogue-as-data: scrub any model-written dialogue, then
+            # append the verbatim <d> blocks assembled from the locked
+            # per-shot lines. First-appearance tracking walks the board
+            # in order (single_call is t2va-only: three-section schema).
+            if dialogue_turns:
+                seen_firsts: set = set()
+                for shot in shots:
+                    shot_id = shot["id"]
+                    if shot_id not in result:
+                        continue
+                    dl = shot.get("_dialogue_lines") or []
+                    if not dl:
+                        continue
+                    speaker = str(shot.get("_turn_speaker") or "").strip()
+                    spk_per_line = list(shot.get("_line_speakers") or [])
+                    if len(spk_per_line) != len(dl):
+                        spk_per_line = [speaker] * len(dl)
+                    scrubbed, scrub_notes = scrub_dialogue_from_prompt_text(
+                        "\n".join(result[shot_id]), list(dl)
+                    )
+                    if scrub_notes:
+                        log_pipeline(
+                            f"single-call {shot_id}: scrubbed model-written "
+                            "dialogue (" + "; ".join(scrub_notes[:3]) + ")"
+                        )
+                    blocks = assemble_dialogue_line_blocks(
+                        list(dl),
+                        line_speakers=spk_per_line,
+                        turn_speaker=speaker,
+                        speaker_id_map=speaker_id_map,
+                        speaker_identities=speaker_identities,
+                        first_appearance_speakers=set(spk_per_line) - seen_firsts,
+                    )
+                    result[shot_id] = append_dialogue_blocks_to_sections(
+                        (
+                            scrubbed.split("\n")
+                            if scrub_notes
+                            else result[shot_id]
+                        ),
+                        blocks,
+                        schema=SCHEMA_THREE,
+                    )
+                    seen_firsts.update(spk_per_line)
             # Dialogue invariant post-validate (per-shot).
             sid_errors: list[str] = []
             if dialogue_turns:
@@ -2239,61 +2341,11 @@ class H3LoopPromptEnhancer:
                         f"single-call: {last_error}; retrying"
                     )
                     continue
-            # Speaker-ID contract post-validate + mechanical repair
-            # (same semantics as the per-shot path: wrong tags are
-            # rewritten deterministically per <d> segment — packed
-            # multi-speaker scenes included; missing tag / genderless
-            # first appearance retries once, then degrades to a
-            # logged warning).
-            if speaker_id_map:
-                seen_speakers: set = set()
-                for shot in shots:
-                    shot_id = shot["id"]
-                    if shot_id not in result:
-                        continue
-                    speaker = str(shot.get("_turn_speaker") or "").strip()
-                    if not speaker_id_map.get(speaker):
-                        continue
-                    dl = shot.get("_dialogue_lines") or []
-                    spk_per_line = list(shot.get("_line_speakers") or [])
-                    if len(spk_per_line) != len(dl):
-                        spk_per_line = [speaker] * len(dl)
-                    if not any(s in speaker_id_map for s in spk_per_line):
-                        continue
-                    before = "\n".join(result[shot_id])
-                    repaired, problems = repair_speaker_ids_for_lines(
-                        result[shot_id],
-                        spk_per_line,
-                        speaker_id_map,
-                        first_appearance_speakers={
-                            s for s in set(spk_per_line)
-                            if s not in seen_speakers
-                        },
-                    )
-                    if "\n".join(repaired) != before:
-                        log_pipeline(
-                            f"single-call {shot_id}: repaired speaker "
-                            f"tags per line map"
-                        )
-                    result[shot_id] = repaired
-                    if problems:
-                        sid_errors.extend(
-                            f"{shot_id}: {p}" for p in problems
-                        )
-                    seen_speakers.update(spk_per_line)
-                if sid_errors:
-                    if attempt < _PARSE_RETRIES:
-                        last_error = ValueError(
-                            f"speaker-id contract: {sid_errors[0]}"
-                        )
-                        log_pipeline(
-                            f"single-call: {last_error}; retrying"
-                        )
-                        continue
-                    log_pipeline(
-                        "single-call: accepted without full speaker-ID "
-                        f"contract ({sid_errors[0]})"
-                    )
+            # Speaker-ID contract: with dialogue-as-data the appended
+            # blocks carry name + fixed (S<n>) tag + CAST identity
+            # (first appearance) straight from the turn data — the old
+            # post-hoc repair loop targeted model-written speech and is
+            # obsolete here (see the per-shot path).
             return result
         raise RuntimeError(
             f"single-call reply unparseable after {1 + _PARSE_RETRIES} attempts: "
@@ -2500,15 +2552,27 @@ class H3LoopPromptEnhancer:
         else:
             reference_digest = _manifest_digest(manifest) if manifest else ""
             # ---- Dialogue-driven auto storyboard ---------------------- #
-            # 1) Extract dialogue turns via LLM span-anchored extractor.
-            #    Replaces the old regex parser + intent classifier pair
-            #    (see docs/H3_LOOP_CONCEPT_SPEC for the contract).
-            #    On extraction failure (LLM paraphrase, bad JSON,
-            #    malformed spans) we fall back to a single narrator
-            #    turn carrying the whole concept as one beat.
-            turns = self.extract_dialogue(idea)
-            if self._dialogue_extract_warnings:
-                warnings.extend(self._dialogue_extract_warnings)
+            # 1) Extract dialogue turns. Canonical ``speaker：line``
+            #    concepts (what the enhancer emits and the skill
+            #    teaches) parse deterministically — no LLM call, exact
+            #    spans by construction. Free-form prose falls back to
+            #    the LLM span-anchored extractor. On extraction failure
+            #    (LLM paraphrase, bad JSON, malformed spans) we fall
+            #    back to a single narrator turn carrying the whole
+            #    concept as one beat.
+            turns, _structured_prologue = (
+                _dlg_parse_structured_dialogue_turns(idea)
+            )
+            if turns:
+                self._dialogue_extract_warnings = []
+                log_pipeline(
+                    "structured dialogue parsed deterministically "
+                    f"({len(turns)} turn(s)) — LLM extractor skipped"
+                )
+            else:
+                turns = self.extract_dialogue(idea)
+                if self._dialogue_extract_warnings:
+                    warnings.extend(self._dialogue_extract_warnings)
             pacing_obj = _DLG_PACING_PRESETS[pacing_key]
             if not turns:
                 # Genuine {"turns": []} is narration. Exhausted extract
@@ -2517,6 +2581,25 @@ class H3LoopPromptEnhancer:
             is_narrator_fallback = (
                 len(turns) == 1 and turns[0].speaker == "(narrator)"
             )
+            # Dialogue board + category "none": the spoken-scene
+            # cinematography contract (shot/reverse-shot, no subtitles)
+            # is what the user expects once lines are extracted — the
+            # widget keeps its stored value, only the effective
+            # category used downstream upgrades.
+            if (
+                not is_narrator_fallback
+                and (category or "").split(" - ", 1)[0].strip().lower()
+                in ("", "none")
+            ):
+                category = next(
+                    c for c in LOOP_CATEGORIES if c.startswith("dialogue")
+                )
+                upgrade_note = (
+                    "category: none -> dialogue (spoken lines extracted; "
+                    "spoken-scene cinematography contract auto-enabled)"
+                )
+                warnings.append(upgrade_note)
+                log_pipeline(upgrade_note)
             budgets, pacing_report = _dlg_estimate_shot_budget(turns, pacing_obj)
             if is_narrator_fallback:
                 # Pacing math is TTS-speech math — for a narration board
@@ -2813,15 +2896,40 @@ class H3LoopPromptEnhancer:
         # prefix note AND every per-shot / single-call prompt below, so
         # the WRITING tempo matches the board's pacing end to end.
         tempo_directive = build_tempo_directive(pacing_key)
-        prefix_lines, cast = self._synth_prefix(
-            idea,
-            category,
-                output_language,
-                shots,
-                seed=seed,
-                manifest=manifest,
-                tempo_directive=tempo_directive,
+        # Short dialogue boards without reference images skip the
+        # stage-1 LLM call: the prefix is cut locally from the concept's
+        # own scene-setting text (the "simple task, faster result" path
+        # — fewer calls, contracts not relaxed: identity/voice binding
+        # rides the CAST lines the dialogue blocks carry).
+        dialogue_board = bool(turns) and not (
+            len(turns) == 1 and turns[0].speaker == "(narrator)"
+        )
+        if (
+            dialogue_board
+            and not manifest
+            and len(turns) <= _LOCAL_PREFIX_MAX_TURNS
+            and sum(t.line_count for t in turns) <= _LOCAL_PREFIX_MAX_LINES
+        ):
+            prefix_lines, cast = self._derive_local_prefix(
+                idea, turns, tempo_directive
             )
+            local_prefix_note = (
+                f"prefix derived locally (short dialogue board: "
+                f"{len(turns)} turn(s), no reference images) — stage-1 "
+                "LLM call skipped"
+            )
+            warnings.append(local_prefix_note)
+            log_pipeline(local_prefix_note)
+        else:
+            prefix_lines, cast = self._synth_prefix(
+                idea,
+                category,
+                    output_language,
+                    shots,
+                    seed=seed,
+                    manifest=manifest,
+                    tempo_directive=tempo_directive,
+                )
         prefix_text = "\n".join(prefix_lines)
 
         # ---- Stage 1.5: extract stable spatial layout (deterministic) -- #
@@ -2865,6 +2973,7 @@ class H3LoopPromptEnhancer:
                 speaker_id_map=speaker_id_map,
                 spatial_layout=spatial_layout,
                 tempo_directive=tempo_directive,
+                speaker_identities=cast,
             )
             for entry in entries:
                 entry["prompt"] = all_shot_prompts.get(entry["id"], [])
@@ -2908,6 +3017,7 @@ class H3LoopPromptEnhancer:
                     speaker_id_map=speaker_id_map,
                     line_speakers=entry["source"].get("_line_speakers"),
                     tempo_directive=tempo_directive,
+                    speaker_identities=cast,
                     first_appearance_speakers={
                         s for s in set(
                             entry["source"].get("_line_speakers")
@@ -2993,6 +3103,23 @@ class H3LoopPromptEnhancer:
         # outputs are gone — plan_json carries the machine-readable plan
         # and summary carries everything a human needs at a glance.
         summary_lines = ["MiniMax H3 Loop Plan summary"]
+        # Board-kind marker (also the node's third output pin): a
+        # dialogue run and a narrator-fallback run look identical in
+        # the UI otherwise — this line says which promise applies.
+        if dialogue_board:
+            summary_lines.append(
+                "Board: dialogue — "
+                f"{len(turns)} turn(s), "
+                f"{sum(t.line_count for t in turns)} spoken line(s) "
+                "locked verbatim"
+            )
+        else:
+            fallback_reason = (
+                "extraction failed — spoken lines NOT preserved"
+                if self._dialogue_extract_warnings
+                else "no spoken lines detected"
+            )
+            summary_lines.append(f"Board: narration ({fallback_reason})")
         if enhance_header is not None:
             # Auto-enhance ran: surface the rewrite after the fact so
             # the intermediate stays inspectable without the two-node
@@ -3032,6 +3159,7 @@ class H3LoopPromptEnhancer:
         return {
             "plan_json": plan_json,
             "summary": summary,
+            "board_kind": "dialogue" if dialogue_board else "narration",
         }
 
 
@@ -3159,7 +3287,9 @@ class MiniMaxH3LoopPromptGenerator:
                     {
                         "default": _PACING_LABELS[1],
                         "tooltip": (
-                            "TEMPO of the whole board.\n\n"
+                            "SPEECH TEMPO (语速) of the whole board — "
+                            "this is the faster/slower rhythm control, "
+                            "NOT a cut-density control.\n\n"
                             "On a dialogue board with scene_count=0, "
                             "pacing does NOT change how many scenes you "
                             "get (auto packing is always fewest cuts "
@@ -3194,13 +3324,16 @@ class MiniMaxH3LoopPromptGenerator:
                     {
                         "default": LOOP_CATEGORIES[0],
                         "tooltip": (
-                            "none: no extra cinematography contract. "
-                            "dialogue: spoken-scene framing, "
-                            "shot/reverse-shot, no on-screen subtitles — "
-                            "pick this for talking-heads / 对白 boards. "
+                            "none: no extra cinematography contract — "
+                            "but once dialogue lines are extracted the "
+                            "board is automatically treated as dialogue "
+                            "(spoken-scene framing, shot/reverse-shot, "
+                            "no on-screen subtitles). "
+                            "dialogue: the same contract, always. "
                             "action: motion-blur / camera-shake advice. "
-                            "The dialogue verbatim contract still runs "
-                            "whenever lines are extracted, even on none."
+                            "The dialogue verbatim contract runs "
+                            "whenever lines are extracted, on any "
+                            "category."
                         ),
                     },
                 ),
@@ -3320,10 +3453,11 @@ class MiniMaxH3LoopPromptGenerator:
             },
         }
 
-    RETURN_TYPES = ("STRING", "STRING")
+    RETURN_TYPES = ("STRING", "STRING", "STRING")
     RETURN_NAMES = (
         "plan_json",
         "summary",
+        "board_kind",
     )
     FUNCTION = "generate"
     CATEGORY = MY_CATEGORY
@@ -3379,6 +3513,7 @@ class MiniMaxH3LoopPromptGenerator:
         return (
             out["plan_json"],
             out["summary"],
+            out["board_kind"],
         )
 
     def is_changed(

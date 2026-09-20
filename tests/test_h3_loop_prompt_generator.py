@@ -284,13 +284,15 @@ def test_node_generate_returns_five_outputs(lg):
         seed_mode="same_across_scenes - 全场同seed",
         timeout=60,
     )
-    assert len(result) == 2
-    plan_json, summary = result
+    assert len(result) == 3
+    plan_json, summary, board_kind = result
     plan = json.loads(plan_json)
     # Strict upstream contract: only id / prompt / length / seed per shot.
     # seed_mode passed explicitly: same_across_scenes keeps one shared seed.
     assert [s["seed"] for s in plan["shots"]] == ["42", "42"]  # unified
     assert "MiniMax H3 Loop Plan summary" in summary
+    assert "Board: narration (no spoken lines detected)" in summary
+    assert board_kind == "narration"
     assert "LLM requests: 5" in summary  # extract+storyboard+prefix+2 shots
     assert "Tokens (estimated)" in summary
     assert "reference=t2va" in summary
@@ -825,13 +827,9 @@ def test_generate_and_is_changed_carry_the_toggle(lg):
 # scene_count drives the dialogue board (line count no longer dictates it)
 # --------------------------------------------------------------------------- #
 _DIALOGUE_CONCEPT = "莎莉猫：你好。\n哈利猫：为什么。\n莎莉猫：再见。"
-# Exact character spans into _DIALOGUE_CONCEPT (span-anchored extractor
-# reply the node verifies mechanically).
-_DIALOGUE_EXTRACT_REPLY = json.dumps({"turns": [
-    {"speaker": "莎莉猫", "lines": [{"text": "你好。", "start": 4, "end": 7}]},
-    {"speaker": "哈利猫", "lines": [{"text": "为什么。", "start": 12, "end": 16}]},
-    {"speaker": "莎莉猫", "lines": [{"text": "再见。", "start": 21, "end": 24}]},
-]}, ensure_ascii=False)
+# Canonical 角色：台词 concepts parse deterministically (no extractor
+# call) and short boards cut their prefix locally, so dialogue tests
+# only script the per-shot visual replies.
 _PREFIX_REPLY_DIALOGUE = (
     "Hand-drawn 2D animation, warm cafe interior at dusk.\n"
     "\n"
@@ -842,12 +840,13 @@ _PREFIX_REPLY_DIALOGUE = (
 
 
 def _dlg_clip_reply(i, speaker, sid, gender, line):
-    """A three-section reply that satisfies BOTH the verbatim <d>
-    invariant and the speaker-ID contract (tag + voice identity)."""
+    """A three-section reply under the dialogue-as-data contract: the
+    model writes the visual performance ONLY — no <d> blocks, no spoken
+    words. The node appends the verbatim speech blocks afterwards."""
     return (
         "integrated_multimodal_description:\n"
-        f"[Shot 1] Clip {i}: {speaker}, {gender} ({sid}), says: "
-        f"<d>[Chinese] {line}</d>\n"
+        f"[Shot 1] Clip {i}: {speaker}, {gender}, leans in and speaks "
+        "with animated expression; ears twitch between words.\n"
         "\n"
         "overall_soundscape:\n"
         "Warm cafe ambience.\n"
@@ -860,10 +859,10 @@ def _dlg_clip_reply(i, speaker, sid, gender, line):
 def test_scene_count_repacks_dialogue_to_exact_target(lg):
     """scene_count=3 on a board whose natural packing is ONE scene: the
     per-line budgets are regrouped into EXACTLY 3 scenes; every spoken
-    line lands verbatim in its own scene."""
+    line lands verbatim in its own scene. The canonical 角色：台词
+    concept parses deterministically (no extractor call) and the short
+    board cuts its prefix locally — the only LLM calls are the shots."""
     conn = ScriptedConnector([
-        _DIALOGUE_EXTRACT_REPLY,
-        _PREFIX_REPLY_DIALOGUE,
         _dlg_clip_reply(1, "莎莉猫", "S1", "adult female", "你好。"),
         _dlg_clip_reply(2, "哈利猫", "S2", "adult male", "为什么。"),
         _dlg_clip_reply(3, "莎莉猫", "S1", "adult female", "再见。"),
@@ -876,9 +875,16 @@ def test_scene_count_repacks_dialogue_to_exact_target(lg):
     plan = json.loads(out["plan_json"])
     assert len(plan["shots"]) == 3
     assert [s["id"] for s in plan["shots"]] == ["scene_01", "scene_02", "scene_03"]
-    # extract + prefix + 3 shots — the storyboard LLM is bypassed on the
-    # dialogue-driven path.
-    assert len(conn.calls) == 5
+    # structured parse + local prefix (3 turns, no reference images):
+    # exactly the 3 shot calls — no extractor, no prefix LLM call.
+    assert len(conn.calls) == 3
+    assert out["board_kind"] == "dialogue"
+    assert "Board: dialogue" in out["summary"]
+    assert "prefix derived locally" in out["summary"]
+    assert "LLM requests: 3" in out["summary"]
+    # The shot user texts carry the dialogue lock, not a copy order.
+    for call in conn.calls:
+        assert "Dialogue is LOCKED" in call[1]["content"]
     for shot, line in zip(plan["shots"], ["你好。", "为什么。", "再见。"]):
         prompt_text = "\n".join(shot["prompt"])
         assert f"<d>[Chinese] {line}</d>" in prompt_text
@@ -889,8 +895,6 @@ def test_scene_count_above_line_count_gets_reaction_cuts(lg):
     2 mechanical SILENT reaction cuts at speaker-change boundaries —
     the user's count is reached without touching a single spoken line."""
     conn = ScriptedConnector([
-        _DIALOGUE_EXTRACT_REPLY,
-        _PREFIX_REPLY_DIALOGUE,
         _dlg_clip_reply(1, "莎莉猫", "S1", "adult female", "你好。"),
         _clip_reply(1),  # reaction cut (silent)
         _dlg_clip_reply(2, "哈利猫", "S2", "adult male", "为什么。"),
@@ -914,7 +918,7 @@ def test_scene_count_above_line_count_gets_reaction_cuts(lg):
     assert "<d>" not in texts[1] and "<d>" not in texts[3]
     # The reaction shots' per-shot user templates carried the mechanical
     # storyboard entry + the no-dialogue notice.
-    reaction_user_texts = [conn.calls[i][1]["content"] for i in (3, 5)]
+    reaction_user_texts = [conn.calls[i][1]["content"] for i in (1, 3)]
     for txt in reaction_user_texts:
         assert "Reaction cut" in txt
         assert "no dialogue lines assigned to this turn" in txt
@@ -930,19 +934,13 @@ def test_scene_count_one_squeezes_all_lines_time_only(lg):
     long_a = "这是一句相当长的台词，" * 10
     long_b = "另外一段同样很长的回答，" * 10
     concept = f"甲猫：{long_a}\n乙猫：{long_b}"
-    # "甲猫：" is 3 chars, then long_a, a newline, "乙猫：" (3 chars), long_b.
-    a_start = 3
-    b_start = 3 + len(long_a) + 1 + 3
-    extract = json.dumps({"turns": [
-        {"speaker": "甲猫", "lines": [
-            {"text": long_a, "start": a_start, "end": a_start + len(long_a)}]},
-        {"speaker": "乙猫", "lines": [
-            {"text": long_b, "start": b_start, "end": b_start + len(long_b)}]},
-    ]}, ensure_ascii=False)
     one_scene_reply = (
+        # Deliberate contract violation: the model quoted both lines
+        # inline despite the lock — the scrubber must remove them and
+        # the node appends the verbatim blocks itself.
         "integrated_multimodal_description:\n"
-        f"[Shot 1] 甲猫, adult male (S1), says: <d>[Chinese] {long_a}</d> "
-        f"乙猫, adult female (S2), replies: <d>[Chinese] {long_b}</d>\n"
+        f"[Shot 1] 甲猫 says: <d>[Chinese] {long_a}</d> "
+        f"乙猫 replies: <d>[Chinese] {long_b}</d>\n"
         "\n"
         "overall_soundscape:\n"
         "Quiet room tone.\n"
@@ -951,14 +949,6 @@ def test_scene_count_one_squeezes_all_lines_time_only(lg):
         "No non-diegetic music.\n"
     )
     conn = ScriptedConnector([
-        extract,
-        (
-            "Hand-drawn 2D animation, quiet room interior.\n"
-            "\n"
-            "CAST:\n"
-            "甲猫: grey tabby cat.\n"
-            "乙猫: white longhair cat.\n"
-        ),
         one_scene_reply,
     ])
     out = lg.H3LoopPromptEnhancer(conn)(
@@ -972,6 +962,8 @@ def test_scene_count_one_squeezes_all_lines_time_only(lg):
     prompt_text = "\n".join(plan["shots"][0]["prompt"])
     assert f"<d>[Chinese] {long_a}</d>" in prompt_text
     assert f"<d>[Chinese] {long_b}</d>" in prompt_text
+    assert prompt_text.count("<d>[Chinese]") == 2  # scrubbed, not doubled
+    assert "…" in prompt_text  # the leaked copies became ellipses
     # The clip is clamped at the H3 window and the summary says so.
     assert plan["shots"][0]["length"] <= 14 * 24 + 17
     assert "per-shot cap" in out["summary"]
@@ -1096,14 +1088,8 @@ def test_pacing_derives_scene_count_and_injects_tempo(lg):
     template. An explicit scene_count is honoured exactly via even
     speech distribution."""
     CONCEPT = "甲猫：你好。\n乙猫：好的。\n甲猫：再见。\n乙猫：下次见。"
-    # Line k starts at 7*k; the spoken text begins 3 chars into each line.
-    EXTRACT = json.dumps({"turns": [
-        {"speaker": "甲猫", "lines": [{"text": "你好。", "start": 3, "end": 6}]},
-        {"speaker": "乙猫", "lines": [{"text": "好的。", "start": 10, "end": 13}]},
-        {"speaker": "甲猫", "lines": [{"text": "再见。", "start": 17, "end": 20}]},
-        {"speaker": "乙猫", "lines": [{"text": "下次见。", "start": 24, "end": 28}]},
-    ]}, ensure_ascii=False)
-    PREFIX = "Hand-drawn 2D animation.\n\nCAST:\n甲猫: grey tabby.\n乙猫: white cat.\n"
+    # Canonical 角色：台词 concept: parsed deterministically (no
+    # extractor call), short board -> local prefix (no prefix call).
 
     LINES = [("甲猫", "S1", "adult male", "你好。"),
              ("乙猫", "S2", "adult female", "好的。"),
@@ -1111,11 +1097,14 @@ def test_pacing_derives_scene_count_and_injects_tempo(lg):
              ("乙猫", "S2", "adult female", "下次见。")]
 
     def run(pacing, scenes, scene_count=0):
-        # scenes = list of line-index groups matching the expected split
-        replies = [EXTRACT, PREFIX]
+        # scenes = list of line-index groups matching the expected split.
+        # The canonical 角色：台词 concept parses deterministically and
+        # the short board cuts its prefix locally, so the ONLY scripted
+        # replies are the per-shot visual replies.
+        replies = []
         for group in scenes:
             body = " ".join(
-                f"{spk}, {g} ({sid}), says: <d>[Chinese] {line}</d>"
+                f"{spk}, {g} performs the line with gesture"
                 for spk, sid, g, line in (LINES[i] for i in group)
             )
             replies.append(
@@ -1162,3 +1151,89 @@ def test_pacing_derives_scene_count_and_injects_tempo(lg):
     assert len(plan_2["shots"]) == 2
     for s in plan_2["shots"]:
         assert s["length"] == 243  # 20s / 2 = 10s -> 243f on the grid
+
+
+# --------------------------------------------------------------------------- #
+# Dialogue-as-data / structured-parse / local-prefix / category upgrade
+# --------------------------------------------------------------------------- #
+def test_long_dialogue_board_uses_llm_prefix_and_cast_identity(lg):
+    """Above the local-prefix threshold (5+ turns) the stage-1 prefix
+    LLM call still runs, and the code-assembled speech blocks carry
+    each speaker's CAST identity on their FIRST spoken clip only."""
+    concept = "\n".join([
+        "莎莉猫：第一句。", "哈利猫：第二句。", "莎莉猫：第三句。",
+        "哈利猫：第四句。", "莎莉猫：第五句。", "哈利猫：第六句。",
+    ])
+    replies = [_PREFIX_REPLY_DIALOGUE]
+    for i in range(1, 7):
+        replies.append(
+            "integrated_multimodal_description:\n"
+            f"[Shot 1] Clip {i}: the speaker performs the line with "
+            "lively gesture; ears twitch.\n"
+            "\noverall_soundscape:\nWarm cafe ambience.\n\n"
+            "non_diegetic_music:\nNo non-diegetic music.\n"
+        )
+    conn = ScriptedConnector(replies)
+    out = lg.H3LoopPromptEnhancer(conn)(
+        user_input=concept,
+        scene_count=6,
+        seed=1,
+    )
+    plan = json.loads(out["plan_json"])
+    assert len(plan["shots"]) == 6
+    # prefix + 6 shots; the extractor never ran (canonical concept).
+    assert len(conn.calls) == 7
+    assert "prefix derived locally" not in out["summary"]
+    texts = ["\n".join(s["prompt"]) for s in plan["shots"]]
+    # First appearances carry the CAST identity + fixed tag...
+    assert (
+        "莎莉猫, cream-blonde fluffy cat, navy bow tie. (S1): "
+        "<d>[Chinese] 第一句。</d>" in texts[0]
+    )
+    assert (
+        "哈利猫, orange tabby cat, brown blazer. (S2): "
+        "<d>[Chinese] 第二句。</d>" in texts[1]
+    )
+    # ...later clips of the same speaker are bare name + tag.
+    assert "莎莉猫 (S1): <d>[Chinese] 第三句。</d>" in texts[2]
+    assert "哈利猫 (S2): <d>[Chinese] 第四句。</d>" in texts[3]
+
+
+def test_single_call_dialogue_appends_blocks(lg):
+    """single_call mode: the one LLM reply writes visuals only; the
+    node assembles + appends the verbatim blocks per shot."""
+    conn = ScriptedConnector([_single_call_reply(1)])
+    out = lg.H3LoopPromptEnhancer(conn)(
+        user_input="甲猫：你好。\n乙猫：好的。",
+        generation_mode="single_call - 单次调用(快/省)",
+        seed=1,
+    )
+    # Local prefix (2 turns, no references) + single call = 1 request.
+    assert len(conn.calls) == 1
+    assert "Dialogue is LOCKED as data" in conn.calls[0][1]["content"]
+    plan = json.loads(out["plan_json"])
+    prompt_text = "\n".join(plan["shots"][0]["prompt"])
+    assert "<d>[Chinese] 你好。</d>" in prompt_text
+    assert "<d>[Chinese] 好的。</d>" in prompt_text
+    assert prompt_text.count("<d>[") == 2
+    assert out["board_kind"] == "dialogue"
+
+
+def test_dialogue_board_upgrades_none_category(lg):
+    """Lines extracted + category none (or blank): the spoken-scene
+    cinematography contract is applied automatically and surfaced in
+    the summary; the stored widget value is untouched."""
+    conn = ScriptedConnector([
+        _dlg_clip_reply(1, "莎莉猫", "S1", "adult female", "你好。"),
+        _dlg_clip_reply(2, "哈利猫", "S2", "adult male", "为什么。"),
+        _dlg_clip_reply(3, "莎莉猫", "S1", "adult female", "再见。"),
+    ])
+    out = lg.H3LoopPromptEnhancer(conn)(
+        user_input=_DIALOGUE_CONCEPT,
+        scene_count=3,
+        category="none - 不指定",
+        seed=1,
+    )
+    assert "category: none -> dialogue" in out["summary"]
+    for call in conn.calls:
+        assert "spoken-scene cinematography" in call[1]["content"]
