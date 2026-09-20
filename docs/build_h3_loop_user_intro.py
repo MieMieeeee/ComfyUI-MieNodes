@@ -67,7 +67,11 @@ def measure(lines, font_size, line_height=LINE_HEIGHT):
 
 
 def labeled_shape(shape, box_id, x, y, w, h, lines, *, bg, font_size=18):
-    """Box + bound text whose *element* sits at the visual center."""
+    """Box + text pre-positioned at the visual center.
+
+    Text is grouped with the box but NOT bound via ``containerId``, so
+    opening the file in Excalidraw cannot reflow it to the top.
+    """
     text_id = f"{box_id}__t"
     gid = f"g_{box_id}"
     roundness = {"type": 3} if shape != "diamond" else None
@@ -83,7 +87,7 @@ def labeled_shape(shape, box_id, x, y, w, h, lines, *, bg, font_size=18):
         roundness=roundness,
         backgroundColor=bg,
         groupIds=[gid],
-        boundElements=[{"id": text_id, "type": "text"}],
+        boundElements=None,
     )
     full = "\n".join(lines)
     txt = base(
@@ -101,7 +105,7 @@ def labeled_shape(shape, box_id, x, y, w, h, lines, *, bg, font_size=18):
         baseline=font_size,
         lineHeight=LINE_HEIGHT,
         autoResize=False,
-        containerId=box_id,
+        containerId=None,
     )
     return [rect, txt]
 
@@ -188,18 +192,18 @@ elements.extend(labeled_shape(
 ))
 elements.extend(labeled_shape(
     "rectangle", "in_img", 460, 148, 340, 120,
-    ["可选：参考图", "用来锁外貌和服装", "没有图就纯文生"],
-    bg="#fff3bf", font_size=18,
+    ["可选：参考图", "锁外貌和服装，没有图就纯文生", "全片人物和每一场都会用"],
+    bg="#fff3bf", font_size=17,
 ))
 elements.extend(labeled_shape(
     "rectangle", "in_knob", 840, 148, 340, 120,
-    ["节奏 / 时长 / 场数", "不填则按语速自动估时长", "场数 0 = 尽量少切"],
-    bg="#fff3bf", font_size=18,
+    ["节奏 / 时长 / 场数", "节奏只管语速，不增减场数", "场数 0 = 少切；填了就是你要的"],
+    bg="#fff3bf", font_size=17,
 ))
 elements.extend(labeled_shape(
     "rectangle", "in_polish", 1220, 148, 300, 120,
-    ["可选：先润色", "把随手草稿写成规范概念", "已写规范则可关掉"],
-    bg="#fff3bf", font_size=17,
+    ["可选：先润色", "抽词前把草稿写成规范概念", "已是「角色：台词」可关掉"],
+    bg="#fff3bf", font_size=16,
 ))
 
 # ── Band 2: listen ──
@@ -211,8 +215,8 @@ elements.append(text_only(
 # extract 80–400,  diamond 480–740,  pack/story 840–1220
 elements.extend(labeled_shape(
     "rectangle", "extract", 80, 360, 320, 140,
-    ["找出每一句台词", "原文照抄，不改写、不翻译", "听不清会警告，改走旁白"],
-    bg="#a5d8ff", font_size=17,
+    ["找出每一句台词", "「角色：台词」至少两句则直接切开", "自由散文才去听；听不清改走旁白"],
+    bg="#a5d8ff", font_size=16,
 ))
 elements.extend(labeled_shape(
     "diamond", "has_dlg", 480, 350, 260, 160,
@@ -221,8 +225,8 @@ elements.extend(labeled_shape(
 ))
 elements.extend(labeled_shape(
     "rectangle", "pack", 840, 340, 380, 120,
-    ["有 → 按说话打包成场", "不改词 · 14 秒内尽量少切", "说话人换了也不强行切开"],
-    bg="#b2f2bb", font_size=17,
+    ["有 → 按说话打包成场", "未填场数：14 秒内少切，换人不强切", "填了场数：均分；多的是静默反应"],
+    bg="#b2f2bb", font_size=16,
 ))
 elements.extend(labeled_shape(
     "rectangle", "story", 840, 500, 380, 120,
@@ -237,35 +241,38 @@ elements.append(arrow("e2", [(740, 400), (840, 400)]))
 # diamond right 740, lower → story left 840, story mid y=560
 # diamond bottom is 510, so drop to y=560 in the 740–840 gap first
 elements.append(arrow("e3", [(740, 480), (740, 560), (840, 560)]))
-elements.append(text_only("yes", 760, 368, 60, 22, "有", font_size=16, color="#2f9e44"))
-elements.append(text_only("no", 760, 528, 70, 22, "没有", font_size=16, color="#1971c2"))
+# "有/没有" sit in the 740–800 gap, left of the x=800 merge corridor.
+elements.append(text_only("yes", 748, 368, 48, 22, "有", font_size=16, color="#2f9e44"))
+elements.append(text_only("no", 742, 532, 52, 22, "没有", font_size=16, color="#1971c2"))
 
 # ── Band 3: plan ──
+# Title sits above write/plan (x>=420) so the drop into style at x=230
+# does not run through the heading.
 elements.append(text_only(
-    "sec3", 80, 656, 560, 28,
+    "sec3", 420, 656, 500, 28,
     "3. 写成一条连续的分场计划",
     font_size=22, color="#1971c2",
 ))
 # y=696–826. gaps of 40: 80–380, 420–760, 800–1120, 1160–1480
 elements.extend(labeled_shape(
     "rectangle", "style", 80, 696, 300, 130,
-    ["定全片风格与人物", "画风、光线、环境", "谁是谁，声音保持同一人"],
-    bg="#b2f2bb", font_size=17,
+    ["定全片风格与人物", "画风、光线、谁是谁", "短对白无图：从场景设定直接裁"],
+    bg="#b2f2bb", font_size=16,
 ))
 elements.extend(labeled_shape(
     "rectangle", "write", 420, 696, 340, 130,
-    ["逐场写画面与声音", "下一场接着上一场的动作", "台词锁死在这一场里"],
-    bg="#b2f2bb", font_size=17,
+    ["逐场写画面与声音", "模型只填镜头、表情、声音", "台词用原文拼上，抄的会拿掉"],
+    bg="#b2f2bb", font_size=16,
 ))
 elements.extend(labeled_shape(
     "rectangle", "plan", 800, 696, 320, 130,
     ["得到分场计划", "每场几秒、说什么、怎么接", "交给 H3 循环逐段生成"],
-    bg="#96f2d7", font_size=17,
+    bg="#96f2d7", font_size=16,
 ))
 elements.extend(labeled_shape(
     "ellipse", "out", 1160, 696, 320, 130,
-    ["成片", "多场接成一条连续视频"],
-    bg="#ffd43b", font_size=20,
+    ["成片", "多场接成一条连续视频", "本局是对白还是旁白一目了然"],
+    bg="#ffd43b", font_size=16,
 ))
 
 elements.append(arrow("m3", [(380, 761), (420, 761)]))
@@ -300,9 +307,10 @@ elements.append(arrow("img_to_style", [
     (40, 761),    # down the margin, left of extract/style
     (80, 761),    # into style left
 ], dash=True, color="#868e96"))
+# Below the y=292 dashed run, above extract (y=360), in the left margin.
 elements.append(text_only(
-    "img_note", 52, 272, 160, 22,
-    "有图则锁进人物",
+    "img_note", 48, 318, 220, 22,
+    "有图则锁进全片和每一场",
     font_size=14, color="#868e96",
 ))
 
@@ -336,3 +344,50 @@ doc = {
 
 OUT.write_text(json.dumps(doc, ensure_ascii=False, indent=2), encoding="utf-8")
 print(f"wrote {OUT}  elements={len(elements)}")
+
+
+def _verify(doc):
+    shapes = [
+        e for e in doc["elements"]
+        if e["type"] in ("rectangle", "diamond", "ellipse")
+    ]
+    free_text = [
+        e for e in doc["elements"]
+        if e["type"] == "text"
+        and not str(e["id"]).endswith("__t")
+        and e["id"] not in ("title", "subtitle")
+    ]
+    arrows = [e for e in doc["elements"] if e["type"] == "arrow"]
+    hits = []
+
+    def segs(a):
+        x, y = a["x"], a["y"]
+        pts = [[x + px, y + py] for px, py in a["points"]]
+        return list(zip(pts, pts[1:]))
+
+    def aabb(e):
+        return e["x"], e["y"], e["x"] + e["width"], e["y"] + e["height"]
+
+    def inside(x, y, box, eps=1.0):
+        l, t, r, b = box
+        return l + eps < x < r - eps and t + eps < y < b - eps
+
+    obstacles = shapes + free_text
+    for a in arrows:
+        for p1, p2 in segs(a):
+            for i in range(1, 24):
+                k = i / 24
+                x = p1[0] + (p2[0] - p1[0]) * k
+                y = p1[1] + (p2[1] - p1[1]) * k
+                for s in obstacles:
+                    if inside(x, y, aabb(s)):
+                        hits.append((a["id"], s["id"]))
+                        break
+    unique = sorted(set(hits))
+    if unique:
+        print("VERIFY HITS", unique)
+    else:
+        print("VERIFY ok: no arrow through shapes or free text")
+
+
+_verify(doc)
