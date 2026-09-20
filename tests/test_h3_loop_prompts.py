@@ -400,6 +400,27 @@ def test_shot_user_text_carries_pacing(lp):
     assert "overlap" in user
 
 
+def test_shot_user_text_omits_private_shot_keys(lp):
+    user = lp.build_shot_user_text(
+        concept="courtyard summer",
+        prefix_text="Same woman, white blouse.",
+        category="none - 不指定",
+        continuation_block="CONTINUATION RULES",
+        shot={
+            "id": "scene_01",
+            "description": "she stirs",
+            "_dialogue_lines": ["secret line"],
+            "_turn_speaker": "Sahli",
+        },
+        clip_index=1,
+        clip_count=1,
+        duration_seconds=10.13,
+        language_name="English",
+    )
+    assert "_dialogue_lines" not in user
+    assert "secret line" not in user
+
+
 def test_shot_system_prompt_has_anti_slow_motion(lp):
     system = lp.shot_system_prompt()
     assert "Anti-slow-motion rule" in system

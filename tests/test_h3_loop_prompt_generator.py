@@ -1030,6 +1030,55 @@ def test_extract_dialogue_all_empty_falls_back_to_narrator(lg):
     enh = lg.H3LoopPromptEnhancer(conn, temperature=0.0, timeout=30)
     assert enh.extract_dialogue("甲猫：你好。") == []
     assert len(conn.calls) == 3
+    assert enh._dialogue_extract_warnings
+
+
+def test_extract_dialogue_strips_think_block(lg):
+    concept = "甲猫：你好。\n乙猫：好的。"
+    extract = json.dumps({"turns": [
+        {"speaker": "甲猫", "lines": [{"text": "你好。", "start": 3, "end": 6}]},
+        {"speaker": "乙猫", "lines": [{"text": "好的。", "start": 10, "end": 13}]},
+    ]}, ensure_ascii=False)
+    wrapped = "<think>{\"turns\": []}</think>\n" + extract
+    conn = ScriptedConnector([wrapped])
+    enh = lg.H3LoopPromptEnhancer(conn, temperature=0.0, timeout=30)
+    turns = enh.extract_dialogue(concept)
+    assert [t.speaker for t in turns] == ["甲猫", "乙猫"]
+    assert enh._dialogue_extract_warnings == []
+
+
+def test_extract_dialogue_relocates_wrong_offsets(lg):
+    """The few-shot off-by-one span is recovered from the unique text."""
+    concept = '公猫问："给够钱就行？" 母猫答："给够钱。"'
+    extract = json.dumps({"turns": [
+        {"speaker": "公猫", "lines": [{"text": "给够钱就行？", "start": 4, "end": 10}]},
+        {"speaker": "母猫", "lines": [{"text": "给够钱。", "start": 18, "end": 22}]},
+    ]}, ensure_ascii=False)
+    conn = ScriptedConnector([extract])
+    enh = lg.H3LoopPromptEnhancer(conn, temperature=0.0, timeout=30)
+    turns = enh.extract_dialogue(concept)
+    assert [t.speaker for t in turns] == ["公猫", "母猫"]
+    assert turns[0].lines == ["给够钱就行？"]
+    assert turns[0].start == 5
+    assert turns[0].end == 11
+
+
+def test_extract_dialogue_failure_warns_in_summary(lg):
+    conn = ScriptedConnector([
+        "not-json",
+        "still-not-json",
+        "nope",
+        _auto_storyboard_reply(1),
+        PREFIX_REPLY,
+        _clip_reply(1),
+    ])
+    out = lg.H3LoopPromptEnhancer(conn, temperature=0.0, timeout=30)(
+        user_input="甲猫：你好。",
+        scene_count=1,
+        seed=1,
+    )
+    assert "spoken lines will NOT be preserved" in out["summary"]
+    assert len(conn.calls) == 6
 
 
 # --------------------------------------------------------------------------- #

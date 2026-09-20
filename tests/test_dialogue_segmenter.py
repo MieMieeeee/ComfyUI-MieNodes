@@ -161,6 +161,30 @@ def test_validate_extracted_lines_allows_trimming(seg):
     assert seg.validate_extracted_lines(concept, lines) == []
 
 
+def test_relocate_extracted_lines_fixes_unique_miss(seg):
+    """Off-by-one / byte-offset spans that still uniquely locate the
+    spoken words are rewritten so the strict validator can pass."""
+    concept = '公猫问："给够钱就行？" 母猫答："给够钱。"'
+    # The few-shot bug: [4:10] slices '"给够钱就行' instead of the
+    # utterance at [5:11].
+    lines = [seg.ExtractedLine(text="给够钱就行？", start=4, end=10)]
+    relocated, notes = seg.relocate_extracted_lines(concept, lines)
+    assert notes
+    assert relocated[0].start == 5
+    assert relocated[0].end == 11
+    assert seg.validate_extracted_lines(concept, relocated) == []
+
+
+def test_relocate_extracted_lines_leaves_ambiguous_line(seg):
+    concept = "甲：你好。乙：你好。"
+    # Two unused hits for 你好。; original span is wrong.
+    lines = [seg.ExtractedLine(text="你好。", start=0, end=2)]
+    relocated, notes = seg.relocate_extracted_lines(concept, lines)
+    assert notes == []
+    assert relocated[0].start == 0
+    assert seg.validate_extracted_lines(concept, relocated)
+
+
 # --------------------------------------------------------------------------- #
 # estimate_shot_budget
 # --------------------------------------------------------------------------- #
@@ -227,6 +251,23 @@ def test_scale_to_total_increases_budget_when_target_larger(seg):
     scaled = seg.scale_shots_to_total(budgets, 60.0)
     after = sum(b.rounded_length_frames for b in scaled)
     assert after > before
+
+
+def test_scale_to_total_stays_inside_band_when_target_is_tight(seg):
+    """Four short lines scaled toward 15s cannot go below 4s each, so
+    the sum may overshoot; every shot stays in [4, 14]."""
+    turns = [
+        seg.DialogueTurn(speaker=f"S{i}", lines=["你好。"])
+        for i in range(4)
+    ]
+    budgets, _ = seg.estimate_shot_budget(turns, seg.PACING_PRESETS["normal"])
+    scaled = seg.scale_shots_to_total(budgets, 15.0)
+    assert len(scaled) == 4
+    for b in scaled:
+        assert 4.0 <= b.duration_sec <= 14.0
+    # Residual is walked onto the 17-frame grid among shots with room;
+    # with every shot already at the 4s floor the sum cannot hit 15s.
+    assert sum(b.duration_sec for b in scaled) >= 15.0 - 1.0
 
 
 # --------------------------------------------------------------------------- #

@@ -83,6 +83,11 @@ def test_lowercase_language_tag_is_not_counted(lp):
     assert lp.count_d_blocks(text) == 0
 
 
+def test_case_insensitive_full_name_language_tag_is_counted(lp):
+    text = "<d>[chinese] 你好。</d> <d>[ENGLISH] hi.</d>"
+    assert lp.extract_d_blocks(text) == ["你好。", "hi."]
+
+
 # --------------------------------------------------------------------------- #
 # validate_dialogue_invariantity
 # --------------------------------------------------------------------------- #

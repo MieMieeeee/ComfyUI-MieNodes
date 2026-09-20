@@ -1379,15 +1379,21 @@ _POSITION_CANON_EN = {
 }
 _POSITION_CANON_ZH = {
     "画面左侧": "left of frame",
+    "画面左边": "left of frame",
     "画面左": "left of frame",
     "画左": "left of frame",
     "左侧": "left of frame",
+    "左边": "left of frame",
     "画面右侧": "right of frame",
+    "画面右边": "right of frame",
     "画面右": "right of frame",
     "画右": "right of frame",
     "右侧": "right of frame",
+    "右边": "right of frame",
     "画面中央": "center of frame",
+    "画面中间": "center of frame",
     "中央": "center of frame",
+    "中间": "center of frame",
 }
 
 
@@ -1445,7 +1451,7 @@ _SPATIAL_PATTERNS: tuple[tuple[re.Pattern, int], ...] = (
         r"(?P<name>[A-Za-z][A-Za-z0-9_-]{0,31}|[一-龥]{2,6})"
         r"\s*[\(（]\s*"
         r"(?:坐|站|seated|sits?|stands?|stays?)?"
-        r"\s*(?:at\s+)?(?P<pos>[^)）]+?\s*(?:左侧|右侧|中央|left\s+of\s+frame|right\s+of\s+frame|left\s+slot|right\s+slot))",
+        r"\s*(?:at\s+)?(?P<pos>[^)）]+?\s*(?:左侧|右侧|中央|左边|右边|中间|left\s+of\s+frame|right\s+of\s+frame|left\s+slot|right\s+slot))",
         re.IGNORECASE,
     ), 3),
     # English named character: "Sahli sits at left of frame" /
@@ -1460,7 +1466,7 @@ _SPATIAL_PATTERNS: tuple[tuple[re.Pattern, int], ...] = (
     (re.compile(
         r"(?P<name>[一-龥]{2,6}(?:猫|狗|人|男孩|女孩|男人|女人|角色|主体))"
         r"\s*坐?\s*"
-        r"(?P<pos>[^。\n,，;；]+?\s*(?:画面?(?:左侧|右侧|中央)|画左|画右))",
+        r"(?P<pos>[^。\n,，;；]+?\s*(?:画面?(?:左侧|右侧|中央|左边|右边|中间)|画左|画右))",
     ), 5),
 )
 
@@ -2181,7 +2187,11 @@ def build_shot_user_text(
         continuation_block=continuation_block.strip(),
         clip_index=int(clip_index),
         clip_count=int(clip_count),
-        shot_json=json.dumps(shot, ensure_ascii=False, indent=2),
+        shot_json=json.dumps(
+            {k: v for k, v in shot.items() if not str(k).startswith("_")},
+            ensure_ascii=False,
+            indent=2,
+        ),
         duration_seconds=seconds,
         pacing_directive=pacing_directive(
             seconds,
@@ -2335,7 +2345,8 @@ def log_pipeline(message: str) -> None:
 #   (2) the text inside the block is verbatim (whitespace-stripped)
 #       equal to the input line.
 _D_TAG_RE = re.compile(
-    r"<d>\[(?:Chinese|English)\](?P<text>.*?)</d>", re.DOTALL
+    r"<d>\[(?:Chinese|English)\](?P<text>.*?)</d>",
+    re.DOTALL | re.IGNORECASE,
 )
 
 

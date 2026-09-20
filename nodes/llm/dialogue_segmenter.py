@@ -288,17 +288,21 @@ def validate_extraction(
     concept: str,
     turns: list[DialogueTurn],
 ) -> list[str]:
-    """Mechanical verifier — runs ONLY string ops.
+    """Turn-level substring check kept for older tests.
+
+    Production extraction does **not** call this. ``DialogueTurn``
+    only stores the spoken strings, not per-line spans, so this
+    helper searches with ``str.find`` and can match the wrong
+    occurrence of a repeated line. The live path is
+    ``relocate_extracted_lines`` + ``validate_extracted_lines``
+    (exact ``concept[start:end] == text`` per line).
 
     Returns a list of error strings (empty = pass). The checks:
-      1. Every line's span ``concept[start:end]`` equals the line text
-         (whitespace-stripped both ends). A mismatch means the LLM
-         rewrote / translated / invented the line.
+      1. Every line appears as a substring of ``concept`` inside
+         the turn's outer span (or anywhere, as a fallback).
       2. Spans are non-negative and in-bounds of ``len(concept)``.
       3. Spans are non-overlapping and ordered (start monotonically
          non-decreasing across turns).
-      4. Lines within a turn are ordered and contiguous (no gaps
-         inside a turn).
     """
     errs: list[str] = []
     if concept is None:
@@ -361,6 +365,67 @@ def validate_extraction(
     return errs
 
 
+def relocate_extracted_lines(
+    concept: str,
+    raw_lines: list[ExtractedLine],
+) -> tuple[list[ExtractedLine], list[str]]:
+    """Rewrite spans that miss the source text when the spoken words
+    occur exactly once in the unused remainder of ``concept``.
+
+    The LLM extractor is asked for character offsets, but models
+    commonly return byte offsets, off-by-one indices, or copy a
+    wrong few-shot span. If ``concept[start:end]`` does not equal
+    ``text`` yet ``text`` has exactly one unused occurrence, we
+    accept that occurrence. Ambiguous (0 or 2+ unused hits) lines
+    are left unchanged so ``validate_extracted_lines`` can fail them.
+
+    Returns ``(relocated_lines, notes)``. Notes are human-readable
+    relocation records for the preflight/summary, not errors.
+    """
+    if concept is None:
+        return list(raw_lines or []), ["concept is None"]
+    notes: list[str] = []
+    occupied: list[tuple[int, int]] = []
+    out: list[ExtractedLine] = []
+
+    def _overlaps(start: int, end: int) -> bool:
+        return any(start < pe and end > ps for ps, pe in occupied)
+
+    for i, line in enumerate(raw_lines or []):
+        text = line.text
+        s, e = line.start, line.end
+        L = len(concept)
+        in_bounds = 0 <= s <= e <= L
+        slice_ok = in_bounds and concept[s:e].strip() == text.strip()
+        if slice_ok and not _overlaps(s, e):
+            occupied.append((s, e))
+            out.append(line)
+            continue
+        hits: list[tuple[int, int]] = []
+        cursor = 0
+        while text:
+            pos = concept.find(text, cursor)
+            if pos < 0:
+                break
+            endp = pos + len(text)
+            if not _overlaps(pos, endp):
+                hits.append((pos, endp))
+            cursor = pos + 1
+        if len(hits) == 1:
+            ns, ne = hits[0]
+            notes.append(
+                f"line {i}: relocated span [{s}, {e}) -> [{ns}, {ne}) "
+                f"for {text!r}"
+            )
+            occupied.append((ns, ne))
+            out.append(ExtractedLine(text=text, start=ns, end=ne))
+        else:
+            out.append(line)
+            if slice_ok:
+                occupied.append((s, e))
+    return out, notes
+
+
 def validate_extracted_lines(
     concept: str,
     raw_lines: list[ExtractedLine],
@@ -368,7 +433,8 @@ def validate_extracted_lines(
     """Stricter variant: validates each ``ExtractedLine`` against
     ``concept[start:end] == text`` exactly. Use this when the LLM
     returned per-line spans and we want the strictest possible
-    guarantee.
+    guarantee. Call ``relocate_extracted_lines`` first if the
+    extractor is allowed to miss the offset but not the text.
     """
     errs: list[str] = []
     if concept is None:
@@ -698,13 +764,15 @@ def scale_shots_to_total(
     min_shot_sec: float = 4.0,
     max_shot_sec: float = 14.0,
 ) -> list[ShotBudget]:
-    """Scale each budget's length proportionally so the sum hits target.
+    """Scale each budget's length proportionally toward ``target_total_sec``.
 
-    Each shot's length is allowed to shrink *or* grow, but is clamped
-    to the H3 single-generation band ``[min_shot_sec, max_shot_sec]``.
-    The previous ``raw_seconds + 0.5`` floor (which only ever inflated
-    budgets and silently swallowed explicit ``total_duration_seconds``
-    overrides) is gone — when the user says 15s, we actually shrink to 15s.
+    Each shot is clamped to the H3 single-generation band
+    ``[min_shot_sec, max_shot_sec]``. After the proportional pass,
+    leftover frames are walked onto the 17-frame grid and given to
+    (or taken from) shots that still have headroom, so the sum gets
+    as close to the target as the band allows. When every shot is
+    already at a clamp, the sum cannot hit the target — that is
+    inherent, not a silent floor.
     """
     if target_total_sec <= 0 or not budgets:
         return budgets
@@ -713,18 +781,46 @@ def scale_shots_to_total(
     if current_total <= 0:
         return budgets
     factor = target_total_sec / current_total
-    out: list[ShotBudget] = []
+    try:
+        min_len = secs_to_len(min_shot_sec)
+        max_len = min(secs_to_len(max_shot_sec), MAX_LENGTH_FRAMES)
+    except ValueError:
+        min_len = MIN_LENGTH_FRAMES
+        max_len = MAX_LENGTH_FRAMES
+    lengths: list[int] = []
     for b in budgets:
-        target_sec = b.duration_sec * factor
-        # Clamp to [min, max] band; do NOT use raw_seconds as a floor
-        # (that's the bug that defeated explicit duration overrides).
-        target_sec = max(min_shot_sec, min(max_shot_sec, target_sec))
+        target_sec = max(min_shot_sec, min(max_shot_sec, b.duration_sec * factor))
         try:
             new_length = secs_to_len(target_sec)
         except ValueError:
             new_length = b.rounded_length_frames
-        new_length = min(new_length, MAX_LENGTH_FRAMES)
-        new_duration = len_to_secs(new_length)
+        lengths.append(max(min_len, min(max_len, new_length)))
+    desired_frames = max(min_len, int(round(float(target_total_sec) * fps)))
+    current_frames = sum(lengths)
+    for _ in range(len(lengths) * 32):
+        diff = desired_frames - current_frames
+        if abs(diff) < GRID_STEP:
+            break
+        if diff > 0:
+            idx = max(
+                range(len(lengths)),
+                key=lambda i: (max_len - lengths[i]) if lengths[i] < max_len else -1,
+            )
+            if lengths[idx] + GRID_STEP > max_len:
+                break
+            lengths[idx] += GRID_STEP
+            current_frames += GRID_STEP
+        else:
+            idx = max(
+                range(len(lengths)),
+                key=lambda i: (lengths[i] - min_len) if lengths[i] > min_len else -1,
+            )
+            if lengths[idx] - GRID_STEP < min_len:
+                break
+            lengths[idx] -= GRID_STEP
+            current_frames -= GRID_STEP
+    out: list[ShotBudget] = []
+    for b, new_length in zip(budgets, lengths):
         out.append(
             ShotBudget(
                 shot_index=b.shot_index,
@@ -738,7 +834,7 @@ def scale_shots_to_total(
                 head_tail_pad_sec=b.head_tail_pad_sec,
                 raw_seconds=b.raw_seconds,
                 rounded_length_frames=new_length,
-                duration_sec=new_duration,
+                duration_sec=len_to_secs(new_length),
             )
         )
     return out

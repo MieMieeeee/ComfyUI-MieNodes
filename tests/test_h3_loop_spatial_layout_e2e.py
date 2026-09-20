@@ -155,6 +155,17 @@ def test_extract_spatial_layout_chinese_left_right(lp):
     assert "莎莉猫" in out and out["莎莉猫"] == "right of frame"
 
 
+def test_extract_spatial_layout_zuobian_youbian(lp):
+    """Skill-recommended 左边/右边 parenthetical form."""
+    concept = (
+        "橙色虎斑公猫 = 哈利猫（坐画面左边）\n"
+        "白色长毛母猫 = 莎莉猫（坐画面右边）"
+    )
+    out = lp.extract_spatial_layout(concept)
+    assert out.get("哈利猫") == "left of frame"
+    assert out.get("莎莉猫") == "right of frame"
+
+
 def test_extract_spatial_layout_english_left_of_frame(lp):
     """The Subject N stays at left of frame pattern."""
     concept = (

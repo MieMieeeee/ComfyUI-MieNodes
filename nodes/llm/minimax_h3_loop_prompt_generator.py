@@ -7,13 +7,15 @@ ethanfel/ComfyUI-MiniMaxH3-Context-Loop's ``MiniMaxH3ChainPlanModern``
 string overrides the editor's stored plan.
 
 Pipeline:
-  * Stage 0.5 (LLM) — split ``user_input`` into a storyboard. The LLM
-    decides the per-shot ``duration_seconds`` so the whole board lands
-    close to the ``total_duration_seconds`` budget (each scene later
-    rounds UP onto the H3 17k+5 grid, so "close" is exact enough).
-    ``scene_count`` pins the number of scenes; 0 lets the pipeline
-    decide (dialogue boards: natural turn packing; narration boards:
-    the LLM).
+  * Stage 0.5 — span-anchored dialogue extraction (one LLM call, then
+    mechanical ``concept[start:end] == text`` checks). Dialogue boards
+    build the storyboard deterministically: auto ``scene_count`` packs
+    consecutive turns into the fewest scenes that fit the 14 s H3
+    window; an explicit count spreads speech evenly and may insert
+    silent reaction cuts. Extraction failure is a summary warning and
+    falls back to the legacy LLM storyboard (narration path). Pure
+    narration (extractor returned ``{"turns": []}``) also uses the
+    LLM storyboard. ``pacing`` owns speech tempo, not auto cut count.
   * Stage 0 (deterministic) — grid-convert durations, derive per-shot
     seeds, sanity-check the summed duration against the budget.
   * Stage 1 (LLM) — derive the shared ``prompt_prefix``.
@@ -24,8 +26,7 @@ Pipeline:
     scene (best continuity); ``single_call`` = one call for the whole
     board (cheaper/faster).
   * Stage 3 (deterministic) — assemble + validate the strict plan shape
-    (``shots``/``prompt_prefix`` only) and emit the
-    preflight report + markdown preview.
+    (``shots``/``prompt_prefix`` only) and emit the summary.
 
 Failures raise ``RuntimeError`` — a partial plan must never reach the
 Production Plan node.
@@ -181,13 +182,12 @@ try:
         DialogueTurn as _DLG_DialogueTurn,
         ExtractedLine as _DLG_ExtractedLine,
         estimate_shot_budget as _dlg_estimate_shot_budget,
-        scenes_for_duration as _dlg_scenes_for_duration,
         narrator_fallback_turn as _dlg_narrator_fallback_turn,
         pacing_report_text as _dlg_pacing_report_text,
         distribute_lines_to_scenes as _dlg_distribute_lines_to_scenes,
-        scale_shots_to_total as _dlg_scale_shots_to_total,
         scene_raw_seconds as _dlg_scene_raw_seconds,
         group_budgets_into_scenes as _dlg_group_budgets_into_scenes,
+        relocate_extracted_lines as _dlg_relocate_extracted_lines,
         validate_extracted_lines as _dlg_validate_extracted_lines,
     )
 except ImportError:
@@ -257,13 +257,12 @@ except ImportError:
         DialogueTurn as _DLG_DialogueTurn,
         ExtractedLine as _DLG_ExtractedLine,
         estimate_shot_budget as _dlg_estimate_shot_budget,
-        scenes_for_duration as _dlg_scenes_for_duration,
         narrator_fallback_turn as _dlg_narrator_fallback_turn,
         pacing_report_text as _dlg_pacing_report_text,
         distribute_lines_to_scenes as _dlg_distribute_lines_to_scenes,
-        scale_shots_to_total as _dlg_scale_shots_to_total,
         scene_raw_seconds as _dlg_scene_raw_seconds,
         group_budgets_into_scenes as _dlg_group_budgets_into_scenes,
+        relocate_extracted_lines as _dlg_relocate_extracted_lines,
         validate_extracted_lines as _dlg_validate_extracted_lines,
     )
 
@@ -310,16 +309,6 @@ LOOP_CATEGORY_ADVICE = {
         "beats 4-6 seconds per clip"
     ),
 }
-
-
-def _loop_category_advice(category: str) -> str:
-    """Localised category-advice lookup for the loop widget.
-
-    Splits the ``"<code> - <label>"`` display string the same way
-    ``h3_prompts.parse_category`` does, then returns the loop-specific
-    advice (or "" for ``none`` / unknown codes)."""
-    code = (category or "").split(" - ", 1)[0].strip()
-    return LOOP_CATEGORY_ADVICE.get(code, "")
 
 
 # Structured output: 0.4 keeps the three-section contract stable (the
@@ -1123,6 +1112,10 @@ class H3LoopPromptEnhancer:
         # returns plain strings, no usage payload): ~4 ASCII chars per
         # token, ~1 token per CJK char.
         self._usage: list[dict] = []
+        # Filled by extract_dialogue: empty for genuine narration
+        # ({"turns": []}); non-empty when JSON/span failed and the
+        # caller is about to fall back to the narrator storyboard.
+        self._dialogue_extract_warnings: list[str] = []
 
     def _record_usage(self, stage: str, messages, reply: str) -> None:
         prompt_text = "\n".join(
@@ -1302,8 +1295,9 @@ class H3LoopPromptEnhancer:
         "  1. ``text`` MUST be the spoken words only. Do NOT include "
         "the lead verb (said, 问, 说), the surrounding quotes, or "
         "any punctuation outside the utterance.\n"
-        "  2. concept[start:end] MUST equal ``text`` byte-for-byte "
-        "(whitespace outside the utterance is OK to drop on either "
+        "  2. concept[start:end] MUST equal ``text`` exactly "
+        "(Python character slicing, not UTF-8 byte offsets; "
+        "whitespace outside the utterance is OK to drop on either "
         "side; if you trim, adjust start/end accordingly). The node "
         "verifies mechanically — paraphrases, translations, or "
         "summaries will be rejected.\n"
@@ -1311,9 +1305,11 @@ class H3LoopPromptEnhancer:
         "Same-speaker lines that are adjacent in the source merge "
         "into one turn (sequential lines from the same speaker are "
         "ONE turn with multiple lines, not multiple turns).\n"
-        "  4. ``start`` and ``end`` are character offsets into the "
-        "original concept string. ``start >= 0``; ``end <= "
-        "len(concept)``; ``start < end`` for every line.\n"
+        "  4. ``start`` and ``end`` are 0-based character offsets "
+        "into the original concept string (len(concept) counts "
+        "Unicode characters, so CJK glyphs are 1 each). "
+        "``start >= 0``; ``end <= len(concept)``; ``start < end`` "
+        "for every line.\n"
         "  5. Spans are NON-OVERLAPPING and ORDERED. Do not reuse "
         "characters. A line that ends at offset 200 cannot be "
         "followed by another starting at offset 150.\n"
@@ -1323,10 +1319,12 @@ class H3LoopPromptEnhancer:
         "narration, leave it out. The user can always re-run.\n"
         "  8. Output ONLY the JSON object on a single line, no "
         "markdown, no commentary.\n"
-        "Example:\n"
-        '  concept = \'公猫问：\\"给够钱就行？\\" 母猫答：\\"给够钱。\\"\'\n'
+        "Example (offsets are character indices; quotes are NOT "
+        "part of the spoken span):\n"
+        "  concept = 公猫问：\"给够钱就行？\" 母猫答：\"给够钱。\"\n"
+        "  len(concept) = 23\n"
         "  reply:\n"
-        '  {"turns":[{"speaker":"公猫","lines":[{"text":"给够钱就行？","start":4,"end":10}]},'
+        '  {"turns":[{"speaker":"公猫","lines":[{"text":"给够钱就行？","start":5,"end":11}]},'
         '{"speaker":"母猫","lines":[{"text":"给够钱。","start":18,"end":22}]}]}'
     )
 
@@ -1335,11 +1333,16 @@ class H3LoopPromptEnhancer:
         ``DialogueTurn`` with verified spans.
 
         The LLM is the ONLY source of the speaker/line judgements;
-        the node mechanically verifies the spans. If verification
-        fails (LLM paraphrased, hallucinated, or produced malformed
-        JSON), an empty list is returned and the caller falls back
-        to the narrator path.
+        the node mechanically verifies the spans. Wrong offsets that
+        still uniquely locate the spoken text are rewritten in place.
+        JSON / span failures retry with a corrective turn. A genuine
+        ``{"turns": []}`` is narration (empty list, no warning).
+        Exhausted retries also return an empty list, but fill
+        ``self._dialogue_extract_warnings`` so the caller can surface
+        the fallback instead of pretending there was no dialogue.
+        ``InterruptProcessingException`` is re-raised.
         """
+        self._dialogue_extract_warnings = []
         if not concept or not concept.strip():
             return []
         user_prompt = (
@@ -1347,22 +1350,11 @@ class H3LoopPromptEnhancer:
             f"{concept}"
             "\n---END CONCEPT---\n\n"
             "Reply with ONLY the single-line JSON object. Length of "
-            f"concept: {len(concept)} characters."
+            f"concept: {len(concept)} characters. Offsets are 0-based "
+            "Python character indices (CJK glyph = 1)."
         )
         messages = self._messages(self._EXTRACT_SYSTEM, user_prompt)
-        # Token budget: the JSON reply itself is small (~100 chars per
-        # turn), but reasoning models spend hidden thinking tokens
-        # BEFORE the content — 4096 intermittently came back empty-
-        # content on MiniMax-M3 (finish by cap, content never emitted).
-        # 16384 matches every other stage's budget and leaves the
-        # thinking plenty of room.
-        #
-        # Empty-reply retries: some providers occasionally answer HTTP
-        # 200 with EMPTY content (observed with MiniMax-M3). An empty
-        # string is a transport flake, NOT a "no dialogue" verdict —
-        # only a parsed ``{"turns": []}`` counts as narration. Retry
-        # up to 3 times before degrading to the narrator path.
-        raw = ""
+        last_reason = "no reply"
         for attempt in range(1, 4):
             try:
                 raw = self._invoke(
@@ -1372,111 +1364,125 @@ class H3LoopPromptEnhancer:
                     stage=f"dialogue_extract[attempt {attempt}]",
                     max_tokens=16384,
                 )
+            except InterruptProcessingException:
+                raise
             except Exception as exc:
+                last_reason = f"invoke failed ({exc!r})"
                 log_pipeline(
-                    f"dialogue extractor: invoke failed ({exc!r}); "
-                    "falling back to narrator"
+                    f"dialogue extractor: {last_reason}; "
+                    f"attempt {attempt}/3"
                 )
+                continue
+            raw = postprocess_reply(raw)
+            if not raw:
+                last_reason = "empty reply"
+                log_pipeline(
+                    f"dialogue extractor: empty reply on attempt "
+                    f"{attempt}/3; retrying"
+                )
+                continue
+            parsed = _parse_first_json_object(raw)
+            if parsed is None:
+                last_reason = f"no JSON object (head={raw[:80]!r})"
+                log_pipeline(f"dialogue extractor: {last_reason}")
+                messages = messages + [
+                    {
+                        "role": "user",
+                        "content": (
+                            "Your previous reply was not a JSON object. "
+                            "Reply with ONLY {\"turns\":[...]} using "
+                            "0-based character offsets so that "
+                            "concept[start:end] equals each line's text."
+                        ),
+                    }
+                ]
+                continue
+            raw_turns = parsed.get("turns")
+            if raw_turns is None:
+                raw_turns = []
+            if not isinstance(raw_turns, list):
+                last_reason = "turns is not a list"
+                continue
+            if not raw_turns:
                 return []
-            if raw:
-                break
-            log_pipeline(
-                f"dialogue extractor: empty reply on attempt "
-                f"{attempt}/3; retrying"
-            )
-        if not raw:
-            log_pipeline(
-                "dialogue extractor: 3 empty replies; falling back to "
-                "narrator (this board will have no spoken lines)"
-            )
-            return []
-        # Tolerant JSON parse: take the first {...} object.
-        parsed = _parse_first_json_object(raw)
-        if parsed is None:
-            log_pipeline(
-                f"dialogue extractor: no JSON object in reply "
-                f"(head={raw[:80]!r}); falling back to narrator"
-            )
-            return []
-        raw_turns = parsed.get("turns") or []
-        if not isinstance(raw_turns, list):
-            return []
-        # Flatten to an ExtractedLine list, then validate spans strictly.
-        flat: list[_DLG_ExtractedLine] = []
-        for t in raw_turns:
-            if not isinstance(t, dict):
+            rows: list[tuple[str, _DLG_ExtractedLine]] = []
+            for t in raw_turns:
+                if not isinstance(t, dict):
+                    continue
+                speaker = str(t.get("speaker") or "").strip()
+                if not speaker:
+                    continue
+                for entry in t.get("lines") or []:
+                    if not isinstance(entry, dict):
+                        continue
+                    text = str(entry.get("text") or "").strip()
+                    try:
+                        s = int(entry.get("start"))
+                        e = int(entry.get("end"))
+                    except (TypeError, ValueError):
+                        s, e = 0, 0
+                    if not text:
+                        continue
+                    rows.append(
+                        (speaker, _DLG_ExtractedLine(text=text, start=s, end=e))
+                    )
+            if not rows:
+                last_reason = "no usable lines in turns"
                 continue
-            for entry in t.get("lines") or []:
-                if not isinstance(entry, dict):
-                    continue
-                text = str(entry.get("text") or "").strip()
-                try:
-                    s = int(entry.get("start"))
-                    e = int(entry.get("end"))
-                except (TypeError, ValueError):
-                    continue
-                if not text:
-                    continue
-                flat.append(_DLG_ExtractedLine(text=text, start=s, end=e))
-        # Mechanical validation — every span must literally equal the
-        # slice of the source text.
-        errors = _dlg_validate_extracted_lines(concept, flat)
-        if errors:
-            log_pipeline(
-                f"dialogue extractor: span validation failed, falling "
-                f"back to narrator ({len(errors)} errors, first: "
-                f"{errors[0][:120]!r})"
+            relocated, relocate_notes = _dlg_relocate_extracted_lines(
+                concept, [line for _, line in rows]
             )
-            return []
-        # Re-walk the parsed JSON with speaker context, merging
-        # adjacent same-speaker turns so invariant (3) holds.
-        out: list[_DLG_DialogueTurn] = []
-        for t in raw_turns:
-            if not isinstance(t, dict):
-                continue
-            speaker = str(t.get("speaker") or "").strip()
-            if not speaker:
-                continue
-            entries = t.get("lines") or []
-            texts: list[str] = []
-            spans: list[tuple[int, int]] = []
-            for entry in entries:
-                if not isinstance(entry, dict):
-                    continue
-                text = str(entry.get("text") or "").strip()
-                try:
-                    s = int(entry.get("start"))
-                    e = int(entry.get("end"))
-                except (TypeError, ValueError):
-                    continue
-                if not text:
-                    continue
-                texts.append(text)
-                spans.append((s, e))
-            if not texts:
-                continue
-            # Merge with previous turn if same speaker and spans are
-            # adjacent or contiguous.
-            if out and out[-1].speaker == speaker and spans:
-                prev_end = out[-1].end
-                if spans[0][0] >= prev_end:
-                    out[-1].lines.extend(texts)
-                    out[-1].end = spans[-1][1]
-                    continue
-            out.append(
-                _DLG_DialogueTurn(
-                    speaker=speaker,
-                    lines=texts,
-                    start=spans[0][0],
-                    end=spans[-1][1],
+            errors = _dlg_validate_extracted_lines(concept, relocated)
+            if errors:
+                last_reason = errors[0]
+                log_pipeline(
+                    f"dialogue extractor: span validation failed on "
+                    f"attempt {attempt}/3 ({last_reason[:120]!r})"
                 )
-            )
-        if not out:
-            log_pipeline(
-                "dialogue extractor: produced 0 valid turns; "
-                "falling back to narrator"
-            )
-        return out
+                messages = messages + [
+                    {
+                        "role": "user",
+                        "content": (
+                            "Span validation failed: "
+                            + "; ".join(errors[:4])
+                            + ". Offsets are 0-based Python character "
+                            "indices (not UTF-8 bytes). concept[start:end] "
+                            "must equal text. Reply with ONLY the JSON."
+                        ),
+                    }
+                ]
+                continue
+            out: list[_DLG_DialogueTurn] = []
+            for (speaker, _), line in zip(rows, relocated):
+                if out and out[-1].speaker == speaker and line.start >= out[-1].end:
+                    out[-1].lines.append(line.text)
+                    out[-1].end = line.end
+                    continue
+                out.append(
+                    _DLG_DialogueTurn(
+                        speaker=speaker,
+                        lines=[line.text],
+                        start=line.start,
+                        end=line.end,
+                    )
+                )
+            if relocate_notes:
+                log_pipeline(
+                    "dialogue extractor: "
+                    + "; ".join(relocate_notes[:6])
+                )
+            if not out:
+                last_reason = "0 valid turns after merge"
+                continue
+            return out
+        warning = (
+            "dialogue extractor failed after 3 attempts "
+            f"({last_reason}); falling back to the narrator "
+            "storyboard — spoken lines will NOT be preserved verbatim"
+        )
+        log_pipeline(warning)
+        self._dialogue_extract_warnings.append(warning)
+        return []
 
     # ------------------------------------------------------------------ #
     # Stage 1: style-only prompt_prefix + CAST sheet
@@ -1932,7 +1938,6 @@ class H3LoopPromptEnhancer:
     manifest: Optional[list[dict]] = None,
     prev_soundscape_ref2v: Optional[list[str]] = None,
     cast_block: str = "",
-    reference_directive: str = "",
     dialogue_lines: Optional[list[str]] = None,
     turn_index: Optional[int] = None,
     turn_speaker: Optional[str] = None,
@@ -2349,6 +2354,9 @@ class H3LoopPromptEnhancer:
         enhance_user_input: bool = False,
     ) -> dict:
         warnings: list[str] = []
+        pacing_key = _PACING_LABEL_TO_KEY.get(
+            (pacing or "").split(" - ", 1)[0].strip().lower(), "normal"
+        )
         if not hasattr(self.llm, "invoke"):
             raise RuntimeError(
                 "auto-storyboard requires an LLM connector with invoke(); "
@@ -2499,16 +2507,12 @@ class H3LoopPromptEnhancer:
             #    malformed spans) we fall back to a single narrator
             #    turn carrying the whole concept as one beat.
             turns = self.extract_dialogue(idea)
-            pacing_key = _PACING_LABEL_TO_KEY.get(
-                (pacing or "").split(" - ", 1)[0].strip().lower(), "normal"
-            )
+            if self._dialogue_extract_warnings:
+                warnings.extend(self._dialogue_extract_warnings)
             pacing_obj = _DLG_PACING_PRESETS[pacing_key]
             if not turns:
-                # Pure narration, or extraction failed. We DO NOT
-                # warn — the LLM extractor said "no dialogue" and we
-                # trust that judgement (it's the only place semantic
-                # judgement lives in this path). The legacy LLM
-                # storyboard takes over.
+                # Genuine {"turns": []} is narration. Exhausted extract
+                # retries also return [] but already pushed a warning.
                 turns = [_dlg_narrator_fallback_turn(idea)]
             is_narrator_fallback = (
                 len(turns) == 1 and turns[0].speaker == "(narrator)"
@@ -3055,10 +3059,10 @@ class MiniMaxH3LoopPromptGenerator:
                         "multiline": True,
                         "tooltip": (
                             "Everything you want, in any shape: a concept "
-                            "paragraph, one beat per line, or something in "
-                            "between. The LLM always re-splits it into shots "
-                            "against the total_duration_seconds budget. "
-                            "Blank = default concept."
+                            "paragraph, speaker：line dialogue, or mixed. "
+                            "Dialogue is extracted then packed "
+                            "deterministically; narration still goes through "
+                            "the storyboard LLM. Blank = default concept."
                         ),
                     },
                 ),
@@ -3105,25 +3109,21 @@ class MiniMaxH3LoopPromptGenerator:
                         "min": 0,
                         "max": 128,
                         "tooltip": (
-                            "Number of scenes. Your count is the TARGET and "
-                            "the node honours it as closely as the content "
-                            "allows — the dialogue line count does NOT "
-                            "dictate the board.\n\n"
-                            "0 = auto: the pacing preset decides the cut "
-                            "density (total_duration / target scene length: "
-                            "fast ≈ 4.5s, normal ≈ 7s, slow ≈ 12s per "
-                            "scene). Narration boards let the LLM decide.\n\n"
-                            ">0 on a dialogue board: fewer scenes = tighter "
-                            "packing of lines; more scenes = lines spread "
-                            "across more scenes (midpoint splits); above "
-                            "one-line-per-scene the node adds mechanical "
-                            "SILENT REACTION CUTS (cut to the listener) so "
-                            "your count is reached without touching a "
-                            "single spoken line. The only hard floor is "
-                            "physical: scenes never exceed 14s and a line "
-                            "is never cut mid-utterance — below that floor "
-                            "you get the minimum feasible count plus a "
-                            "warning (never an error).\n\n"
+                            "Number of scenes.\n\n"
+                            "0 = auto. Dialogue boards pack consecutive "
+                            "turns into the fewest scenes that fit the 14s "
+                            "H3 window (a speaker change does NOT force a "
+                            "cut). Pacing does not change this cut count — "
+                            "it only changes speech tempo and the BRISK/"
+                            "MEASURED prompt directive. Narration boards "
+                            "let the storyboard LLM decide, using pacing as "
+                            "split bias (fast=aggressive, slow=conservative)."
+                            "\n\n"
+                            ">0 on a dialogue board: speech is spread evenly "
+                            "across that many scenes; above one-line-per-"
+                            "scene the extras become silent reaction cuts "
+                            "(cut to the listener). A line is never split "
+                            "mid-utterance.\n\n"
                             ">0 on a narration board: the storyboard LLM "
                             "produces exactly that many scenes."
                         ),
@@ -3159,27 +3159,21 @@ class MiniMaxH3LoopPromptGenerator:
                     {
                         "default": _PACING_LABELS[1],
                         "tooltip": (
-                            "TEMPO of the whole board — this is the "
-                            "faster/slower rhythm control.\n\n"
-                            "1. Cut density (scene_count=0): the scene "
-                            "count is derived from total_duration / target "
-                            "average scene length — fast ≈ 4.5s, normal ≈ "
-                            "7s, slow ≈ 12s per scene. The same 20s budget "
-                            "cuts ~4 scenes on fast, ~2 on slow.\n"
-                            "2. Prompt tempo: a binding tempo directive is "
-                            "injected into the prefix and every per-shot "
-                            "prompt (fast: chain beats tightly, no holds; "
-                            "slow: measured pace, longer holds, real-time "
-                            "motion).\n"
-                            "3. Auto length (total=0): speech estimate "
-                            "uses the preset's TTS rate + turn pause "
-                            "(fast CN 4.5 chars/s + 1.0s, normal 3.5 + "
-                            "1.5s, slow 2.8 + 2.0s).\n"
-                            "Narration boards also map fast/normal/slow to "
-                            "the storyboard's aggressive/balanced/"
+                            "TEMPO of the whole board.\n\n"
+                            "On a dialogue board with scene_count=0, "
+                            "pacing does NOT change how many scenes you "
+                            "get (auto packing is always fewest cuts "
+                            "inside the 14s window). It does:\n"
+                            "1. Prompt tempo: BRISK / natural / MEASURED "
+                            "injected into the prefix and every shot.\n"
+                            "2. Auto length (total=0): TTS rate + turn "
+                            "pause (fast CN 4.5 chars/s + 1.0s, normal "
+                            "3.5 + 1.5s, slow 2.8 + 2.0s).\n"
+                            "Narration boards also map fast/normal/slow "
+                            "to the storyboard LLM's aggressive/balanced/"
                             "conservative split bias. An explicit "
-                            "scene_count overrides the cut density; "
-                            "total_duration_seconds stays the only hard "
+                            "scene_count is the cut-count override; "
+                            "total_duration_seconds stays the duration "
                             "constraint."
                         ),
                     },
@@ -3197,7 +3191,18 @@ class MiniMaxH3LoopPromptGenerator:
                 ),
                 "category": (
                     list(LOOP_CATEGORIES),
-                    {"default": LOOP_CATEGORIES[0]},
+                    {
+                        "default": LOOP_CATEGORIES[0],
+                        "tooltip": (
+                            "none: no extra cinematography contract. "
+                            "dialogue: spoken-scene framing, "
+                            "shot/reverse-shot, no on-screen subtitles — "
+                            "pick this for talking-heads / 对白 boards. "
+                            "action: motion-blur / camera-shake advice. "
+                            "The dialogue verbatim contract still runs "
+                            "whenever lines are extracted, even on none."
+                        ),
+                    },
                 ),
                 "output_language": (
                     ["en", "zh"],
@@ -3419,10 +3424,11 @@ class MiniMaxH3LoopPromptGenerator:
             str(caption_cache_scope or "memory_disk"),
             pacing,
             str(parse_enhance_user_input(enhance_user_input)),
+            (references_text or "").strip(),
         ):
             h.update((part or "").encode("utf-8"))
-        # images: hash tensor shape (content is data, not signal; the
-        # LLM captions the pixel bytes downstream, not the hash).
+        # images: hash tensor shape plus head/mid/tail samples so a
+        # same-shape swap still invalidates the node.
         if images is None:
             h.update(b"none")
         else:
@@ -3432,18 +3438,28 @@ class MiniMaxH3LoopPromptGenerator:
                 shape = ()
             h.update(repr(shape).encode("utf-8"))
             h.update(str(getattr(images, "dtype", "")).encode("utf-8"))
-            # Include a small content fingerprint so same-shape image
-            # updates still invalidate the node.
             sample_bytes = b""
             try:
                 if hasattr(images, "detach") and hasattr(images, "cpu"):
                     flat = images.detach().cpu().reshape(-1)
-                    sample = flat[:1024]
-                    sample_bytes = bytes(sample.numpy().tobytes())
-                elif hasattr(images, "reshape") and hasattr(images, "tobytes"):
+                elif hasattr(images, "reshape"):
                     flat = images.reshape(-1)
-                    sample = flat[:1024]
-                    sample_bytes = bytes(sample.tobytes())
+                else:
+                    flat = None
+                if flat is not None:
+                    n = int(getattr(flat, "shape", [0])[0] if hasattr(flat, "shape") else len(flat))
+                    chunks = []
+                    if n > 0:
+                        head = flat[:1024]
+                        mid_start = max(0, (n // 2) - 512)
+                        mid = flat[mid_start:mid_start + 1024]
+                        tail = flat[-1024:] if n > 1024 else flat
+                        for part in (head, mid, tail):
+                            if hasattr(part, "numpy"):
+                                chunks.append(bytes(part.numpy().tobytes()))
+                            elif hasattr(part, "tobytes"):
+                                chunks.append(bytes(part.tobytes()))
+                    sample_bytes = b"".join(chunks)
             except Exception:
                 sample_bytes = b""
             h.update(hashlib.md5(sample_bytes).hexdigest().encode("ascii"))

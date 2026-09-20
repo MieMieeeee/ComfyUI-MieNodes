@@ -1765,6 +1765,31 @@ def test_is_changed_image_presence_affects_hash(lg):
     assert a != b
 
 
+def test_is_changed_references_text_affects_hash(lg):
+    node = lg.MiniMaxH3LoopPromptGenerator()
+    base = _base_kwargs()
+    a = node.is_changed(FakeConnector(), **dict(base, references_text=""))
+    b = node.is_changed(
+        FakeConnector(),
+        **dict(base, references_text="Picture 1: orange tabby"),
+    )
+    assert a != b
+
+
+def test_is_changed_same_shape_different_pixels_affects_hash(lg):
+    node = lg.MiniMaxH3LoopPromptGenerator()
+    base = _base_kwargs()
+    zeros = _fake_images(1)
+    ones = zeros + 1
+    a = node.is_changed(
+        FakeConnector(), **dict(base, reference_mode="i2va", images=zeros)
+    )
+    b = node.is_changed(
+        FakeConnector(), **dict(base, reference_mode="i2va", images=ones)
+    )
+    assert a != b
+
+
 def test_is_changed_category_affects_hash(lg):
     """The category widget hashes into is_changed since it drives the
     spoken-scene / genre contract in ref2va."""
