@@ -523,13 +523,24 @@ def validate_label_policy(
     plan: dict,
     mode: str,
     manifest: list[dict],
+    referenced_pictures: Optional[set] = None,
 ) -> list[str]:
     """Per-mode native-label + @alias / #tag contract. Returns errors.
     Empty list = the plan's text matches the mode's label contract.
 
     Universal: any ``@alias`` or ``#tag`` token anywhere in the plan
     text is an error (D9). P0 does not support Scheduled Ref2VA / the
-    Scene Prompt Editor's dialogue markup — only native labels."""
+    Scene Prompt Editor's dialogue markup — only native labels.
+
+    ``referenced_pictures`` (ref2va only): the picture slot numbers the
+    CONCEPT text actually names (图1 / Picture 2 ...). Identity Subjects
+    bound to pictures outside that set are NOT required to appear in
+    the plan (live failure 2026-09-21: 5 wired pictures, concept named
+    only 图1-3, the model correctly referenced Subjects 1-3 and the
+    whole 6-minute run died at final validation demanding Subjects 4/5).
+    ``None`` keeps the strict all-slots contract (tests, direct callers);
+    an empty set falls back to strict too — a concept that names no
+    pictures gets the conservative reading."""
     code = parse_reference_mode(mode)
     chunks = _shot_texts(plan)
     errors: list[str] = []
@@ -691,9 +702,19 @@ def validate_label_policy(
                     errors.append(
                         f"shot {s_idx}: <Subject {num}> needs its paired <Picture {pic_num}> in the same scene"
                     )
-        # Subject numbering contiguity: every identity slot must be
-        # bound somewhere in the plan.
-        missing = [k for k in sorted(subj_to_pic) if k not in used_subjects]
+        # Subject numbering contiguity: every identity slot the CONCEPT
+        # actually uses must be bound somewhere in the plan. Pictures the
+        # concept never names are optional (their Subjects may appear —
+        # the model often defines them — but are never REQUIRED; the
+        # preflight already warns about the unused wiring).
+        required_subjects = set(subj_to_pic)
+        if referenced_pictures:
+            required_subjects = {
+                k for k, pic in subj_to_pic.items() if pic in referenced_pictures
+            }
+        missing = [
+            k for k in sorted(required_subjects) if k not in used_subjects
+        ]
         if missing:
             errors.append(
                 f"ref2va: identity Subject {missing} never appears in the plan; "

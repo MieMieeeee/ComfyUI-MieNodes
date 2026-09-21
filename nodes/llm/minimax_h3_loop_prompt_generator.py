@@ -3262,10 +3262,17 @@ class H3LoopPromptEnhancer:
         plan_errors = validate_plan(plan, schema=schema)
         if plan_errors:
             raise RuntimeError("plan validation failed: " + "; ".join(plan_errors))
+        # Label policy: identity Subjects are only REQUIRED for pictures
+        # the concept actually names — unreferenced wired pictures get a
+        # preflight warning instead of a post-spend hard failure
+        # (2026-09-21 live failure: Subjects 4/5 killed a 6-minute run).
         label_errors = validate_label_policy(
             plan,
             ref_code,
             manifest or [],
+            referenced_pictures=(
+                _referenced_picture_numbers(idea) or None
+            ),
         )
         if label_errors:
             raise RuntimeError(

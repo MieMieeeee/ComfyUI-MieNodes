@@ -325,3 +325,236 @@ def test_no_unused_warning_when_all_pictures_referenced(mods):
     manifest_3 = MANIFEST_5[:3]
     warns = lg._manifest_consistency_warnings(CONCEPT, manifest_3, "ref2va")
     assert not any("never referenced" in w for w in warns)
+
+
+# --------------------------------------------------------------------------- #
+# Label-policy tolerance — the 2026-09-21 20:33 live crash
+# --------------------------------------------------------------------------- #
+def test_label_policy_tolerates_unreferenced_identity_pictures(mods):
+    _lg, lp = mods
+    # A plan that references only Subjects/Pictures 1-3 while the
+    # manifest carries five identity slots (4/5 = the duplicated
+    # cat2.jpg figurine picture the concept never names).
+    plan = {
+        "prompt_prefix": ["style line"],
+        "shots": [
+            {"prompt": [
+                "subject_definitions:",
+                "<Subject 1> binds to <Picture 1>: brown tabby father cat.",
+                "<Subject 2> binds to <Picture 2>: cream mother cat.",
+                "<Subject 3> binds to <Picture 3>: ginger kitten.",
+                "summary:", "[reference generation] ...",
+                "retention_analysis:",
+                "<Subject 1> -> <Picture 1>: fully_preserved - locked.",
+                "<Subject 2> -> <Picture 2>: fully_preserved - locked.",
+                "<Subject 3> -> <Picture 3>: fully_preserved - locked.",
+                "detailed_description:", "the three cats talk",
+                "overall_soundscape:", "room tone",
+                "non_diegetic_music:", "No non-diegetic music.",
+            ]},
+        ],
+    }
+    # Concept names 图1-3 only -> Subjects 4/5 are optional.
+    assert lp.validate_label_policy(
+        plan, "ref2va", MANIFEST_5, referenced_pictures={1, 2, 3}
+    ) == []
+    # Strict callers (no referenced set) keep the old contract.
+    strict = lp.validate_label_policy(plan, "ref2va", MANIFEST_5)
+    assert any("Subject [4, 5] never appears" in e for e in strict)
+    # A REQUIRED subject (named by the concept) that never appears
+    # still fails.
+    partial = lp.validate_label_policy(
+        plan, "ref2va", MANIFEST_5, referenced_pictures={1, 2, 3, 4}
+    )
+    assert any("Subject [4] never appears" in e for e in partial)
+
+
+# --------------------------------------------------------------------------- #
+# FULL-WORKFLOW E2E — mirrors the user's attached workflow (node 61) with
+# its exact widget values: ref2va + 5 wired pictures (Pictures 4/5 the
+# SAME image, like the duplicated cat2.jpg), auto-enhance ON, pacing
+# normal, scene_count 0, per_shot, category none, output_language en,
+# seed_mode per_scene_increment, temperature 0.4 / max_tokens 16384 /
+# timeout 300, caption cache memory+disk. Locks down the whole chain:
+# enhancer rewrite -> captions (incl. duplicate-image cache hit) ->
+# structured parse (5 turns) -> minimal-cut packing (2 scenes) -> LLM
+# prefix -> six-section shots (Subjects 1-3 only) -> label policy OK.
+# --------------------------------------------------------------------------- #
+import numpy as np  # noqa: E402  (test-local, after module constants)
+
+WF_RAW_INPUT = (
+    "镜头从图2的白猫视角对着图3的小猫，图1的黑猫在图3的小猫旁边。\n"
+    "图3的小猫：Mommy,daddy is so ugly,why did you marry him.\n"
+    "图2的白猫：Iguess I was blind\n"
+    "图3的小猫：daddy,why did you marry a blind lady\n"
+    "图2的白猫：oh my god\n"
+    "图1的黑猫：well nobody's perfect\n"
+)
+
+# What M3's auto-enhance actually returns for this draft (shape from the
+# live log: rewritten 196 -> 302 chars; branch-D binding line + the 5
+# English speaker lines kept verbatim).
+WF_ENHANCED = (
+    "Classification: Reference-driven\n"
+    "Notes for the user: speaker names stable; binding line added.\n"
+    "--- BEGIN user_input ---\n"
+    "场景设定：温暖家庭客厅。参考图 1 → 黑猫（画面右边）；"
+    "参考图 2 → 白猫（画面左边）；参考图 3 → 小猫（画面中间）。\n"
+    "小猫：Mommy, daddy is so ugly, why did you marry him.\n"
+    "白猫：Iguess I was blind.\n"
+    "小猫：Daddy, why did you marry a blind lady?\n"
+    "白猫：Oh my god.\n"
+    "黑猫：Well, nobody's perfect.\n"
+    "--- END user_input ---"
+)
+
+WF_CAPTIONS = [
+    "brown_tabby_cat in a dark brown tweed blazer over a white shirt, "
+    "chubby bipedal build, amber eyes",
+    "cream_curly_kitten with a blonde hairdo, beige plaid jacket, "
+    "white shirt, navy bow tie",
+    "fluffy ginger kitten in yellow corduroy overalls, round build",
+    "black cat figurine on a beige parquet floor, glossy ceramic finish",
+    # slot 5 never consumed: identical pixels to slot 4 -> memory hit
+]
+
+WF_PREFIX = (
+    "3D CG animation in a warm family living room.\n\n"
+    "CAST:\n"
+    "黑猫: brown tabby father cat in a tweed blazer.\n"
+    "白猫: cream-furred mother cat in a plaid jacket.\n"
+    "小猫: ginger kitten in yellow overalls.\n"
+)
+
+
+def _wf_shot_reply(subjects, body):
+    lines = [
+        "subject_definitions:",
+        "<Subject 1> binds to <Picture 1>: brown tabby father cat.",
+        "<Subject 2> binds to <Picture 2>: cream-furred mother cat.",
+        "<Subject 3> binds to <Picture 3>: ginger kitten.",
+        "",
+        "summary:",
+        "[reference generation] family exchange in the living room.",
+        "",
+        "retention_analysis:",
+        "<Subject 1> -> <Picture 1>: fully_preserved - identity locked.",
+        "<Subject 2> -> <Picture 2>: fully_preserved - identity locked.",
+        "<Subject 3> -> <Picture 3>: fully_preserved - identity locked.",
+        "",
+        "detailed_description:",
+        body,
+        "",
+        "overall_soundscape:",
+        "Warm room tone carries across the boundary; close paw rustle.",
+        "",
+        "non_diegetic_music:",
+        "No non-diegetic music.",
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def test_full_workflow_e2e_ref2va_english_dialogue(mods, monkeypatch, tmp_path):
+    lg, _lp = mods
+    monkeypatch.setattr(
+        lg, "_caption_cache_disk_root", lambda: str(tmp_path)
+    )
+
+    # 5-image batch (N,H,W,C); slots 4 and 5 carry IDENTICAL pixels
+    # (the workflow wires cat2.jpg twice via LoadImage nodes 59/60).
+    # Gradient content, NOT flat constants — JPEG quantisation collapses
+    # near-black constant frames to identical bytes, which would make
+    # every slot's cache key collide (real photos never do).
+    def _img(seed_v):
+        rng = np.random.default_rng(seed_v)
+        return rng.random((8, 8, 3), dtype=np.float32)
+
+    images = np.stack([_img(1), _img(2), _img(3), _img(4), _img(4)])
+
+    # Exact LLM call sequence this widget set produces:
+    #   1 auto-enhance, 4 caption misses (5th is a memory-cache hit),
+    #   1 prefix (5 turns >= LLM-prefix threshold), 2 shot calls.
+    conn = _Conn([
+        WF_ENHANCED,
+        *WF_CAPTIONS[:4],
+        WF_PREFIX,
+        _wf_shot_reply(
+            [1, 2, 3],
+            "[Shot 1] The kitten asks the mother; the mother answers; "
+            "the kitten presses the question.",
+        ),
+        _wf_shot_reply(
+            [1, 2, 3],
+            "[Shot 1] The mother gasps and the father delivers the "
+            "closing line.",
+        ),
+    ])
+
+    out = lg.H3LoopPromptEnhancer(conn, temperature=0.4, max_tokens=16384,
+                                  timeout=300)(
+        user_input=WF_RAW_INPUT,
+        enhance_user_input=True,          # on - 自动润色后再规划
+        seed=199573759057408,
+        scene_count=0,
+        total_duration_seconds=0,
+        pacing="normal - 正常（语速·推荐）",
+        generation_mode="per_shot - 逐场生成(推荐)",
+        category="none - 不指定",
+        output_language="en",
+        seed_mode="per_scene_increment - 每场seed递增(推荐)",
+        reference_mode="ref2va - 参考图(N张/全场景)",
+        caption_mode="cache_memory_disk - 缓存:内存+磁盘(推荐)",
+        images=images,
+    )
+
+    # ── LLM spend is exactly the scripted sequence: the duplicated
+    #    picture was served from the memory cache, not re-captioned.
+    assert len(conn.calls) == 8, (
+        f"expected 8 LLM calls (enhance+4 captions+prefix+2 shots); "
+        f"got {len(conn.calls)}"
+    )
+
+    plan = json.loads(out["plan_json"])
+    assert set(plan.keys()) == {"shots", "prompt_prefix"}
+    assert out["board_kind"] == "dialogue"
+    assert len(plan["shots"]) == 2
+    for s in plan["shots"]:
+        assert set(s.keys()) == {"id", "prompt", "length", "seed"}
+        assert 96 <= s["length"] <= 345  # 4s floor .. 14s cap on the grid
+    # per_scene_increment seeds from the workflow's base. Note the base
+    # wraps modulo 10**12 by design (derive_seed_base keeps per-scene
+    # increments inside the uint64 digit-string headroom).
+    wf_base = 199573759057408 % 10**12
+    assert [s["seed"] for s in plan["shots"]] == [
+        str(wf_base + 1), str(wf_base + 2),
+    ]
+
+    all_text = "\n".join("\n".join(s["prompt"]) for s in plan["shots"])
+    # Dialogue: 5 verbatim English lines, S1=小猫 S2=白猫 S3=黑猫,
+    # no phantom setting speaker, no Chinese speech block.
+    d_lines = [ln for ln in all_text.split("\n") if "<d>" in ln]
+    assert len(d_lines) == 5
+    assert all("<d>[English]" in ln for ln in d_lines)
+    assert "<d>[Chinese]" not in all_text
+    assert "场景设定" not in all_text
+    assert any(ln.startswith("小猫") and "(S1):" in ln for ln in d_lines)
+    assert any(ln.startswith("白猫") and "(S2):" in ln for ln in d_lines)
+    assert any(ln.startswith("黑猫") and "(S3):" in ln for ln in d_lines)
+    # Scene split: [t1-3] then [t4-5].
+    assert sum(1 for ln in plan["shots"][0]["prompt"] if "<d>" in ln) == 3
+    assert sum(1 for ln in plan["shots"][1]["prompt"] if "<d>" in ln) == 2
+    # Six-section schema everywhere (ref2va).
+    for s in plan["shots"]:
+        for header in ("subject_definitions:", "summary:",
+                       "retention_analysis:", "detailed_description:",
+                       "overall_soundscape:", "non_diegetic_music:"):
+            assert header in s["prompt"]
+    # Subjects 4/5 (the duplicated figurine picture) are absent and the
+    # plan still validates — the 2026-09-21 post-spend hard fail.
+    assert "<Subject 4>" not in all_text and "<Subject 5>" not in all_text
+
+    # ── Summary: the guardrails that must be loud, not fatal.
+    pre = out["summary"]
+    assert "category: none -> dialogue" in pre          # auto-upgrade note
+    assert "never referenced" in pre                    # Pictures 4/5
+    assert "黑猫" in pre and "Picture 1" in pre         # colour contradiction
