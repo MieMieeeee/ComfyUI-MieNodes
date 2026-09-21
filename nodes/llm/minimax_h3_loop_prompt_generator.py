@@ -2180,19 +2180,22 @@ class H3LoopPromptEnhancer:
         spatial_layout: Optional[dict] = None,
         tempo_directive: str = "",
         speaker_identities: Optional[dict] = None,
+        referenced_pictures: Optional[set] = None,
     ) -> list[str]:
         code = parse_reference_mode(mode)
         schema = schema_for_mode(mode)
         effective_manifest = list(manifest or [])
         # Reference directive (D6): first-sentence idiom / subject binding.
         # Category widget drives the spoken-scene / genre contract injection
-        # in ref2va; other modes pass through unchanged.
+        # in ref2va; other modes pass through unchanged. referenced_pictures
+        # narrows ref2va bindings to the pictures the concept names.
         reference_directive = build_reference_directive(
             mode,
             effective_manifest,
             clip_index,
             duration_seconds,
             category=category,
+            referenced_pictures=referenced_pictures,
         )
         # Continuation block: ref2va uses the six-section carry-over; the
         # default three-section template stays for t2va/i2va/fl2va.
@@ -2711,6 +2714,12 @@ class H3LoopPromptEnhancer:
         warnings.extend(
             _manifest_consistency_warnings(idea, manifest, ref_code)
         )
+        # Picture slots the concept actually names. Feeds three places:
+        # the per-shot reference directive (never teaches unused
+        # pictures), and the label policy (Subjects bound to unused
+        # pictures are optional — see validate_label_policy). Empty set
+        # (concept names no pictures) keeps the strict all-slots rules.
+        concept_referenced_pics = _referenced_picture_numbers(idea) or None
 
         # ---- Stage 0.5: auto storyboard ------------------------------ #
         if _ns_lazy is None:
@@ -3201,6 +3210,7 @@ class H3LoopPromptEnhancer:
                         if s and s not in seen_speakers
                     },
                     spatial_layout=spatial_layout,
+                    referenced_pictures=concept_referenced_pics,
                 )
                 entry["prompt"] = shot_prompt
                 seen_speakers.update(
@@ -3270,9 +3280,7 @@ class H3LoopPromptEnhancer:
             plan,
             ref_code,
             manifest or [],
-            referenced_pictures=(
-                _referenced_picture_numbers(idea) or None
-            ),
+            referenced_pictures=concept_referenced_pics,
         )
         if label_errors:
             raise RuntimeError(

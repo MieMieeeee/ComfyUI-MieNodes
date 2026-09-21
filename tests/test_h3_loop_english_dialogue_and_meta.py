@@ -369,6 +369,84 @@ def test_label_policy_tolerates_unreferenced_identity_pictures(mods):
     assert any("Subject [4] never appears" in e for e in partial)
 
 
+def test_label_policy_waives_pairing_for_unreferenced_subjects(mods):
+    """2026-09-21 20:58 live crash: the model voluntarily mentioned
+    <Subject 4>/<Subject 5> in scene_02 WITHOUT their paired <Picture>
+    labels; the pairing rule killed the finished 226s run. Mentions of
+    Subjects bound to concept-unreferenced pictures are tolerated noise."""
+    _lg, lp = mods
+    plan = {
+        "prompt_prefix": ["style line"],
+        "shots": [
+            {"prompt": [
+                "subject_definitions:",
+                "<Subject 1> binds to <Picture 1>: brown tabby father cat.",
+                "<Subject 2> binds to <Picture 2>: cream mother cat.",
+                "<Subject 3> binds to <Picture 3>: ginger kitten.",
+                "<Subject 4>: figurine, not used by the story.",
+                "summary:", "[reference generation] ...",
+                "retention_analysis:",
+                "<Subject 1> -> <Picture 1>: fully_preserved - locked.",
+                "<Subject 2> -> <Picture 2>: fully_preserved - locked.",
+                "<Subject 3> -> <Picture 3>: fully_preserved - locked.",
+                "<Subject 4>: reference - not on screen.",
+                "detailed_description:", "the three cats talk",
+                "overall_soundscape:", "room tone",
+                "non_diegetic_music:", "No non-diegetic music.",
+            ]},
+        ],
+    }
+    # <Subject 4> appears WITHOUT <Picture 4>: tolerated for an unused
+    # picture; a REQUIRED subject missing its pair still fails.
+    assert lp.validate_label_policy(
+        plan, "ref2va", MANIFEST_5, referenced_pictures={1, 2, 3}
+    ) == []
+    referenced_broken = lp.validate_label_policy(
+        plan, "ref2va", MANIFEST_5, referenced_pictures={1, 2, 3, 4}
+    )
+    assert any(
+        "<Subject 4> needs its paired <Picture 4>" in e
+        for e in referenced_broken
+    )
+    # Unpaired mention of a REQUIRED subject (2) still fails outright.
+    broken = {
+        "prompt_prefix": ["style line"],
+        "shots": [
+            {"prompt": [
+                "subject_definitions:",
+                "<Subject 1> binds to <Picture 1>: tabby.",
+                "<Subject 2>: cream mother cat, no picture pair.",
+                "summary:", "[reference generation] ...",
+                "retention_analysis:",
+                "<Subject 1> -> <Picture 1>: fully_preserved - locked.",
+                "<Subject 2>: fully_preserved - locked.",
+                "detailed_description:", "talk",
+                "overall_soundscape:", "tone",
+                "non_diegetic_music:", "No non-diegetic music.",
+            ]},
+        ],
+    }
+    errs = lp.validate_label_policy(
+        broken, "ref2va", MANIFEST_5, referenced_pictures={1, 2, 3}
+    )
+    assert any("<Subject 2> needs its paired <Picture 2>" in e for e in errs)
+
+
+def test_reference_directive_teaches_only_used_pictures(mods):
+    _lg, lp = mods
+    directive = lp.build_reference_directive(
+        "ref2va", MANIFEST_5, 1, 5.0, referenced_pictures={1, 2, 3}
+    )
+    assert "do NOT reference" in directive
+    assert "<Subject 1> -> <Picture 1>" in directive
+    assert "<Subject 4>" not in directive.split("do NOT reference")[0]
+    assert "<Subject 5>" not in directive.split("do NOT reference")[0]
+    # Without the filter the directive keeps teaching all five slots.
+    full = lp.build_reference_directive("ref2va", MANIFEST_5, 1, 5.0)
+    assert "<Subject 4> -> <Picture 4>" in full
+    assert "<Subject 5> -> <Picture 5>" in full
+
+
 # --------------------------------------------------------------------------- #
 # FULL-WORKFLOW E2E — mirrors the user's attached workflow (node 61) with
 # its exact widget values: ref2va + 5 wired pictures (Pictures 4/5 the
@@ -483,10 +561,14 @@ def test_full_workflow_e2e_ref2va_english_dialogue(mods, monkeypatch, tmp_path):
             "[Shot 1] The kitten asks the mother; the mother answers; "
             "the kitten presses the question.",
         ),
+        # scene_02 replays the 2026-09-21 20:58 live failure: the model
+        # VOLUNTARILY mentions the unused Subjects 4/5 without pairing
+        # them with <Picture 4>/<Picture 5> — the run must still pass.
         _wf_shot_reply(
             [1, 2, 3],
             "[Shot 1] The mother gasps and the father delivers the "
-            "closing line.",
+            "closing line. <Subject 4>: reference - not on screen. "
+            "<Subject 5>: reference - not on screen.",
         ),
     ])
 
@@ -549,9 +631,13 @@ def test_full_workflow_e2e_ref2va_english_dialogue(mods, monkeypatch, tmp_path):
                        "retention_analysis:", "detailed_description:",
                        "overall_soundscape:", "non_diegetic_music:"):
             assert header in s["prompt"]
-    # Subjects 4/5 (the duplicated figurine picture) are absent and the
-    # plan still validates — the 2026-09-21 post-spend hard fail.
-    assert "<Subject 4>" not in all_text and "<Subject 5>" not in all_text
+    # Subjects 4/5 (the duplicated figurine picture) are NOT TAUGHT by
+    # the directive; scene_02's voluntary unpaired mentions are
+    # tolerated; the plan still validates (both post-spend hard fails).
+    shot_user_texts = [c[1]["content"] for c in conn.calls]
+    assert all("do NOT reference" in t for t in shot_user_texts[-2:])
+    assert all("<Subject 4> -> <Picture 4>" not in t for t in shot_user_texts[-2:])
+    assert "<Subject 4>" in "\n".join(plan["shots"][1]["prompt"])  # noise kept
 
     # ── Summary: the guardrails that must be loud, not fatal.
     pre = out["summary"]

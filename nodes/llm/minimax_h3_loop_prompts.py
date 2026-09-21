@@ -656,6 +656,17 @@ def validate_label_policy(
             elif slot.startswith("Video "):
                 manifest_vid_nums.add(int(slot.split(" ", 1)[1]))
         subj_to_pic = _identity_subject_slots(manifest)
+        # Subjects bound to pictures the CONCEPT never names: optional
+        # (their absence is fine — see required_subjects below) and,
+        # when the model mentions one anyway, the paired-<Picture> rule
+        # is waived too — the mention is harmless noise about an unused
+        # reference; failing the whole post-spend run on it destroyed a
+        # 226s live board (2026-09-21 20:58).
+        optional_subject_pics: set = set()
+        if referenced_pictures:
+            optional_subject_pics = {
+                pic for pic in manifest_pic_nums if pic not in referenced_pictures
+            }
         used_subjects: set[int] = set()
         for s_idx, shot in enumerate(shots, start=1):
             shot_labels = []
@@ -697,8 +708,12 @@ def validate_label_policy(
                 pic_num = subj_to_pic[num]
                 # The paired picture label must appear in the same shot
                 # (otherwise the compiler cannot tell which <Picture>
-                # <Subject> refers to).
-                if pic_num not in shot_pic_nums:
+                # <Subject> refers to) — EXCEPT for Subjects bound to
+                # pictures the concept never uses (optional mentions).
+                if (
+                    pic_num not in shot_pic_nums
+                    and pic_num not in optional_subject_pics
+                ):
                     errors.append(
                         f"shot {s_idx}: <Subject {num}> needs its paired <Picture {pic_num}> in the same scene"
                     )
@@ -1778,6 +1793,7 @@ def build_reference_directive(
     seconds: Any,
     *,
     category: Optional[str] = None,
+    referenced_pictures: Optional[set] = None,
 ) -> str:
     """Per-mode reference directive woven into the first sentence of
     the description block (D6). Returns "" for t2va (no labels).
@@ -1842,37 +1858,66 @@ def build_reference_directive(
     if code == "ref2va":
         if not manifest:
             return ""
-        identity_slots: list[str] = []
-        for i, entry in enumerate(manifest, start=1):
-            if entry.get("role") == "identity":
-                identity_slots.append(f"Picture {i}")
-        subj_list = ", ".join(
-            f"<Subject {n + 1}>" for n in range(len(identity_slots))
+        # Pictures the concept never names (图N / Picture N): wired and
+        # captioned, but the story does not use them. Teaching their
+        # bindings only invites the model to mention Subjects it does
+        # not need (live failure 2026-09-21 20:58: scene_02 referenced
+        # <Subject 4>/<Subject 5> unpaired); instead the directive
+        # names ONLY the used slots and forbids the rest explicitly.
+        all_pic_nums = list(range(1, len(manifest) + 1))
+        unused_pics = (
+            [n for n in all_pic_nums if n not in referenced_pictures]
+            if referenced_pictures
+            else []
         )
+        used_pic_nums = [n for n in all_pic_nums if n not in unused_pics]
+        bound_pairs: list[tuple[int, str]] = []
+        subj_seq = 0
+        for i, entry in enumerate(manifest, start=1):
+            if entry.get("role") != "identity":
+                continue
+            subj_seq += 1  # Subject numbering follows MANIFEST identity
+            # order (matches _identity_subject_slots), not the used
+            # subset — skipping unused slots keeps stable numbering.
+            if i in unused_pics:
+                continue
+            bound_pairs.append((subj_seq, f"Picture {i}"))
+        subj_list = ", ".join(f"<Subject {n}>" for n, _ in bound_pairs)
+        slots_line = ", ".join(f"<Picture {n}>" for n in used_pic_nums)
+        if unused_pics:
+            slots_line += (
+                f". Pictures {unused_pics} are wired but NOT used by this "
+                "concept — do NOT reference them or their <Subject N> "
+                "anywhere in the reply"
+            )
         lines: list[str] = [
             "[Deterministic subject binding — DO NOT INVENT NEW SUBJECTS]",
-            f"Manifest slots (in order): {', '.join(f'<Picture {i + 1}>' for i in range(len(manifest)))}.",
+            f"Manifest slots (in order): {slots_line}.",
         ]
-        if identity_slots:
+        if bound_pairs:
             lines.append(
-                f"Identity slots: {', '.join(identity_slots)} bind to "
-                f"{subj_list} (numbered in slot order, 1-indexed)."
+                f"Identity slots: {', '.join(slot for _, slot in bound_pairs)} "
+                f"bind to {subj_list} (numbered in manifest identity order)."
             )
-            for i, slot in enumerate(identity_slots, start=1):
+            for subj_n, slot in bound_pairs:
                 pic_num = int(slot.split(" ", 1)[1])
                 about = next(
                     (m.get("about", "") for m in manifest if m.get("slot") == slot),
                     "",
                 )
                 lines.append(
-                    f"  <Subject {i}> -> <Picture {pic_num}>: {about}"
+                    f"  <Subject {subj_n}> -> <Picture {pic_num}>: {about}"
                 )
         else:
             lines.append(
-                "No identity-role slots in the manifest; describe every picture "
-                "by its <about> in subject_definitions (no <Subject N> binding)."
+                "No identity-role slots among the used pictures; describe every "
+                "picture by its <about> in subject_definitions (no <Subject N> "
+                "binding)."
             )
-        non_identity = [m for m in manifest if m.get("role") != "identity"]
+        non_identity = [
+            entry for i, entry in enumerate(manifest, start=1)
+            if entry.get("role") != "identity" and i not in unused_pics
+        ]
         if non_identity:
             lines.append(
                 "Non-identity slots stay plain pictures — describe them by their "
