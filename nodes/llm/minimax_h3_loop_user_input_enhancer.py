@@ -59,10 +59,15 @@ MY_CATEGORY = "\U0001F411 MieNodes/\U0001F411 Prompt Generator"
 # to allow surface variation in the rewrite.
 _DEFAULT_TEMPERATURE = 0.4
 
-# The preprocessor reply is small (Classification + 1-3 line Notes +
-# BEGIN/END block); 4096 covers the BEGIN/END block of any realistic
-# user_input with comfortable headroom for reasoning-model thinking.
-_MAX_TOKENS_DEFAULT = 4096
+# Token budget. The preprocessor reply itself is small (Classification
+# + 1-3 line Notes + BEGIN/END block), but reasoning models count their
+# thinking against max_tokens — 4096 let the chain-of-thought consume
+# the whole budget before the answer started, producing HTTP-200
+# replies with EMPTY content (live failure 2026-09-21: three
+# consecutive response_chars=0 attempts, ~20-30s of thinking each).
+# Same failure class as the dialogue extractor fixed in 5e8a5c2; the
+# budget is a cap, not a target, so non-reasoning models pay nothing.
+_MAX_TOKENS_DEFAULT = 16384
 _MIN_MAX_TOKENS = 64
 _MAX_MAX_TOKENS = 32768
 

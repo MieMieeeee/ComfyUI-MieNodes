@@ -227,6 +227,25 @@ class GeneralLLMServiceConnector:
                             cleaned = self._sanitize_response(
                                 reasoning, preserve_thinking=preserve_thinking
                             )
+                        else:
+                            # HTTP 200 but zero usable text. finish_reason
+                            # distinguishes the two causes we have seen live:
+                            # "length" = the reasoning chain consumed the
+                            # whole max_tokens budget before the answer
+                            # started (raise the caller's budget); anything
+                            # else = provider-side empty reply.
+                            try:
+                                finish = response_data["choices"][0].get(
+                                    "finish_reason"
+                                )
+                            except (KeyError, IndexError):
+                                finish = "<unknown>"
+                            mie_log(
+                                f"{tag} empty reply; finish_reason={finish!r} "
+                                f"(length => raise the caller's max_tokens "
+                                f"budget so reasoning cannot starve the "
+                                f"answer)"
+                            )
                     mie_log(
                         f"{tag} ok in {attempt_elapsed:.2f}s "
                         f"response_chars={len(cleaned or '')}"
