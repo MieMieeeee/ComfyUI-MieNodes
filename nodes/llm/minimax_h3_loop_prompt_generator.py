@@ -403,8 +403,7 @@ _PACING_TO_STORYBOARD_BIAS = {
     "slow": "conservative",
 }
 
-# Phantom-speaker guard (2026-09-22 live failure). The upstream
-# UserInputEnhancer rewrites dialogue boards with a ``场景设定：`` setting
+# Phantom-speaker guard (2026-09-22 live failure). The upstream# UserInputEnhancer rewrites dialogue boards with a ``场景设定：`` setting
 # paragraph (its own Example-E format); the span extractor can mistake
 # that label for a speaker — the verbatim span check then PASSES (the
 # paragraph is literal source text), the phantom turn eats S1, and the
@@ -425,6 +424,120 @@ def _is_meta_speaker(speaker: str) -> bool:
     narration), not a story character. Such turns are dropped from
     extraction output — they are prose, never speech."""
     return bool(_META_SPEAKER_RE.match((speaker or "").strip()))
+
+
+# ---------------------------------------------------------------------------
+# Mechanical scrubbers — the captioner and the prefix LLM keep phrasing
+# around the prompt-side bans (live 2026-09-21 23:02: "shown from side,
+# front, and back angles" survived the widened vocabulary ban, and the
+# prefix carried "dialogue spoken in Chinese" on an all-English board).
+# Prompt rules are probabilistic; these regex passes are the guarantee
+# and run at the manifest / prefix assembly choke points, so CACHED
+# captions from older prompt versions are cleaned on use for free.
+# ---------------------------------------------------------------------------
+# Caption sheet-language phrases (turnaround-sheet artifacts that must
+# never describe a character): composition, sheet backdrop, sheet
+# lighting/ground shadow, multi-view framing, sheet stance.
+_CAPTION_SHEET_PHRASES: tuple = (
+    # multi-view framing clauses
+    (re.compile(
+        r",?\s*shown\s+from\s+(?:side[,\s]*|front[,\s]*|back[,\s]*|and\s+|"
+        r"three\s+|multiple\s+|several\s+|various\s+|[a-z]+\s+)*"
+        r"(?:angles|views|perspectives)",
+        re.IGNORECASE,
+    ), ""),
+    (re.compile(
+        r",?\s*(?:in\s+)?(?:three|multiple|several|various)\s+"
+        r"(?:different\s+)?(?:views|angles|perspectives)",
+        re.IGNORECASE,
+    ), ""),
+    (re.compile(r",?\s*(?:turnaround|model)\s+sheet", re.IGNORECASE), ""),
+    # sheet backdrop / void
+    (re.compile(
+        r",?\s*(?:against\s+a\s+|on\s+a\s+)?(?:seamless\s+|pure\s+|light\s+"
+        r"gray\s+|light\s+grey\s+)?white(?:[-/]\w+)?\s+"
+        r"(?:studio\s+)?(?:background|backdrop)",
+        re.IGNORECASE,
+    ), ""),
+    (re.compile(r",?\s*studio\s+backdrop", re.IGNORECASE), ""),
+    # sheet lighting / ground shadow
+    (re.compile(
+        r",?\s*under\s+(?:neutral|bright|soft|even|warm)\s+"
+        r"(?:even\s+)?[a-z\s]{0,24}lighting",
+        re.IGNORECASE,
+    ), ""),
+    (re.compile(
+        r",?\s*(?:bright\s+|soft\s+|even\s+)*even\s+frontal\s+lighting",
+        re.IGNORECASE,
+    ), ""),
+    (re.compile(
+        r",?\s*(?:that\s+casts\s+a?\s*)?(?:a\s+)?(?:soft|gentle)\s+shadow\s+"
+        r"beneath\s+the\s+(?:feet|paws|character)",
+        re.IGNORECASE,
+    ), ""),
+    # sheet composition framing
+    (re.compile(
+        r",?\s*framing\s+the\s+\w+\s+centered\s+and\s+occupying\s+most\s+"
+        r"of\s+the\s+frame[^.]*",
+        re.IGNORECASE,
+    ), ""),
+    # sheet stance (the storyboard owns the pose)
+    (re.compile(
+        r",?\s*on\s+all\s+four\s+feet|,?\s*on\s+all\s+fours\b",
+        re.IGNORECASE,
+    ), ""),
+)
+
+
+def scrub_caption_sheet_language(about: str) -> str:
+    """Strip turnaround-sheet artifacts from one caption. Phrase-level
+    (identity/wardrobe sentences survive intact); never returns empty —
+    if every phrase were somehow matched away the original stands."""
+    text = str(about or "").strip()
+    if not text:
+        return text
+    out = text
+    for pattern, repl in _CAPTION_SHEET_PHRASES:
+        out = pattern.sub(repl, out)
+    # Tidy the seams the removals leave behind.
+    out = re.sub(r"\s{2,}", " ", out)
+    out = re.sub(r"\s+([,.;])", r"\1", out)
+    out = re.sub(r"(?<![.!?])\s*,\s*([.;])", r"\1", out)
+    out = re.sub(r"[,;]\s*\.", ".", out)
+    out = re.sub(r"\.\s*\.", ".", out)
+    out = out.strip()
+    return out or text
+
+
+# Prefix dialogue-language assertions ("dialogue spoken in Chinese" on an
+# all-English board, live 2026-09-21 23:02). Speech language is owned by
+# the per-line <d>[Language] blocks; the prefix NEVER states one.
+_PREFIX_DIALOGUE_LANG_RE = re.compile(
+    r"[,;]?\s*(?:dialogue|speech|spoken\s+lines?|lines?)\s+"
+    r"(?:are\s+|is\s+)?(?:spoken\s+|delivered\s+|written\s+)?"
+    r"in\s+(?:Chinese|English|Mandarin|中文|英语|Chinese\s+and\s+English)",
+    re.IGNORECASE,
+)
+
+
+def scrub_prefix_dialogue_language(lines: list) -> list:
+    """Remove any dialogue-language assertion the prefix LLM slipped
+    into a prefix line. Lines that become empty (the assertion WAS the
+    line) are dropped; if every line were scrubbed away the original
+    list stands (prompt_prefix must stay non-empty)."""
+    cleaned_lines: list = []
+    for ln in lines or []:
+        if not isinstance(ln, str):
+            cleaned_lines.append(ln)
+            continue
+        cleaned = _PREFIX_DIALOGUE_LANG_RE.sub("", ln)
+        cleaned = re.sub(r"\s{2,}", " ", cleaned)
+        cleaned = re.sub(r"\s+([,.;])", r"\1", cleaned)
+        cleaned = re.sub(r"(?:^|(?<=[a-z])\s)[,;]\s*\.", ".", cleaned)
+        cleaned = cleaned.strip(" ,;")
+        if cleaned:
+            cleaned_lines.append(cleaned)
+    return cleaned_lines or list(lines or [])
 
 
 # ---------------------------------------------------------------------------
@@ -737,6 +850,11 @@ def _emit_caption_manifest_entry(
     the uncached path, plus the no-wardrobe warning when applicable. Used
     by both cache-hit and cache-miss branches so behavior is identical.
     """
+    # Choke-point scrub: sheet artifacts (multi-view framing, studio
+    # backdrop, sheet lighting, sheet stance) never enter the manifest —
+    # including captions served from the disk cache under older prompt
+    # versions.
+    about = scrub_caption_sheet_language(about)
     subjects = _extract_named_subjects(about)
     if not subjects:
         warnings.append(
@@ -3268,6 +3386,12 @@ class H3LoopPromptEnhancer:
                     manifest=manifest,
                     tempo_directive=tempo_directive,
                 )
+        # Belt-and-suspenders: the prefix LLM occasionally asserts a
+        # dialogue language ("dialogue spoken in Chinese" on an
+        # all-English board, live 2026-09-21 23:02) — speech language
+        # is owned by the per-line <d>[Language] blocks, never the
+        # prefix. Strip any such assertion mechanically.
+        prefix_lines = scrub_prefix_dialogue_language(prefix_lines)
         prefix_text = "\n".join(prefix_lines)
 
         # ---- Stage 1.6: caption-grounded CAST override (deterministic) -- #

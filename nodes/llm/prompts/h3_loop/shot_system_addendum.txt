@@ -9,9 +9,9 @@ overall_soundscape:
 non_diegetic_music:
 - Do NOT use the "Header: <label> (<field>)" form; do NOT localize, rename, or number the headers.
 - Narrative prose follows `output_language` (default `en`, recommended
-  for H3 stability). Dialogue policy is independent: unless the user
-  explicitly asks for English speech, default spoken lines to Chinese
-  (`<d>[Chinese] ...</d>`).
+  for H3 stability). Dialogue policy is independent and follows the
+  user's own lines verbatim — English lines stay English, Chinese
+  lines stay Chinese; NEVER translate speech in either direction.
 - Each section is separated from the next by exactly one blank line.
 - Write CHANGE: the visible action arc across the clip's duration, concrete camera motion (type + amplitude + speed), evolving light and sound. End the clip mid-action (an action still in progress) whenever another clip follows, so the chain can continue; only a FINAL clip ends on a resting image.
 - Length: scale with the clip's duration — roughly 15-20 English words per second of clip duration (a 10s clip ≈ 150-200 words; proportionally shorter for Chinese). overall_soundscape: 1-4 sentences. non_diegetic_music: 1-2 sentences or "No non-diegetic music.".

@@ -850,3 +850,85 @@ def test_facts_gate_skips_call_without_candidates(mods):
         user_input=plain, seed=1,
     )
     assert len(conn.calls) == 2
+
+
+# --------------------------------------------------------------------------- #
+# 2026-09-21 23:02 output review: prefix asserted "dialogue spoken in
+# Chinese" on an all-English board, and the captioner dodged the sheet
+# vocabulary ban with "shown from side, front, and back angles" +
+# composition framing + sheet lighting. Mechanical backstops.
+# --------------------------------------------------------------------------- #
+def test_scrub_prefix_dialogue_language(mods):
+    lg, _lp = mods
+    lines = lg.scrub_prefix_dialogue_language([
+        "Style line. No on-screen text, no logos; dialogue spoken in "
+        "Chinese.",
+        "Speech is delivered in English throughout.",
+        "spoken lines are spoken in Mandarin",
+        "Untouched line about palette and tempo.",
+    ])
+    assert "Chinese" not in lines[0]
+    assert "Style line" in lines[0] and "logos" in lines[0]
+    assert "English" not in lines[1]
+    # A line that was ONLY the assertion is dropped outright.
+    assert not any("Mandarin" in ln for ln in lines)
+    assert len(lines) == 3
+    assert lines[-1].startswith("Untouched")
+
+
+def test_scrub_caption_sheet_language_live_phrases(mods):
+    lg, _lp = mods
+    s = lg.scrub_caption_sheet_language
+    # Live leak 1: multi-view clause inside an identity sentence.
+    out = s(
+        "A fluffy anthropomorphic cream-and-white cat with curly wavy "
+        "fur, pink inner ears, large expressive brown eyes, and a bushy "
+        "tail stands upright on two white paws, shown from side, front, "
+        "and back angles. The cat wears a beige glen plaid blazer."
+    )
+    assert "shown from" not in out and "angles" not in out
+    assert "curly wavy fur" in out and "glen plaid blazer" in out
+    # Live leak 2: composition framing + sheet lighting tail.
+    out = s(
+        "Palette stays muted earth tones (gray-brown fur, taupe-brown "
+        "jacket, ivory shirt, tan tie) under neutral even lighting, "
+        "framing the cat centered and occupying most of the frame so "
+        "the face, tie knot, paw placement, and tail silhouette are "
+        "the lockable identity cues for every shot."
+    )
+    assert "framing" not in out and "occupying" not in out
+    assert "under neutral" not in out
+    assert "gray-brown fur" in out          # the palette facts survive
+    # Live leak 3: sheet lighting + ground shadow + stance.
+    out = s(
+        "A fluffy kitten in yellow corduroy overalls lit by bright even "
+        "frontal lighting that casts a soft shadow beneath the paws, "
+        "standing on all four feet, with amber eyes."
+    )
+    assert "frontal lighting" not in out
+    assert "shadow beneath" not in out
+    assert "all four" not in out
+    assert "yellow corduroy overalls" in out and "amber eyes" in out
+    # Older leak forms (turnaround/three views/white background).
+    out = s(
+        "A tabby cat in a tweed blazer, three views on a seamless "
+        "white background, turnaround sheet."
+    )
+    assert "three views" not in out and "white background" not in out
+    assert "turnaround" not in out and "tweed blazer" in out
+    # Never returns empty.
+    assert s("shown from three angles") == "shown from three angles"
+
+
+def test_shot_addendum_has_no_chinese_default():
+    txt = (PROMPTS_DIR / "h3_loop" / "shot_system_addendum.txt").read_text(
+        encoding="utf-8"
+    )
+    assert "default spoken lines to Chinese" not in txt
+
+
+def test_prefix_system_never_states_dialogue_language():
+    txt = (PROMPTS_DIR / "h3_loop" / "prefix_synth_system.txt").read_text(
+        encoding="utf-8"
+    )
+    assert "NEVER states a spoken-dialogue language" in txt
