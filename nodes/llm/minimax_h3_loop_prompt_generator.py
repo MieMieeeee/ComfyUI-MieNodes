@@ -483,12 +483,13 @@ def _caption_colour_families(caption: str) -> set[str]:
 
 
 # Concept→picture binding mentions: 图1的黑猫 / 参考图 1 → 黑猫（...） /
+# 图1的黑猫是爸爸 (role declarations end the name at 是/为) /
 # Picture 2 -> the white cat. Name is capped at 10 CJK/Latin chars and
-# must end at a delimiter (punctuation, bracket, colon, EOL, or 的).
+# must end at a delimiter (punctuation, bracket, colon, 是/为, EOL, 的).
 _BINDING_MENTION_RE = re.compile(
     r"(?:参考)?图\s*(\d{1,2})\s*(?:的\s*)?[→\-]*\s*"
     r"([\u4e00-\u9fffA-Za-z][\u4e00-\u9fffA-Za-z ]{0,10}?)"
-    r"(?=[，。；;,\n（）()：:]|$|的)",
+    r"(?=[，。；;,\n（）()：:是为]|$|的)",
 )
 
 
@@ -3149,19 +3150,31 @@ class H3LoopPromptEnhancer:
                 about = str(manifest[slot - 1].get("about") or "").strip()
                 if not about:
                     continue
-                for key in (bind_name, bind_name.lower()):
+                # The prefix LLM's cast keys are roster names; a raw
+                # (non-enhanced) concept may carry picture-prefixed
+                # speakers ("图3的小猫") whose keys merely CONTAIN the
+                # bound name — override those too.
+                keys = {bind_name, bind_name.lower()}
+                keys.update(
+                    k for k in list(cast)
+                    if bind_name in k or k in bind_name
+                )
+                pinned = False
+                for key in keys:
                     if cast.get(key) and cast.get(key) != about:
                         cast[key] = about
-                        note = (
-                            f"identity pin: {bind_name!r} is bound to "
-                            f"Picture {slot}; CAST line replaced with the "
-                            "picture's caption (the name's literal meaning "
-                            "does not describe the reference image)"
-                        )
-                        warnings.append(note)
-                        log_pipeline(note)
+                        pinned = True
                     elif key not in cast:
                         cast[key] = about
+                if pinned:
+                    note = (
+                        f"identity pin: {bind_name!r} is bound to "
+                        f"Picture {slot}; CAST line replaced with the "
+                        "picture's caption (the name's literal meaning "
+                        "does not describe the reference image)"
+                    )
+                    warnings.append(note)
+                    log_pipeline(note)
 
         # ---- Stage 1.5: extract stable spatial layout (deterministic) -- #
         # Pulls each subject's on-screen position out of the rewritten

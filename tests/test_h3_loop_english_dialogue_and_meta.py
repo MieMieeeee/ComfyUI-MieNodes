@@ -447,6 +447,32 @@ def test_reference_directive_teaches_only_used_pictures(mods):
     assert "<Subject 5> -> <Picture 5>" in full
 
 
+def test_role_declaration_binding_form_parses(mods):
+    """The natural role-declaration phrasing
+    ``图1的黑猫是爸爸，图2的白猫是妈妈`` must bind the NAME (黑猫), not
+    swallow the role into the name (黑猫是爸爸) — the CAST override keys
+    on the parsed name."""
+    lg, _lp = mods
+    text = (
+        "图1的黑猫是爸爸，图2的白猫是妈妈，图3的小猫是女儿\n\n"
+        "镜头是图2白猫的视角，对着图3的小猫和图1的黑猫\n\n"
+        "图3的小猫：Mommy, daddy is so ugly, why did you marry him.\n"
+        "图2的白猫：Iguess I was blind.\n"
+        "图3的小猫：Daddy, why did you marry a blind lady?\n"
+        "图2的白猫：Oh my god.\n"
+        "图1的黑猫：Well, nobody's perfect."
+    )
+    # Dialogue: the two prose lines are the prologue, 5 speaker turns.
+    turns, prologue = lg._dlg_parse_structured_dialogue_turns(text)
+    assert turns is not None and len(turns) == 5
+    assert "是爸爸" in prologue and "视角" in prologue
+    # Bindings: exact names, first mention wins (declaration line).
+    assert lg._concept_picture_bindings(text) == [
+        ("黑猫", 1), ("白猫", 2), ("小猫", 3),
+    ]
+    assert sorted(lg._referenced_picture_numbers(text)) == [1, 2, 3]
+
+
 # --------------------------------------------------------------------------- #
 # FULL-WORKFLOW E2E — mirrors the user's attached workflow (node 61) with
 # its exact widget values: ref2va + 5 wired pictures (Pictures 4/5 the
