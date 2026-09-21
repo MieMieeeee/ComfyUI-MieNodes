@@ -1328,6 +1328,11 @@ def build_spatial_layout_directive(spatial_layout: Optional[dict] = None) -> str
     ("at left of frame" must not become "on the left side of the picture
     frame" — paraphrases defeat the cross-clip continuity check).
 
+    Relative positions harvested from the semantic-facts extractor
+    ("beside 小猫", "left of the kitten") render without the "at"
+    ("黑猫 stays beside 小猫") — they anchor one subject to another,
+    not to the frame.
+
     A empty / None spatial_layout returns a single neutral line so the
     template still has something in the slot. The per-shot LLM is then
     instructed to mirror the prefix's spatial layout sentence verbatim.
@@ -1339,14 +1344,154 @@ def build_spatial_layout_directive(spatial_layout: Optional[dict] = None) -> str
             "preserve positions across consecutive clips)"
         )
     entries: list[str] = []
+    absolute = {
+        "left of frame", "right of frame", "center of frame",
+        "left slot", "right slot", "center slot",
+        "screen-left", "screen-right", "camera-left", "camera-right",
+    }
     for name, pos in spatial_layout.items():
-        entries.append(f"{name} stays at {pos}")
+        pos_s = str(pos)
+        # Relative anchors ("beside 小猫") render without "at"; the
+        # canonical absolutes ("left of frame") keep it — the prefix
+        # check must not catch the absolutes that start with the same
+        # words.
+        if (
+            pos_s not in absolute
+            and pos_s.startswith(
+                ("beside ", "next to ", "left of ", "right of ", "behind ", "in front of ")
+            )
+        ):
+            entries.append(f"{name} stays {pos_s}")
+        else:
+            entries.append(f"{name} stays at {pos_s}")
     if not entries:
         return (
             "(no spatial_layout declared for this board; mirror any "
             "spatial layout sentence in the shared prefix above)"
         )
     return "; ".join(entries) + "."
+
+
+# ---------------------------------------------------------------------------
+# Semantic facts (layout / picture bindings) — LLM judges, code verifies.
+#
+# The 2026-09 design review conclusion: spatial layout and picture
+# bindings are SEMANTIC judgements (who is where; which picture is which
+# character) and the regex pile that owned them accumulated a fix per
+# phrasing (的小猫 fragments, 黑 above the [一-龥] ceiling, 黑猫是爸爸
+# name swallowing, enumerated delimiters) while remaining blind to
+# relative positions ("黑猫在小猫旁边" — the user's own input!). The
+# span-anchored extractor already reads the concept with full intent;
+# these helpers harvest + MECHANICALLY VERIFY its layout/bindings facts
+# the same way turn spans are verified: a fact's name must literally
+# appear in the source text, positions must normalise to the canonical
+# vocabulary. Unverifiable entries are dropped, and the regex extractors
+# remain as fallback when the LLM returns nothing.
+# ---------------------------------------------------------------------------
+_FACT_POSITION_ZH = {
+    "画面左侧": "left of frame", "左边": "left of frame",
+    "画面左": "left of frame", "左侧": "left of frame",
+    "画左": "left of frame", "左方": "left of frame",
+    "画面右侧": "right of frame", "右边": "right of frame",
+    "画面右": "right of frame", "右侧": "right of frame",
+    "画右": "right of frame", "右方": "right of frame",
+    "画面中央": "center of frame", "中间": "center of frame",
+    "中央": "center of frame", "画面中间": "center of frame",
+    "居中": "center of frame",
+}
+_FACT_POSITION_EN = {
+    "left of frame": "left of frame",
+    "left side of frame": "left of frame",
+    "left of the frame": "left of frame",
+    "left side": "left of frame",
+    "left": "left of frame",
+    "right of frame": "right of frame",
+    "right side of frame": "right of frame",
+    "right of the frame": "right of frame",
+    "right side": "right of frame",
+    "right": "right of frame",
+    "center of frame": "center of frame",
+    "centre of frame": "center of frame",
+    "center of the frame": "center of frame",
+    "center-frame": "center of frame",
+    "center": "center of frame",
+    "centered": "center of frame",
+    "middle": "center of frame",
+}
+_FACT_RELATIVE_RE = re.compile(
+    r"^(beside|next to|left of|right of|behind|in front of)\s+(.+)$",
+    re.IGNORECASE,
+)
+
+
+def normalize_fact_position(raw: str) -> Optional[str]:
+    """Normalise one LLM-returned position phrase to the canonical
+    vocabulary: ``left of frame`` / ``right of frame`` / ``center of
+    frame`` / ``beside <name>``-style relative anchors. Returns None
+    when nothing recognisable — the caller drops the entry."""
+    s = str(raw or "").strip()
+    if not s:
+        return None
+    for zh, canon in _FACT_POSITION_ZH.items():
+        if zh in s:
+            return canon
+    low = s.lower().strip().rstrip(".")
+    if low in _FACT_POSITION_EN:
+        return _FACT_POSITION_EN[low]
+    m = _FACT_RELATIVE_RE.match(low)
+    if m and m.group(2).strip():
+        rel = m.group(1).lower()
+        anchor = m.group(2).strip()
+        if rel == "next to":
+            rel = "beside"
+        return f"{rel} {anchor}"
+    return None
+
+
+def harvest_semantic_facts(parsed: dict, concept: str) -> dict:
+    """Mechanically verify + shape the LLM's layout / bindings facts.
+
+    ``parsed`` is the extractor reply's JSON object. Verification: every
+    returned NAME must literally appear in the source concept (the same
+    trust-but-verify contract as turn spans — the LLM points, the code
+    confirms); positions must normalise; picture slots must be 1..9.
+    Unverifiable entries are dropped silently (regex fallback covers).
+
+    Returns ``{"layout": {name: canonical_pos}, "bindings":
+    [(name, slot), ...]}`` — the exact shapes ``extract_spatial_layout``
+    and ``_concept_picture_bindings`` produce, so consumers are
+    source-agnostic.
+    """
+    out: dict = {"layout": {}, "bindings": []}
+    if not isinstance(parsed, dict) or not concept:
+        return out
+    for entry in parsed.get("layout") or []:
+        if not isinstance(entry, dict):
+            continue
+        name = str(entry.get("name") or "").strip()
+        pos = normalize_fact_position(str(entry.get("position") or ""))
+        if not name or not pos:
+            continue
+        if name not in concept:
+            continue  # hallucinated name — drop
+        if name not in out["layout"]:
+            out["layout"][name] = pos
+    seen_names: set = set()
+    for entry in parsed.get("bindings") or []:
+        if not isinstance(entry, dict):
+            continue
+        name = str(entry.get("name") or "").strip()
+        try:
+            slot = int(entry.get("picture"))
+        except (TypeError, ValueError):
+            continue
+        if not name or not (1 <= slot <= 9) or name not in concept:
+            continue
+        if name in seen_names:
+            continue  # first binding wins per name
+        seen_names.add(name)
+        out["bindings"].append((name, slot))
+    return out
 
 
 # Binding tempo directives — one per pacing preset. Injected into every

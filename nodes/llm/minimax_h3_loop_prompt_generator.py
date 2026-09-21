@@ -134,6 +134,7 @@ try:
         build_shots_digest,
         build_single_call_user_text,
         build_spatial_layout_directive,
+        harvest_semantic_facts,
         build_cast_block,
         build_cast_sheet_text,
         extract_spatial_layout,
@@ -212,6 +213,7 @@ except ImportError:
         build_shots_digest,
         build_single_call_user_text,
         build_spatial_layout_directive,
+        harvest_semantic_facts,
         build_cast_block,
         build_cast_sheet_text,
         extract_spatial_layout,
@@ -493,6 +495,19 @@ _BINDING_MENTION_RE = re.compile(
 )
 
 
+# High-recall detection of FACT CANDIDATES in a concept: any picture-
+# slot mention or positional language. This GATES the semantic-facts
+# LLM call on fast-path boards (detection only — the actual extraction
+# is the LLM's job); false positives merely spend one cheap call,
+# false negatives are near-impossible for texts that carry facts.
+_FACT_CANDIDATE_RE = re.compile(
+    r"(?:图|Picture|picture)\s*\d"
+    r"|[左右]|中央|中间|旁边|身旁"
+    r"|beside|next to|left of|right of|center|centre",
+    re.IGNORECASE,
+)
+
+
 def _concept_picture_bindings(concept: str) -> list:
     """Ordered ``(name, slot)`` pairs the concept binds — e.g.
     ``参考图 1 → 黑猫`` yields ``("黑猫", 1)``. First mention wins per
@@ -516,10 +531,15 @@ def _manifest_consistency_warnings(
     concept: str,
     manifest: list[dict],
     ref_code: str,
+    bindings: Optional[list] = None,
 ) -> list[str]:
     """Deterministic warnings wiring the concept's picture mentions
     against the captioned manifest. Returns [] for non-ref2va boards
-    (only ref2va force-binds every picture into a Subject)."""
+    (only ref2va force-binds every picture into a Subject).
+
+    ``bindings`` — pre-extracted ``(name, slot)`` pairs (the LLM facts
+    harvest). When None the regex extractor runs internally; pass an
+    explicit empty list to force the regex fallback too."""
     if ref_code != "ref2va" or not manifest:
         return []
     out: list[str] = []
@@ -539,7 +559,8 @@ def _manifest_consistency_warnings(
     # brown-tabby caption &c). Only fires when the name carries a colour
     # token, the caption carries colour tokens of a DIFFERENT family,
     # and none of the name's family.
-    for name, slot in _concept_picture_bindings(concept):
+    pairs = bindings if bindings is not None else _concept_picture_bindings(concept)
+    for name, slot in pairs:
         family = _name_colour_family(name)
         if not family or slot > total or slot < 1:
             continue
@@ -1453,15 +1474,29 @@ class H3LoopPromptEnhancer:
     _EXTRACT_SYSTEM = (
         "You are a span-anchored dialogue extractor for a "
         "video-prompt generator. The user pasted a concept (any "
-        "language, free-form). Your ONLY job is to identify every "
-        "character utterance and return their character-exact "
-        "spans as JSON.\n\n"
+        "language, free-form). Your job: identify every character "
+        "utterance PLUS two semantic facts — the declared spatial "
+        "layout and the picture bindings — and return them as JSON.\n\n"
         "Output schema (single line of JSON, nothing else):\n"
         '  {"turns": [\n'
         '    {"speaker": "<name>", "lines": [\n'
         '      {"text": "<spoken words only>", "start": N, "end": M}\n'
         "    ]},\n"
-        "  ...]}\n\n"
+        "  ...],\n"
+        '  "layout": [{"name": "<character>", "position": "<pos>"}, ...],\n'
+        '  "bindings": [{"picture": N, "name": "<character>"}, ...]}\n'
+        "All three keys are REQUIRED (empty arrays when none apply).\n\n"
+        "layout = the on-screen positions the concept DECLARES for "
+        "named characters. Absolute: \"left of frame\" / \"right of "
+        "frame\" / \"center of frame\" (Chinese 画面左侧/画面右边/中间 "
+        "forms too). Relative: \"beside <name>\" / \"left of <name>\" "
+        "when the text anchors one character to another (图1的黑猫在"
+        "图3的小猫旁边 -> {\"name\": \"黑猫\", \"position\": \"beside "
+        "小猫\"}). Report ONLY positions the text actually states.\n"
+        "bindings = the picture-slot-to-character assignments the "
+        "text explicitly makes: 图1的黑猫 / 参考图 2 → 白猫 / Picture 3 "
+        "-> the kitten all yield {\"picture\": N, \"name\": <bare "
+        "character name>} (黑猫, never 黑猫是爸爸). No guesses.\n\n"
         "HARD RULES — violation of any rule invalidates the reply:\n"
         "  1. ``text`` MUST be the spoken words only. Do NOT include "
         "the lead verb (said, 问, 说), the surrounding quotes, or "
@@ -1485,7 +1520,7 @@ class H3LoopPromptEnhancer:
         "characters. A line that ends at offset 200 cannot be "
         "followed by another starting at offset 150.\n"
         "  6. If the concept has NO dialogue at all, return "
-        '{"turns": []}.\n'
+        '{"turns": []} (layout / bindings may still be non-empty).\n'
         "  7. Do NOT invent dialogue. If a sentence is narrator "
         "narration, leave it out. The user can always re-run.\n"
         "  8. A speaker MUST be a named story CHARACTER (a person or "
@@ -1500,39 +1535,72 @@ class H3LoopPromptEnhancer:
         "  9. Spoken lines keep their ORIGINAL language exactly — an "
         "English line is returned as English text, a Chinese line as "
         "Chinese text. Never translate.\n"
-        "  10. Output ONLY the JSON object on a single line, no "
+        "  10. Every layout / bindings ``name`` MUST be a string that "
+        "literally appears in the concept — the node verifies by "
+        "containment and silently drops anything else.\n"
+        "  11. Output ONLY the JSON object on a single line, no "
         "markdown, no commentary.\n"
         "Example (offsets are character indices; quotes are NOT "
         "part of the spoken span):\n"
-        "  concept = 公猫问：\"给够钱就行？\" 母猫答：\"给够钱。\"\n"
-        "  len(concept) = 23\n"
+        "  concept = '图1的黑猫在图3的小猫旁边。公猫问：\"给够钱就行？\" "
+        "母猫答：\"给够钱。\"'\n"
         "  reply:\n"
-        '  {"turns":[{"speaker":"公猫","lines":[{"text":"给够钱就行？","start":5,"end":11}]},'
-        '{"speaker":"母猫","lines":[{"text":"给够钱。","start":18,"end":22}]}]}'
+        '  {"turns":[{"speaker":"公猫","lines":[{"text":"给够钱就行？","start":19,"end":25}]},'
+        '{"speaker":"母猫","lines":[{"text":"给够钱。","start":32,"end":36}]}],'
+        '"layout":[{"name":"小猫","position":"center of frame"},'
+        '{"name":"黑猫","position":"beside 小猫"}],'
+        '"bindings":[{"picture":1,"name":"黑猫"},{"picture":3,"name":"小猫"}]}'
     )
 
     def extract_dialogue(self, concept: str) -> list:
-        """Run the LLM span extractor and return a list of
-        ``DialogueTurn`` with verified spans.
+        """Turns-only view over :meth:`extract_board_facts` (legacy
+        callers / the single-call path). See that method for the full
+        contract."""
+        return self.extract_board_facts(concept)[0]
+
+    def extract_board_facts(
+        self, concept: str, *, want_turns: bool = True
+    ) -> tuple:
+        """One LLM call returning ``(turns, facts)``.
+
+        ``turns`` — ``DialogueTurn`` list with mechanically verified
+        spans (the free-form dialogue path; see the original contract
+        below). ``facts`` — ``{"layout": {name: pos}, "bindings":
+        [(name, slot)]}`` harvested from the SAME reply and verified
+        mechanically: every name must literally appear in the concept,
+        positions must normalise to the canonical vocabulary
+        (``harvest_semantic_facts``). Unverifiable fact entries are
+        dropped; the regex extractors stay as the caller's fallback
+        when the LLM returns nothing.
+
+        ``want_turns=False`` (fast-path boards whose turns already
+        came from the deterministic parser): turns are NOT validated
+        and are discarded — the call exists purely for the facts, so
+        turn-span failures never trigger retries; only JSON-shape
+        failures retry. Exhausted retries in this mode return empty
+        facts (no dialogue-fallback warning — turns were never at
+        stake).
 
         The LLM is the ONLY source of the speaker/line judgements;
         the node mechanically verifies the spans. Wrong offsets that
         still uniquely locate the spoken text are rewritten in place.
         JSON / span failures retry with a corrective turn. A genuine
         ``{"turns": []}`` is narration (empty list, no warning).
-        Exhausted retries also return an empty list, but fill
-        ``self._dialogue_extract_warnings`` so the caller can surface
-        the fallback instead of pretending there was no dialogue.
-        ``InterruptProcessingException`` is re-raised.
+        Exhausted retries (want_turns=True) also return an empty list,
+        but fill ``self._dialogue_extract_warnings`` so the caller can
+        surface the fallback. ``InterruptProcessingException`` is
+        re-raised.
         """
         self._dialogue_extract_warnings = []
+        empty_facts: dict = {"layout": {}, "bindings": []}
         if not concept or not concept.strip():
-            return []
+            return [], empty_facts
         user_prompt = (
             "---BEGIN CONCEPT---\n"
             f"{concept}"
             "\n---END CONCEPT---\n\n"
-            "Reply with ONLY the single-line JSON object. Length of "
+            "Reply with ONLY the single-line JSON object with keys "
+            '"turns", "layout", "bindings". Length of '
             f"concept: {len(concept)} characters. Offsets are 0-based "
             "Python character indices (CJK glyph = 1)."
         )
@@ -1544,7 +1612,11 @@ class H3LoopPromptEnhancer:
                     messages,
                     temperature=0.0,
                     seed=None,
-                    stage=f"dialogue_extract[attempt {attempt}]",
+                    stage=(
+                        "dialogue_extract"
+                        if want_turns
+                        else "semantic_facts"
+                    ) + f"[attempt {attempt}]",
                     max_tokens=16384,
                 )
             except InterruptProcessingException:
@@ -1573,13 +1645,29 @@ class H3LoopPromptEnhancer:
                         "role": "user",
                         "content": (
                             "Your previous reply was not a JSON object. "
-                            "Reply with ONLY {\"turns\":[...]} using "
-                            "0-based character offsets so that "
-                            "concept[start:end] equals each line's text."
+                            "Reply with ONLY the single-line JSON object "
+                            'with keys "turns", "layout", "bindings" '
+                            "(turns uses 0-based character offsets so "
+                            "that concept[start:end] equals each line's "
+                            "text)."
                         ),
                     }
                 ]
                 continue
+            facts = harvest_semantic_facts(parsed, concept)
+            if facts["layout"] or facts["bindings"]:
+                log_pipeline(
+                    "semantic facts: layout="
+                    + (", ".join(f"{n}={p}" for n, p in facts["layout"].items())
+                       or "-")
+                    + "; bindings="
+                    + (", ".join(f"{n}->图{p}" for n, p in facts["bindings"])
+                       or "-")
+                )
+            if not want_turns:
+                # Facts-only call: turns are discarded, no span
+                # validation, no turn-driven retries.
+                return [], facts
             raw_turns = parsed.get("turns")
             if raw_turns is None:
                 raw_turns = []
@@ -1587,7 +1675,7 @@ class H3LoopPromptEnhancer:
                 last_reason = "turns is not a list"
                 continue
             if not raw_turns:
-                return []
+                return [], facts
             rows: list[tuple[str, _DLG_ExtractedLine]] = []
             for t in raw_turns:
                 if not isinstance(t, dict):
@@ -1664,7 +1752,7 @@ class H3LoopPromptEnhancer:
                 if not out:
                     # The only "speech" found was meta prose — this is a
                     # narration board; no point retrying the extractor.
-                    return []
+                    return [], facts
             if relocate_notes:
                 log_pipeline(
                     "dialogue extractor: "
@@ -1673,15 +1761,24 @@ class H3LoopPromptEnhancer:
             if not out:
                 last_reason = "0 valid turns after merge"
                 continue
-            return out
-        warning = (
-            "dialogue extractor failed after 3 attempts "
-            f"({last_reason}); falling back to the narrator "
-            "storyboard — spoken lines will NOT be preserved verbatim"
+            return out, facts
+        if want_turns:
+            warning = (
+                "dialogue extractor failed after 3 attempts "
+                f"({last_reason}); falling back to the narrator "
+                "storyboard — spoken lines will NOT be preserved verbatim"
+            )
+            log_pipeline(warning)
+            self._dialogue_extract_warnings.append(warning)
+            return [], empty_facts
+        # Facts-only mode: exhausted retries degrade to empty facts; the
+        # regex extractors take over silently (turns were never at
+        # stake, so no dialogue-fallback warning).
+        log_pipeline(
+            f"semantic-facts call failed after 3 attempts ({last_reason}); "
+            "falling back to regex layout/bindings extraction"
         )
-        log_pipeline(warning)
-        self._dialogue_extract_warnings.append(warning)
-        return []
+        return [], empty_facts
 
     # ------------------------------------------------------------------ #
     # Stage 1: style-only prompt_prefix + CAST sheet
@@ -2724,11 +2821,6 @@ class H3LoopPromptEnhancer:
                         "returned no usable manifest; reconnect the image batch"
                     )
 
-        # Concept↔manifest consistency (unreferenced pictures, name vs
-        # caption colour contradictions) — surfaced in the preflight.
-        warnings.extend(
-            _manifest_consistency_warnings(idea, manifest, ref_code)
-        )
         # Picture slots the concept actually names. Feeds three places:
         # the per-shot reference directive (never teaches unused
         # pictures), and the label policy (Subjects bound to unused
@@ -2737,6 +2829,10 @@ class H3LoopPromptEnhancer:
         concept_referenced_pics = _referenced_picture_numbers(idea) or None
 
         # ---- Stage 0.5: auto storyboard ------------------------------ #
+        # Semantic facts (LLM-harvested layout / bindings; empty when
+        # the call is gated off or fails — consumers fall back to the
+        # regex extractors).
+        semantic_facts: dict = {"layout": {}, "bindings": []}
         if _ns_lazy is None:
             shots = []
             # Stage 2's single_call branch references the stage-0.5
@@ -2744,6 +2840,7 @@ class H3LoopPromptEnhancer:
             # too. The empty-entries RuntimeError below fires first in
             # practice, so this list is never consumed.
             turns: list = []
+            merged_bindings: list = []
             warnings.append(
                 "auto-storyboard: skipped normalize_shots because the "
                 "storyboard-prompt module is unavailable in this runtime."
@@ -2751,25 +2848,54 @@ class H3LoopPromptEnhancer:
         else:
             reference_digest = _manifest_digest(manifest) if manifest else ""
             # ---- Dialogue-driven auto storyboard ---------------------- #
-            # 1) Extract dialogue turns. Canonical ``speaker：line``
+            # 1) Extract dialogue turns + semantic facts (layout /
+            #    bindings) in ONE call. Canonical ``speaker：line``
             #    concepts (what the enhancer emits and the skill
-            #    teaches) parse deterministically — no LLM call, exact
-            #    spans by construction. Free-form prose falls back to
-            #    the LLM span-anchored extractor. On extraction failure
-            #    (LLM paraphrase, bad JSON, malformed spans) we fall
-            #    back to a single narrator turn carrying the whole
-            #    concept as one beat.
+            #    teaches) parse turns deterministically — the LLM call
+            #    then runs in facts-only mode (turns stay deterministic;
+            #    layout/bindings need intent — relative positions like
+            #    "黑猫在小猫旁边" are invisible to regex). Free-form prose
+            #    gets the full validating extraction. On extraction
+            #    failure (LLM paraphrase, bad JSON, malformed spans) we
+            #    fall back to a single narrator turn carrying the whole
+            #    concept as one beat; facts fall back to the regex
+            #    extractors.
             turns, _structured_prologue = (
                 _dlg_parse_structured_dialogue_turns(idea)
             )
             if turns:
                 self._dialogue_extract_warnings = []
-                log_pipeline(
-                    "structured dialogue parsed deterministically "
-                    f"({len(turns)} turn(s)) — LLM extractor skipped"
-                )
+                # Facts gate (high-recall DETECTION, not extraction):
+                # only spend the semantic-facts call when the concept
+                # mentions picture slots or any positional language at
+                # all — a canonical board with neither has no facts to
+                # harvest and the regex extractors return empty anyway.
+                if _FACT_CANDIDATE_RE.search(idea):
+                    log_pipeline(
+                        "structured dialogue parsed deterministically "
+                        f"({len(turns)} turn(s)); semantic-facts call "
+                        "running for layout/bindings"
+                    )
+                    try:
+                        _t, semantic_facts = self.extract_board_facts(
+                            idea, want_turns=False
+                        )
+                    except InterruptProcessingException:
+                        raise
+                    except Exception as exc:
+                        log_pipeline(
+                            "semantic-facts call failed "
+                            f"({exc!r}); regex layout/bindings fallback"
+                        )
+                        semantic_facts = {"layout": {}, "bindings": []}
+                else:
+                    log_pipeline(
+                        "structured dialogue parsed deterministically "
+                        f"({len(turns)} turn(s)) — no picture/positional "
+                        "language; semantic-facts call skipped"
+                    )
             else:
-                turns = self.extract_dialogue(idea)
+                turns, semantic_facts = self.extract_board_facts(idea)
                 if self._dialogue_extract_warnings:
                     warnings.extend(self._dialogue_extract_warnings)
             pacing_obj = _DLG_PACING_PRESETS[pacing_key]
@@ -2800,6 +2926,19 @@ class H3LoopPromptEnhancer:
                 warnings.append(upgrade_note)
                 log_pipeline(upgrade_note)
             budgets, pacing_report = _dlg_estimate_shot_budget(turns, pacing_obj)
+            # Concept↔manifest consistency (unreferenced pictures, name
+            # vs caption colour contradictions) — runs AFTER the facts
+            # call so the colour check rides the LLM-harvested bindings
+            # (regex fallback when the facts came back empty).
+            fact_bindings = list(semantic_facts.get("bindings") or [])
+            merged_bindings = (
+                fact_bindings or _concept_picture_bindings(idea)
+            )
+            warnings.extend(
+                _manifest_consistency_warnings(
+                    idea, manifest, ref_code, bindings=merged_bindings
+                )
+            )
             if is_narrator_fallback:
                 # Pacing math is TTS-speech math — for a narration board
                 # (the whole prose paragraph as one fallback "line") it
@@ -3144,7 +3283,7 @@ class H3LoopPromptEnhancer:
         # the voice-line side; subject_definitions already follow the
         # caption.
         if manifest:
-            for bind_name, slot in _concept_picture_bindings(idea):
+            for bind_name, slot in merged_bindings:
                 if not (1 <= slot <= len(manifest)):
                     continue
                 about = str(manifest[slot - 1].get("about") or "").strip()
@@ -3176,17 +3315,22 @@ class H3LoopPromptEnhancer:
                     warnings.append(note)
                     log_pipeline(note)
 
-        # ---- Stage 1.5: extract stable spatial layout (deterministic) -- #
-        # Pulls each subject's on-screen position out of the rewritten
-        # user_input via regex; the result is injected into both the
-        # prefix (via the synth system prompt's hard rule) AND every
-        # per-shot user template via build_spatial_layout_directive. No
-        # extra LLM call — this is a rule-based pass over the rewritten
-        # concept the enhancer already produced.
-        spatial_layout = extract_spatial_layout(idea)
+        # ---- Stage 1.5: stable spatial layout -------------------------- #
+        # Layout is a SEMANTIC fact: the LLM extractor's harvested
+        # layout is primary (it understands relative positions like
+        # "黑猫在小猫旁边" that regex cannot); the regex extractor is the
+        # fallback when the facts came back empty. The result is
+        # injected into every per-shot user template via
+        # build_spatial_layout_directive; the prefix pin rides the
+        # prefix-synth rule (roster names, no POV pin).
+        spatial_layout = dict(semantic_facts.get("layout") or {})
+        layout_source = "llm facts"
+        if not spatial_layout:
+            spatial_layout = extract_spatial_layout(idea)
+            layout_source = "regex fallback"
         if spatial_layout:
             log_pipeline(
-                "spatial layout (extracted from user_input): "
+                f"spatial layout ({layout_source}): "
                 + ", ".join(f"{n}={p}" for n, p in spatial_layout.items())
             )
 

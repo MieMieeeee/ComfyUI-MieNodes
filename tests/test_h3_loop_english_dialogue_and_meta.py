@@ -136,8 +136,24 @@ def test_english_dialogue_pipeline_no_phantom_speaker(mods):
     lg, _lp = mods
     # Normal pacing, scene_count auto -> minimal-cut packing.
     # Speech math: [t1..t3] packs one scene (~12s), [t4..t5] the second
-    # (~4.5s). 5 turns >= 5 -> the stage-1 prefix LLM call runs.
+    # (~4.5s). 5 turns >= 5 -> the stage-1 prefix LLM call runs. The
+    # concept mentions 图1-3 -> the semantic-facts gate fires -> one
+    # facts call (layout/bindings) between parse and prefix.
+    FACTS = json.dumps({
+        "turns": [],
+        "layout": [
+            {"name": "黑猫", "position": "right of frame"},
+            {"name": "白猫", "position": "left of frame"},
+            {"name": "小猫", "position": "center of frame"},
+        ],
+        "bindings": [
+            {"picture": 1, "name": "黑猫"},
+            {"picture": 2, "name": "白猫"},
+            {"picture": 3, "name": "小猫"},
+        ],
+    }, ensure_ascii=False)
     conn = _Conn([
+        FACTS,
         PREFIX_REPLY,
         "integrated_multimodal_description:\n[Shot 1] The kitten and "
         "mother perform the first exchange.\n\n"
@@ -169,8 +185,18 @@ def test_english_dialogue_pipeline_no_phantom_speaker(mods):
     assert any(ln.startswith("小猫") and "(S1):" in ln for ln in d_lines)
     assert any(ln.startswith("白猫") and "(S2):" in ln for ln in d_lines)
     assert any(ln.startswith("黑猫") and "(S3):" in ln for ln in d_lines)
-    # 1 prefix call + 2 shot calls; no extractor call (fast path).
-    assert len(conn.calls) == 3
+    # 1 facts call + 1 prefix call + 2 shot calls; no extractor call
+    # for turns (fast path).
+    assert len(conn.calls) == 4
+    # The LLM-harvested layout rides every shot user template.
+    shot_user = [
+        c[1]["content"] for c in conn.calls if "Clip duration" in c[1]["content"]
+    ]
+    assert len(shot_user) == 2
+    for t in shot_user:
+        assert "黑猫 stays at right of frame" in t
+        assert "白猫 stays at left of frame" in t
+        assert "小猫 stays at center of frame" in t
 
 
 # --------------------------------------------------------------------------- #
@@ -613,10 +639,26 @@ def test_full_workflow_e2e_ref2va_english_dialogue(mods, monkeypatch, tmp_path):
 
     # Exact LLM call sequence this widget set produces:
     #   1 auto-enhance, 4 caption misses (5th is a memory-cache hit),
-    #   1 prefix (5 turns >= LLM-prefix threshold), 2 shot calls.
+    #   1 semantic-facts call (canonical turns from the fast path; the
+    #   concept's 图1-3 mentions fire the facts gate), 1 prefix (5
+    #   turns >= LLM-prefix threshold), 2 shot calls.
+    WF_FACTS = json.dumps({
+        "turns": [],
+        "layout": [
+            {"name": "黑猫", "position": "right of frame"},
+            {"name": "白猫", "position": "left of frame"},
+            {"name": "小猫", "position": "center of frame"},
+        ],
+        "bindings": [
+            {"picture": 1, "name": "黑猫"},
+            {"picture": 2, "name": "白猫"},
+            {"picture": 3, "name": "小猫"},
+        ],
+    }, ensure_ascii=False)
     conn = _Conn([
         WF_ENHANCED,
         *WF_CAPTIONS[:4],
+        WF_FACTS,
         WF_PREFIX,
         _wf_shot_reply(
             [1, 2, 3],
@@ -653,9 +695,9 @@ def test_full_workflow_e2e_ref2va_english_dialogue(mods, monkeypatch, tmp_path):
 
     # ── LLM spend is exactly the scripted sequence: the duplicated
     #    picture was served from the memory cache, not re-captioned.
-    assert len(conn.calls) == 8, (
-        f"expected 8 LLM calls (enhance+4 captions+prefix+2 shots); "
-        f"got {len(conn.calls)}"
+    assert len(conn.calls) == 9, (
+        f"expected 9 LLM calls (enhance+4 captions+facts+prefix+2 "
+        f"shots); got {len(conn.calls)}"
     )
 
     plan = json.loads(out["plan_json"])
@@ -723,3 +765,88 @@ def test_full_workflow_e2e_ref2va_english_dialogue(mods, monkeypatch, tmp_path):
     assert "category: none -> dialogue" in pre          # auto-upgrade note
     assert "never referenced" in pre                    # Pictures 4/5
     assert "黑猫" in pre and "Picture 1" in pre         # colour contradiction
+
+
+# --------------------------------------------------------------------------- #
+# Semantic-facts refactor (2026-09-21 review): layout / bindings are
+# LLM-judged + mechanically verified; regex extractors demoted to
+# fallback.
+# --------------------------------------------------------------------------- #
+def test_normalize_fact_position(mods):
+    _lg, lp = mods
+    n = lp.normalize_fact_position
+    assert n("left of frame") == "left of frame"
+    assert n("画面右侧") == "right of frame"
+    assert n("中间") == "center of frame"
+    assert n("Center of the Frame.") == "center of frame"
+    # Relative anchors survive with their reference target.
+    assert n("beside 小猫") == "beside 小猫"
+    assert n("next to the kitten") == "beside the kitten"
+    assert n("left of 小猫") == "left of 小猫"
+    assert n("somewhere nice") is None
+    assert n("") is None
+
+
+def test_harvest_semantic_facts_drops_unverified(mods):
+    _lg, lp = mods
+    concept = "图1的黑猫在图3的小猫旁边。黑猫坐在左边。"
+    facts = lp.harvest_semantic_facts({
+        "layout": [
+            {"name": "黑猫", "position": "beside 小猫"},
+            {"name": "小猫", "position": "center of frame"},
+            {"name": "幽灵猫", "position": "left of frame"},  # not in text
+            {"name": "黑猫", "position": "right of frame"},   # first wins
+        ],
+        "bindings": [
+            {"picture": 1, "name": "黑猫"},
+            {"picture": 3, "name": "小猫"},
+            {"picture": 12, "name": "黑猫"},                  # slot out of range
+            {"picture": 2, "name": "幽灵猫"},                 # name not in text
+            {"picture": 2, "name": "黑猫"},                   # dup name ignored
+        ],
+    }, concept)
+    assert facts["layout"] == {
+        "黑猫": "beside 小猫", "小猫": "center of frame",
+    }
+    assert facts["bindings"] == [("黑猫", 1), ("小猫", 3)]
+
+
+def test_extract_board_facts_only_mode_ignores_turn_quality(mods):
+    """want_turns=False (fast-path boards): garbage turns never trigger
+    retries — the call exists purely for the facts."""
+    lg, _lp = mods
+    concept = "场景设定：客厅，黑猫在左边。\n甲猫：你好。\n乙猫：再见。"
+    reply = json.dumps({
+        "turns": [{"speaker": "nonsense",
+                   "lines": [{"text": "span junk", "start": 99, "end": 1}]}],
+        "layout": [{"name": "黑猫", "position": "left of frame"}],
+        "bindings": [],
+    }, ensure_ascii=False)
+    conn = _Conn([reply])
+    turns, facts = lg.H3LoopPromptEnhancer(conn).extract_board_facts(
+        concept, want_turns=False
+    )
+    assert turns == []
+    assert facts["layout"] == {"黑猫": "left of frame"}
+    assert len(conn.calls) == 1  # no span-validation retry
+
+
+def test_facts_gate_skips_call_without_candidates(mods):
+    """Canonical boards with no 图N / positional language skip the
+    facts call entirely (cost + stub-ordering contract)."""
+    lg, _lp = mods
+    plain = "甲猫：你好。\n乙猫：好的。"
+    # Direct gate check.
+    assert not lg._FACT_CANDIDATE_RE.search(plain)
+    assert lg._FACT_CANDIDATE_RE.search(CONCEPT)  # 参考图 N mentions
+    # Pipeline-level: a canonical no-candidate board makes NO facts
+    # call (stub = prefix + shots only, as before the refactor).
+    prefix = "Style.\n\nCAST:\n甲猫: x.\n乙猫: y.\n"
+    shot = ("integrated_multimodal_description:\n[Shot 1] ok.\n\n"
+            "overall_soundscape:\ntone\n\n"
+            "non_diegetic_music:\nNo non-diegetic music.\n")
+    conn = _Conn([prefix, shot])
+    lg.H3LoopPromptEnhancer(conn, temperature=0.4, timeout=60)(
+        user_input=plain, seed=1,
+    )
+    assert len(conn.calls) == 2
