@@ -12,14 +12,18 @@ non_diegetic_music:
 - Do NOT use the three-section header list; do NOT use the localized
   "Header: <label>" form. Bare field names only.
 - Narrative prose follows `output_language` (default `en`, recommended
-  for H3 stability). Dialogue policy is independent: unless the user
-  explicitly asks for English speech, default spoken lines to Chinese
-  (`<d>[Chinese] ...</d>`).
+  for H3 stability). Dialogue policy is independent and follows the
+  user's own lines verbatim — English lines stay English, Chinese
+  lines stay Chinese; NEVER translate speech in either direction.
 - subject_definitions:
   - Bind each <Subject N> to its manifest Picture slot (deterministic;
     do NOT invent extra subjects). Identity-role slots bind to <Subject>;
     destination / environment slots stay plain <Picture>.
-  - Restate the about text for each Picture / Subject slot.
+  - Restate the about text for each Picture / Subject slot. Caption
+    fidelity: copy the caption's FACTS exactly — add NO wardrobe,
+    feature, or colour the caption does not state (no invented
+    trousers on a bare-paws subject, no new eye colour), and drop
+    nothing the caption states.
   - Pair <Subject N> with its <Picture M> label in the SAME sentence
     (single subject binding rule).
 - summary:

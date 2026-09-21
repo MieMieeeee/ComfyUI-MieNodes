@@ -492,6 +492,25 @@ _BINDING_MENTION_RE = re.compile(
 )
 
 
+def _concept_picture_bindings(concept: str) -> list:
+    """Ordered ``(name, slot)`` pairs the concept binds — e.g.
+    ``参考图 1 → 黑猫`` yields ``("黑猫", 1)``. First mention wins per
+    name; slots are 1-indexed manifest positions."""
+    out: list = []
+    seen: set = set()
+    for m in _BINDING_MENTION_RE.finditer(concept or ""):
+        try:
+            slot = int(m.group(1))
+        except ValueError:
+            continue
+        name = m.group(2).strip()
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        out.append((name, slot))
+    return out
+
+
 def _manifest_consistency_warnings(
     concept: str,
     manifest: list[dict],
@@ -519,12 +538,7 @@ def _manifest_consistency_warnings(
     # brown-tabby caption &c). Only fires when the name carries a colour
     # token, the caption carries colour tokens of a DIFFERENT family,
     # and none of the name's family.
-    for m in _BINDING_MENTION_RE.finditer(concept or ""):
-        try:
-            slot = int(m.group(1))
-        except ValueError:
-            continue
-        name = m.group(2).strip()
+    for name, slot in _concept_picture_bindings(concept):
         family = _name_colour_family(name)
         if not family or slot > total or slot < 1:
             continue
@@ -3115,6 +3129,39 @@ class H3LoopPromptEnhancer:
                     tempo_directive=tempo_directive,
                 )
         prefix_text = "\n".join(prefix_lines)
+
+        # ---- Stage 1.6: caption-grounded CAST override (deterministic) -- #
+        # Characters the concept binds to a reference picture (图N → 名字)
+        # get their CAST identity line REPLACED by that picture's caption.
+        # The caption is the binding visual ground truth (the pipeline's
+        # own contract); the prefix LLM instead invents appearance from
+        # the NAME (黑猫 -> "black short-haired, golden-yellow eyes" while
+        # Picture 1's caption — and the subject_definitions — say gray
+        # tabby), baking two contradictory identities into one plan
+        # (live 2026-09-21: father and mother each split into two cats).
+        # The <d> speaker lines carry the CAST, so this override fixes
+        # the voice-line side; subject_definitions already follow the
+        # caption.
+        if manifest:
+            for bind_name, slot in _concept_picture_bindings(idea):
+                if not (1 <= slot <= len(manifest)):
+                    continue
+                about = str(manifest[slot - 1].get("about") or "").strip()
+                if not about:
+                    continue
+                for key in (bind_name, bind_name.lower()):
+                    if cast.get(key) and cast.get(key) != about:
+                        cast[key] = about
+                        note = (
+                            f"identity pin: {bind_name!r} is bound to "
+                            f"Picture {slot}; CAST line replaced with the "
+                            "picture's caption (the name's literal meaning "
+                            "does not describe the reference image)"
+                        )
+                        warnings.append(note)
+                        log_pipeline(note)
+                    elif key not in cast:
+                        cast[key] = about
 
         # ---- Stage 1.5: extract stable spatial layout (deterministic) -- #
         # Pulls each subject's on-screen position out of the rewritten

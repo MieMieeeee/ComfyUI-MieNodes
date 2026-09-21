@@ -639,6 +639,23 @@ def test_full_workflow_e2e_ref2va_english_dialogue(mods, monkeypatch, tmp_path):
     assert all("<Subject 4> -> <Picture 4>" not in t for t in shot_user_texts[-2:])
     assert "<Subject 4>" in "\n".join(plan["shots"][1]["prompt"])  # noise kept
 
+    # ── Caption-grounded CAST: the <d> speaker identity lines follow
+    #    the BOUND PICTURE's caption, never the name's literal meaning
+    #    (the 2026-09-21 split-identity failure: 黑猫's line said
+    #    "black short-haired" while Picture 1 is a brown tabby).
+    s1_text = "\n".join(plan["shots"][0]["prompt"])
+    s2_text = "\n".join(plan["shots"][1]["prompt"])
+    # 黑猫 (bound to Picture 1 = brown tabby caption) speaks in scene_02.
+    hei_line = next(ln for ln in s2_text.split("\n") if ln.startswith("黑猫"))
+    assert "brown_tabby_cat" in hei_line          # caption content verbatim
+    assert "black" not in hei_line.lower()        # no name-derived colour
+    # 白猫 (bound to Picture 2 = cream caption): caption, not "white
+    # long-haired" invention.
+    bai_lines = [ln for ln in s1_text.split("\n") if ln.startswith("白猫")]
+    assert bai_lines and all("cream" in ln.lower() for ln in bai_lines)
+    # The override is surfaced in the summary.
+    assert "identity pin" in out["summary"]
+
     # ── Summary: the guardrails that must be loud, not fatal.
     pre = out["summary"]
     assert "category: none -> dialogue" in pre          # auto-upgrade note

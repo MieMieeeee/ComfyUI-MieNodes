@@ -23,6 +23,7 @@ CAST SHEET rules:
 - One line per DISTINCT named character anywhere in the concept or storyboard — include characters that appear in only one shot or arrive late; the per-clip prompts select from this sheet by roster.
 - Use the EXACT stable names from the roster list in the request (same spelling/case as given).
 - Each line: one dense identity description — species/build, fur/hair or skin, wardrobe, one identifying feature. Concrete nouns only, no actions, no shot grammar.
+- A character NAME is a handle, never a description: NEVER derive appearance from the name's literal meaning — 黑猫 does not mean black fur, 白猫 does not mean white fur, 小猫 does not mean small. When the request binds a character to a reference picture (参考图 N → 名字 / Picture N -> name), the CAST line MUST restate THAT PICTURE's caption (from the reference manifest) as the identity — fur colour, eyes, wardrobe, everything. The caption is the visual ground truth; a name-derived look next to a caption-derived subject_definitions gives the same character two bodies.
 - Never invent a character the concept and storyboard do not mention.
 
 Write in the requested output language.
