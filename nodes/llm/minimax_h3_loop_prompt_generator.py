@@ -303,8 +303,9 @@ LOOP_CATEGORY_ADVICE = {
     "dialogue": (
         "spoken-scene cinematography: medium-close framing on speakers, "
         "shot/reverse-shot on turns, eyeline matching; natural room tone "
-        "with breath and lip movement foregrounded; dialogue language "
-        "defaults to Chinese unless the concept specifies otherwise; "
+        "with breath and lip movement foregrounded; spoken language is "
+        "whatever the concept's own dialogue lines are (Chinese stays "
+        "Chinese, English stays English — never translate speech); "
         "no on-screen subtitles, no captions, no watermark, no SFX stings "
         "during speech"
     ),
@@ -399,6 +400,146 @@ _PACING_TO_STORYBOARD_BIAS = {
     "normal": "balanced",
     "slow": "conservative",
 }
+
+# Phantom-speaker guard (2026-09-22 live failure). The upstream
+# UserInputEnhancer rewrites dialogue boards with a ``场景设定：`` setting
+# paragraph (its own Example-E format); the span extractor can mistake
+# that label for a speaker — the verbatim span check then PASSES (the
+# paragraph is literal source text), the phantom turn eats S1, and the
+# per-shot model renders the whole setting paragraph as an off-screen
+# voiceover line. The LLM-side extractor prompt forbids it, but
+# prompt-only is probabilistic — this mechanical filter is the
+# guarantee. A meta label is never a story character.
+_META_SPEAKER_RE = re.compile(
+    r"^(场景设定|场景|设定|镜头|相机|摄像机|画面|旁白|叙述|配音|画外音|旁白配音|"
+    r"视角|背景|环境|setting|scene|camera|narration|narrator|voiceover|"
+    r"voice-over|voice over|pov|caption|description)$",
+    re.IGNORECASE,
+)
+
+
+def _is_meta_speaker(speaker: str) -> bool:
+    """True when a "speaker" is a meta label (setting / camera /
+    narration), not a story character. Such turns are dropped from
+    extraction output — they are prose, never speech."""
+    return bool(_META_SPEAKER_RE.match((speaker or "").strip()))
+
+
+# ---------------------------------------------------------------------------
+# Manifest / concept consistency checks (2026-09-22 live failure: the user
+# wired 5 reference pictures but the concept named only 图1-3 — Pictures
+# 4/5 (black cat figurines) silently became Subjects 4/5 and the label
+# policy forced them into every scene; and the concept's 黑猫 label
+# contradicted Picture 1's caption (a brown tabby), baking two conflicting
+# identities for the same character into the plan). Both are warnings, not
+# errors — the user may intend multi-image boards — but they must be loud.
+# ---------------------------------------------------------------------------
+def _referenced_picture_numbers(concept: str) -> set[int]:
+    """Picture slot numbers the concept text actually references
+    (``图1`` / ``图 2`` / ``Picture 3``)."""
+    return {
+        int(n)
+        for n in re.findall(r"(?:图|Picture|picture)\s*(\d{1,2})", concept or "")
+    }
+
+
+# Fur-colour families. A name token from one family contradicting the
+# bound picture caption's colour tokens (none of the name's family,
+# at least one of a different family) fires a warning. Synonym sets are
+# deliberately small — high precision beats recall here.
+_COLOUR_FAMILIES: dict[str, tuple[str, ...]] = {
+    "black": ("黑", " black", "black ", "jet-black"),
+    "white": ("白", "white", "cream"),
+    "orange": ("橘", "橙", "orange", "ginger"),
+    "grey": ("灰", "grey", "gray"),
+    "brown": ("棕", "褐", "brown"),
+}
+_NAME_COLOUR_TOKENS = {
+    "黑": "black", "白": "white", "灰": "grey", "橘": "orange", "橙": "orange",
+    "棕": "brown", "褐": "brown",
+    "black": "black", "white": "white", "grey": "grey", "gray": "grey",
+    "orange": "orange", "ginger": "orange", "brown": "brown",
+    "cream": "white",
+}
+
+
+def _name_colour_family(name: str) -> Optional[str]:
+    low = (name or "").lower()
+    for token, family in _NAME_COLOUR_TOKENS.items():
+        if token in low or token in (name or ""):
+            return family
+    return None
+
+
+def _caption_colour_families(caption: str) -> set[str]:
+    low = f" {(caption or '').lower()} "
+    found: set[str] = set()
+    for family, tokens in _COLOUR_FAMILIES.items():
+        for tok in tokens:
+            if tok in low or tok.strip() in (caption or ""):
+                found.add(family)
+                break
+    return found
+
+
+# Concept→picture binding mentions: 图1的黑猫 / 参考图 1 → 黑猫（...） /
+# Picture 2 -> the white cat. Name is capped at 10 CJK/Latin chars and
+# must end at a delimiter (punctuation, bracket, colon, EOL, or 的).
+_BINDING_MENTION_RE = re.compile(
+    r"(?:参考)?图\s*(\d{1,2})\s*(?:的\s*)?[→\-]*\s*"
+    r"([\u4e00-\u9fffA-Za-z][\u4e00-\u9fffA-Za-z ]{0,10}?)"
+    r"(?=[，。；;,\n（）()：:]|$|的)",
+)
+
+
+def _manifest_consistency_warnings(
+    concept: str,
+    manifest: list[dict],
+    ref_code: str,
+) -> list[str]:
+    """Deterministic warnings wiring the concept's picture mentions
+    against the captioned manifest. Returns [] for non-ref2va boards
+    (only ref2va force-binds every picture into a Subject)."""
+    if ref_code != "ref2va" or not manifest:
+        return []
+    out: list[str] = []
+    referenced = _referenced_picture_numbers(concept)
+    total = len(manifest)
+    unused = [n for n in range(1, total + 1) if n not in referenced]
+    if unused and referenced:
+        out.append(
+            f"reference manifest has {total} picture(s) but the concept "
+            f"only names Picture {sorted(referenced)}; Picture {unused} "
+            "are wired and captioned but never referenced — in ref2va "
+            "every manifest picture binds a Subject that must appear in "
+            "the plan. Disconnect unreferenced pictures or mention them "
+            "in the concept."
+        )
+    # Name-vs-caption colour contradictions (black-named cat bound to a
+    # brown-tabby caption &c). Only fires when the name carries a colour
+    # token, the caption carries colour tokens of a DIFFERENT family,
+    # and none of the name's family.
+    for m in _BINDING_MENTION_RE.finditer(concept or ""):
+        try:
+            slot = int(m.group(1))
+        except ValueError:
+            continue
+        name = m.group(2).strip()
+        family = _name_colour_family(name)
+        if not family or slot > total or slot < 1:
+            continue
+        caption = str(manifest[slot - 1].get("about") or "")
+        cap_families = _caption_colour_families(caption)
+        if cap_families and family not in cap_families:
+            out.append(
+                f"concept names Picture {slot} as {name!r} (colour family "
+                f"{family}) but its caption reads: {caption[:120]}... — "
+                "the bound reference picture shows a different look; the "
+                "caption wins visually, so rename the character or swap "
+                "the picture to avoid two conflicting identities."
+            )
+    return out
+
 
 CAPTION_MODES = (
     "cache_memory_disk - 缓存:内存+磁盘(推荐)",
@@ -1332,7 +1473,19 @@ class H3LoopPromptEnhancer:
         '{"turns": []}.\n'
         "  7. Do NOT invent dialogue. If a sentence is narrator "
         "narration, leave it out. The user can always re-run.\n"
-        "  8. Output ONLY the JSON object on a single line, no "
+        "  8. A speaker MUST be a named story CHARACTER (a person or "
+        "creature in the fiction). A line whose label is a META label — "
+        "场景设定 / 设定 / 场景 / 镜头 / 相机 / 画面 / 旁白 / setting / "
+        "camera / narration / voiceover / POV — is NOT dialogue; its text "
+        "is scene-setting prose. NEVER return it as a turn, even though "
+        "the text is verbatim source and would pass the span check. "
+        "Language carries no signal: a 场景设定： paragraph followed by "
+        "English speaker lines is a setting paragraph, not the first "
+        "speaker's utterance.\n"
+        "  9. Spoken lines keep their ORIGINAL language exactly — an "
+        "English line is returned as English text, a Chinese line as "
+        "Chinese text. Never translate.\n"
+        "  10. Output ONLY the JSON object on a single line, no "
         "markdown, no commentary.\n"
         "Example (offsets are character indices; quotes are NOT "
         "part of the spoken span):\n"
@@ -1481,6 +1634,22 @@ class H3LoopPromptEnhancer:
                         end=line.end,
                     )
                 )
+            # Phantom-speaker guard: drop meta labels (场景设定 / camera /
+            # narration / ...) the extractor mistook for characters. Their
+            # spans are verbatim source prose, so span validation cannot
+            # catch them — only the speaker name can.
+            meta_dropped = [t.speaker for t in out if _is_meta_speaker(t.speaker)]
+            if meta_dropped:
+                log_pipeline(
+                    "dialogue extractor: dropped meta-label pseudo-turn(s) "
+                    + ", ".join(repr(s) for s in meta_dropped)
+                    + " (setting/camera prose is never speech)"
+                )
+                out = [t for t in out if not _is_meta_speaker(t.speaker)]
+                if not out:
+                    # The only "speech" found was meta prose — this is a
+                    # narration board; no point retrying the extractor.
+                    return []
             if relocate_notes:
                 log_pipeline(
                     "dialogue extractor: "
@@ -2536,6 +2705,12 @@ class H3LoopPromptEnhancer:
                         f"{ref_code} requires images and the caption stage "
                         "returned no usable manifest; reconnect the image batch"
                     )
+
+        # Concept↔manifest consistency (unreferenced pictures, name vs
+        # caption colour contradictions) — surfaced in the preflight.
+        warnings.extend(
+            _manifest_consistency_warnings(idea, manifest, ref_code)
+        )
 
         # ---- Stage 0.5: auto storyboard ------------------------------ #
         if _ns_lazy is None:

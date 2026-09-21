@@ -37,7 +37,7 @@ Dialogue lines for this shot (turn {turn_index}, speaker {turn_speaker}):
 {dialogue_lines_block}
 {speaker_id_directive}
 Clip duration: {duration_seconds:.1f} seconds (exact raw length on the H3 grid). Output language: {language_name}.
-Language policy: narrative prose follows {language_name}; dialogue is Chinese by default unless the concept explicitly requests English speech.
+Language policy: narrative prose follows {language_name}. {dialogue_language_policy}
 
 {pacing_directive}
 

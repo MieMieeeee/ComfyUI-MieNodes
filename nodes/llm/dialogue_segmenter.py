@@ -235,11 +235,18 @@ class ExtractedLine:
 
 # Speakers that look like ``speaker：line`` but are production
 # directives, not characters — a concept line like ``镜头：缓慢推进``
-# must never become a spoken turn.
+# must never become a spoken turn. ``场景设定`` is here because the
+# upstream UserInputEnhancer's canonical rewrite OPENS with a
+# ``场景设定：`` paragraph; without this entry the fast-path parser
+# made the setting paragraph the first speaker's utterance (live
+# failure 2026-09-22: the setting became an S1 off-screen voiceover).
 _NON_SPEAKER_PREFIXES = {
-    "镜头", "画面", "场景", "音乐", "字幕", "旁白", "画外音",
-    "备注", "注", "风格", "节奏", "时长", "camera", "scene", "shot",
-    "music", "subtitle", "note", "style", "pacing",
+    "镜头", "画面", "场景", "场景设定", "场景描述", "设定", "音乐", "字幕",
+    "旁白", "画外音", "配音", "叙述", "备注", "注", "风格", "节奏", "时长",
+    "相机", "摄像机", "视角", "背景", "环境",
+    "camera", "scene", "setting", "shot", "music", "subtitle", "note",
+    "style", "pacing", "narration", "narrator", "voiceover",
+    "voice-over", "voice over", "pov", "description",
 }
 
 _STRUCTURED_LINE_RE = None  # compiled lazily below (module keeps no re dep)

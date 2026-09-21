@@ -2078,6 +2078,43 @@ def _detect_dialogue_language(line: str) -> str:
     return "[Chinese]"
 
 
+def build_dialogue_language_policy(dialogue_lines: Optional[list[str]]) -> str:
+    """Derive the spoken-language policy sentence from the ACTUAL
+    extracted lines (2026-09-22 live failure: an all-English dialogue
+    board was generated under a hardcoded "dialogue is Chinese by
+    default" policy sentence, pulling against the verbatim <d> blocks).
+
+    The board's own lines are the source of truth — English dialogue
+    means an English-dialogue board; there is no "default" language.
+    """
+    langs = sorted(
+        {
+            _detect_dialogue_language(str(ln)).strip("[]")
+            for ln in (dialogue_lines or [])
+            if str(ln).strip()
+        }
+    )
+    if not langs:
+        return (
+            "No spoken dialogue in this production; write no spoken "
+            "words anywhere."
+        )
+    if len(langs) == 1:
+        return (
+            f"All spoken dialogue is {langs[0]}: every <d> block the node "
+            f"appends already carries its [{langs[0]}] tag and the exact "
+            "original wording — reproduce it verbatim; NEVER translate "
+            "spoken lines in either direction."
+        )
+    return (
+        "Spoken dialogue is mixed-language ("
+        + "/".join(langs)
+        + "): each <d> block the node appends carries its own language "
+        "tag and exact original wording — reproduce each verbatim; NEVER "
+        "translate spoken lines in either direction."
+    )
+
+
 _THREE_SECTION_HEADERS = (
     "integrated_multimodal_description:",
     "overall_soundscape:",
@@ -2297,6 +2334,7 @@ def build_shot_user_text(
             reference_mode=reference_mode,
         ),
         language_name=language_name,
+        dialogue_language_policy=build_dialogue_language_policy(dialogue_lines),
         reference_directive=(reference_directive or "").strip(),
         manifest_digest=(manifest_digest or "no reference images").strip(),
         cast_block=(cast_block or "(none named)").strip(),
@@ -2344,6 +2382,12 @@ def build_single_call_user_text(
         else ""
     )
     has_dialogue = any(shot.get("_dialogue_lines") for shot in shots)
+    all_dialogue_lines = [
+        str(ln)
+        for shot in shots
+        for ln in (shot.get("_dialogue_lines") or [])
+        if str(ln).strip()
+    ]
     dialogue_lock_block = (
         "Dialogue is LOCKED as data: the node appends the verbatim "
         "<d>[Language]...</d> speech blocks to every clip that has a "
@@ -2368,8 +2412,8 @@ def build_single_call_user_text(
         f"Storyboard entries (ALL {len(shots)} clips, in order):\n{board}\n\n"
         f"Average clip duration: {int(duration_seconds)} seconds (each entry's own "
         f"duration_seconds in the board above is binding). Output language: {language_name}.\n\n"
-        f"Language policy: narrative prose follows {language_name}; dialogue is Chinese "
-        f"by default unless the concept explicitly requests English speech.\n\n"
+        f"Language policy: narrative prose follows {language_name}. "
+        f"{build_dialogue_language_policy(all_dialogue_lines)}\n\n"
         f"{SINGLE_CALL_FORMAT.format(clip_count=len(shots)).strip()}"
     )
 

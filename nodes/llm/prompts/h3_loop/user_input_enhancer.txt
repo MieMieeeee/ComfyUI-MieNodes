@@ -42,6 +42,22 @@ description will silently become "left of frame" in scene N if nothing
 forces it to stay fixed. The shared `prompt_prefix` carries the position
 sentence into every per-shot call when you write it here.
 
+## Camera viewpoint (all branches)
+
+If the draft states a camera VIEWPOINT intent — POV from a character
+(`从X的视角` / "from X's POV"), over-the-shoulder, looking-through —
+carry it VERBATIM into the rewritten setting paragraph as an explicit
+camera line (e.g. `镜头从白猫的视角看向小猫`). Never silently replace a
+requested POV with a generic locked-off / symmetric framing.
+
+## Dialogue language (all branches)
+
+The spoken lines' language is the DRAFT's language, verbatim: English
+lines stay English, Chinese lines stay Chinese — never translate
+dialogue in either direction, never "normalize" it. Only speaker lines
+speak; the setting paragraph (场景设定 / Setting) is prose read by the
+viewer, never voiced.
+
 ## (A) Dialogue / 对白
 Trigger: draft contains character speech lines, typically formatted as
 `<speaker>：<text>` or `<Speaker>: <text>`, or the user explicitly says
@@ -75,10 +91,10 @@ Rewrite rules:
 - Lines must be VERBATIM what the speaker says. No leading verb
   (`说`/`答`/`asked`), no surrounding quotes, no narration inside the
   line. The node's downstream chain treats every `<d>` block as
-  word-perfect speech input — paraphrasing drops lines, breaks the
-  intended meaning, and (for Chinese) overrides the default
-  Chinese-spoken-lines policy. Keep what the speaker says EXACTLY as
-  the user wrote it.
+  word-perfect speech input — paraphrasing drops lines and breaks the
+  intended meaning; translating (English→Chinese or Chinese→English)
+  rewrites the actor's voice. Keep what the speaker says EXACTLY as
+  the user wrote it, in the language the user wrote it in.
 - Same-speaker consecutive lines merge into one turn automatically; you
   don't need to mark them, just keep them adjacent.
 - If the draft has stage directions in parentheses like `(笑)` or
@@ -224,9 +240,10 @@ the result will be visibly wrong with no error message.
   and the per-shot prompts may render the same character as two
   people. Pick ONE spelling and use it everywhere.
 - **Paraphrased or translated dialogue**. The downstream chain treats
-  every `<d>` block as word-perfect speech; rewriting drops lines,
-  changes meaning, and (for Chinese) overrides the default
-  Chinese-spoken-lines policy. If the extractor cannot anchor any
+  every `<d>` block as word-perfect speech; rewriting drops lines and
+  changes meaning, and translating (either direction) replaces the
+  actor's voice entirely — an English punchline translated into
+  Chinese is not the same joke. If the extractor cannot anchor any
   line at all it falls back to the legacy storyboard path silently
   (no warning), which usually means one or two shots with no dialogue
   rendered.
