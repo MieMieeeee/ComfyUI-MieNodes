@@ -1482,12 +1482,15 @@ _SPATIAL_PATTERNS: tuple[tuple[re.Pattern, int], ...] = (
     ), 2),
     # Chinese name explicitly named with parentheses: "哈利猫（坐画面左侧）"
     # or "莎莉猫 (at left of frame)" — the parenthetical form is the
-    # canonical one the enhancer rule emits.
+    # canonical one the enhancer rule emits. ``(?!的)`` blocks picture-
+    # prefix fragments ("图3的小猫 (center of frame)" must yield 小猫,
+    # never 的小猫 — live 2026-09-21: the garbage key rode into the
+    # prefix spatial pin).
     (re.compile(
-        r"(?P<name>[A-Za-z][A-Za-z0-9_-]{0,31}|[一-龥]{2,6})"
+        r"(?P<name>(?!的)[A-Za-z][A-Za-z0-9_-]{0,31}|(?!的)[一-鿿]{2,6})"
         r"\s*[\(（]\s*"
         r"(?:坐|站|seated|sits?|stands?|stays?)?"
-        r"\s*(?:at\s+)?(?P<pos>[^)）]+?\s*(?:左侧|右侧|中央|左边|右边|中间|left\s+of\s+frame|right\s+of\s+frame|left\s+slot|right\s+slot))",
+        r"\s*(?:at\s+)?(?P<pos>[^)）]+?\s*(?:左侧|右侧|中央|左边|右边|中间|left\s+of\s+frame|right\s+of\s+frame|center\s+of\s+frame|left\s+slot|right\s+slot))",
         re.IGNORECASE,
     ), 3),
     # English named character: "Sahli sits at left of frame" /
@@ -1500,11 +1503,16 @@ _SPATIAL_PATTERNS: tuple[tuple[re.Pattern, int], ...] = (
     # 中文 "<角色名>坐画面左侧" (no parentheses — fallback when the
     # enhancer didn't wrap the position in parens).
     (re.compile(
-        r"(?P<name>[一-龥]{2,6}(?:猫|狗|人|男孩|女孩|男人|女人|角色|主体))"
+        r"(?P<name>(?!的)[一-鿿]{2,6}(?:猫|狗|人|男孩|女孩|男人|女人|角色|主体))"
         r"\s*坐?\s*"
         r"(?P<pos>[^。\n,，;；]+?\s*(?:画面?(?:左侧|右侧|中央|左边|右边|中间)|画左|画右))",
     ), 5),
 )
+
+# Leading particles that mark a captured "name" as a sentence fragment
+# ("对着图3的**的小猫**"), not a character. Stripped before the
+# subject-name check; real names never start with these.
+_NAME_LEADING_PARTICLES = "的着在和与或对向从把被让"
 
 
 # Chinese particles that almost certainly mean the preceding 2-3 char
@@ -1530,7 +1538,7 @@ def _looks_like_subject_name(raw: str) -> bool:
         return True
     # Chinese 2-6 char token — must end with a subject noun marker or
     # be inside the canonical name list (cat/dog/person/role etc.).
-    if re.fullmatch(r"[一-龥]{2,6}", raw):
+    if re.fullmatch(r"[一-鿿]{2,6}", raw):
         if raw in _CHINESE_STOPWORDS:
             return False
         if raw.endswith(("猫", "狗", "人", "鸟", "兽", "角色", "主体",
@@ -1591,8 +1599,13 @@ def extract_spatial_layout(concept: str) -> dict[str, str]:
                         break
             elif group_idx in (3, 4, 5):
                 raw_name = match.group("name")
-                if raw_name and _looks_like_subject_name(raw_name.strip()):
-                    name = raw_name.strip()
+                if raw_name:
+                    # Strip leading particles that mark a sentence
+                    # fragment ("对着图3的**的**小猫") — real names never
+                    # start with 的/着/在/&c.
+                    cleaned = raw_name.strip().lstrip(_NAME_LEADING_PARTICLES)
+                    if cleaned and _looks_like_subject_name(cleaned):
+                        name = cleaned
             if not name:
                 continue
             # First-match-wins per name. If the same subject shows up

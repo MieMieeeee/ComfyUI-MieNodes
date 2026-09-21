@@ -474,6 +474,42 @@ def test_role_declaration_binding_form_parses(mods):
 
 
 # --------------------------------------------------------------------------- #
+# 2026-09-21 21:33 live output checks: turnaround-sheet captions polluted
+# the identity lines ("seamless white studio background" inside living-
+# room scenes) and the prefix pinned the OFF-SCREEN POV holder to center
+# via a garbage spatial key ("的小猫=center of frame").
+# --------------------------------------------------------------------------- #
+def test_spatial_layout_strips_picture_prefix_fragments(mods):
+    _lg, lp = mods
+    # The form that produced the live garbage key: 图N的<name> with a
+    # prefixed paren position. Also locks the CJK class widening —
+    # 黑 (U+9ED1) sits above the old [一-龥] (U+9FA5) ceiling, so
+    # 黑猫 never extracted at all before.
+    out = lp.extract_spatial_layout(
+        "图1的黑猫 (at left of frame), 图3的小猫（站center of frame）"
+        "面对着镜头。"
+    )
+    assert out == {"黑猫": "left of frame", "小猫": "center of frame"}
+
+
+def test_caption_prompt_describes_character_not_sheet():
+    txt = (PROMPTS_DIR / "h3" / "caption_reference.txt").read_text(
+        encoding="utf-8"
+    )
+    assert "NOT OF THE SHEET" in txt
+    assert "seamless white background" in txt  # the forbidden vocabulary
+
+
+def test_prefix_spatial_pin_uses_roster_names():
+    txt = (PROMPTS_DIR / "h3_loop" / "prefix_synth_system.txt").read_text(
+        encoding="utf-8"
+    )
+    assert "ROSTER NAMES" in txt
+    assert "NO position pin" in txt          # off-screen POV holder
+    assert '"Subject 1 stays' not in txt     # no Subject-number example
+
+
+# --------------------------------------------------------------------------- #
 # FULL-WORKFLOW E2E — mirrors the user's attached workflow (node 61) with
 # its exact widget values: ref2va + 5 wired pictures (Pictures 4/5 the
 # SAME image, like the duplicated cat2.jpg), auto-enhance ON, pacing
