@@ -2378,15 +2378,27 @@ def assemble_dialogue_line_blocks(
         spk_per_line = [(turn_speaker or "").strip()] * len(dialogue_lines)
     firsts = set(first_appearance_speakers or ())
     blocks: list[str] = []
+    # Identity rides the speaker's FIRST <d> block only (the repair/
+    # speaker-ID contract's own wording) — not every line of their
+    # first clip. Repeating a ~500-char identity on each line of a
+    # multi-turn scene burned ~2KB per scene with no binding gain
+    # (live output 2026-09-21 22:36: scene_01 carried the full cast
+    # sheet four times).
+    identity_given: set = set()
     for i, line in enumerate(dialogue_lines):
         speaker = (spk_per_line[i] if i < len(spk_per_line) else "").strip()
         sid = sid_map.get(speaker)
         tag = f" ({sid})" if sid else ""
         identity = ""
-        if speaker and speaker in firsts:
+        if (
+            speaker
+            and speaker in firsts
+            and speaker not in identity_given
+        ):
             raw = str(identities.get(speaker) or "").strip()
             if raw:
                 identity = f", {raw}"
+                identity_given.add(speaker)
         blocks.append(
             f"{speaker or (turn_speaker or '(speaker)')}{identity}{tag}: "
             f"<d>{_detect_dialogue_language(line)} {line}</d>"
