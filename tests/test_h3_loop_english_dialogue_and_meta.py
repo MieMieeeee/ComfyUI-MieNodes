@@ -180,12 +180,21 @@ def test_english_dialogue_pipeline_no_phantom_speaker(mods):
     assert len(d_lines) == 5
     assert all("<d>[English]" in ln for ln in d_lines)
     # Speaker order: first spoken line owns S1 (小猫), then 白猫=S2,
-    # 黑猫=S3 — the setting paragraph eats no ID. The appended block
-    # format is `name[, cast identity]. (S<n>): <d>[Lang] text</d>`.
-    import re as _re
-    assert any(ln.startswith("小猫") and _re.search(r"\(S1\)( [^:<]+)?: ", ln) for ln in d_lines)
-    assert any(ln.startswith("白猫") and _re.search(r"\(S2\)( [^:<]+)?: ", ln) for ln in d_lines)
-    assert any(ln.startswith("黑猫") and _re.search(r"\(S3\)( [^:<]+)?: ", ln) for ln in d_lines)
+    # 黑猫=S3 — the setting paragraph eats no ID. The speech sentence
+    # is `name ... as (Sn) <voice> <d>`, with no colon before the tag.
+    assert any(ln.startswith("小猫") and "as (S1) " in ln for ln in d_lines)
+    assert any(ln.startswith("白猫") and "as (S2) " in ln for ln in d_lines)
+    assert any(ln.startswith("黑猫") and "as (S3) " in ln for ln in d_lines)
+    mommy = next(ln for ln in d_lines if "Mommy, daddy is so ugly" in ln)
+    daddy = next(ln for ln in d_lines if "Daddy, why did you marry" in ln)
+    # Facts layout: 白猫 left, 黑猫 right. Line-initial vocative only —
+    # the "daddy" inside the Mommy line does not flip the facing.
+    assert "turns to face 白猫 on the LEFT" in mommy
+    assert "turns to face 黑猫" not in mommy
+    assert "turns to face 黑猫 on the RIGHT" in daddy
+    assert all(":" not in ln.split("<d>")[0] for ln in d_lines)
+    mom_lines = [ln for ln in d_lines if ln.startswith("白猫")]
+    assert mom_lines and all("turns to face" not in ln for ln in mom_lines)
     # 1 facts call + 1 prefix call + 2 shot calls; no extractor call
     # for turns (fast path).
     assert len(conn.calls) == 4
@@ -724,10 +733,10 @@ def test_full_workflow_e2e_ref2va_english_dialogue(mods, monkeypatch, tmp_path):
     assert all("<d>[English]" in ln for ln in d_lines)
     assert "<d>[Chinese]" not in all_text
     assert "场景设定" not in all_text
-    import re as _re
-    assert any(ln.startswith("小猫") and _re.search(r"\(S1\)( [^:<]+)?: ", ln) for ln in d_lines)
-    assert any(ln.startswith("白猫") and _re.search(r"\(S2\)( [^:<]+)?: ", ln) for ln in d_lines)
-    assert any(ln.startswith("黑猫") and _re.search(r"\(S3\)( [^:<]+)?: ", ln) for ln in d_lines)
+    assert any(ln.startswith("小猫") and "as (S1) " in ln for ln in d_lines)
+    assert any(ln.startswith("白猫") and "as (S2) " in ln for ln in d_lines)
+    assert any(ln.startswith("黑猫") and "as (S3) " in ln for ln in d_lines)
+    assert all(":" not in ln.split("<d>")[0] for ln in d_lines)
     # Scene split: [t1-3] then [t4-5].
     assert sum(1 for ln in plan["shots"][0]["prompt"] if "<d>" in ln) == 3
     assert sum(1 for ln in plan["shots"][1]["prompt"] if "<d>" in ln) == 2
@@ -752,13 +761,19 @@ def test_full_workflow_e2e_ref2va_english_dialogue(mods, monkeypatch, tmp_path):
     s1_text = "\n".join(plan["shots"][0]["prompt"])
     s2_text = "\n".join(plan["shots"][1]["prompt"])
     # 黑猫 (bound to Picture 1 = brown tabby caption) speaks in scene_02.
-    hei_line = next(ln for ln in s2_text.split("\n") if ln.startswith("黑猫"))
-    assert "brown_tabby_cat" in hei_line          # caption content verbatim
-    assert "black" not in hei_line.lower()        # no name-derived colour
-    # 白猫 (bound to Picture 2 = cream caption): caption, not "white
-    # long-haired" invention.
-    bai_lines = [ln for ln in s1_text.split("\n") if ln.startswith("白猫")]
-    assert bai_lines and all("cream" in ln.lower() for ln in bai_lines)
+    hei_identity = next(
+        ln for ln in s2_text.split("\n") if ln.startswith("黑猫,")
+    )
+    assert "brown_tabby_cat" in hei_identity      # caption content verbatim
+    assert "black" not in hei_identity.lower()    # no name-derived colour
+    assert "<d>" not in hei_identity
+    # 白猫 (bound to Picture 2 = cream caption): caption on the identity
+    # line, not a "white long-haired" invention, and not repeated on
+    # the speech sentence.
+    bai_identity = [
+        ln for ln in s1_text.split("\n") if ln.startswith("白猫,")
+    ]
+    assert bai_identity and all("cream" in ln.lower() for ln in bai_identity)
     # The override is surfaced in the summary.
     assert "identity pin" in out["summary"]
 
@@ -972,10 +987,12 @@ def test_voice_sheet_parsed_from_prefix_reply(mods):
 
 
 def test_blocks_carry_voice_per_scene(mods):
-    """Blocks carry ONLY name (+global-first identity), tag, colon,
-    verbatim words — attribution & voice live in the PROSE via the
-    performance directive (upstream guide: (S<n>) is prose shorthand,
-    not a parsed tag; descriptor-in-block broke attribution, live C4).
+    """Each spoken line is one sentence: ``as (Sn) <descriptor> <d>``.
+
+    The descriptor sits immediately before the tag, with no colon
+    between ``(Sn)`` and ``<d>`` (C4 put it there and the line was
+    lip-synced to the wrong character). CAST identity is a separate
+    line on the speaker's first clip and carries no ``<d>``.
     """
     _lg, lp = mods
     blocks = lp.assemble_dialogue_line_blocks(
@@ -986,10 +1003,16 @@ def test_blocks_carry_voice_per_scene(mods):
         first_appearance_speakers={"妈妈"},
         speaker_voices={"妈妈": "adult female, warm mid-range pitch"},
     )
-    assert blocks[0] == (
-        "妈妈, cream cat caption (S1): <d>[English] Hello.</d>"
+    assert blocks[0] == "妈妈, cream cat caption."
+    assert blocks[1] == (
+        "妈妈 speaks as (S1) adult female, warm mid-range pitch "
+        "<d>[English] Hello.</d>"
     )
-    assert blocks[1] == "妈妈 (S1): <d>[English] World.</d>"
+    assert blocks[2] == (
+        "妈妈 speaks as (S1) adult female, warm mid-range pitch "
+        "<d>[English] World.</d>"
+    )
+    assert "<d>" not in blocks[0]
     blocks2 = lp.assemble_dialogue_line_blocks(
         ["Oh my god."],
         line_speakers=["妈妈"],
@@ -998,7 +1021,13 @@ def test_blocks_carry_voice_per_scene(mods):
         first_appearance_speakers=set(),
         speaker_voices={"妈妈": "adult female, warm mid-range pitch"},
     )
-    assert blocks2[0] == "妈妈 (S1): <d>[English] Oh my god.</d>"
+    assert blocks2[0] == (
+        "妈妈 speaks as (S1) adult female, warm mid-range pitch "
+        "<d>[English] Oh my god.</d>"
+    )
+    assert blocks2[0].split("<d>")[0].endswith(
+        "as (S1) adult female, warm mid-range pitch "
+    )
 
 
 def test_voice_performance_directive_in_template(mods):

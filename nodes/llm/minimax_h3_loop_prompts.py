@@ -2354,6 +2354,156 @@ _SIX_SECTION_HEADERS = (
 )
 
 
+# Kinship the concept actually declares. ``黑猫是爸爸`` and
+# ``黑猫（猫爸爸`` both bind the ROLE to the character name. Vocatives
+# (Mommy / 妈妈) look the role up; the per-shot model is not asked to
+# guess who a line is spoken to.
+_ROLE_CANON = {
+    "爸爸": "爸爸", "父亲": "爸爸",
+    "妈妈": "妈妈", "母亲": "妈妈",
+    "女儿": "女儿", "儿子": "儿子",
+}
+_ROLE_MENTION_RE = re.compile(
+    r"([^\s，,。；;：:（）()的\d]{1,12})"
+    r"(?:是|为|[（(][^）)]{0,8}?)"
+    r"(爸爸|父亲|妈妈|母亲|女儿|儿子)"
+)
+_ROLE_NAME_STOP = {"不", "没", "就", "也", "这", "那", "是", "为", "有", "在"}
+# Line-initial only. ``Mommy, daddy is...`` addresses 妈妈; the later
+# "daddy" is not a second addressee. ``mom`` does not match ``mommy``
+# because of the word boundary.
+_LINE_VOCATIVE: tuple[tuple[re.Pattern, str], ...] = (
+    (re.compile(r"^(?:mommy|mum|mama|mother|mom)\b", re.IGNORECASE), "妈妈"),
+    (re.compile(r"^(?:daddy|papa|father|dad)\b", re.IGNORECASE), "爸爸"),
+    (re.compile(r"^妈妈"), "妈妈"),
+    (re.compile(r"^爸爸"), "爸爸"),
+)
+
+
+def extract_role_bindings(concept: str) -> dict[str, str]:
+    """Map a kinship role to the character the concept assigns.
+
+    ``图1的黑猫是爸爸`` and ``黑猫（猫爸爸，画面右边）`` both yield
+    ``{"爸爸": "黑猫"}``. First assignment wins. Roles the text does
+    not state are absent — callers must not guess.
+    """
+    out: dict[str, str] = {}
+    for match in _ROLE_MENTION_RE.finditer(concept or ""):
+        name = match.group(1).strip()
+        role = _ROLE_CANON.get(match.group(2), "")
+        # ``不是爸爸`` / ``他不是爸爸`` is a negation, not a binding.
+        if (
+            not name
+            or name in _ROLE_NAME_STOP
+            or name.endswith("不")
+            or not role
+            or role in out
+        ):
+            continue
+        out[role] = name
+    return out
+
+
+def line_initial_role(line: str) -> str:
+    """The kinship role a line opens by addressing, or ``""``.
+
+    Strips one layer of wrapping quotes. A vocative later in the line
+    is ignored — ``Mommy, daddy is so ugly`` addresses 妈妈.
+    """
+    text = (line or "").strip()
+    text = text.lstrip("\"'“”「『")
+    for pattern, role in _LINE_VOCATIVE:
+        if pattern.match(text):
+            return role
+    return ""
+
+
+def frame_side_label(position: str) -> str:
+    """``LEFT`` / ``RIGHT`` / ``CENTER``, or ``""`` when the layout
+    entry is not a side (``beside 小猫`` stays unnamed)."""
+    pos = str(position or "").strip().lower()
+    if pos.startswith("left"):
+        return "LEFT"
+    if pos.startswith("right"):
+        return "RIGHT"
+    if pos.startswith(("cent", "middle")):
+        return "CENTER"
+    return ""
+
+
+def resolve_line_facing(
+    line: str,
+    speaker: str,
+    role_bindings: Optional[dict],
+    spatial_layout: Optional[dict],
+    known_speakers: Optional[set] = None,
+) -> Optional[tuple[str, str]]:
+    """``(addressee name, side label)`` for a line-initial vocative.
+
+    The side label is ``""`` when the layout has no left/right/center
+    for that addressee. Returns None when the line has no vocative,
+    the role is not bound to a character, or the speaker would be
+    told to face themselves.
+    """
+    role = line_initial_role(line)
+    if not role:
+        return None
+    bindings = dict(role_bindings or {})
+    addressee = str(bindings.get(role) or "").strip()
+    if not addressee and role in set(known_speakers or ()):
+        addressee = role
+    speaker_name = (speaker or "").strip()
+    if not addressee or addressee == speaker_name:
+        return None
+    side = frame_side_label(str((spatial_layout or {}).get(addressee) or ""))
+    return addressee, side
+
+
+def _clean_voice_descriptor(speaker: str, voices: dict) -> str:
+    voice = str(voices.get(speaker) or "").strip()
+    voice = re.sub(r"\s+", " ", voice)
+    voice = voice.replace("<", "").replace(">", "")
+    return voice or default_voice_for(speaker)
+
+
+def _speech_act_sentence(
+    speaker: str,
+    sid: str,
+    voice: str,
+    line: str,
+    facing: Optional[tuple[str, str]] = None,
+) -> str:
+    """One node-owned sentence: voice descriptor, then the ``<d>`` tag.
+
+    The grammar that survived live checks is ``as (Sn) <descriptor> <d>``
+    with nothing between the descriptor and the tag, and no colon
+    between ``(Sn)`` and ``<d>``. A descriptor in a ``voice:`` slot on
+    the attribution line was ignored (C2/C3). A descriptor between
+    ``(Sn)`` and the colon was lip-synced to the wrong character (C4).
+    The same descriptor written paragraphs above the appended block
+    was ignored (C5).
+    """
+    spoken = f"<d>{_detect_dialogue_language(line)} {line}</d>"
+    if facing:
+        who, side = facing
+        side_bit = f" on the {side}" if side else ""
+        if sid:
+            head = (
+                f"{speaker} turns to face {who}{side_bit}, "
+                f"mouth opening as ({sid}) {voice}"
+            )
+        else:
+            head = (
+                f"{speaker} turns to face {who}{side_bit}, "
+                f"mouth opening, {voice}"
+            )
+    elif sid:
+        head = f"{speaker} speaks as ({sid}) {voice}"
+    else:
+        head = f"{speaker} speaks, {voice}"
+    return f"{head} {spoken}"
+
+
 def assemble_dialogue_line_blocks(
     dialogue_lines: list[str],
     *,
@@ -2363,22 +2513,22 @@ def assemble_dialogue_line_blocks(
     speaker_identities: Optional[dict] = None,
     first_appearance_speakers: Optional[set] = None,
     speaker_voices: Optional[dict] = None,
+    concept: str = "",
+    spatial_layout: Optional[dict] = None,
+    role_bindings: Optional[dict] = None,
 ) -> list[str]:
-    """Assemble the verbatim ``<d>[Language]...</d>`` blocks in code.
+    """Assemble the verbatim speech sentences in code.
 
-    Dialogue-as-data: the spoken words are already exact strings by the
-    time stage 2 runs, so the blocks are built from those strings —
-    never re-written by a model. Each block carries the speaker name
-    and their fixed ``(S<n>)`` tag; the speaker's first spoken clip
-    GLOBALLY also carries the CAST identity line (visual), and the
-    speaker's first block in EVERY scene carries a VOICE descriptor
-    (gender + pitch + timbre) beside the tag.
+    Dialogue-as-data: the spoken words are copied, never re-written.
+    Each spoken line becomes one sentence whose voice descriptor sits
+    immediately before its ``<d>`` tag (see ``_speech_act_sentence``).
+    The speaker's first spoken clip also emits a separate CAST identity
+    line with no ``<d>`` and no ``(S<n>)`` — identity stays out of the
+    slot that C4 showed will break attribution.
 
-    The voice re-attachment is load-bearing: each scene is generated
-    independently, so H3's TTS assigns a voice from the tag + local
-    context per scene. Without a descriptor in the scene, the same
-    (S2) got a fresh voice guess each scene — live failure 2026-09-22
-    (C2): 妈妈's scene-1 line and scene-2 line had different voices.
+    A line-initial vocative (``Mommy,`` / ``爸爸，``) turns the speaker
+    toward the character bound to that role, on the side the spatial
+    layout records. Lines without a vocative carry no facing.
     """
     sid_map = dict(speaker_id_map or {})
     identities = dict(speaker_identities or {})
@@ -2387,44 +2537,32 @@ def assemble_dialogue_line_blocks(
     if len(spk_per_line) != len(dialogue_lines):
         spk_per_line = [(turn_speaker or "").strip()] * len(dialogue_lines)
     firsts = set(first_appearance_speakers or ())
+    bound_roles = extract_role_bindings(concept)
+    # Caller-supplied bindings fill roles the concept text dropped
+    # (a rewrite that deletes 「是爸爸」) and override on conflict.
+    for role, name in dict(role_bindings or {}).items():
+        if role and name:
+            bound_roles[str(role)] = str(name)
     blocks: list[str] = []
-    # Identity rides the speaker's FIRST <d> block only (the repair/
-    # speaker-ID contract's own wording) — not every line of their
-    # first clip. Repeating a ~500-char identity on each line of a
-    # multi-turn scene burned ~2KB per scene with no binding gain
-    # (live output 2026-09-21 22:36: scene_01 carried the full cast
-    # sheet four times).
+    # Identity rides the speaker's FIRST spoken clip only, as its own
+    # line. Repeating a ~500-char identity on each line of a multi-turn
+    # scene burned ~2KB per scene with no binding gain (live output
+    # 2026-09-21 22:36: scene_01 carried the full cast sheet four times).
     identity_given: set = set()
     for i, line in enumerate(dialogue_lines):
         speaker = (spk_per_line[i] if i < len(spk_per_line) else "").strip()
-        sid = sid_map.get(speaker)
-        tag = f" ({sid})" if sid else ""
-        identity = ""
-        if (
-            speaker
-            and speaker in firsts
-            and speaker not in identity_given
-        ):
-            raw = str(identities.get(speaker) or "").strip()
+        speaker = speaker or (turn_speaker or "(speaker)").strip()
+        sid = str(sid_map.get(speaker) or "")
+        if speaker in firsts and speaker not in identity_given:
+            raw = str(identities.get(speaker) or "").strip().rstrip(".")
             if raw:
-                identity = f", {raw}"
+                blocks.append(f"{speaker}, {raw}.")
                 identity_given.add(speaker)
-        # NOTE: the block carries ONLY name (+global-first visual
-        # identity), tag, colon, verbatim words. Speaker ATTRIBUTION
-        # and the TTS voice descriptor live in the LLM's PROSE — the
-        # upstream guide treats (S<n>) as prose shorthand ("<Subject 2>
-        # (S2) enters..."), not a parsed tag. A descriptor injected
-        # into the block itself either got ignored (C3: '; voice:'
-        # before the tag -> childlike guess on the second scene) or
-        # BROKE attribution by separating name from tag (C4: '(S2)
-        # adult female...:' -> the line was lip-synced to the wrong
-        # character). The prose carries both via the performance
-        # directive in the user template.
-        blocks.append(
-            f"{speaker or (turn_speaker or '(speaker)')}{identity}"
-            f"{tag}: "
-            f"<d>{_detect_dialogue_language(line)} {line}</d>"
+        voice = _clean_voice_descriptor(speaker, voices)
+        facing = resolve_line_facing(
+            line, speaker, bound_roles, spatial_layout, set(sid_map),
         )
+        blocks.append(_speech_act_sentence(speaker, sid, voice, line, facing))
     return blocks
 
 
@@ -2502,19 +2640,13 @@ def build_voice_performance_directive(
     speaker_id_map: Optional[dict],
     speaker_voices: Optional[dict],
 ) -> str:
-    """The prose-side performance binding for one shot's speech.
+    """Tell the shot model the voice phrases the node will write.
 
-    The upstream guide treats (S<n>) as prose shorthand bound by
-    CONTEXT ("<Subject 2> (S2) enters..."), not a parsed tag: speaker
-    attribution and the TTS voice descriptor both live in the
-    narrative prose the model reads. The appended <d> blocks carry the
-    verbatim words only. This directive orders the shot LLM to write,
-    at each speaker's FIRST spoken moment in THIS clip, a performance
-    phrase in the proven working shape — "NAME as (S2) adult female,
-    mid-range pitch, soft timbre speaks" — with the exact descriptor
-    strings supplied verbatim so every scene restates identical voices
-    (scenes generate independently; live C3/C4: descriptor-in-block
-    was either ignored or broke attribution).
+    The node appends one speech sentence per line, with the descriptor
+    glued to the ``<d>`` tag. The model must not write those phrases
+    or any ``(S<n>)`` tag itself — a second copy paragraphs away is
+    what C5 showed the TTS ignores, and a hand-written gaze can
+    contradict the vocative facing on the same sentence.
     """
     if not dialogue_lines:
         return ""
@@ -2539,18 +2671,19 @@ def build_voice_performance_directive(
         return ""
     example_voice = phrases[0].split(" as ")[-1]
     return (
-        "Voice performance binding (attribution + TTS voice live in "
-        "YOUR PROSE, not in the appended blocks): at each speaker's "
-        "FIRST spoken moment in this clip, weave their performance "
-        f'phrase into the description VERBATIM — e.g. "... as {example_voice} '
-        '... speaks" — naming the character and this exact voice '
-        "descriptor beside their (S<n>) tag, in the same sentence that "
-        "describes their lip movement. Required phrases (copy the "
-        "descriptor exactly, never renumber tags):\n"
+        "Voice performance binding (the NODE writes this next to each "
+        "<d> tag; you do not): every appended speech sentence glues "
+        "the exact descriptor to that line in the form "
+        f'"... as {example_voice} <d>...". '
+        "Write NO (S<n>) tags and NO voice descriptors in your prose; "
+        "do not restate these phrases:\n"
         + "\n".join(f"  - {p}" for p in phrases)
-        + "\nNEVER quote the spoken words themselves in prose (the "
-        "node appends them); a character who does not speak in this "
-        "clip gets no tag."
+        + "\nWhen a locked line is marked with who it is spoken to, "
+        "the same node sentence also turns the speaker toward them. "
+        "Do not turn that speaker toward anyone else on that line.\n"
+        "NEVER quote the spoken words themselves in prose (the node "
+        "appends them); a character who does not speak in this clip "
+        "gets no tag."
     )
 
 
@@ -2578,6 +2711,7 @@ def build_shot_user_text(
     spatial_layout: Optional[dict] = None,
     tempo_directive: str = "",
     speaker_voices: Optional[dict] = None,
+    role_bindings: Optional[dict] = None,
 ) -> str:
     # ``duration_seconds`` should be the clip's ACTUAL grid-rounded length
     # (``length_to_seconds(length)``) so the pacing budget matches what H3
@@ -2588,26 +2722,41 @@ def build_shot_user_text(
     if dialogue_lines and len(spk_per_line) != len(dialogue_lines):
         spk_per_line = [(turn_speaker or "")] * len(dialogue_lines)
     if dialogue_lines:
+        bound_roles = extract_role_bindings(concept)
+        for role, name in dict(role_bindings or {}).items():
+            if role and name:
+                bound_roles[str(role)] = str(name)
         dlg_lines = []
         for i, line in enumerate(dialogue_lines):
             prefix = ""
             speaker = spk_per_line[i] if i < len(spk_per_line) else ""
             sid = sid_map.get(speaker) if speaker else None
+            facing = resolve_line_facing(
+                line, speaker, bound_roles, spatial_layout, set(sid_map),
+            )
+            aim = ""
+            if facing:
+                who, side = facing
+                aim = (
+                    f" -> {who} ({side} of frame)" if side else f" -> {who}"
+                )
             if speaker and sid:
-                prefix = f"{speaker} ({sid}): "
+                prefix = f"{speaker} ({sid}){aim}: "
             elif speaker:
-                prefix = f"{speaker}: "
+                prefix = f"{speaker}{aim}: "
             dlg_lines.append(f"  {i + 1}. {prefix}{line}")
         dlg_block = (
             f"Dialogue is LOCKED for this shot (turn {int(turn_index or 0)}, "
             f"speaker {(turn_speaker or '(unknown)').strip()}). The node "
-            "appends the verbatim <d>[Language]...</d> speech blocks to "
+            "appends the verbatim <d>[Language]...</d> speech sentences to "
             "your reply AFTER you write it — you write NO dialogue: no "
             "<d> blocks, no quoted or unquoted spoken words in any "
             "section (any copy you write is stripped automatically). "
             "Describe only the visual performance around the speech "
             "(expressions, lip movement, gestures, blocking, camera) and "
-            "the ambient sound, choreographed to this context:\n"
+            "the ambient sound, choreographed to this context. A line "
+            "marked `-> name (SIDE of frame)` is spoken TO that character; "
+            "do not turn the speaker toward anyone else for that line:\n"
             + "\n".join(dlg_lines)
         )
         t_idx = int(turn_index or 0)
@@ -2619,18 +2768,17 @@ def build_shot_user_text(
     # Fixed speaker-ID directive: the map is derived deterministically
     # from the storyboard turn order, so every per-shot call sees the
     # exact same (S<n>) assignment and cannot renumber voices. On a
-    # dialogue shot the tags ride on the node-appended speech blocks,
+    # dialogue shot the tags ride on the node-appended speech sentences,
     # so the model is told to write NO tags in prose.
     if dialogue_lines:
         speaker_id_directive = (
             "Speaker tags are owned by the node: each appended speech "
-            "block already carries its speaker's fixed (S<n>) tag and, "
-            "at the speaker's first spoken clip, their CAST identity "
-            f"({format_speaker_id_map_text(sid_map) or 'no map'}). The "
-            "ONLY (S<n>) tags allowed in your prose are the ones inside "
-            "the required voice performance phrases below; never "
-            "renumber, never invent new tags; non-vocal on-screen "
-            "characters get NO tag."
+            "sentence carries its speaker's fixed (S<n>) tag glued to "
+            "the <d> block, and the speaker's first spoken clip gets a "
+            "separate CAST identity line with no <d> tag "
+            f"({format_speaker_id_map_text(sid_map) or 'no map'}). "
+            "Write NO (S<n>) tags in your prose; never renumber, never "
+            "invent tags; non-vocal on-screen characters get NO tag."
         )
     else:
         speaker_id_directive = ""
@@ -2720,12 +2868,15 @@ def build_single_call_user_text(
     ]
     dialogue_lock_block = (
         "Dialogue is LOCKED as data: the node appends the verbatim "
-        "<d>[Language]...</d> speech blocks to every clip that has a "
+        "<d>[Language]...</d> speech sentences to every clip that has a "
         "_dialogue_lines field AFTER your reply. You write NO dialogue "
         "anywhere: no <d> blocks, no quoted or unquoted spoken words "
-        "(any copy is stripped automatically). Describe only the visual "
-        "performance around the speech — expressions, lip movement, "
-        "gestures, blocking, camera — and the ambient sound.\n\n"
+        "(any copy is stripped automatically). The node glues each "
+        "speaker's voice descriptor directly onto that line's <d> tag; "
+        "do not write a voice descriptor or an (S<n>) tag yourself. "
+        "Describe only the visual performance around the speech — "
+        "expressions, lip movement, gestures, blocking, camera — and "
+        "the ambient sound.\n\n"
         if has_dialogue
         else ""
     )

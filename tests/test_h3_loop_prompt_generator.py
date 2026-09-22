@@ -1185,20 +1185,25 @@ def test_long_dialogue_board_uses_llm_prefix_and_cast_identity(lg):
     assert len(conn.calls) == 7
     assert "prefix derived locally" not in out["summary"]
     texts = ["\n".join(s["prompt"]) for s in plan["shots"]]
-    # First appearances carry the CAST identity + fixed tag...
+    voice = "adult, mid-range pitch, natural timbre"
+    # First appearances carry the CAST identity on its own line (no <d>),
+    # and the speech sentence glues the voice descriptor to the tag.
+    assert "莎莉猫, cream-blonde fluffy cat, navy bow tie." in texts[0]
     assert (
-        "莎莉猫, cream-blonde fluffy cat, navy bow tie. (S1): "
-        "<d>[Chinese] 第一句。</d>" in texts[0]
+        f"莎莉猫 speaks as (S1) {voice} <d>[Chinese] 第一句。</d>" in texts[0]
+    )
+    assert "哈利猫, orange tabby cat, brown blazer." in texts[1]
+    assert (
+        f"哈利猫 speaks as (S2) {voice} <d>[Chinese] 第二句。</d>" in texts[1]
+    )
+    # Later clips restate the same descriptor and do not repeat the identity.
+    assert "cream-blonde" not in texts[2]
+    assert (
+        f"莎莉猫 speaks as (S1) {voice} <d>[Chinese] 第三句。</d>" in texts[2]
     )
     assert (
-        "哈利猫, orange tabby cat, brown blazer. (S2): "
-        "<d>[Chinese] 第二句。</d>" in texts[1]
+        f"哈利猫 speaks as (S2) {voice} <d>[Chinese] 第四句。</d>" in texts[3]
     )
-    # ...later clips of the same speaker are bare name + tag (voice
-    # and attribution live in the prose performance phrases, verified
-    # in the meta test file).
-    assert "莎莉猫 (S1): <d>[Chinese] 第三句。</d>" in texts[2]
-    assert "哈利猫 (S2): <d>[Chinese] 第四句。</d>" in texts[3]
 
 
 def test_single_call_dialogue_appends_blocks(lg):

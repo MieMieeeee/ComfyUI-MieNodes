@@ -139,6 +139,7 @@ try:
         harvest_semantic_facts,
         build_cast_block,
         build_cast_sheet_text,
+        extract_role_bindings,
         extract_spatial_layout,
         scrub_dialogue_from_prompt_text,
         validate_spatial_layout_invariant,
@@ -220,6 +221,7 @@ except ImportError:
         harvest_semantic_facts,
         build_cast_block,
         build_cast_sheet_text,
+        extract_role_bindings,
         extract_spatial_layout,
         scrub_dialogue_from_prompt_text,
         validate_spatial_layout_invariant,
@@ -1918,9 +1920,9 @@ class H3LoopPromptEnhancer:
         concept has none, a minimal whole-video invariant line stands
         in. The CAST sheet maps every speaker to a consistency
         instruction — thin by LLM-prefix standards, but the verbatim
-        speech blocks carry each speaker's name + fixed (S<n>) tag +
-        CAST identity on first appearance, which is where the voice
-        binding actually rides on this path.
+        speech sentences carry each speaker's name, fixed (S<n>) tag,
+        and the voice descriptor glued to the <d> tag. CAST identity
+        is a separate line on first appearance.
         """
         spans = sorted((t.start, t.end) for t in turns if t.end > t.start)
         pieces: list[str] = []
@@ -2428,6 +2430,7 @@ class H3LoopPromptEnhancer:
         speaker_identities: Optional[dict] = None,
         referenced_pictures: Optional[set] = None,
         speaker_voices: Optional[dict] = None,
+        role_bindings: Optional[dict] = None,
     ) -> list[str]:
         code = parse_reference_mode(mode)
         schema = schema_for_mode(mode)
@@ -2489,6 +2492,7 @@ class H3LoopPromptEnhancer:
             spatial_layout=spatial_layout,
             tempo_directive=tempo_directive,
             speaker_voices=speaker_voices,
+            role_bindings=role_bindings,
         )
         # System prompt dispatch: ref2va uses the six-section addendum.
         system = (
@@ -2577,6 +2581,9 @@ class H3LoopPromptEnhancer:
                         speaker_identities=speaker_identities,
                         first_appearance_speakers=first_appearance_speakers,
                         speaker_voices=speaker_voices,
+                        concept=concept,
+                        spatial_layout=spatial_layout,
+                        role_bindings=role_bindings,
                     )
                     lines_out = append_dialogue_blocks_to_sections(
                         lines_out, blocks, schema=schema
@@ -2633,6 +2640,7 @@ class H3LoopPromptEnhancer:
         tempo_directive: str = "",
         speaker_identities: Optional[dict] = None,
         speaker_voices: Optional[dict] = None,
+        role_bindings: Optional[dict] = None,
     ) -> dict[str, list[str]]:
         user_text = build_single_call_user_text(
             concept=concept,
@@ -2721,6 +2729,9 @@ class H3LoopPromptEnhancer:
                         speaker_identities=speaker_identities,
                         first_appearance_speakers=set(spk_per_line) - seen_firsts,
                         speaker_voices=speaker_voices,
+                        concept=concept,
+                        spatial_layout=spatial_layout,
+                        role_bindings=role_bindings,
                     )
                     result[shot_id] = append_dialogue_blocks_to_sections(
                         (
@@ -2864,6 +2875,12 @@ class H3LoopPromptEnhancer:
                 warnings.append(
                     "user_input empty: used the built-in default concept"
                 )
+        # Kinship survives a rewrite that drops 「是爸爸」. The raw draft
+        # fills roles the rewritten text no longer states; a role the
+        # rewrite still states wins.
+        role_bindings = extract_role_bindings(raw_input)
+        for _role, _name in extract_role_bindings(idea).items():
+            role_bindings[_role] = _name
 
         # Single source of truth for the budget. 0 = auto: derived from
         # dialogue pacing + line count below.
@@ -3410,11 +3427,12 @@ class H3LoopPromptEnhancer:
         # ---- Stage 1.55: speaker voice sheet ---------------------------- #
         # TTS voice identity (gender + pitch + timbre) per speaker. Scenes
         # generate INDEPENDENTLY, so the same (S<n>) gets a fresh voice
-        # guess in every scene unless the descriptor rides the tag each
-        # time (live failure 2026-09-22 C2: 妈妈's two lines had two
-        # voices). Source order: prefix LLM's VOICE sheet, then the
-        # stable per-name heuristic — the fallback's stability is the
-        # feature, not its accuracy.
+        # guess in every scene unless the descriptor is glued to that
+        # scene's <d> tag (live 2026-09-22: C2/C3 ignored a voice: slot
+        # on the attribution line, C4 broke attribution when the
+        # descriptor sat between (Sn) and the colon, C5 ignored the
+        # same words written paragraphs above the block). Source order:
+        # prefix LLM's VOICE sheet, then the stable per-name heuristic.
         speaker_voices: dict = {}
         if dialogue_board:
             for t in turns:
@@ -3498,6 +3516,13 @@ class H3LoopPromptEnhancer:
                 f"spatial layout ({layout_source}): "
                 + ", ".join(f"{n}={p}" for n, p in spatial_layout.items())
             )
+        if dialogue_board and role_bindings:
+            log_pipeline(
+                "role bindings: "
+                + ", ".join(
+                    f"{role}={name}" for role, name in role_bindings.items()
+                )
+            )
 
         # ---- Stage 2: per-clip or single_call ------------------------- #
         # Deterministic speaker-ID map (official H3 rule: a speaker keeps
@@ -3528,6 +3553,7 @@ class H3LoopPromptEnhancer:
                 tempo_directive=tempo_directive,
                 speaker_identities=cast,
                 speaker_voices=speaker_voices,
+                role_bindings=role_bindings,
             )
             for entry in entries:
                 entry["prompt"] = all_shot_prompts.get(entry["id"], [])
@@ -3582,6 +3608,7 @@ class H3LoopPromptEnhancer:
                     spatial_layout=spatial_layout,
                     referenced_pictures=concept_referenced_pics,
                     speaker_voices=speaker_voices,
+                    role_bindings=role_bindings,
                 )
                 entry["prompt"] = shot_prompt
                 seen_speakers.update(

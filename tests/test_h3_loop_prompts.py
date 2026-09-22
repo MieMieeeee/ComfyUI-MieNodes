@@ -681,10 +681,10 @@ def test_shot_user_text_carries_speaker_id_directive(lp):
     # and the performance-phrase tag rule (tags allowed ONLY inside
     # the required voice phrases).
     assert "Dialogue is LOCKED" in user
-    assert "appends the verbatim <d>[Language]...</d> speech blocks" in user
+    assert "appends the verbatim <d>[Language]...</d> speech sentences" in user
     assert "莎莉猫=(S1), 哈利猫=(S2)" in user
     assert "Speaker tags are owned by the node" in user
-    assert "ONLY (S<n>) tags allowed in your prose" in user
+    assert "Write NO (S<n>) tags in your prose" in user
     assert "non-vocal on-screen characters get NO tag" in user
     # Voice performance phrases: exact descriptor, heuristic fallback
     # when no sheet given (哈利猫 has no gender marker -> stable
@@ -932,10 +932,16 @@ def test_assemble_dialogue_line_blocks_first_appearance_identity(lp):
         speaker_identities={"莎莉猫": "cream cat", "哈利猫": "tabby"},
         first_appearance_speakers={"莎莉猫", "哈利猫"},
     )
+    voice = "adult, mid-range pitch, natural timbre"
     assert blocks == [
-        "莎莉猫, cream cat (S1): <d>[Chinese] 你好。</d>",
-        "哈利猫, tabby (S2): <d>[Chinese] 好的。</d>",
+        "莎莉猫, cream cat.",
+        f"莎莉猫 speaks as (S1) {voice} <d>[Chinese] 你好。</d>",
+        "哈利猫, tabby.",
+        f"哈利猫 speaks as (S2) {voice} <d>[Chinese] 好的。</d>",
     ]
+    # Identity stays off the speech sentence. No colon between (Sn) and <d>.
+    for speech in (blocks[1], blocks[3]):
+        assert ":" not in speech.split("<d>")[0]
 
 
 def test_assemble_dialogue_line_blocks_later_appearance_bare(lp):
@@ -947,7 +953,10 @@ def test_assemble_dialogue_line_blocks_later_appearance_bare(lp):
         speaker_identities={"莎莉猫": "cream cat"},
         first_appearance_speakers=set(),
     )
-    assert blocks == ["莎莉猫 (S1): <d>[Chinese] 再见。</d>"]
+    assert blocks == [
+        "莎莉猫 speaks as (S1) adult, mid-range pitch, natural timbre "
+        "<d>[Chinese] 再见。</d>"
+    ]
 
 
 def test_assemble_dialogue_line_blocks_english_tag_and_no_map(lp):
@@ -957,12 +966,104 @@ def test_assemble_dialogue_line_blocks_english_tag_and_no_map(lp):
         turn_speaker="Sahli",
         first_appearance_speakers=set(),
     )
-    assert blocks == ["Sahli: <d>[English] hello there.</d>"]
+    assert blocks == [
+        "Sahli speaks, adult, mid-range pitch, natural timbre "
+        "<d>[English] hello there.</d>"
+    ]
     blocks = lp.assemble_dialogue_line_blocks(
         ["hello."], line_speakers=["Sahli"], turn_speaker="Sahli",
         speaker_id_map={"Sahli": "S1"}, first_appearance_speakers=set(),
     )
-    assert blocks == ["Sahli (S1): <d>[English] hello.</d>"]
+    assert blocks == [
+        "Sahli speaks as (S1) adult, mid-range pitch, natural timbre "
+        "<d>[English] hello.</d>"
+    ]
+
+
+def test_vocative_facing_uses_role_binding_and_layout(lp):
+    """Mommy, ... faces 妈妈's character on her side; a later "daddy"
+    in the same line does not steal the addressee. Daddy, ... faces 爸爸."""
+    concept = (
+        "图1的黑猫是爸爸，图2的白猫是妈妈，图3的小猫是女儿。\n"
+        "小猫：Mommy, daddy is so ugly, why did you marry him.\n"
+        "小猫：Daddy, why did you marry a blind lady?"
+    )
+    bindings = lp.extract_role_bindings(concept)
+    assert bindings == {"爸爸": "黑猫", "妈妈": "白猫", "女儿": "小猫"}
+    layout = {
+        "黑猫": "left of frame",
+        "白猫": "right of frame",
+        "小猫": "center of frame",
+    }
+    voice = "child voice, high pitch, bright timbre"
+    blocks = lp.assemble_dialogue_line_blocks(
+        [
+            "Mommy, daddy is so ugly, why did you marry him.",
+            "I guess I was blind.",
+            "Daddy, why did you marry a blind lady?",
+        ],
+        line_speakers=["小猫", "白猫", "小猫"],
+        speaker_id_map={"小猫": "S1", "白猫": "S2", "黑猫": "S3"},
+        speaker_voices={"小猫": voice, "白猫": "adult female, warm mid-range pitch"},
+        concept=concept,
+        spatial_layout=layout,
+    )
+    assert "turns to face 白猫 on the RIGHT" in blocks[0]
+    assert "turns to face 黑猫" not in blocks[0]
+    assert f"mouth opening as (S1) {voice} <d>" in blocks[0]
+    assert "turns to face" not in blocks[1]
+    assert "白猫 speaks as (S2) adult female, warm mid-range pitch <d>" in blocks[1]
+    assert "turns to face 黑猫 on the LEFT" in blocks[2]
+    assert ":" not in blocks[2].split("<d>")[0]
+
+
+def test_vocative_without_binding_or_self_address_has_no_facing(lp):
+    concept = "黑猫是爸爸。"
+    assert lp.extract_role_bindings(concept) == {"爸爸": "黑猫"}
+    blocks = lp.assemble_dialogue_line_blocks(
+        ["Daddy, hi.", "Hello."],
+        line_speakers=["黑猫", "白猫"],
+        speaker_id_map={"黑猫": "S1", "白猫": "S2"},
+        concept=concept,
+        spatial_layout={"黑猫": "left of frame"},
+    )
+    # 黑猫 would be told to face himself.
+    assert "turns to face" not in blocks[0]
+    assert "speaks as (S1) " in blocks[0]
+    # 白猫's line has no vocative.
+    assert "turns to face" not in blocks[1]
+
+
+def test_paren_role_and_negated_copula(lp):
+    bound = lp.extract_role_bindings(
+        "参考图 1 → 黑猫（猫爸爸，画面右边）；参考图 2 → 白猫（猫妈妈，画面左边）。"
+        "他不是爸爸。"
+    )
+    assert bound["爸爸"] == "黑猫"
+    assert bound["妈妈"] == "白猫"
+    assert "不" not in bound.values()
+    assert "他不" not in bound.values()
+
+
+def test_locked_line_marks_vocative_addressee(lp):
+    user = lp.build_shot_user_text(
+        concept="图2的白猫是妈妈，图1的黑猫是爸爸。",
+        prefix_text="p",
+        category="dialogue - 对白/对话/相声",
+        continuation_block="",
+        shot={"id": "scene_01"},
+        clip_index=1,
+        clip_count=1,
+        duration_seconds=6.0,
+        language_name="English",
+        dialogue_lines=["Daddy, why did you marry a blind lady?"],
+        turn_index=1,
+        turn_speaker="小猫",
+        line_speakers=["小猫"],
+        speaker_id_map={"小猫": "S1", "黑猫": "S2", "白猫": "S3"},
+        spatial_layout={"黑猫": "left of frame", "白猫": "right of frame"},
+    )
+    assert "小猫 (S1) -> 黑猫 (LEFT of frame): Daddy, why" in user
 
 
 def test_scrub_dialogue_from_prompt_text(lp):
