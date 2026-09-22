@@ -2399,7 +2399,6 @@ def assemble_dialogue_line_blocks(
     for i, line in enumerate(dialogue_lines):
         speaker = (spk_per_line[i] if i < len(spk_per_line) else "").strip()
         sid = sid_map.get(speaker)
-        tag = f" ({sid})" if sid else ""
         identity = ""
         if (
             speaker
@@ -2410,17 +2409,24 @@ def assemble_dialogue_line_blocks(
             if raw:
                 identity = f", {raw}"
                 identity_given.add(speaker)
-        # Voice: first block of this speaker IN THIS LIST (= this
-        # scene). Kept short (one clause) — it rides every scene, so
-        # brevity matters; the tag stays a clean "(S<n>)".
-        voice = ""
-        if speaker and speaker not in voice_given:
-            v = str(voices.get(speaker) or "").strip()
-            if v:
-                voice = f"; voice: {v}"
-                voice_given.add(speaker)
+        # Voice rides the speaker's first block in EVERY scene (scenes
+        # generate independently; the TTS assigns per scene). Format
+        # follows the H3 guide's canonical form — the descriptor sits
+        # IMMEDIATELY AFTER the "(S<n>)" tag, the way the working
+        # LLM-written outputs phrased it ("(S1) adult female, bright
+        # mid-range pitch <d>…"). A descriptor placed BEFORE the tag
+        # behind a "voice:" keyword was evidently not parsed by the
+        # TTS (live 2026-09-22 C3: byte-identical descriptors across
+        # scenes, yet scene 2's line still got a childlike voice).
+        v = str(voices.get(speaker) or "").strip() if speaker else ""
+        is_scene_first = speaker and speaker not in voice_given
+        if is_scene_first:
+            voice_given.add(speaker)
+        tag = f" ({sid})" if sid else ""
+        if sid and v and is_scene_first:
+            tag = f" ({sid}) {v}"
         blocks.append(
-            f"{speaker or (turn_speaker or '(speaker)')}{identity}{voice}"
+            f"{speaker or (turn_speaker or '(speaker)')}{identity}"
             f"{tag}: "
             f"<d>{_detect_dialogue_language(line)} {line}</d>"
         )

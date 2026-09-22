@@ -182,9 +182,10 @@ def test_english_dialogue_pipeline_no_phantom_speaker(mods):
     # Speaker order: first spoken line owns S1 (小猫), then 白猫=S2,
     # 黑猫=S3 — the setting paragraph eats no ID. The appended block
     # format is `name[, cast identity]. (S<n>): <d>[Lang] text</d>`.
-    assert any(ln.startswith("小猫") and "(S1):" in ln for ln in d_lines)
-    assert any(ln.startswith("白猫") and "(S2):" in ln for ln in d_lines)
-    assert any(ln.startswith("黑猫") and "(S3):" in ln for ln in d_lines)
+    import re as _re
+    assert any(ln.startswith("小猫") and _re.search(r"\(S1\)( [^:<]+)?: ", ln) for ln in d_lines)
+    assert any(ln.startswith("白猫") and _re.search(r"\(S2\)( [^:<]+)?: ", ln) for ln in d_lines)
+    assert any(ln.startswith("黑猫") and _re.search(r"\(S3\)( [^:<]+)?: ", ln) for ln in d_lines)
     # 1 facts call + 1 prefix call + 2 shot calls; no extractor call
     # for turns (fast path).
     assert len(conn.calls) == 4
@@ -723,9 +724,10 @@ def test_full_workflow_e2e_ref2va_english_dialogue(mods, monkeypatch, tmp_path):
     assert all("<d>[English]" in ln for ln in d_lines)
     assert "<d>[Chinese]" not in all_text
     assert "场景设定" not in all_text
-    assert any(ln.startswith("小猫") and "(S1):" in ln for ln in d_lines)
-    assert any(ln.startswith("白猫") and "(S2):" in ln for ln in d_lines)
-    assert any(ln.startswith("黑猫") and "(S3):" in ln for ln in d_lines)
+    import re as _re
+    assert any(ln.startswith("小猫") and _re.search(r"\(S1\)( [^:<]+)?: ", ln) for ln in d_lines)
+    assert any(ln.startswith("白猫") and _re.search(r"\(S2\)( [^:<]+)?: ", ln) for ln in d_lines)
+    assert any(ln.startswith("黑猫") and _re.search(r"\(S3\)( [^:<]+)?: ", ln) for ln in d_lines)
     # Scene split: [t1-3] then [t4-5].
     assert sum(1 for ln in plan["shots"][0]["prompt"] if "<d>" in ln) == 3
     assert sum(1 for ln in plan["shots"][1]["prompt"] if "<d>" in ln) == 2
@@ -971,31 +973,35 @@ def test_voice_sheet_parsed_from_prefix_reply(mods):
 
 def test_blocks_carry_voice_per_scene(mods):
     _lg, lp = mods
+    voices = {"妈妈": "adult female, warm mid-range pitch"}
     blocks = lp.assemble_dialogue_line_blocks(
         ["Hello.", "World."],
         line_speakers=["妈妈", "妈妈"],
         speaker_id_map={"妈妈": "S1"},
         speaker_identities={"妈妈": "cream cat caption"},
         first_appearance_speakers={"妈妈"},
-        speaker_voices={"妈妈": "adult female, warm mid-range pitch"},
+        speaker_voices=voices,
     )
-    # scene-first block: identity + voice + tag
+    # scene-first block: identity + CANONICAL tag-first voice form
+    # ("(S1) adult female, ..." — the H3 guide's phrasing; a
+    # "voice:"-keyword-before-the-tag form was not TTS-parsed).
     assert blocks[0] == (
-        "妈妈, cream cat caption; voice: adult female, warm mid-range "
-        "pitch (S1): <d>[English] Hello.</d>"
+        "妈妈, cream cat caption (S1) adult female, warm mid-range "
+        "pitch: <d>[English] Hello.</d>"
     )
     # same-scene later line: bare tag (voice NOT repeated)
     assert blocks[1] == "妈妈 (S1): <d>[English] World.</d>"
-    # A LATER SCENE's block list: voice re-attached, no identity.
+    # A LATER SCENE's block list: voice re-attached after the tag,
+    # no visual identity.
     blocks2 = lp.assemble_dialogue_line_blocks(
         ["Oh my god."],
         line_speakers=["妈妈"],
         speaker_id_map={"妈妈": "S1"},
         speaker_identities={"妈妈": "cream cat caption"},
         first_appearance_speakers=set(),  # already seen globally
-        speaker_voices={"妈妈": "adult female, warm mid-range pitch"},
+        speaker_voices=voices,
     )
     assert blocks2[0] == (
-        "妈妈; voice: adult female, warm mid-range pitch (S1): "
+        "妈妈 (S1) adult female, warm mid-range pitch: "
         "<d>[English] Oh my god.</d>"
     )
