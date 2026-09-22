@@ -972,36 +972,63 @@ def test_voice_sheet_parsed_from_prefix_reply(mods):
 
 
 def test_blocks_carry_voice_per_scene(mods):
+    """Blocks carry ONLY name (+global-first identity), tag, colon,
+    verbatim words — attribution & voice live in the PROSE via the
+    performance directive (upstream guide: (S<n>) is prose shorthand,
+    not a parsed tag; descriptor-in-block broke attribution, live C4).
+    """
     _lg, lp = mods
-    voices = {"妈妈": "adult female, warm mid-range pitch"}
     blocks = lp.assemble_dialogue_line_blocks(
         ["Hello.", "World."],
         line_speakers=["妈妈", "妈妈"],
         speaker_id_map={"妈妈": "S1"},
         speaker_identities={"妈妈": "cream cat caption"},
         first_appearance_speakers={"妈妈"},
-        speaker_voices=voices,
+        speaker_voices={"妈妈": "adult female, warm mid-range pitch"},
     )
-    # scene-first block: identity + CANONICAL tag-first voice form
-    # ("(S1) adult female, ..." — the H3 guide's phrasing; a
-    # "voice:"-keyword-before-the-tag form was not TTS-parsed).
     assert blocks[0] == (
-        "妈妈, cream cat caption (S1) adult female, warm mid-range "
-        "pitch: <d>[English] Hello.</d>"
+        "妈妈, cream cat caption (S1): <d>[English] Hello.</d>"
     )
-    # same-scene later line: bare tag (voice NOT repeated)
     assert blocks[1] == "妈妈 (S1): <d>[English] World.</d>"
-    # A LATER SCENE's block list: voice re-attached after the tag,
-    # no visual identity.
     blocks2 = lp.assemble_dialogue_line_blocks(
         ["Oh my god."],
         line_speakers=["妈妈"],
         speaker_id_map={"妈妈": "S1"},
         speaker_identities={"妈妈": "cream cat caption"},
-        first_appearance_speakers=set(),  # already seen globally
-        speaker_voices=voices,
+        first_appearance_speakers=set(),
+        speaker_voices={"妈妈": "adult female, warm mid-range pitch"},
     )
-    assert blocks2[0] == (
-        "妈妈 (S1) adult female, warm mid-range pitch: "
-        "<d>[English] Oh my god.</d>"
+    assert blocks2[0] == "妈妈 (S1): <d>[English] Oh my god.</d>"
+
+
+def test_voice_performance_directive_in_template(mods):
+    """The prose-side binding: every shot user template carries the
+    per-speaker performance phrases with exact descriptors; later
+    scenes restate them (scenes generate independently)."""
+    _lg, lp = mods
+    base = dict(
+        concept="c", prefix_text="p", category="none",
+        continuation_block="", shot={"id": "s", "description": "d"},
+        clip_index=2, clip_count=2, duration_seconds=5.0,
+        language_name="en",
+        speaker_id_map={"妈妈": "S1"},
+        speaker_voices={"妈妈": "adult female, warm mid-range pitch"},
     )
+    t = lp.build_shot_user_text(
+        dialogue_lines=["Oh my god."], line_speakers=["妈妈"],
+        turn_speaker="妈妈", **base,
+    )
+    assert "Voice performance binding" in t
+    assert "- 妈妈 as (S1) adult female, warm mid-range pitch" in t
+    # Heuristic fallback when no sheet entry (unknown name).
+    t2 = lp.build_shot_user_text(
+        dialogue_lines=["Hi."], line_speakers=["阿猫"],
+        turn_speaker="阿猫", **{**base, "speaker_id_map": {"阿猫": "S2"},
+                                 "speaker_voices": {}},
+    )
+    assert "- 阿猫 as (S2) adult, mid-range pitch, natural timbre" in t2
+    # No dialogue -> no directive.
+    t3 = lp.build_shot_user_text(
+        dialogue_lines=None, turn_speaker="", **base,
+    )
+    assert "Voice performance binding" not in t3

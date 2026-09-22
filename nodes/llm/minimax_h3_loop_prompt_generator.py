@@ -2488,6 +2488,7 @@ class H3LoopPromptEnhancer:
             first_appearance_speakers=first_appearance_speakers,
             spatial_layout=spatial_layout,
             tempo_directive=tempo_directive,
+            speaker_voices=speaker_voices,
         )
         # System prompt dispatch: ref2va uses the six-section addendum.
         system = (

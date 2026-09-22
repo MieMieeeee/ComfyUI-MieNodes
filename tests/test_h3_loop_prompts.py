@@ -678,13 +678,19 @@ def test_shot_user_text_carries_speaker_id_directive(lp):
         speaker_id_map={"莎莉猫": "S1", "哈利猫": "S2"},
     )
     # Dialogue-as-data contract: the lock instruction, the fixed map,
-    # and the no-tags-in-prose rule.
+    # and the performance-phrase tag rule (tags allowed ONLY inside
+    # the required voice phrases).
     assert "Dialogue is LOCKED" in user
     assert "appends the verbatim <d>[Language]...</d> speech blocks" in user
     assert "莎莉猫=(S1), 哈利猫=(S2)" in user
     assert "Speaker tags are owned by the node" in user
-    assert "Write NO (S<n>) tag in your prose" in user
+    assert "ONLY (S<n>) tags allowed in your prose" in user
     assert "non-vocal on-screen characters get NO tag" in user
+    # Voice performance phrases: exact descriptor, heuristic fallback
+    # when no sheet given (哈利猫 has no gender marker -> stable
+    # neutral adult descriptor).
+    assert "Voice performance binding" in user
+    assert "- 哈利猫 as (S2) adult, mid-range pitch, natural timbre" in user
     # The locked line rides as CONTEXT ONLY — a bare line, not a <d>
     # block the model could copy.
     assert "1. 哈利猫 (S2): 好？你凭什么定义好。" in user

@@ -2395,10 +2395,10 @@ def assemble_dialogue_line_blocks(
     # (live output 2026-09-21 22:36: scene_01 carried the full cast
     # sheet four times).
     identity_given: set = set()
-    voice_given: set = set()
     for i, line in enumerate(dialogue_lines):
         speaker = (spk_per_line[i] if i < len(spk_per_line) else "").strip()
         sid = sid_map.get(speaker)
+        tag = f" ({sid})" if sid else ""
         identity = ""
         if (
             speaker
@@ -2409,22 +2409,17 @@ def assemble_dialogue_line_blocks(
             if raw:
                 identity = f", {raw}"
                 identity_given.add(speaker)
-        # Voice rides the speaker's first block in EVERY scene (scenes
-        # generate independently; the TTS assigns per scene). Format
-        # follows the H3 guide's canonical form — the descriptor sits
-        # IMMEDIATELY AFTER the "(S<n>)" tag, the way the working
-        # LLM-written outputs phrased it ("(S1) adult female, bright
-        # mid-range pitch <d>…"). A descriptor placed BEFORE the tag
-        # behind a "voice:" keyword was evidently not parsed by the
-        # TTS (live 2026-09-22 C3: byte-identical descriptors across
-        # scenes, yet scene 2's line still got a childlike voice).
-        v = str(voices.get(speaker) or "").strip() if speaker else ""
-        is_scene_first = speaker and speaker not in voice_given
-        if is_scene_first:
-            voice_given.add(speaker)
-        tag = f" ({sid})" if sid else ""
-        if sid and v and is_scene_first:
-            tag = f" ({sid}) {v}"
+        # NOTE: the block carries ONLY name (+global-first visual
+        # identity), tag, colon, verbatim words. Speaker ATTRIBUTION
+        # and the TTS voice descriptor live in the LLM's PROSE — the
+        # upstream guide treats (S<n>) as prose shorthand ("<Subject 2>
+        # (S2) enters..."), not a parsed tag. A descriptor injected
+        # into the block itself either got ignored (C3: '; voice:'
+        # before the tag -> childlike guess on the second scene) or
+        # BROKE attribution by separating name from tag (C4: '(S2)
+        # adult female...:' -> the line was lip-synced to the wrong
+        # character). The prose carries both via the performance
+        # directive in the user template.
         blocks.append(
             f"{speaker or (turn_speaker or '(speaker)')}{identity}"
             f"{tag}: "
@@ -2500,6 +2495,65 @@ def append_dialogue_blocks_to_sections(
     return out
 
 
+def build_voice_performance_directive(
+    dialogue_lines: Optional[list[str]],
+    line_speakers: Optional[list[str]],
+    turn_speaker: str,
+    speaker_id_map: Optional[dict],
+    speaker_voices: Optional[dict],
+) -> str:
+    """The prose-side performance binding for one shot's speech.
+
+    The upstream guide treats (S<n>) as prose shorthand bound by
+    CONTEXT ("<Subject 2> (S2) enters..."), not a parsed tag: speaker
+    attribution and the TTS voice descriptor both live in the
+    narrative prose the model reads. The appended <d> blocks carry the
+    verbatim words only. This directive orders the shot LLM to write,
+    at each speaker's FIRST spoken moment in THIS clip, a performance
+    phrase in the proven working shape — "NAME as (S2) adult female,
+    mid-range pitch, soft timbre speaks" — with the exact descriptor
+    strings supplied verbatim so every scene restates identical voices
+    (scenes generate independently; live C3/C4: descriptor-in-block
+    was either ignored or broke attribution).
+    """
+    if not dialogue_lines:
+        return ""
+    sid_map = dict(speaker_id_map or {})
+    voices = dict(speaker_voices or {})
+    spk = list(line_speakers or [])
+    if len(spk) != len(dialogue_lines):
+        spk = [turn_speaker or ""] * len(dialogue_lines)
+    seen: set = set()
+    phrases: list[str] = []
+    for name in spk:
+        n = (name or "").strip()
+        if not n or n in seen:
+            continue
+        seen.add(n)
+        sid = sid_map.get(n)
+        v = str(voices.get(n) or "").strip() or default_voice_for(n)
+        phrases.append(
+            f"{n} as ({sid}) {v}" if sid else f"{n} ({v})"
+        )
+    if not phrases:
+        return ""
+    example_voice = phrases[0].split(" as ")[-1]
+    return (
+        "Voice performance binding (attribution + TTS voice live in "
+        "YOUR PROSE, not in the appended blocks): at each speaker's "
+        "FIRST spoken moment in this clip, weave their performance "
+        f'phrase into the description VERBATIM — e.g. "... as {example_voice} '
+        '... speaks" — naming the character and this exact voice '
+        "descriptor beside their (S<n>) tag, in the same sentence that "
+        "describes their lip movement. Required phrases (copy the "
+        "descriptor exactly, never renumber tags):\n"
+        + "\n".join(f"  - {p}" for p in phrases)
+        + "\nNEVER quote the spoken words themselves in prose (the "
+        "node appends them); a character who does not speak in this "
+        "clip gets no tag."
+    )
+
+
 def build_shot_user_text(
     *,
     concept: str,
@@ -2523,6 +2577,7 @@ def build_shot_user_text(
     first_appearance_speakers: Optional[set] = None,
     spatial_layout: Optional[dict] = None,
     tempo_directive: str = "",
+    speaker_voices: Optional[dict] = None,
 ) -> str:
     # ``duration_seconds`` should be the clip's ACTUAL grid-rounded length
     # (``length_to_seconds(length)``) so the pacing budget matches what H3
@@ -2571,9 +2626,11 @@ def build_shot_user_text(
             "Speaker tags are owned by the node: each appended speech "
             "block already carries its speaker's fixed (S<n>) tag and, "
             "at the speaker's first spoken clip, their CAST identity "
-            f"({format_speaker_id_map_text(sid_map) or 'no map'}). "
-            "Write NO (S<n>) tag in your prose; non-vocal on-screen "
-            "characters get NO tag either."
+            f"({format_speaker_id_map_text(sid_map) or 'no map'}). The "
+            "ONLY (S<n>) tags allowed in your prose are the ones inside "
+            "the required voice performance phrases below; never "
+            "renumber, never invent new tags; non-vocal on-screen "
+            "characters get NO tag."
         )
     else:
         speaker_id_directive = ""
@@ -2604,7 +2661,17 @@ def build_shot_user_text(
         turn_index=t_idx,
         turn_speaker=t_spk,
         dialogue_lines_block=dlg_block,
-        speaker_id_directive=speaker_id_directive,
+        speaker_id_directive=(
+            speaker_id_directive
+            + "\n\n"
+            + build_voice_performance_directive(
+                dialogue_lines,
+                spk_per_line,
+                t_spk,
+                speaker_id_map,
+                speaker_voices,
+            )
+        ).strip(),
         tempo_directive=(tempo_directive or "").strip(),
     )
 
