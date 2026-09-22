@@ -140,6 +140,7 @@ try:
         build_cast_block,
         build_cast_sheet_text,
         extract_role_bindings,
+        install_shot_speech,
         extract_spatial_layout,
         scrub_dialogue_from_prompt_text,
         validate_spatial_layout_invariant,
@@ -222,6 +223,7 @@ except ImportError:
         build_cast_block,
         build_cast_sheet_text,
         extract_role_bindings,
+        install_shot_speech,
         extract_spatial_layout,
         scrub_dialogue_from_prompt_text,
         validate_spatial_layout_invariant,
@@ -2585,8 +2587,15 @@ class H3LoopPromptEnhancer:
                         spatial_layout=spatial_layout,
                         role_bindings=role_bindings,
                     )
-                    lines_out = append_dialogue_blocks_to_sections(
-                        lines_out, blocks, schema=schema
+                    lines_out = install_shot_speech(
+                        lines_out,
+                        blocks,
+                        schema=schema,
+                        spatial_layout=spatial_layout,
+                        speaker_identities=speaker_identities,
+                        identity_speakers=list(line_speakers or [])
+                        or [turn_speaker or ""],
+                        first_appearance_speakers=first_appearance_speakers,
                     )
                     errors = validate_dialogue_invariantity(
                         [{"prompt": lines_out}],
@@ -2733,7 +2742,7 @@ class H3LoopPromptEnhancer:
                         spatial_layout=spatial_layout,
                         role_bindings=role_bindings,
                     )
-                    result[shot_id] = append_dialogue_blocks_to_sections(
+                    result[shot_id] = install_shot_speech(
                         (
                             scrubbed.split("\n")
                             if scrub_notes
@@ -2741,6 +2750,10 @@ class H3LoopPromptEnhancer:
                         ),
                         blocks,
                         schema=SCHEMA_THREE,
+                        spatial_layout=spatial_layout,
+                        speaker_identities=speaker_identities,
+                        identity_speakers=spk_per_line,
+                        first_appearance_speakers=set(spk_per_line) - seen_firsts,
                     )
                     seen_firsts.update(spk_per_line)
             # Dialogue invariant post-validate (per-shot).

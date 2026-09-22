@@ -681,7 +681,8 @@ def test_shot_user_text_carries_speaker_id_directive(lp):
     # and the performance-phrase tag rule (tags allowed ONLY inside
     # the required voice phrases).
     assert "Dialogue is LOCKED" in user
-    assert "appends the verbatim <d>[Language]...</d> speech sentences" in user
+    assert "REPLACES the description body" in user
+    assert "verbatim <d> tag" in user
     assert "莎莉猫=(S1), 哈利猫=(S2)" in user
     assert "Speaker tags are owned by the node" in user
     assert "Write NO (S<n>) tags in your prose" in user
@@ -934,14 +935,12 @@ def test_assemble_dialogue_line_blocks_first_appearance_identity(lp):
     )
     voice = "adult, mid-range pitch, natural timbre"
     assert blocks == [
-        "莎莉猫, cream cat.",
         f"莎莉猫 speaks as (S1) {voice} <d>[Chinese] 你好。</d>",
-        "哈利猫, tabby.",
         f"哈利猫 speaks as (S2) {voice} <d>[Chinese] 好的。</d>",
     ]
-    # Identity stays off the speech sentence. No colon between (Sn) and <d>.
-    for speech in (blocks[1], blocks[3]):
+    for speech in blocks:
         assert ":" not in speech.split("<d>")[0]
+        assert "cream cat" not in speech and "tabby" not in speech
 
 
 def test_assemble_dialogue_line_blocks_later_appearance_bare(lp):

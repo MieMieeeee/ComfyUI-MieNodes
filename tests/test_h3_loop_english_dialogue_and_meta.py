@@ -752,7 +752,10 @@ def test_full_workflow_e2e_ref2va_english_dialogue(mods, monkeypatch, tmp_path):
     shot_user_texts = [c[1]["content"] for c in conn.calls]
     assert all("do NOT reference" in t for t in shot_user_texts[-2:])
     assert all("<Subject 4> -> <Picture 4>" not in t for t in shot_user_texts[-2:])
-    assert "<Subject 4>" in "\n".join(plan["shots"][1]["prompt"])  # noise kept
+    # The description body is node-owned speech, so a Subject mention
+    # that lived only in the model's beat prose is not kept. The run
+    # still returns a plan (validation did not die on that mention).
+    assert "<Subject 4>" not in "\n".join(plan["shots"][1]["prompt"])
 
     # ── Caption-grounded CAST: the <d> speaker identity lines follow
     #    the BOUND PICTURE's caption, never the name's literal meaning
@@ -761,19 +764,19 @@ def test_full_workflow_e2e_ref2va_english_dialogue(mods, monkeypatch, tmp_path):
     s1_text = "\n".join(plan["shots"][0]["prompt"])
     s2_text = "\n".join(plan["shots"][1]["prompt"])
     # 黑猫 (bound to Picture 1 = brown tabby caption) speaks in scene_02.
-    hei_identity = next(
-        ln for ln in s2_text.split("\n") if ln.startswith("黑猫,")
+    # Caption pin lives under subject_definitions, not on the <d> line.
+    hei_pin = next(ln for ln in s2_text.split("\n") if ln.startswith("黑猫:"))
+    assert "brown_tabby_cat" in hei_pin
+    assert "black" not in hei_pin.lower()
+    assert "<d>" not in hei_pin
+    hei_speech = next(
+        ln for ln in s2_text.split("\n") if "<d>" in ln and "黑猫" in ln
     )
-    assert "brown_tabby_cat" in hei_identity      # caption content verbatim
-    assert "black" not in hei_identity.lower()    # no name-derived colour
-    assert "<d>" not in hei_identity
-    # 白猫 (bound to Picture 2 = cream caption): caption on the identity
-    # line, not a "white long-haired" invention, and not repeated on
-    # the speech sentence.
-    bai_identity = [
-        ln for ln in s1_text.split("\n") if ln.startswith("白猫,")
-    ]
-    assert bai_identity and all("cream" in ln.lower() for ln in bai_identity)
+    assert "brown_tabby_cat" not in hei_speech
+    bai_pin = [ln for ln in s1_text.split("\n") if ln.startswith("白猫:")]
+    assert bai_pin and all("cream" in ln.lower() for ln in bai_pin)
+    bai_speech = [ln for ln in s1_text.split("\n") if "<d>" in ln and "白猫" in ln]
+    assert bai_speech and all("cream_curly" not in ln for ln in bai_speech)
     # The override is surfaced in the summary.
     assert "identity pin" in out["summary"]
 
@@ -1003,16 +1006,13 @@ def test_blocks_carry_voice_per_scene(mods):
         first_appearance_speakers={"妈妈"},
         speaker_voices={"妈妈": "adult female, warm mid-range pitch"},
     )
-    assert blocks[0] == "妈妈, cream cat caption."
-    assert blocks[1] == (
+    assert blocks == [
         "妈妈 speaks as (S1) adult female, warm mid-range pitch "
-        "<d>[English] Hello.</d>"
-    )
-    assert blocks[2] == (
+        "<d>[English] Hello.</d>",
         "妈妈 speaks as (S1) adult female, warm mid-range pitch "
-        "<d>[English] World.</d>"
-    )
-    assert "<d>" not in blocks[0]
+        "<d>[English] World.</d>",
+    ]
+    assert "cream cat caption" not in "\n".join(blocks)
     blocks2 = lp.assemble_dialogue_line_blocks(
         ["Oh my god."],
         line_speakers=["妈妈"],

@@ -2517,26 +2517,22 @@ def assemble_dialogue_line_blocks(
     spatial_layout: Optional[dict] = None,
     role_bindings: Optional[dict] = None,
 ) -> list[str]:
-    """Assemble the verbatim speech sentences in code.
+    """Assemble one speech sentence per line. No identity line.
 
-    Dialogue-as-data: the spoken words are copied, never re-written.
-    Each spoken line becomes one sentence whose voice descriptor sits
-    immediately before its ``<d>`` tag (see ``_speech_act_sentence``).
-    The speaker's first spoken clip also emits a separate CAST identity
-    line with no ``<d>`` and no ``(S<n>)`` — identity stays out of the
-    slot that C4 showed will break attribution.
-
-    A line-initial vocative (``Mommy,`` / ``爸爸，``) turns the speaker
-    toward the character bound to that role, on the side the spatial
-    layout records. Lines without a vocative carry no facing.
+    The spoken words are copied. The voice descriptor sits immediately
+    before the ``<d>`` tag. CAST / picture captions are not included —
+    ``install_shot_speech`` pins those under ``subject_definitions``.
+    A line-initial vocative turns the speaker toward the bound
+    character. ``speaker_identities`` and ``first_appearance_speakers``
+    are accepted so existing callers keep working; identity placement
+    is no longer this function's job.
     """
+    del speaker_identities, first_appearance_speakers
     sid_map = dict(speaker_id_map or {})
-    identities = dict(speaker_identities or {})
     voices = dict(speaker_voices or {})
     spk_per_line = list(line_speakers or [])
     if len(spk_per_line) != len(dialogue_lines):
         spk_per_line = [(turn_speaker or "").strip()] * len(dialogue_lines)
-    firsts = set(first_appearance_speakers or ())
     bound_roles = extract_role_bindings(concept)
     # Caller-supplied bindings fill roles the concept text dropped
     # (a rewrite that deletes 「是爸爸」) and override on conflict.
@@ -2544,26 +2540,188 @@ def assemble_dialogue_line_blocks(
         if role and name:
             bound_roles[str(role)] = str(name)
     blocks: list[str] = []
-    # Identity rides the speaker's FIRST spoken clip only, as its own
-    # line. Repeating a ~500-char identity on each line of a multi-turn
-    # scene burned ~2KB per scene with no binding gain (live output
-    # 2026-09-21 22:36: scene_01 carried the full cast sheet four times).
-    identity_given: set = set()
     for i, line in enumerate(dialogue_lines):
         speaker = (spk_per_line[i] if i < len(spk_per_line) else "").strip()
         speaker = speaker or (turn_speaker or "(speaker)").strip()
         sid = str(sid_map.get(speaker) or "")
-        if speaker in firsts and speaker not in identity_given:
-            raw = str(identities.get(speaker) or "").strip().rstrip(".")
-            if raw:
-                blocks.append(f"{speaker}, {raw}.")
-                identity_given.add(speaker)
         voice = _clean_voice_descriptor(speaker, voices)
         facing = resolve_line_facing(
             line, speaker, bound_roles, spatial_layout, set(sid_map),
         )
         blocks.append(_speech_act_sentence(speaker, sid, voice, line, facing))
     return blocks
+
+
+def identity_pin_lines(
+    speakers: list[str],
+    speaker_identities: Optional[dict],
+    *,
+    only: Optional[set] = None,
+    max_chars: int = 0,
+) -> list[str]:
+    """One ``name: identity`` line per speaker, for a section that is
+    not the speech sentence.
+
+    Picture captions are hundreds of characters. Pasted on the line
+    before a ``<d>`` tag they buried the mouth cue (live render
+    2026-09-22 11:57). ``max_chars`` drops an identity that would
+    dominate a three-section description; six-section boards pin the
+    full caption under ``subject_definitions`` instead.
+    """
+    identities = dict(speaker_identities or {})
+    limit = set(only) if only is not None else None
+    pins: list[str] = []
+    seen: set = set()
+    for name in speakers:
+        speaker = (name or "").strip()
+        if not speaker or speaker in seen:
+            continue
+        if limit is not None and speaker not in limit:
+            continue
+        seen.add(speaker)
+        raw = str(
+            identities.get(speaker) or identities.get(speaker.lower()) or ""
+        ).strip()
+        if not raw:
+            continue
+        if max_chars and len(raw) > max_chars:
+            continue
+        pins.append(f"{speaker}: {raw}")
+    return pins
+
+
+_OFFSCREEN_CLAIM_RE = re.compile(
+    r"off-screen|off screen|voice-?over|\bPOV\b|point of view|eyeline",
+    re.IGNORECASE,
+)
+
+
+def neutralize_offscreen_claims(prompt_lines: list[str]) -> list[str]:
+    """A speaking character written as the camera has no mouth.
+
+    Live render 2026-09-22 11:57: the shot prose made 白猫 the lens, so
+    her lines were an off-screen voice and the kitten's mouth ran for
+    the whole clip. Claims that hide a character are rewritten in
+    place; lines that carry a ``<d>`` tag are left untouched.
+    """
+    out: list[str] = []
+    for line in prompt_lines:
+        if "<d>" in line or not _OFFSCREEN_CLAIM_RE.search(line):
+            out.append(line)
+            continue
+        rewritten = _OFFSCREEN_CLAIM_RE.sub("in frame", line)
+        out.append(rewritten)
+    return out
+
+
+def replace_description_body(
+    prompt_lines: list[str],
+    body_lines: list[str],
+    *,
+    schema: str = SCHEMA_THREE,
+) -> list[str]:
+    """Replace the description section body. Other sections stay.
+
+    The shot model's beat prose is not kept. On the 11:57 render that
+    prose was a second screenplay (mother off-screen, kitten facing
+    the lens) and the speech sentences parked under it lost.
+    """
+    if not body_lines:
+        return list(prompt_lines)
+    headers = _SIX_SECTION_HEADERS if schema == SCHEMA_SIX else _THREE_SECTION_HEADERS
+    target = (
+        "detailed_description:" if schema == SCHEMA_SIX
+        else "integrated_multimodal_description:"
+    )
+    header_set = {h for h in headers}
+    start = None
+    end = None
+    for i, ln in enumerate(prompt_lines):
+        key = ln.strip().lower()
+        if key not in header_set:
+            continue
+        if key == target and start is None:
+            start = i
+            continue
+        if start is not None:
+            end = i
+            break
+    if start is None:
+        return list(prompt_lines) + list(body_lines)
+    if end is None:
+        end = len(prompt_lines)
+    out = list(prompt_lines)
+    out[start + 1:end] = list(body_lines)
+    return out
+
+
+def install_shot_speech(
+    prompt_lines: list[str],
+    speech_lines: list[str],
+    *,
+    schema: str = SCHEMA_THREE,
+    spatial_layout: Optional[dict] = None,
+    speaker_identities: Optional[dict] = None,
+    identity_speakers: Optional[list[str]] = None,
+    first_appearance_speakers: Optional[set] = None,
+) -> list[str]:
+    """Put speech sentences in the description, identity somewhere else.
+
+    Six-section (ref2va): the picture caption is pinned under
+    ``subject_definitions``. Three-section: a short identity line is
+    allowed at the top of the description, and only on the speaker's
+    first clip. The description body is then the spatial sentence plus
+    one speech sentence per line.
+    """
+    lines = neutralize_offscreen_claims(prompt_lines)
+    speakers = [s for s in (identity_speakers or []) if s]
+    if schema == SCHEMA_SIX and speakers:
+        pins = identity_pin_lines(speakers, speaker_identities)
+        if pins:
+            lines = _insert_section_suffix(lines, "subject_definitions:", pins)
+    body: list[str] = ["[Shot 1]"]
+    spatial = build_spatial_layout_directive(spatial_layout)
+    if spatial and not spatial.startswith("(no spatial"):
+        body.append(spatial)
+    if schema != SCHEMA_SIX:
+        body.extend(identity_pin_lines(
+            speakers,
+            speaker_identities,
+            only=set(first_appearance_speakers or ()),
+            max_chars=180,
+        ))
+    body.extend(speech_lines)
+    return replace_description_body(lines, body, schema=schema)
+
+
+def _insert_section_suffix(
+    prompt_lines: list[str],
+    header: str,
+    extra: list[str],
+) -> list[str]:
+    """Append ``extra`` at the end of the section that starts at ``header``."""
+    if not extra:
+        return list(prompt_lines)
+    header_set = {h for h in _SIX_SECTION_HEADERS} | {h for h in _THREE_SECTION_HEADERS}
+    start = None
+    for i, ln in enumerate(prompt_lines):
+        if ln.strip().lower() == header:
+            start = i
+            break
+    if start is None:
+        return list(prompt_lines)
+    end = len(prompt_lines)
+    for i in range(start + 1, len(prompt_lines)):
+        if prompt_lines[i].strip().lower() in header_set:
+            end = i
+            break
+    # Sit above the blank line that separates sections, when there is one.
+    insert_at = end
+    while insert_at > start + 1 and not prompt_lines[insert_at - 1].strip():
+        insert_at -= 1
+    out = list(prompt_lines)
+    out[insert_at:insert_at] = list(extra)
+    return out
 
 
 def scrub_dialogue_from_prompt_text(
@@ -2748,15 +2906,17 @@ def build_shot_user_text(
         dlg_block = (
             f"Dialogue is LOCKED for this shot (turn {int(turn_index or 0)}, "
             f"speaker {(turn_speaker or '(unknown)').strip()}). The node "
-            "appends the verbatim <d>[Language]...</d> speech sentences to "
-            "your reply AFTER you write it — you write NO dialogue: no "
-            "<d> blocks, no quoted or unquoted spoken words in any "
-            "section (any copy you write is stripped automatically). "
-            "Describe only the visual performance around the speech "
-            "(expressions, lip movement, gestures, blocking, camera) and "
-            "the ambient sound, choreographed to this context. A line "
-            "marked `-> name (SIDE of frame)` is spoken TO that character; "
-            "do not turn the speaker toward anyone else for that line:\n"
+            "REPLACES the description body with one sentence per line "
+            "after you reply. You write NO dialogue: no <d> blocks, no "
+            "quoted or unquoted spoken words (any copy is stripped). "
+            "Write the room, the light, and the camera in the other "
+            "sections. Do not describe mouths, turns, or who looks at "
+            "whom — the node writes that sentence, with the voice "
+            "descriptor glued to the verbatim <d> tag. Every character "
+            "who has a line in this clip is IN FRAME and speaks with "
+            "their own mouth; do not put them off-screen, behind the "
+            "camera, or at the lens. A line marked `-> name (SIDE of "
+            "frame)` is spoken TO that character:\n"
             + "\n".join(dlg_lines)
         )
         t_idx = int(turn_index or 0)
@@ -2867,16 +3027,14 @@ def build_single_call_user_text(
         if str(ln).strip()
     ]
     dialogue_lock_block = (
-        "Dialogue is LOCKED as data: the node appends the verbatim "
-        "<d>[Language]...</d> speech sentences to every clip that has a "
-        "_dialogue_lines field AFTER your reply. You write NO dialogue "
-        "anywhere: no <d> blocks, no quoted or unquoted spoken words "
-        "(any copy is stripped automatically). The node glues each "
-        "speaker's voice descriptor directly onto that line's <d> tag; "
-        "do not write a voice descriptor or an (S<n>) tag yourself. "
-        "Describe only the visual performance around the speech — "
-        "expressions, lip movement, gestures, blocking, camera — and "
-        "the ambient sound.\n\n"
+        "Dialogue is LOCKED as data: the node REPLACES each clip's "
+        "description body with one sentence per _dialogue_lines entry. "
+        "You write NO dialogue anywhere: no <d> blocks, no quoted or "
+        "unquoted spoken words (any copy is stripped automatically). "
+        "The node glues each speaker's voice descriptor onto that "
+        "line's <d> tag. Every speaking character stays in frame; do "
+        "not write them off-screen or as the camera. Describe the "
+        "room, the light, and the camera only.\n\n"
         if has_dialogue
         else ""
     )

@@ -936,8 +936,8 @@ def test_scene_count_one_squeezes_all_lines_time_only(lg):
     concept = f"甲猫：{long_a}\n乙猫：{long_b}"
     one_scene_reply = (
         # Deliberate contract violation: the model quoted both lines
-        # inline despite the lock — the scrubber must remove them and
-        # the node appends the verbatim blocks itself.
+        # inline. The description body is replaced by the node, so the
+        # leaked copy is gone and only the node sentences remain.
         "integrated_multimodal_description:\n"
         f"[Shot 1] 甲猫 says: <d>[Chinese] {long_a}</d> "
         f"乙猫 replies: <d>[Chinese] {long_b}</d>\n"
@@ -962,8 +962,8 @@ def test_scene_count_one_squeezes_all_lines_time_only(lg):
     prompt_text = "\n".join(plan["shots"][0]["prompt"])
     assert f"<d>[Chinese] {long_a}</d>" in prompt_text
     assert f"<d>[Chinese] {long_b}</d>" in prompt_text
-    assert prompt_text.count("<d>[Chinese]") == 2  # scrubbed, not doubled
-    assert "…" in prompt_text  # the leaked copies became ellipses
+    assert prompt_text.count("<d>[Chinese]") == 2  # leaked copy not kept
+    assert "甲猫 says" not in prompt_text
     # The clip is clamped at the H3 window and the summary says so.
     assert plan["shots"][0]["length"] <= 14 * 24 + 17
     assert "per-shot cap" in out["summary"]
@@ -1186,17 +1186,16 @@ def test_long_dialogue_board_uses_llm_prefix_and_cast_identity(lg):
     assert "prefix derived locally" not in out["summary"]
     texts = ["\n".join(s["prompt"]) for s in plan["shots"]]
     voice = "adult, mid-range pitch, natural timbre"
-    # First appearances carry the CAST identity on its own line (no <d>),
-    # and the speech sentence glues the voice descriptor to the tag.
-    assert "莎莉猫, cream-blonde fluffy cat, navy bow tie." in texts[0]
+    # Short CAST identity is pinned once, on the first clip, and is not
+    # the <d> line. Later clips restate the voice descriptor only.
+    assert "莎莉猫: cream-blonde fluffy cat, navy bow tie." in texts[0]
     assert (
         f"莎莉猫 speaks as (S1) {voice} <d>[Chinese] 第一句。</d>" in texts[0]
     )
-    assert "哈利猫, orange tabby cat, brown blazer." in texts[1]
+    assert "哈利猫: orange tabby cat, brown blazer." in texts[1]
     assert (
         f"哈利猫 speaks as (S2) {voice} <d>[Chinese] 第二句。</d>" in texts[1]
     )
-    # Later clips restate the same descriptor and do not repeat the identity.
     assert "cream-blonde" not in texts[2]
     assert (
         f"莎莉猫 speaks as (S1) {voice} <d>[Chinese] 第三句。</d>" in texts[2]
