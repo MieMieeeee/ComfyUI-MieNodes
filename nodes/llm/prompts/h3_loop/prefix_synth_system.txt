@@ -10,6 +10,10 @@ CAST:
 name_a: one dense identity line (species/build/appearance/wardrobe/marking, one identifying feature)
 name_b: one dense identity line
 
+VOICE:
+name_a: TTS voice descriptor — gender + pitch + timbre (e.g. "adult female, warm mid-range pitch, soft rounded timbre")
+name_b: TTS voice descriptor
+
 PREFIX rules (one dense paragraph, at most 80 English words / 120 Chinese characters):
 - Visual style and frame rate — you MUST reuse the art style the concept/storyboard states (ink-wash animation, live-action realism, 3D CG, ...); never replace it with a default style.
 - Setting and time of day (only if the setting is constant across the whole board).
@@ -26,5 +30,10 @@ CAST SHEET rules:
 - Each line: one dense identity description — species/build, fur/hair or skin, wardrobe, one identifying feature. Concrete nouns only, no actions, no shot grammar.
 - A character NAME is a handle, never a description: NEVER derive appearance from the name's literal meaning — 黑猫 does not mean black fur, 白猫 does not mean white fur, 小猫 does not mean small. When the request binds a character to a reference picture (参考图 N → 名字 / Picture N -> name), the CAST line MUST restate THAT PICTURE's caption (from the reference manifest) as the identity — fur colour, eyes, wardrobe, everything. The caption is the visual ground truth; a name-derived look next to a caption-derived subject_definitions gives the same character two bodies.
 - Never invent a character the concept and storyboard do not mention.
+
+VOICE SHEET rules (one line per SPEAKING character, same names as CAST):
+- Exactly three traits: gender/age (adult female / adult male / child ...), pitch (low-mid / mid-range / high), timbre (soft rounded / steady / gravel-edged / breathy ...). One short clause, nothing else.
+- Each scene of the video is generated INDEPENDENTLY — the voice descriptor is what keeps the same speaker's voice identical across scenes. Pick it from the character's role and species (爸爸妈妈-style roles are unambiguous; a kitten gets a child voice), state it once, and keep the SAME descriptor for the same name.
+- Never invent a speaking character the dialogue does not contain; non-speaking characters get no VOICE line.
 
 Write in the requested output language.

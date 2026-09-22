@@ -2362,17 +2362,27 @@ def assemble_dialogue_line_blocks(
     speaker_id_map: Optional[dict] = None,
     speaker_identities: Optional[dict] = None,
     first_appearance_speakers: Optional[set] = None,
+    speaker_voices: Optional[dict] = None,
 ) -> list[str]:
     """Assemble the verbatim ``<d>[Language]...</d>`` blocks in code.
 
     Dialogue-as-data: the spoken words are already exact strings by the
     time stage 2 runs, so the blocks are built from those strings —
-    never re-written by a model. Each block carries the speaker name,
-    their fixed ``(S<n>)`` tag, and (at the speaker's first spoken
-    clip) their CAST identity line as the voice/appearance hint.
+    never re-written by a model. Each block carries the speaker name
+    and their fixed ``(S<n>)`` tag; the speaker's first spoken clip
+    GLOBALLY also carries the CAST identity line (visual), and the
+    speaker's first block in EVERY scene carries a VOICE descriptor
+    (gender + pitch + timbre) beside the tag.
+
+    The voice re-attachment is load-bearing: each scene is generated
+    independently, so H3's TTS assigns a voice from the tag + local
+    context per scene. Without a descriptor in the scene, the same
+    (S2) got a fresh voice guess each scene — live failure 2026-09-22
+    (C2): 妈妈's scene-1 line and scene-2 line had different voices.
     """
     sid_map = dict(speaker_id_map or {})
     identities = dict(speaker_identities or {})
+    voices = dict(speaker_voices or {})
     spk_per_line = list(line_speakers or [])
     if len(spk_per_line) != len(dialogue_lines):
         spk_per_line = [(turn_speaker or "").strip()] * len(dialogue_lines)
@@ -2385,6 +2395,7 @@ def assemble_dialogue_line_blocks(
     # (live output 2026-09-21 22:36: scene_01 carried the full cast
     # sheet four times).
     identity_given: set = set()
+    voice_given: set = set()
     for i, line in enumerate(dialogue_lines):
         speaker = (spk_per_line[i] if i < len(spk_per_line) else "").strip()
         sid = sid_map.get(speaker)
@@ -2399,8 +2410,18 @@ def assemble_dialogue_line_blocks(
             if raw:
                 identity = f", {raw}"
                 identity_given.add(speaker)
+        # Voice: first block of this speaker IN THIS LIST (= this
+        # scene). Kept short (one clause) — it rides every scene, so
+        # brevity matters; the tag stays a clean "(S<n>)".
+        voice = ""
+        if speaker and speaker not in voice_given:
+            v = str(voices.get(speaker) or "").strip()
+            if v:
+                voice = f"; voice: {v}"
+                voice_given.add(speaker)
         blocks.append(
-            f"{speaker or (turn_speaker or '(speaker)')}{identity}{tag}: "
+            f"{speaker or (turn_speaker or '(speaker)')}{identity}{voice}"
+            f"{tag}: "
             f"<d>{_detect_dialogue_language(line)} {line}</d>"
         )
     return blocks
@@ -2671,32 +2692,87 @@ def split_prefix_and_cast(raw: str) -> tuple[list[str], dict[str, str]]:
     character. A missing CAST marker yields an empty dict (the caller's
     retry trigger when a roster was requested). Cast keys are normalized
     to lowercase for roster matching; malformed lines are skipped."""
+    lines, _, cast, _ = split_prefix_sections(raw)
+    return lines, cast
+
+
+def split_prefix_sections(raw: str) -> tuple:
+    """Full stage-1 reply parse: ``(prefix paragraphs, end_idx, cast,
+    voices)``. Sections are ``CAST:`` then optional ``VOICE:`` — each a
+    header line followed by ``name: value`` lines. The voice sheet is
+    the per-speaker TTS descriptor (gender + pitch + timbre); the
+    upstream guide requires it beside the (S<n>) tag, and scenes
+    generate independently so it must be re-attachable per scene."""
     text = (raw or "").strip()
     if not text:
-        return [], {}
+        return [], -1, {}, {}
     lines = text.split("\n")
-    cast_idx = next(
-        (
-            i
-            for i, ln in enumerate(lines)
-            if ln.strip().lower().startswith("cast:")
-        ),
-        -1,
-    )
+
+    def _section_header_idx(marker: str, start: int) -> int:
+        return next(
+            (
+                i
+                for i in range(start, len(lines))
+                if lines[i].strip().lower().startswith(marker)
+            ),
+            -1,
+        )
+
+    cast_idx = _section_header_idx("cast:", 0)
     if cast_idx < 0:
-        return split_prefix_paragraphs(text), {}
+        return split_prefix_paragraphs(text), -1, {}, {}
+    voice_idx = _section_header_idx("voice:", cast_idx + 1)
+    cast_end = voice_idx if voice_idx >= 0 else len(lines)
     prefix_part = "\n".join(lines[:cast_idx])
-    cast: dict[str, str] = {}
-    for ln in lines[cast_idx + 1 :]:
-        entry = ln.strip()
-        if not entry or ":" not in entry:
-            continue
-        name, _, identity = entry.partition(":")
-        name = name.strip()
-        identity = identity.strip()
-        if name and identity:
-            cast[name.lower()] = identity
-    return split_prefix_paragraphs(prefix_part), cast
+
+    def _parse_pairs(seg: list[str]) -> dict:
+        out: dict = {}
+        for ln in seg:
+            entry = ln.strip()
+            if not entry or ":" not in entry:
+                continue
+            name, _, value = entry.partition(":")
+            name = name.strip()
+            value = value.strip()
+            if name and value:
+                out[name.lower()] = value
+        return out
+
+    cast = _parse_pairs(lines[cast_idx + 1 : cast_end])
+    voices = (
+        _parse_pairs(lines[voice_idx + 1 :]) if voice_idx >= 0 else {}
+    )
+    return split_prefix_paragraphs(prefix_part), cast_idx, cast, voices
+
+
+# Heuristic voice fallback for boards that never ran the prefix LLM
+# (local-prefix path) or whose VOICE sheet is missing entries. Gender
+# markers cover the common 爸爸/妈妈/女儿-style role names and the
+# English equivalents; unknown names get a neutral adult descriptor —
+# a stable neutral voice still pins cross-scene consistency, which is
+# what the TTS actually needs.
+_VOICE_FEMALE_MARKERS = (
+    "妈", "母", "女", "娘", "姐", "妹", "婆", "妻", "婶", "嫂", "姑",
+    "mother", "mom", "mama", "mum", "daughter", "girl", "sister", "wife",
+    "she", "her", "female", "queen", "princess", "aunt",
+)
+_VOICE_MALE_MARKERS = (
+    "爸", "父", "公", "男", "哥", "弟", "爷", "夫", "叔", "伯", "兄",
+    "father", "dad", "papa", "son", "boy", "brother", "husband", "he",
+    "him", "male", "king", "prince", "uncle",
+)
+
+
+def default_voice_for(name: str) -> str:
+    """Stable per-name TTS descriptor (gender + pitch + timbre) for the
+    voice sheet fallback. Same name in -> same descriptor out (the
+    stability IS the feature: cross-scene voice consistency)."""
+    low = (name or "").lower()
+    if any(m in low for m in _VOICE_FEMALE_MARKERS):
+        return "adult female, warm mid-range pitch, soft rounded timbre"
+    if any(m in low for m in _VOICE_MALE_MARKERS):
+        return "adult male, low-mid pitch, steady timbre"
+    return "adult, mid-range pitch, natural timbre"
 
 
 def build_cast_block(cast: dict[str, str], roster: list[str]) -> str:

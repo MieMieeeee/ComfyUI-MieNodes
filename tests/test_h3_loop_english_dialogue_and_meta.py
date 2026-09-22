@@ -932,3 +932,70 @@ def test_prefix_system_never_states_dialogue_language():
         encoding="utf-8"
     )
     assert "NEVER states a spoken-dialogue language" in txt
+
+
+# --------------------------------------------------------------------------- #
+# 2026-09-22 C2 live failure: 妈妈's two lines (one per scene) had two
+# different TTS voices — scenes generate independently and no voice
+# descriptor rode the tags. Voice sheet + per-scene re-attachment.
+# --------------------------------------------------------------------------- #
+def test_default_voice_for_is_stable_and_gendered(mods):
+    _lg, lp = mods
+    v = lp.default_voice_for
+    assert v("妈妈") == v("妈妈") and "female" in v("妈妈")
+    assert "male" in v("爸爸") and "female" not in v("爸爸")
+    assert "female" in v("mother cat")
+    assert "child" not in v("妈妈")  # heuristic is adult-tier; fine
+    # Unknown names get a STABLE neutral descriptor (stability is the
+    # feature — cross-scene consistency).
+    assert v("阿猫") == v("阿猫") and "mid-range" in v("阿猫")
+
+
+def test_voice_sheet_parsed_from_prefix_reply(mods):
+    _lg, lp = mods
+    raw = (
+        "Style paragraph.\n\nCAST:\n妈妈: cream cat.\n爸爸: tabby cat.\n\n"
+        "VOICE:\n妈妈: adult female, warm mid-range pitch, soft timbre\n"
+        "爸爸: adult male, low pitch, gravel timbre\n"
+    )
+    lines, cast, voices = lp.split_prefix_and_cast(raw), None, None
+    # via split_prefix_sections:
+    _, _, cast, voices = lp.split_prefix_sections(raw)
+    assert cast["妈妈"] == "cream cat."
+    assert voices["妈妈"].startswith("adult female")
+    assert voices["爸爸"].startswith("adult male")
+    # legacy wrapper still works
+    l2, c2 = lp.split_prefix_and_cast(raw)
+    assert l2 and c2["妈妈"] == "cream cat."
+
+
+def test_blocks_carry_voice_per_scene(mods):
+    _lg, lp = mods
+    blocks = lp.assemble_dialogue_line_blocks(
+        ["Hello.", "World."],
+        line_speakers=["妈妈", "妈妈"],
+        speaker_id_map={"妈妈": "S1"},
+        speaker_identities={"妈妈": "cream cat caption"},
+        first_appearance_speakers={"妈妈"},
+        speaker_voices={"妈妈": "adult female, warm mid-range pitch"},
+    )
+    # scene-first block: identity + voice + tag
+    assert blocks[0] == (
+        "妈妈, cream cat caption; voice: adult female, warm mid-range "
+        "pitch (S1): <d>[English] Hello.</d>"
+    )
+    # same-scene later line: bare tag (voice NOT repeated)
+    assert blocks[1] == "妈妈 (S1): <d>[English] World.</d>"
+    # A LATER SCENE's block list: voice re-attached, no identity.
+    blocks2 = lp.assemble_dialogue_line_blocks(
+        ["Oh my god."],
+        line_speakers=["妈妈"],
+        speaker_id_map={"妈妈": "S1"},
+        speaker_identities={"妈妈": "cream cat caption"},
+        first_appearance_speakers=set(),  # already seen globally
+        speaker_voices={"妈妈": "adult female, warm mid-range pitch"},
+    )
+    assert blocks2[0] == (
+        "妈妈; voice: adult female, warm mid-range pitch (S1): "
+        "<d>[English] Oh my god.</d>"
+    )

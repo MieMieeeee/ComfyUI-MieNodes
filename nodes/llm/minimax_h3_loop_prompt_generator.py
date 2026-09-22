@@ -125,6 +125,8 @@ try:
         SCHEMA_SIX,
         append_dialogue_blocks_to_sections,
         assemble_dialogue_line_blocks,
+        default_voice_for,
+        split_prefix_sections,
         build_continuation_block,
         build_continuation_block_ref2v,
         build_prefix_user_text,
@@ -204,6 +206,8 @@ except ImportError:
         SCHEMA_SIX,
         append_dialogue_blocks_to_sections,
         assemble_dialogue_line_blocks,
+        default_voice_for,
+        split_prefix_sections,
         build_continuation_block,
         build_continuation_block_ref2v,
         build_prefix_user_text,
@@ -1906,7 +1910,7 @@ class H3LoopPromptEnhancer:
         idea: str,
         turns: list,
         tempo_directive: str,
-    ) -> tuple[list[str], dict[str, str]]:
+    ) -> tuple:
         """Deterministic stage-1 replacement for short dialogue boards.
 
         The prefix paragraph is the concept's own narration text (the
@@ -1948,7 +1952,9 @@ class H3LoopPromptEnhancer:
             for t in turns
             if t.speaker and t.speaker != "(narrator)"
         }
-        return prefix_lines, cast
+        # No LLM ran on this path, so there is no VOICE sheet — the
+        # caller's per-name heuristic fallback fills it.
+        return prefix_lines, cast, {}
 
     def _synth_prefix(
         self,
@@ -1961,7 +1967,7 @@ class H3LoopPromptEnhancer:
         mode: str = "t2va",
         manifest: Optional[list[dict]] = None,
         tempo_directive: str = "",
-    ) -> tuple[list[str], dict[str, str]]:
+    ) -> tuple:
         """One LLM call producing (a) the whole-video-invariant prefix
         (art style / setting / palette / tempo / exclusions — never any
         character) and (b) the CAST sheet (one identity line per named
@@ -2022,7 +2028,17 @@ class H3LoopPromptEnhancer:
                     stage=f"prefix[attempt {attempt + 1}]",
                 )
             )
-            prefix_lines, cast = split_prefix_and_cast(raw)
+            _, _, cast, voices = split_prefix_sections(raw)
+            # prefix = paragraphs before the CAST header
+            raw_lines = raw.split("\n")
+            cast_at = next(
+                (i for i, ln in enumerate(raw_lines)
+                 if ln.strip().lower().startswith("cast:")),
+                -1,
+            )
+            prefix_lines = split_prefix_paragraphs(
+                "\n".join(raw_lines[:cast_at]) if cast_at >= 0 else raw
+            )
             problems = []
             if not prefix_lines:
                 problems.append("no prefix paragraph")
@@ -2031,7 +2047,7 @@ class H3LoopPromptEnhancer:
                 if missing:
                     problems.append("CAST sheet missing names: " + ", ".join(missing))
             if not problems:
-                return prefix_lines, cast
+                return prefix_lines, cast, voices
         raise RuntimeError(
             f"prompt_prefix synthesis failed: {'; '.join(problems)}"
         )
@@ -2411,6 +2427,7 @@ class H3LoopPromptEnhancer:
         tempo_directive: str = "",
         speaker_identities: Optional[dict] = None,
         referenced_pictures: Optional[set] = None,
+        speaker_voices: Optional[dict] = None,
     ) -> list[str]:
         code = parse_reference_mode(mode)
         schema = schema_for_mode(mode)
@@ -2558,6 +2575,7 @@ class H3LoopPromptEnhancer:
                         speaker_id_map=speaker_id_map,
                         speaker_identities=speaker_identities,
                         first_appearance_speakers=first_appearance_speakers,
+                        speaker_voices=speaker_voices,
                     )
                     lines_out = append_dialogue_blocks_to_sections(
                         lines_out, blocks, schema=schema
@@ -2613,6 +2631,7 @@ class H3LoopPromptEnhancer:
         spatial_layout: Optional[dict] = None,
         tempo_directive: str = "",
         speaker_identities: Optional[dict] = None,
+        speaker_voices: Optional[dict] = None,
     ) -> dict[str, list[str]]:
         user_text = build_single_call_user_text(
             concept=concept,
@@ -2700,6 +2719,7 @@ class H3LoopPromptEnhancer:
                         speaker_id_map=speaker_id_map,
                         speaker_identities=speaker_identities,
                         first_appearance_speakers=set(spk_per_line) - seen_firsts,
+                        speaker_voices=speaker_voices,
                     )
                     result[shot_id] = append_dialogue_blocks_to_sections(
                         (
@@ -3366,7 +3386,7 @@ class H3LoopPromptEnhancer:
             and len(turns) <= _LOCAL_PREFIX_MAX_TURNS
             and sum(t.line_count for t in turns) <= _LOCAL_PREFIX_MAX_LINES
         ):
-            prefix_lines, cast = self._derive_local_prefix(
+            prefix_lines, cast, llm_voices = self._derive_local_prefix(
                 idea, turns, tempo_directive
             )
             local_prefix_note = (
@@ -3377,7 +3397,7 @@ class H3LoopPromptEnhancer:
             warnings.append(local_prefix_note)
             log_pipeline(local_prefix_note)
         else:
-            prefix_lines, cast = self._synth_prefix(
+            prefix_lines, cast, llm_voices = self._synth_prefix(
                 idea,
                 category,
                     output_language,
@@ -3386,6 +3406,26 @@ class H3LoopPromptEnhancer:
                     manifest=manifest,
                     tempo_directive=tempo_directive,
                 )
+        # ---- Stage 1.55: speaker voice sheet ---------------------------- #
+        # TTS voice identity (gender + pitch + timbre) per speaker. Scenes
+        # generate INDEPENDENTLY, so the same (S<n>) gets a fresh voice
+        # guess in every scene unless the descriptor rides the tag each
+        # time (live failure 2026-09-22 C2: 妈妈's two lines had two
+        # voices). Source order: prefix LLM's VOICE sheet, then the
+        # stable per-name heuristic — the fallback's stability is the
+        # feature, not its accuracy.
+        speaker_voices: dict = {}
+        if dialogue_board:
+            for t in turns:
+                name = t.speaker
+                if not name or name in speaker_voices:
+                    continue
+                v = str(llm_voices.get(name.lower()) or "").strip()
+                speaker_voices[name] = v or default_voice_for(name)
+            log_pipeline(
+                "speaker voice sheet: "
+                + ", ".join(f"{n}={v}" for n, v in speaker_voices.items())
+            )
         # Belt-and-suspenders: the prefix LLM occasionally asserts a
         # dialogue language ("dialogue spoken in Chinese" on an
         # all-English board, live 2026-09-21 23:02) — speech language
@@ -3486,6 +3526,7 @@ class H3LoopPromptEnhancer:
                 spatial_layout=spatial_layout,
                 tempo_directive=tempo_directive,
                 speaker_identities=cast,
+                speaker_voices=speaker_voices,
             )
             for entry in entries:
                 entry["prompt"] = all_shot_prompts.get(entry["id"], [])
@@ -3539,6 +3580,7 @@ class H3LoopPromptEnhancer:
                     },
                     spatial_layout=spatial_layout,
                     referenced_pictures=concept_referenced_pics,
+                    speaker_voices=speaker_voices,
                 )
                 entry["prompt"] = shot_prompt
                 seen_speakers.update(

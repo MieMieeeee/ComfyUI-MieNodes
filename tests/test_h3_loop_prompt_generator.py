@@ -1185,18 +1185,30 @@ def test_long_dialogue_board_uses_llm_prefix_and_cast_identity(lg):
     assert len(conn.calls) == 7
     assert "prefix derived locally" not in out["summary"]
     texts = ["\n".join(s["prompt"]) for s in plan["shots"]]
-    # First appearances carry the CAST identity + fixed tag...
-    assert (
-        "莎莉猫, cream-blonde fluffy cat, navy bow tie. (S1): "
-        "<d>[Chinese] 第一句。</d>" in texts[0]
+    # First appearances carry the CAST identity + fixed tag, and every
+    # scene's first block carries the voice clause (scenes generate
+    # independently — the TTS descriptor must ride each scene).
+    import re as _re
+    assert _re.search(
+        r"莎莉猫, cream-blonde fluffy cat, navy bow tie\.;"
+        r" voice: [^()]+ \(S1\): <d>\[Chinese\] 第一句。</d>",
+        texts[0],
     )
-    assert (
-        "哈利猫, orange tabby cat, brown blazer. (S2): "
-        "<d>[Chinese] 第二句。</d>" in texts[1]
+    assert _re.search(
+        r"哈利猫, orange tabby cat, brown blazer\.;"
+        r" voice: [^()]+ \(S2\): <d>\[Chinese\] 第二句。</d>",
+        texts[1],
     )
-    # ...later clips of the same speaker are bare name + tag.
-    assert "莎莉猫 (S1): <d>[Chinese] 第三句。</d>" in texts[2]
-    assert "哈利猫 (S2): <d>[Chinese] 第四句。</d>" in texts[3]
+    # ...later SCENES re-attach the voice (scene-first) without the
+    # visual CAST identity; same scene's later lines stay bare.
+    assert _re.search(
+        r"莎莉猫; voice: [^()]+ \(S1\): <d>\[Chinese\] 第三句。</d>",
+        texts[2],
+    )
+    assert _re.search(
+        r"哈利猫; voice: [^()]+ \(S2\): <d>\[Chinese\] 第四句。</d>",
+        texts[3],
+    )
 
 
 def test_single_call_dialogue_appends_blocks(lg):
