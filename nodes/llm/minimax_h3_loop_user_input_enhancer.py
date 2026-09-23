@@ -462,7 +462,7 @@ class MiniMaxH3LoopUserInputEnhancer:
         max_tokens=_MAX_TOKENS_DEFAULT,
         timeout=_DEFAULT_TIMEOUT,
     ):
-        h = hashlib.md5()
+        h = hashlib.md5(usedforsecurity=False)
         for part in (
             draft or "",
             category or "",

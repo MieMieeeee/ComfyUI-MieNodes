@@ -186,7 +186,7 @@ class Ideogram4PromptGenerator:
         temperature=1.0,
         timeout=120,
     ):
-        h = hashlib.md5()
+        h = hashlib.md5(usedforsecurity=False)
         for part in (
             user_prompt,
             composition_mode,

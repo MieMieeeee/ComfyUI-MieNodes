@@ -842,7 +842,7 @@ class MiniMaxH3PromptGenerator:
         max_tokens_enhance=_DEFAULT_MAX_TOKENS_ENHANCE,
         timeout=120,
     ):
-        h = hashlib.md5()
+        h = hashlib.md5(usedforsecurity=False)
         for part in (
             task_type,
             user_prompt,

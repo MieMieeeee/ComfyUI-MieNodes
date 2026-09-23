@@ -105,7 +105,7 @@ class PromptGenerator(object):
         return prompt.strip(),
 
     def is_changed(self, llm_service_connector, input_text, mode, seed):
-        hasher = hashlib.md5()
+        hasher = hashlib.md5(usedforsecurity=False)
         hasher.update(input_text.encode('utf-8'))
         hasher.update(mode.encode('utf-8'))
         hasher.update(str(seed).encode('utf-8'))
@@ -167,7 +167,7 @@ class KontextPromptGenerator(object):
         return kontext_prompt.strip(),
 
     def is_changed(self, llm_service_connector, image1_description, image2_description, edit_instruction, preset, seed):
-        hasher = hashlib.md5()
+        hasher = hashlib.md5(usedforsecurity=False)
         hasher.update(image1_description.encode('utf-8'))
         hasher.update(image2_description.encode('utf-8'))
         hasher.update(edit_instruction.encode('utf-8'))
@@ -284,7 +284,7 @@ class FrameTransitionPromptGenerator(object):
         return out.strip(),
 
     def is_changed(self, llm_service_connector, start_image_description, end_image_description, model, seed):
-        hasher = hashlib.md5()
+        hasher = hashlib.md5(usedforsecurity=False)
         hasher.update(start_image_description.encode('utf-8'))
         hasher.update(end_image_description.encode('utf-8'))
         hasher.update(model.encode('utf-8'))
@@ -324,7 +324,7 @@ class HunyuanVideoT2VPromptGenerator(object):
         return out.strip(),
 
     def is_changed(self, llm_service_connector, input_text, seed):
-        hasher = hashlib.md5()
+        hasher = hashlib.md5(usedforsecurity=False)
         hasher.update(input_text.encode("utf-8"))
         hasher.update(str(seed).encode("utf-8"))
         try:
@@ -366,7 +366,7 @@ class HunyuanVideoI2VPromptGenerator(object):
         return out.strip(),
 
     def is_changed(self, llm_service_connector, image_description, input_text, seed):
-        hasher = hashlib.md5()
+        hasher = hashlib.md5(usedforsecurity=False)
         hasher.update(image_description.encode("utf-8"))
         hasher.update(input_text.encode("utf-8"))
         hasher.update(str(seed).encode("utf-8"))
@@ -404,7 +404,7 @@ class ZImagePromptGenerator(object):
         return out.strip(),
 
     def is_changed(self, llm_service_connector, prompt, seed):
-        hasher = hashlib.md5()
+        hasher = hashlib.md5(usedforsecurity=False)
         hasher.update(prompt.encode("utf-8"))
         hasher.update(str(seed).encode("utf-8"))
         try:
@@ -451,7 +451,7 @@ class ZImagePromptGeneratorWithImageInput(object):
         return out.strip(),
 
     def is_changed(self, llm_service_connector, image, prompt, seed, image_detail="auto"):
-        hasher = hashlib.md5()
+        hasher = hashlib.md5(usedforsecurity=False)
         hasher.update((prompt or "").encode("utf-8"))
         hasher.update(str(seed).encode("utf-8"))
         try:
@@ -491,7 +491,7 @@ class Flux2PromptGenerator(object):
         return out.strip(),
 
     def is_changed(self, llm_service_connector, input_text, seed):
-        hasher = hashlib.md5()
+        hasher = hashlib.md5(usedforsecurity=False)
         hasher.update(input_text.encode("utf-8"))
         hasher.update(str(seed).encode("utf-8"))
         try:
@@ -531,7 +531,7 @@ class FluxKleinT2VPromptGenerator(object):
         return out.strip(),
 
     def is_changed(self, llm_service_connector, input_text, seed):
-        hasher = hashlib.md5()
+        hasher = hashlib.md5(usedforsecurity=False)
         hasher.update(input_text.encode("utf-8"))
         hasher.update(str(seed).encode("utf-8"))
         try:
@@ -569,7 +569,7 @@ class LTX2PromptGenerator(object):
         return out.strip(),
 
     def is_changed(self, llm_service_connector, input_text, seed):
-        hasher = hashlib.md5()
+        hasher = hashlib.md5(usedforsecurity=False)
         hasher.update(input_text.encode("utf-8"))
         hasher.update(str(seed).encode("utf-8"))
         try:

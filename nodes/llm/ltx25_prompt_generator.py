@@ -463,7 +463,7 @@ class LTX25PromptGenerator:
         timeout=_DEFAULT_TIMEOUT,
         multishot=False,
     ):
-        h = hashlib.md5()
+        h = hashlib.md5(usedforsecurity=False)
         for part in (
             user_prompt,
             mode,

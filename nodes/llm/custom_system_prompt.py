@@ -249,7 +249,7 @@ class CustomSystemPromptGenerator(object):
         temperature=0.8,
         max_tokens=8192,
     ):
-        hasher = hashlib.md5()
+        hasher = hashlib.md5(usedforsecurity=False)
         hasher.update(input_text.encode("utf-8"))
         hasher.update(system_prompt_name.encode("utf-8"))
         hasher.update(str(seed).encode("utf-8"))

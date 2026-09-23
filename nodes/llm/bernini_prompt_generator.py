@@ -599,7 +599,7 @@ class BerniniPromptGenerator:
         max_tokens=8192,
         timeout=30,
     ):
-        h = hashlib.md5()
+        h = hashlib.md5(usedforsecurity=False)
         h.update((task_type or "").encode("utf-8"))
         h.update((user_prompt or "").encode("utf-8"))
         h.update(str(seed).encode("utf-8"))

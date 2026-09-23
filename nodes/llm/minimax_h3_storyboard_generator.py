@@ -414,7 +414,7 @@ class MiniMaxH3StoryboardGenerator:
         max_tokens=_DEFAULT_MAX_TOKENS,
         timeout=_DEFAULT_TIMEOUT,
     ):
-        h = hashlib.md5()
+        h = hashlib.md5(usedforsecurity=False)
         for part in (
             concept,
             str(shot_count),

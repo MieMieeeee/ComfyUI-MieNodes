@@ -281,7 +281,7 @@ class Krea2PromptGenerator:
         timeout=_DEFAULT_TIMEOUT,
         max_tokens=_MAX_TOKENS_DEFAULT,
     ):
-        h = hashlib.md5()
+        h = hashlib.md5(usedforsecurity=False)
         for part in (
             user_prompt,
             aspect_ratio,

@@ -4141,7 +4141,7 @@ class MiniMaxH3LoopPromptGenerator:
         pacing: str = _PACING_LABELS[1],
         enhance_user_input: str = _ENHANCE_USER_INPUT_LABELS[0],
     ):
-        h = hashlib.md5()
+        h = hashlib.md5(usedforsecurity=False)
         for part in (
             user_input,
             str(seed),
@@ -4198,7 +4198,7 @@ class MiniMaxH3LoopPromptGenerator:
                     sample_bytes = b"".join(chunks)
             except Exception:
                 sample_bytes = b""
-            h.update(hashlib.md5(sample_bytes).hexdigest().encode("ascii"))
+            h.update(hashlib.md5(sample_bytes, usedforsecurity=False).hexdigest().encode("ascii"))
         try:
             h.update(llm_service_connector.get_state().encode("utf-8"))
         except AttributeError:
