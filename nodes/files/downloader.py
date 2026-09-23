@@ -204,11 +204,6 @@ class HFRepoDownloader(object):
         if not os.path.exists(target_directory):
             os.makedirs(target_directory, exist_ok=True)
 
-        # Setup environment variables for mirror
-        env_vars = os.environ.copy()
-        if use_hf_mirror:
-            env_vars["HF_ENDPOINT"] = "https://hf-mirror.com"
-        
         # Prepare parameters
         kwargs = {
             "repo_id": repo_id,
@@ -217,6 +212,10 @@ class HFRepoDownloader(object):
             "token": hf_token if hf_token else None,
             "local_dir_use_symlinks": False,  # Always download actual files
         }
+        if use_hf_mirror:
+            # Per-call mirror endpoint (huggingface_hub >= 0.16) instead of
+            # rewriting the process-wide HF_ENDPOINT env var.
+            kwargs["endpoint"] = "https://hf-mirror.com"
 
         if allow_patterns:
             kwargs["allow_patterns"] = [p.strip() for p in allow_patterns.split(",") if p.strip()]
@@ -224,29 +223,10 @@ class HFRepoDownloader(object):
             kwargs["ignore_patterns"] = [p.strip() for p in exclude_patterns.split(",") if p.strip()]
 
         try:
-            # Temporarily set environment variable if needed
-            original_hf_endpoint = os.environ.get("HF_ENDPOINT")
-            if use_hf_mirror:
-                os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
-
             downloaded_path = snapshot_download(**kwargs)
-            
-            # Restore environment variable
-            if use_hf_mirror:
-                if original_hf_endpoint:
-                    os.environ["HF_ENDPOINT"] = original_hf_endpoint
-                else:
-                    del os.environ["HF_ENDPOINT"]
-
             return mie_log(f"Successfully downloaded repository {repo_id} to {downloaded_path}"),
-        
+
         except Exception as e:
-            # Restore environment variable in case of error
-            if use_hf_mirror:
-                if original_hf_endpoint:
-                    os.environ["HF_ENDPOINT"] = original_hf_endpoint
-                else:
-                    del os.environ["HF_ENDPOINT"]
             return mie_log(f"Error downloading repository {repo_id}: {str(e)}"),
 
  

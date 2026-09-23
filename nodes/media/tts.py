@@ -6,9 +6,9 @@ import tempfile
 import torchaudio
 import torch
 try:
-    from _mienodes_internal.core.utils import mie_log
+    from _mienodes_internal.core.utils import mie_log, resolve_token
 except ImportError:
-    from ...core.utils import mie_log
+    from ...core.utils import mie_log, resolve_token
 
 MY_CATEGORY = "🐑 MieNodes/🐑 TTS Service"
 
@@ -42,22 +42,25 @@ class QwenTTSNode:
     CATEGORY = MY_CATEGORY
 
     def execute(self, text, voice, model, language_type, tts_connector=None, api_key=""):
-        # 1. Resolve API Key
+        # 1. Resolve API Key: connector widget > api_key widget > the shared
+        # mie_llm_keys.json "dashscope" entry (same file the LLM connectors
+        # use, so one config covers TTS + LLM services).
         resolved_api_key = ""
         if tts_connector:
             # Try to get token from connector object
             if hasattr(tts_connector, "api_token") and tts_connector.api_token:
                 resolved_api_key = tts_connector.api_token
-        
-        if not resolved_api_key:
-            if api_key and api_key.strip():
-                resolved_api_key = api_key.strip()
-            else:
-                # Fallback to env var if available
-                resolved_api_key = os.environ.get("DASHSCOPE_API_KEY", "")
 
         if not resolved_api_key:
-            raise ValueError("API Key is missing. Please provide a TTS Connector, an API Key input, or set DASHSCOPE_API_KEY env var.")
+            resolved_api_key = resolve_token(
+                api_key.strip() if api_key else "", config_key="dashscope"
+            )
+
+        if not resolved_api_key:
+            raise ValueError(
+                "API Key is missing. Please provide a TTS Connector, an API Key "
+                'input, or a "dashscope" entry in mie_llm_keys.json.'
+            )
 
         # 2. Prepare Request
         url = "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"

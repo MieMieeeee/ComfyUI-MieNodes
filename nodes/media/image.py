@@ -4,7 +4,6 @@ import torch
 import folder_paths
 import os
 import re
-import subprocess
 from pathlib import Path
 try:
     from _mienodes_internal.core.utils import mie_log
@@ -80,19 +79,32 @@ class SingleImageToVideo:
         return transformed
 
     def _improve_video_quality(self, video_path):
+        """Re-encode the mp4v preview to h.264 (crf 18) in-process via PyAV.
+
+        ComfyUI core pins ``av>=17.0.0``, so no external ffmpeg binary is
+        spawned; if the re-encode fails for any reason the original video
+        is kept.
+        """
         temp_path = video_path + '.temp.mp4'
-        cmd = [
-            'ffmpeg', '-i', video_path,
-            '-c:v', 'libx264', '-preset', 'slow', '-crf', '18',
-            '-y', temp_path
-        ]
         try:
+            import av
             mie_log(f"Improving video quality for {video_path}")
-            subprocess.run(cmd, check=True)
+            with av.open(video_path) as inp, av.open(temp_path, 'w') as out:
+                in_stream = inp.streams.video[0]
+                out_stream = out.add_stream('libx264', rate=in_stream.average_rate)
+                out_stream.width = in_stream.codec_context.width
+                out_stream.height = in_stream.codec_context.height
+                out_stream.pix_fmt = 'yuv420p'
+                out_stream.options = {'preset': 'slow', 'crf': '18'}
+                for frame in inp.decode(in_stream):
+                    for packet in out_stream.encode(frame):
+                        out.mux(packet)
+                for packet in out_stream.encode():
+                    out.mux(packet)
             os.replace(temp_path, video_path)
             mie_log(f"Video quality improved for {video_path}")
-        except (subprocess.CalledProcessError, FileNotFoundError) as e:
-            mie_log(f"ffmpeg command failed: {e}. The original video is kept.")
+        except Exception as e:
+            mie_log(f"h264 re-encode failed: {e}. The original video is kept.")
             if os.path.exists(temp_path):
                 os.remove(temp_path)
 

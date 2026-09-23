@@ -788,14 +788,10 @@ def _caption_cache_disk_root() -> str:
     """Resolve the on-disk caption cache directory.
 
     Resolution order:
-      1) ``MIEN_NODES_CACHE_DIR`` override.
-      2) ComfyUI's runtime output dir via ``folder_paths.get_output_directory()``.
-      3) Fallback ``<repo>/output/mien_nodes/caption_cache`` for tests /
+      1) ComfyUI's runtime output dir via ``folder_paths.get_output_directory()``.
+      2) Fallback ``<repo>/output/mienodes/caption_cache`` for tests /
          standalone import contexts where ``folder_paths`` is unavailable.
     """
-    override = os.environ.get("MIEN_NODES_CACHE_DIR")
-    if override:
-        return os.path.abspath(override)
     try:
         import folder_paths  # type: ignore
 
