@@ -146,6 +146,36 @@ class GeneralLLMServiceConnector:
         cleaned = self._THINK_BLOCK_RE.sub("", text)
         return cleaned.strip()
 
+    @staticmethod
+    def _payload_chars(payload):
+        """Return ``(total_chars, last_user_chars)`` for an LLM request payload.
+
+        Used by the connector's POST / retry log lines so a slow or failing
+        call carries the payload size alongside the elapsed seconds — without
+        this a 300s ReadTimeout leaves no clue whether the request was 8KB or
+        80KB. ``messages[*].content`` is summed; non-message fields (model,
+        response_format, stream) are not counted (constant per connector).
+        """
+        total = 0
+        last_user_chars = 0
+        try:
+            for m in payload.get("messages") or []:
+                content = m.get("content") or ""
+                if isinstance(content, list):
+                    # Multi-modal payloads: count only text parts.
+                    content = "".join(
+                        str(p.get("text", ""))
+                        for p in content
+                        if isinstance(p, dict) and p.get("type") == "text"
+                    )
+                n = len(str(content))
+                total += n
+                if m.get("role") == "user":
+                    last_user_chars = n
+        except Exception:
+            pass
+        return total, last_user_chars
+
     def generate_payload(self, messages, **kwargs):
         """
         生成标准的 OpenAI 兼容服务的 Payload。
@@ -185,7 +215,11 @@ class GeneralLLMServiceConnector:
             is_last_attempt = (attempt == self.max_retries - 1)
             attempt_idx = attempt + 1
             tag = f"[{self.model}] attempt {attempt_idx}/{self.max_retries}"
-            mie_log(f"{tag}: POST {self.api_url} timeout={self.timeout}s")
+            req_chars, last_user_chars = self._payload_chars(payload)
+            mie_log(
+                f"{tag}: POST {self.api_url} timeout={self.timeout}s "
+                f"request_chars={req_chars} last_user_chars={last_user_chars}"
+            )
             attempt_t0 = time.perf_counter()
 
             try:
@@ -280,7 +314,8 @@ class GeneralLLMServiceConnector:
                 attempt_elapsed = time.perf_counter() - attempt_t0
                 error_type = type(e).__name__
                 detail = (
-                    f"{tag} {error_type} after {attempt_elapsed:.2f}s"
+                    f"{tag} {error_type} after {attempt_elapsed:.2f}s "
+                    f"(request_chars={req_chars}, last_user_chars={last_user_chars})"
                 )
                 if is_last_attempt:
                     raise Exception(
@@ -623,7 +658,11 @@ class GeminiConnectorGeneral(GeneralLLMServiceConnector):
             is_last_attempt = (attempt == self.max_retries - 1)
             attempt_idx = attempt + 1
             tag = f"[{self.model}] attempt {attempt_idx}/{self.max_retries}"
-            mie_log(f"{tag}: POST {url} timeout={self.timeout}s")
+            req_chars, last_user_chars = self._payload_chars(payload)
+            mie_log(
+                f"{tag}: POST {url} timeout={self.timeout}s "
+                f"request_chars={req_chars} last_user_chars={last_user_chars}"
+            )
             attempt_t0 = time.perf_counter()
 
             try:
@@ -691,7 +730,10 @@ class GeminiConnectorGeneral(GeneralLLMServiceConnector):
             except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
                 attempt_elapsed = time.perf_counter() - attempt_t0
                 error_type = type(e).__name__
-                detail = f"{tag} {error_type} after {attempt_elapsed:.2f}s"
+                detail = (
+                    f"{tag} {error_type} after {attempt_elapsed:.2f}s "
+                    f"(request_chars={req_chars}, last_user_chars={last_user_chars})"
+                )
                 if is_last_attempt:
                     raise Exception(
                         f"{detail}. Max retries ({self.max_retries}) exceeded."

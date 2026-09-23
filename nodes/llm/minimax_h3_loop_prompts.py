@@ -2463,6 +2463,10 @@ def _clean_voice_descriptor(speaker: str, voices: dict) -> str:
     voice = str(voices.get(speaker) or "").strip()
     voice = re.sub(r"\s+", " ", voice)
     voice = voice.replace("<", "").replace(">", "")
+    # A trailing period splits the descriptor from the <d> tag. The
+    # 12:49 sheet came back as "soft rounded timbre." and the speech
+    # sentence became "timbre. <d>".
+    voice = voice.rstrip(" .,;")
     return voice or default_voice_for(speaker)
 
 
@@ -2590,27 +2594,41 @@ def identity_pin_lines(
     return pins
 
 
-_OFFSCREEN_CLAIM_RE = re.compile(
-    r"off-screen|off screen|voice-?over|\bPOV\b|point of view|eyeline",
+_HIDE_SPEAKER_RE = re.compile(
+    r"off-screen|off screen|voice-?over|\bPOV\b|point of view|eyeline|"
+    r"first-person|first person|behind the camera|not in frame|"
+    r"out of frame|as the .{0,40}camera|"
+    r"第一人称|画外|不在画面|镜头外",
     re.IGNORECASE,
+)
+_VISIBLE_CAST = (
+    "All speaking characters are visible in the frame. "
+    "None of them is the camera."
 )
 
 
 def neutralize_offscreen_claims(prompt_lines: list[str]) -> list[str]:
-    """A speaking character written as the camera has no mouth.
+    """Drop lines that hide a speaker or make them the camera.
 
-    Live render 2026-09-22 11:57: the shot prose made 白猫 the lens, so
-    her lines were an off-screen voice and the kitten's mouth ran for
-    the whole clip. Claims that hide a character are rewritten in
-    place; lines that carry a ``<d>`` tag are left untouched.
+    The 11:57 render made 白猫 the lens, so her lines had no mouth.
+    Replacing the word ``POV`` with ``in frame`` left
+    "First-person in frame" and "serve as the camera", which the
+    12:49 plan still used. The whole line goes. Speech lines stay.
     """
     out: list[str] = []
+    noted = False
+    header_set = {h for h in _SIX_SECTION_HEADERS} | {h for h in _THREE_SECTION_HEADERS}
     for line in prompt_lines:
-        if "<d>" in line or not _OFFSCREEN_CLAIM_RE.search(line):
+        key = line.strip().lower()
+        if "<d>" in line or key in header_set:
             out.append(line)
             continue
-        rewritten = _OFFSCREEN_CLAIM_RE.sub("in frame", line)
-        out.append(rewritten)
+        if _HIDE_SPEAKER_RE.search(line):
+            if not noted:
+                out.append(_VISIBLE_CAST)
+                noted = True
+            continue
+        out.append(line)
     return out
 
 

@@ -1044,6 +1044,38 @@ def test_paren_role_and_negated_copula(lp):
     assert "他不" not in bound.values()
 
 
+def test_offscreen_claim_is_removed_not_rewritten(lp):
+    lines = [
+        "summary:",
+        "First-person POV from the mother, who stays behind the camera.",
+        "retention_analysis:",
+        "<Subject 2> serves as the locked-off camera off-screen.",
+        "detailed_description:",
+        "白猫 speaks as (S2) adult female, warm mid-range pitch <d>[English] Hi.</d>",
+    ]
+    out = lp.neutralize_offscreen_claims(lines)
+    text = "\n".join(out)
+    assert "behind the camera" not in text
+    assert "off-screen" not in text
+    assert "POV" not in text
+    assert "None of them is the camera." in text
+    assert "<d>[English] Hi.</d>" in text
+
+
+def test_voice_descriptor_drops_trailing_period(lp):
+    blocks = lp.assemble_dialogue_line_blocks(
+        ["Oh my god."],
+        line_speakers=["白猫"],
+        speaker_id_map={"白猫": "S2"},
+        speaker_voices={"白猫": "adult female, warm mid-range pitch, soft rounded timbre."},
+    )
+    assert blocks[0].endswith(
+        "as (S2) adult female, warm mid-range pitch, soft rounded timbre "
+        "<d>[English] Oh my god.</d>"
+    )
+    assert "timbre." not in blocks[0]
+
+
 def test_locked_line_marks_vocative_addressee(lp):
     user = lp.build_shot_user_text(
         concept="图2的白猫是妈妈，图1的黑猫是爸爸。",
