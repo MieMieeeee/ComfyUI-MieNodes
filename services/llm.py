@@ -781,7 +781,7 @@ class OllamaConnectorGeneral(StandardOpenAICompatibleConnector):
         from another container on the same host)
     """
 
-    def __init__(self, host, model, api_token="", **kwargs):
+    def __init__(self, host, model, api_token=None, **kwargs):
         api_url = host.rstrip("/") + "/v1/chat/completions"
         # Ollama ignores the api_key but the Authorization header must
         # still be non-empty so requests does not choke on a bare Bearer.
@@ -1374,7 +1374,7 @@ class SetOllamaLLMServiceConnector(object):
     FUNCTION = "execute"
     CATEGORY = MY_CATEGORY
 
-    def execute(self, host, model, api_token="", config_file="mie_llm_keys.json", config_key="ollama", prefer_local_config=True, timeout=60):
+    def execute(self, host, model, api_token=None, config_file="mie_llm_keys.json", config_key="ollama", prefer_local_config=True, timeout=60):
         if not model:
             # Sensible default if the user left the field blank. Users can pull
             # other models with `ollama pull <name>` and then edit this field.

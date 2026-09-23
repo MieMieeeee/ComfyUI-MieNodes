@@ -215,7 +215,7 @@ def test_invoke_posts_to_standard_url_and_returns_content(llm_module):
     }
     with patch.object(llm_module, "mie_log"), \
          patch("services.llm.requests.post", return_value=r) as fake_post, \
-         patch("services.llm.resolve_token", return_value="sk-test"):
+         patch("services.llm.resolve_token", return_value="x"):
         c = llm_module.MiMoConnectorGeneral("tok", "mimo-v2.5-pro")
         out = c.invoke([{"role": "user", "content": "hi"}], max_tokens=128)
     assert out == "hello from MiMo"

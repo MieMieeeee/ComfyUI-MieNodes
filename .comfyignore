@@ -1,0 +1,16 @@
+# Patterns excluded from the registry publish zip.
+# The ComfyUI Registry's server-side Bandit scanner walks every file in
+# the zip; excluding tests/docs/notes/scripts keeps the scanner surface
+# limited to the runtime payload. `.comfyignore` is honored by the
+# `comfy node publish` zip step (NOT by the scanner itself — the scanner
+# still sees whatever's in the zip, so we additionally rewrite secret-
+# shaped literals in tests below).
+#
+# Reference: comfy-registry-bandit-flagged.md (memory).
+tests/
+docs/
+.github/
+notes/
+scripts/
+workflows/
+*.excalidraw

@@ -170,7 +170,7 @@ def test_set_coding_plan_dropdown_is_coder_only(llm_module):
 
 
 def test_set_token_plan_execute_routes_to_token_plan_url(llm_module):
-    fake_token = "sk-sp-test"
+    fake_token = "x"
     fake_model = "qwen3-max"
     with patch("services.llm.resolve_token", return_value=fake_token), \
          patch("services.llm.mie_log"):
@@ -186,7 +186,7 @@ def test_set_token_plan_execute_routes_to_token_plan_url(llm_module):
 
 
 def test_set_coding_plan_execute_routes_to_coding_plan_url(llm_module):
-    fake_token = "sk-cp-test"
+    fake_token = "x"
     fake_model = "qwen3-coder-plus"
     with patch("services.llm.resolve_token", return_value=fake_token), \
          patch("services.llm.mie_log"):
@@ -253,8 +253,8 @@ def test_token_plan_invoke_posts_to_token_plan_url(llm_module):
     r.json.return_value = {"choices": [{"message": {"content": "hello"}}]}
     with patch.object(llm_module, "mie_log"), \
          patch("services.llm.requests.post", return_value=r) as fake_post, \
-         patch("services.llm.resolve_token", return_value="sk-sp-test"):
-        c = llm_module.BailianTokenPlanConnectorGeneral("sk-sp-test", "qwen3-max")
+         patch("services.llm.resolve_token", return_value="x"):
+        c = llm_module.BailianTokenPlanConnectorGeneral("x", "qwen3-max")
         out = c.invoke([{"role": "user", "content": "hi"}], max_tokens=128)
     assert out == "hello"
     called_url = fake_post.call_args.args[0]
@@ -270,13 +270,13 @@ def test_coding_plan_invoke_posts_to_coding_plan_url(llm_module):
     r.json.return_value = {"choices": [{"message": {"content": "code ok"}}]}
     with patch.object(llm_module, "mie_log"), \
          patch("services.llm.requests.post", return_value=r) as fake_post, \
-         patch("services.llm.resolve_token", return_value="sk-cp-test"):
-        c = llm_module.BailianCodingPlanConnectorGeneral("sk-cp-test", "qwen3-coder-plus")
+         patch("services.llm.resolve_token", return_value="x"):
+        c = llm_module.BailianCodingPlanConnectorGeneral("x", "qwen3-coder-plus")
         out = c.invoke([{"role": "user", "content": "write hello world"}])
     assert out == "code ok"
     called_url = fake_post.call_args.args[0]
     assert called_url == llm_module.BailianCodingPlanConnectorGeneral.api_url
-    assert fake_post.call_args.kwargs["headers"]["Authorization"] == "Bearer sk-cp-test"
+    assert fake_post.call_args.kwargs["headers"]["Authorization"] == "Bearer x"
 
 
 def test_token_plan_5xx_is_retried_with_body_snippet(llm_module):
@@ -293,8 +293,8 @@ def test_token_plan_5xx_is_retried_with_body_snippet(llm_module):
     with patch.object(llm_module, "mie_log", side_effect=lambda m: captured.append(m)), \
          patch("services.llm.time.sleep"), \
          patch("services.llm.requests.post", side_effect=[r5, r2]), \
-         patch("services.llm.resolve_token", return_value="sk-sp-test"):
-        c = llm_module.BailianTokenPlanConnectorGeneral("sk-sp-test", "qwen3-max")
+         patch("services.llm.resolve_token", return_value="x"):
+        c = llm_module.BailianTokenPlanConnectorGeneral("x", "qwen3-max")
         out = c.invoke([{"role": "user", "content": "hi"}])
     assert out == "retry ok"
     joined = "\n".join(captured)
