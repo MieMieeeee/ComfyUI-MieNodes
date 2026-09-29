@@ -34,13 +34,25 @@ class RichTextNode(_MieTextAnnotationBase):
 
 
 class AboutAuthorNode(_MieTextAnnotationBase):
-    """Read-only author card; rendered as a styled HTML card in the frontend.
+    """Read-only author card (Chinese); rendered as a styled HTML card in
+    the frontend.
 
     Content is sourced from `js/profiles/author.json` and the node's serialized
     `properties.author_*` fields (properties take precedence so the card renders
     correctly for users who don't have the profile file). All fields are
     read-only; the only per-instance state is the theme (Dark/Light/Minimal/
-    Banner), selected via the right-click menu.
+    Leaf), selected via the right-click menu.
+    """
+
+
+class AboutAuthorNodeEn(_MieTextAnnotationBase):
+    """Read-only author card (English); same shape as ``AboutAuthorNode`` but
+    sourced from ``js/profiles/author_en.json`` so the front-end renders the
+    English tagline + link labels.
+
+    The JS dispatch installs the same card-rendering behavior with a
+    different profile URL (see ``js/textNodes.js``). Theme picker and
+    right-click menu are identical to the Chinese variant.
     """
 
 
@@ -48,10 +60,12 @@ NODE_CLASS_MAPPINGS = {
     "SimpleTextNode": SimpleTextNode,
     "RichTextNode": RichTextNode,
     "AboutAuthorNode": AboutAuthorNode,
+    "AboutAuthorNodeEn": AboutAuthorNodeEn,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "SimpleTextNode": "Simple Text",
     "RichTextNode": "Rich Text",
     "AboutAuthorNode": "About Author",
+    "AboutAuthorNodeEn": "About Author EN",
 }

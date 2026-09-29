@@ -1,0 +1,22 @@
+# Qwen-Image-2.1 — Remove Background (node short-circuit)
+
+This file is **documentation only**. The `QwenImage21PromptGenerator` node
+does NOT call an LLM in `mode = remove_bg`: it returns the fixed block
+below verbatim, regardless of `user_input`. The file exists so future
+contributors can see (a) that the slot is intentionally empty, and (b) the
+exact text the node emits.
+
+If a future version wants an LLM-driven remove-bg rewrite, replace the
+short-circuit in `qwen_image_21_prompt_generator.py` with a `load_prompt_text`
+call against this logical name and rewrite this file's body.
+
+## Fixed block (returned verbatim by the node)
+
+--- BEGIN enhanced_prompt ---
+Remove the background, and output a PNG image with a fully transparent
+(alpha) background. Preserve fine details along the subject edges,
+including hair strands, fabric fringes, glass refraction and translucent
+materials. The subject remains unchanged in pose, expression, lighting
+direction, colour palette and proportions; only the background becomes
+transparent.
+--- END enhanced_prompt ---

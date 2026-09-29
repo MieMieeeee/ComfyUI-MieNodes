@@ -1,0 +1,15 @@
+{
+  "name": "SweetValberry",
+  "handle": "SweetValberry",
+  "tagline": "AIGC video tutorial creator focused on no-gatekeeping access, open-source contributor, and integrator-pack distributor.",
+  "avatar": "./Summer.png",
+  "links": [
+    { "group": "Chinese tutorials", "url": "https://space.bilibili.com/449342345" },
+    { "group": "English tutorials", "url": "https://www.youtube.com/@SweetValberry" },
+    { "group": "Open-source work", "url": "https://github.com/MieMieeeee" },
+    { "group": "Integrator pack", "url": "https://pan.quark.cn/s/4b98f758d6d4" },
+    { "group": "Model downloads", "url": "https://pan.quark.cn/s/3be6eb0d7f65" },
+    { "group": "More workflows", "url": "https://pan.quark.cn/s/59bafd8bf39d" },
+    { "group": "Knowledge base", "url": "https://dcn8q5lcfe3s.feishu.cn/wiki/IYHAwFhLviZIHBk7C7XccuJBn3c" }
+  ]
+}

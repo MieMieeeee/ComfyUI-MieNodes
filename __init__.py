@@ -11,11 +11,11 @@ if _INTERNAL_PACKAGE not in sys.modules:
     sys.modules[_INTERNAL_PACKAGE] = _pkg
 
 from _mienodes_internal.nodes.common import ShowAnythingMie, ShowAndSaveAnythingMie, SaveAnythingAsFile, CompareFiles, GetAbsolutePath, GetFileInfo, \
-    GetDirectoryFilesInfo, GetFileBasename, CopyFiles, DeleteFiles, ClassicAspectRatio, AspectRatioFromSize, RoundToMultiple, StringConcat, StringFormat, IntToString, StringHash, SimpleTextNode, RichTextNode, AboutAuthorNode, FileExists, IfElse, SaveImageBatch, LoadImageBatch, SaveAny, LoadAny, LoadOrCompute, ImageHash, AnyToString
+    GetDirectoryFilesInfo, GetFileBasename, CopyFiles, DeleteFiles, ClassicAspectRatio, AspectRatioFromSize, RoundToMultiple, StringConcat, StringFormat, IntToString, StringHash, SimpleTextNode, RichTextNode, AboutAuthorNode, AboutAuthorNodeEn, FileExists, IfElse, SaveImageBatch, LoadImageBatch, SaveAny, LoadAny, LoadOrCompute, ImageHash, AnyToString
 from _mienodes_internal.nodes.files import BatchRenameFiles, BatchDeleteFiles, BatchEditTextFiles, BatchSyncImageCaptionFiles, \
     SummaryTextFiles, BatchConvertImageFiles, DedupImageFiles, ModelDownloader, HFRepoDownloader
 from _mienodes_internal.nodes.llm import TextTranslator, PromptGenerator, KontextPromptGenerator, AddUserKontextPreset, RemoveUserKontextPreset, \
-    FrameTransitionPromptGenerator, HunyuanVideoI2VPromptGenerator, HunyuanVideoT2VPromptGenerator, ZImagePromptGenerator, Flux2PromptGenerator, FluxKleinT2VPromptGenerator, LTX2PromptGenerator, BerniniPromptGenerator, Ideogram4PromptGenerator, CustomSystemPromptGenerator, AddCustomSystemPrompt, RemoveCustomSystemPrompt, Scail2PromptGenerator, Krea2PromptGenerator, MiniMaxH3PromptGenerator, LTX25PromptGenerator, MiniMaxH3StoryboardGenerator, MiniMaxH3LoopPromptGenerator, MiniMaxH3LoopUserInputEnhancer
+    FrameTransitionPromptGenerator, HunyuanVideoI2VPromptGenerator, HunyuanVideoT2VPromptGenerator, ZImagePromptGenerator, Flux2PromptGenerator, FluxKleinT2VPromptGenerator, LTX2PromptGenerator, BerniniPromptGenerator, Ideogram4PromptGenerator, CustomSystemPromptGenerator, AddCustomSystemPrompt, RemoveCustomSystemPrompt, Scail2PromptGenerator, Krea2PromptGenerator, MiniMaxH3PromptGenerator, LTX25PromptGenerator, MiniMaxH3StoryboardGenerator, MiniMaxH3LoopPromptGenerator, MiniMaxH3LoopUserInputEnhancer, QwenImage21PromptGenerator
 from _mienodes_internal.services.llm import SetGeneralLLMServiceConnector, SetSiliconFlowLLMServiceConnector, \
     SetGithubModelsLLMServiceConnector, SetZhiPuLLMServiceConnector, SetZhiPuCodeLLMServiceConnector, SetKimiLLMServiceConnector, \
     SetDeepSeekLLMServiceConnector, SetGeminiLLMServiceConnector, SetBailianLLMServiceConnector, \
@@ -92,6 +92,7 @@ NODE_CLASS_MAPPINGS = {
     add_suffix("MiniMaxH3StoryboardGenerator"): MiniMaxH3StoryboardGenerator,
     add_suffix("MiniMaxH3LoopPromptGenerator"): MiniMaxH3LoopPromptGenerator,
     add_suffix("MiniMaxH3LoopUserInputEnhancer"): MiniMaxH3LoopUserInputEnhancer,
+    add_suffix("QwenImage21PromptGenerator"): QwenImage21PromptGenerator,
     add_suffix("GetAbsolutePath"): GetAbsolutePath,
     add_suffix("GetFileInfo"): GetFileInfo,
     add_suffix("GetDirectoryFilesInfo"): GetDirectoryFilesInfo,
@@ -124,6 +125,7 @@ NODE_CLASS_MAPPINGS = {
     add_suffix('SimpleTextNode'): SimpleTextNode,
     add_suffix('RichTextNode'): RichTextNode,
     add_suffix('AboutAuthorNode'): AboutAuthorNode,
+    add_suffix('AboutAuthorNodeEn'): AboutAuthorNodeEn,
     add_suffix("MieLoopStart"): MieLoopStart,
     add_suffix("MieLoopResume"): MieLoopResume,
     add_suffix("MieLoopBodyIn"): MieLoopBodyIn,
@@ -222,6 +224,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     add_suffix("MiniMaxH3StoryboardGenerator"): add_emoji("MiniMax H3 Storyboard Generator"),
     add_suffix("MiniMaxH3LoopPromptGenerator"): add_emoji("MiniMax H3 Loop Plan Generator"),
     add_suffix("MiniMaxH3LoopUserInputEnhancer"): add_emoji("MiniMax H3 Loop User Input Enhancer"),
+    add_suffix("QwenImage21PromptGenerator"): add_emoji("Qwen-Image-2.1 Prompt Generator"),
     add_suffix("GetAbsolutePath"): add_emoji("Get Absolute Path"),
     add_suffix("GetFileInfo"): add_emoji("Get File Info"),
     add_suffix("GetDirectoryFilesInfo"): add_emoji("Get Directory Files Info"),
@@ -254,6 +257,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     add_suffix('SimpleTextNode'): add_emoji('Simple Text'),
     add_suffix('RichTextNode'): add_emoji('Rich Text'),
     add_suffix('AboutAuthorNode'): add_emoji('About Author'),
+    add_suffix('AboutAuthorNodeEn'): add_emoji('About Author EN'),
     add_suffix("MieLoopStart"): add_emoji("Mie Loop Start"),
     add_suffix("MieLoopResume"): add_emoji("Mie Loop Resume"),
     add_suffix("MieLoopBodyIn"): add_emoji("Mie Loop Body In"),

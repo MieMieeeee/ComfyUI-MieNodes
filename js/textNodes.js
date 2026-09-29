@@ -1198,14 +1198,15 @@ function installRichTextBehavior(nodeType) {
 }
 
 // ---------------------------------------------------------------------------
-// AboutAuthorNode — Read-only structured author card.
+// AboutAuthorNode / AboutAuthorNodeEn — Read-only structured author card.
 //
 // Content (name / handle / tagline / avatar / links) is sourced from
-// `js/profiles/author.json` and copied into the node's `properties.author_*`
-// fields on creation so the card survives workflow save/load even for users
-// who don't have the profile file. All fields are read-only; the only
-// per-instance state is the theme (Dark / Light / Minimal / Banner), chosen
-// from the right-click menu.
+// `js/profiles/author.json` (Chinese) or `js/profiles/author_en.json`
+// (English), depending on which node type was placed. Each variant
+// resolves its own profile URL on first render and caches it; subsequent
+// nodes of the same language re-use the cached profile. All fields are
+// read-only; the only per-instance state is the theme (Dark / Light /
+// Minimal / Leaf), chosen from the right-click menu.
 // ---------------------------------------------------------------------------
 
 let _authorStylesInjected = false;
@@ -1408,52 +1409,62 @@ function injectAboutAuthorStyles() {
   document.head.appendChild(style);
 }
 
-// Module-level cache for the loaded profile. `null` = not loaded yet.
-let _authorProfile = null;
-let _authorProfilePromise = null;
+// Module-level cache for the loaded profiles, keyed by absolute URL so the
+// Chinese (`author.json`) and English (`author_en.json`) variants don't
+// collide. Each URL has its own resolved value + in-flight promise so
+// multiple AboutAuthorNode instances — of either language — share one fetch.
+const _authorProfiles = new Map();   // url -> resolved profile
+const _authorProfilePromises = new Map();  // url -> Promise<profile>
 
+// Default (Chinese) profile used by the legacy AboutAuthorNode|Mie. The
+// English AboutAuthorNodeEn|Mie variant passes its own URL.
 const AUTHOR_PROFILE_URL = new URL("./profiles/author.json", import.meta.url).href;
+const AUTHOR_PROFILE_URL_EN = new URL("./profiles/author_en.json", import.meta.url).href;
 // Base for resolving relative avatar paths inside the profile (e.g.
 // "./profiles/about_me.png") into absolute URLs the browser can fetch.
 const PROFILES_BASE = new URL("./profiles/", import.meta.url).href;
 
 /**
- * Load (and cache) js/profiles/author.json. Resolves to a normalized profile
- * object even on failure — a minimal fallback so the card never blanks out
- * just because the profile file is missing or the network is down.
+ * Load (and cache) an author profile JSON by absolute URL. Resolves to a
+ * normalized profile object even on failure — a minimal fallback so the
+ * card never blanks out just because the profile file is missing or the
+ * network is down.
  */
-function loadAuthorProfile() {
-  if (_authorProfile) return Promise.resolve(_authorProfile);
-  if (_authorProfilePromise) return _authorProfilePromise;
-  _authorProfilePromise = new Promise((resolve) => {
+function loadAuthorProfile(url) {
+  const target = url || AUTHOR_PROFILE_URL;
+  if (_authorProfiles.has(target)) return Promise.resolve(_authorProfiles.get(target));
+  if (_authorProfilePromises.has(target)) return _authorProfilePromises.get(target);
+  const promise = new Promise((resolve) => {
     const fallback = {
       name: "Author", handle: "", tagline: "", avatar: "🐑", links: [],
     };
     const timer = setTimeout(() => {
       // 5s safety timeout: resolve with fallback so callers never hang.
-      _authorProfile = fallback;
+      _authorProfiles.set(target, fallback);
       resolve(fallback);
     }, 5000);
-    fetch(AUTHOR_PROFILE_URL, { cache: "no-cache" })
+    fetch(target, { cache: "no-cache" })
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error("http " + r.status))))
       .then((data) => {
         clearTimeout(timer);
-        _authorProfile = {
+        const profile = {
           name: String(data?.name ?? fallback.name),
           handle: String(data?.handle ?? ""),
           tagline: String(data?.tagline ?? ""),
           avatar: String(data?.avatar ?? fallback.avatar),
           links: Array.isArray(data?.links) ? data.links : [],
         };
-        resolve(_authorProfile);
+        _authorProfiles.set(target, profile);
+        resolve(profile);
       })
       .catch(() => {
         clearTimeout(timer);
-        _authorProfile = fallback;
+        _authorProfiles.set(target, fallback);
         resolve(fallback);
       });
   });
-  return _authorProfilePromise;
+  _authorProfilePromises.set(target, promise);
+  return promise;
 }
 
 /**
@@ -1570,19 +1581,21 @@ function openThemePicker(currentTheme) {
   });
 }
 
-function installAboutAuthorBehavior(nodeType) {
+function installAboutAuthorBehavior(nodeType, profileUrl) {
   injectAboutAuthorStyles();
+
+  const getProfile = () => loadAuthorProfile(profileUrl);
 
   const origOnNodeCreated = nodeType.prototype.onNodeCreated;
   nodeType.prototype.onNodeCreated = function () {
     origOnNodeCreated?.apply(this, arguments);
     // Theme is the ONLY per-instance writable state — the only thing that
     // needs to survive workflow save/load. All content (name/handle/tagline/
-    // avatar/links) is read live from js/profiles/author.json on every render
-    // so updating the plugin (and restarting ComfyUI) propagates the new
-    // content to every existing node automatically. This means the workflow
-    // file stays tiny ({theme: "..."} only) and every user always sees the
-    // content matching their installed MieNodes version.
+    // avatar/links) is read live from the language-specific profile JSON
+    // on every render so updating the plugin (and restarting ComfyUI)
+    // propagates the new content to every existing node automatically. This
+    // means the workflow file stays tiny ({theme: "..."} only) and every
+    // user always sees the content matching their installed MieNodes version.
     if (this.properties.theme === undefined) this.properties.theme = "leaf";
     // Initial size — draw() will grow-only fit to the rendered content.
     if (!this.size || this.size[0] < 200 || this.size[1] < 100) {
@@ -1597,7 +1610,7 @@ function installAboutAuthorBehavior(nodeType) {
     }
     // Content is read live: once the profile resolves, re-render to paint
     // the real data (until then _renderAuthorCard shows the fallback).
-    loadAuthorProfile().then(() => {
+    getProfile().then(() => {
       this._renderAuthorCard();
       this.setDirtyCanvas?.(true, true);
     });
@@ -1658,10 +1671,10 @@ function installAboutAuthorBehavior(nodeType) {
     card.textContent = "";
 
     // Content is read LIVE from the cached profile on every render — never
-    // from properties. This is what makes "update author.json + restart
+    // from properties. This is what makes "update profile JSON + restart
     // ComfyUI" propagate to all existing nodes. If the profile hasn't
     // resolved yet (or failed), we fall back to the placeholder.
-    const profile = _authorProfile || {};
+    const profile = _authorProfiles.get(profileUrl) || {};
     const name = profile.name || "Author";
     const handle = profile.handle || "";
     const tagline = profile.tagline || "";
@@ -1856,8 +1869,13 @@ app.registerExtension({
       registerMieTextNodeType(nodeType);
       installMieDrawNodeHook();
     } else if (nodeData.name === "AboutAuthorNode|Mie") {
-      console.log("[MieText] installing AboutAuthor behavior");
-      installAboutAuthorBehavior(nodeType);
+      console.log("[MieText] installing AboutAuthor behavior (zh, author.json)");
+      installAboutAuthorBehavior(nodeType, AUTHOR_PROFILE_URL);
+      registerMieTextNodeType(nodeType);
+      installMieDrawNodeHook();
+    } else if (nodeData.name === "AboutAuthorNodeEn|Mie") {
+      console.log("[MieText] installing AboutAuthor behavior (en, author_en.json)");
+      installAboutAuthorBehavior(nodeType, AUTHOR_PROFILE_URL_EN);
       registerMieTextNodeType(nodeType);
       installMieDrawNodeHook();
     }
