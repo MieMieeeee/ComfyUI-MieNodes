@@ -17,11 +17,15 @@ from _mienodes_internal.nodes.files import BatchRenameFiles, BatchDeleteFiles, B
 from _mienodes_internal.nodes.llm import TextTranslator, PromptGenerator, KontextPromptGenerator, AddUserKontextPreset, RemoveUserKontextPreset, \
     FrameTransitionPromptGenerator, HunyuanVideoI2VPromptGenerator, HunyuanVideoT2VPromptGenerator, ZImagePromptGenerator, Flux2PromptGenerator, FluxKleinT2VPromptGenerator, LTX2PromptGenerator, BerniniPromptGenerator, Ideogram4PromptGenerator, CustomSystemPromptGenerator, AddCustomSystemPrompt, RemoveCustomSystemPrompt, Scail2PromptGenerator, Krea2PromptGenerator, MiniMaxH3PromptGenerator, LTX25PromptGenerator, MiniMaxH3StoryboardGenerator, MiniMaxH3LoopPromptGenerator, MiniMaxH3LoopUserInputEnhancer, QwenImage21PromptGenerator
 from _mienodes_internal.services.llm import SetGeneralLLMServiceConnector, SetSiliconFlowLLMServiceConnector, \
-    SetGithubModelsLLMServiceConnector, SetZhiPuLLMServiceConnector, SetZhiPuCodeLLMServiceConnector, SetKimiLLMServiceConnector, \
+    SetZhiPuLLMServiceConnector, SetZhiPuCodeLLMServiceConnector, SetKimiLLMServiceConnector, \
     SetDeepSeekLLMServiceConnector, SetGeminiLLMServiceConnector, SetBailianLLMServiceConnector, \
     SetBailianTokenPlanLLMServiceConnector, SetBailianCodingPlanLLMServiceConnector, \
     SetMiniMaxLLMServiceConnector, SetMiniMaxTokenPlanLLMServiceConnector, \
     SetMiMoLLMServiceConnector, SetMiMoTokenPlanLLMServiceConnector, SetOllamaLLMServiceConnector, \
+    SetDoubaoLLMServiceConnector, SetQianfanLLMServiceConnector, SetSparkLLMServiceConnector, \
+    SetOpenAILLMServiceConnector, SetGrokLLMServiceConnector, SetOpenRouterLLMServiceConnector, \
+    SetClaudeLLMServiceConnector, \
+    SetSiliconFlowJevLLMServiceConnector, CallJevDecision, \
     CheckLLMServiceConnectivity, CallLLMService
 from _mienodes_internal.nodes.media import WavConcat, QwenTTSNode, SingleImageToVideo, AddNumberWatermarkForImage, AddTextWatermarkForImage
 from _mienodes_internal.services.tts import SetBailianTTSConnector
@@ -52,7 +56,6 @@ NODE_CLASS_MAPPINGS = {
     add_suffix("HFRepoDownloader"): HFRepoDownloader,
     add_suffix("SetGeneralLLMServiceConnector"): SetGeneralLLMServiceConnector,
     add_suffix("SetSiliconFlowLLMServiceConnector"): SetSiliconFlowLLMServiceConnector,
-    add_suffix("SetGithubModelsLLMServiceConnector"): SetGithubModelsLLMServiceConnector,
     add_suffix("SetKimiLLMServiceConnector"): SetKimiLLMServiceConnector,
     add_suffix("SetZhiPuLLMServiceConnector"): SetZhiPuLLMServiceConnector,
     add_suffix("SetZhiPuCodeLLMServiceConnector"): SetZhiPuCodeLLMServiceConnector,
@@ -66,8 +69,17 @@ NODE_CLASS_MAPPINGS = {
     add_suffix("SetMiMoLLMServiceConnector"): SetMiMoLLMServiceConnector,
     add_suffix("SetMiMoTokenPlanLLMServiceConnector"): SetMiMoTokenPlanLLMServiceConnector,
     add_suffix("SetOllamaLLMServiceConnector"): SetOllamaLLMServiceConnector,
+    add_suffix("SetDoubaoLLMServiceConnector"): SetDoubaoLLMServiceConnector,
+    add_suffix("SetQianfanLLMServiceConnector"): SetQianfanLLMServiceConnector,
+    add_suffix("SetSparkLLMServiceConnector"): SetSparkLLMServiceConnector,
+    add_suffix("SetOpenAILLMServiceConnector"): SetOpenAILLMServiceConnector,
+    add_suffix("SetGrokLLMServiceConnector"): SetGrokLLMServiceConnector,
+    add_suffix("SetOpenRouterLLMServiceConnector"): SetOpenRouterLLMServiceConnector,
+    add_suffix("SetClaudeLLMServiceConnector"): SetClaudeLLMServiceConnector,
+    add_suffix("SetSiliconFlowJevLLMServiceConnector"): SetSiliconFlowJevLLMServiceConnector,
     add_suffix("CheckLLMServiceConnectivity"): CheckLLMServiceConnectivity,
     add_suffix("CallLLMService"): CallLLMService,
+    add_suffix("CallJevDecision"): CallJevDecision,
     add_suffix("Translator"): TextTranslator,
     add_suffix("PromptGenerator"): PromptGenerator,
     add_suffix("KontextPromptGenerator"): KontextPromptGenerator,
@@ -182,7 +194,6 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     add_suffix("CompareFiles"): add_emoji("Compare Files"),
     add_suffix("SetGeneralLLMServiceConnector"): add_emoji("Set General LLM Service Connector"),
     add_suffix("SetSiliconFlowLLMServiceConnector"): add_emoji("Set SiliconFlow LLM Service Connector"),
-    add_suffix("SetGithubModelsLLMServiceConnector"): add_emoji("Set Github Models LLM Service Connector"),
     add_suffix("SetZhiPuLLMServiceConnector"): add_emoji("Set ZhiPu LLM Service Connector (not token plan)"),
     add_suffix("SetZhiPuCodeLLMServiceConnector"): add_emoji("Set ZhiPu Code LLM Service Connector (Token Plan)"),
     add_suffix("SetKimiLLMServiceConnector"): add_emoji("Set Kimi LLM Service Connector"),
@@ -196,8 +207,17 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     add_suffix("SetMiMoLLMServiceConnector"): add_emoji("Set MiMo LLM Service Connector"),
     add_suffix("SetMiMoTokenPlanLLMServiceConnector"): add_emoji("Set MiMo Token Plan LLM Service Connector"),
     add_suffix("SetOllamaLLMServiceConnector"): add_emoji("Set Ollama LLM Service Connector"),
+    add_suffix("SetDoubaoLLMServiceConnector"): add_emoji("Set Doubao (Volcano Ark) LLM Service Connector"),
+    add_suffix("SetQianfanLLMServiceConnector"): add_emoji("Set Qianfan ERNIE LLM Service Connector"),
+    add_suffix("SetSparkLLMServiceConnector"): add_emoji("Set iFLYTEK Spark LLM Service Connector"),
+    add_suffix("SetOpenAILLMServiceConnector"): add_emoji("Set OpenAI LLM Service Connector"),
+    add_suffix("SetGrokLLMServiceConnector"): add_emoji("Set xAI Grok LLM Service Connector"),
+    add_suffix("SetOpenRouterLLMServiceConnector"): add_emoji("Set OpenRouter LLM Service Connector"),
+    add_suffix("SetClaudeLLMServiceConnector"): add_emoji("Set Claude (OpenAI-compat) LLM Service Connector"),
+    add_suffix("SetSiliconFlowJevLLMServiceConnector"): add_emoji("Set SiliconFlow Jev (System One Decision) LLM Service Connector"),
     add_suffix("CheckLLMServiceConnectivity"): add_emoji("Check LLM Service Connectivity"),
     add_suffix("CallLLMService"): add_emoji("Call LLM Service"),
+    add_suffix("CallJevDecision"): add_emoji("Call Jev Decision"),
     add_suffix("ModelDownloader"): add_emoji("Model Downloader"),
     add_suffix("HFRepoDownloader"): add_emoji("HF Repo Downloader"),
     add_suffix("Translator"): add_emoji("Translator"),

@@ -11,7 +11,6 @@
 Currently, the following services are supported:
   - [ZhiPu 智谱](https://www.bigmodel.cn/glm-coding?ic=QCHZLYWEXV) — [Open Platform](https://bigmodel.cn/) (`zhipu` key) + [Coding / Token Plan](https://www.bigmodel.cn/glm-coding) (`zhipu_code` key)
   - [SiliconFlow 硅基流动](https://cloud.siliconflow.cn/i/PYyJkS9S) (`siliconflow` key)
-  - [GitHub Models](https://github.com/marketplace?type=models) (`github_models` key, fine-grained PAT recommended)
   - [Kimi 月之暗面](https://platform.moonshot.cn/) (`kimi` key)
   - [DeepSeek](https://platform.deepseek.com/) (`deepseek` key)
   - [Gemini](https://ai.google.dev/gemini) — multimodal-aware (image input is forwarded as inline data) (`gemini` key)
@@ -22,6 +21,15 @@ Currently, the following services are supported:
   - [Xiaomi MiMo](https://mimo.mi.com/) — standard Open Platform (`sk-...` key, `mimo`) + [Token Plan / Coding Plan](https://mimo.mi.com/) (`tp-...` key, `mimo_token_plan`)
   - [Ollama](https://ollama.com/) (local) — `SetOllamaLLMServiceConnector`, no API key required (the `Authorization` header is sent but ignored), `ollama` config_key (key is usually left empty)
   - Any OpenAI-compatible endpoint via `SetGeneralLLMServiceConnector` (custom base URL + model, `openai_compatible` key)
+  - [Volcano Ark Doubao](https://www.volcengine.com/product/doubao) (`doubao` key; doubao-seed-* model ids or `ep-` endpoint ids)
+  - [Baidu Qianfan ERNIE](https://cloud.baidu.com/product-qianfan) (`qianfan` key)
+  - [iFLYTEK Spark](https://xinghuo.xfyun.cn) (`spark` key = APIPassword, X2 `/x2/` endpoint)
+  - [OpenAI](https://platform.openai.com) (`openai` key)
+  - [xAI Grok](https://console.x.ai) (`grok` key)
+  - [OpenRouter](https://openrouter.ai) (`openrouter` key; one key routes 400+ vendor models)
+  - [Anthropic Claude](https://console.claude.com) (`anthropic` key, official OpenAI-compat layer)
+  - [SiliconFlow Jev / System One decision models](https://jev101.org) (reuse the `siliconflow` key via `/v1/systemone`; pair with the `CallJevDecision` node for structured routing — not a chat model)
+  - [LM Studio](https://lmstudio.ai) and other local OpenAI-compatible servers (use the "General OpenAI-compatible" node, e.g. base URL `http://127.0.0.1:1234/v1/chat/completions`)
 
 If you wish to use other large language model (LLM) services that cannot be connected through SetGeneralLLMServiceConnector, please submit an issue or a pull request for feedback.
 
@@ -322,7 +330,6 @@ The default `config_key` for each connector matches the JSON key in the example 
 | `config_key` (default) | Connector | Platform / tier | Typical key format |
 | --- | --- | --- | --- |
 | `openai_compatible` | `SetGeneralLLMServiceConnector` | Any OpenAI-compatible endpoint (custom base URL) | varies |
-| `github_models` | `SetGithubModelsLLMServiceConnector` | [GitHub Models](https://github.com/marketplace?type=models) | `ghp_...` (fine-grained PAT recommended) |
 | `siliconflow` | `SetSiliconFlowLLMServiceConnector` | [SiliconFlow 硅基流动](https://cloud.siliconflow.cn/i/PYyJkS9S) | `sk-...` |
 | `zhipu` | `SetZhiPuLLMServiceConnector` | [ZhiPu 智谱 Open Platform](https://bigmodel.cn/) | `... .xxx` |
 | `zhipu_code` | `SetZhiPuCodeLLMServiceConnector` | [ZhiPu 智谱 Coding / Token Plan](https://www.bigmodel.cn/glm-coding) | `... .xxx` |
@@ -335,6 +342,13 @@ The default `config_key` for each connector matches the JSON key in the example 
 | `gemini` | `SetGeminiLLMServiceConnector` | [Google Gemini](https://ai.google.dev/gemini) | `AIza...` |
 | `bailian` | `SetBailianLLMServiceConnector` | [Bailian 阿里云百炼](https://bailian.console.aliyun.com/) | `sk-...` |
 | `ollama` | `SetOllamaLLMServiceConnector` | [Ollama](https://ollama.com/) (local) | not required (placeholder `ollama` is sent) |
+| `doubao` | `SetDoubaoLLMServiceConnector` | [Volcano Ark Doubao](https://www.volcengine.com/product/doubao) | Ark API key |
+| `qianfan` | `SetQianfanLLMServiceConnector` | [Baidu Qianfan ERNIE](https://cloud.baidu.com/product-qianfan) | Qianfan API key |
+| `spark` | `SetSparkLLMServiceConnector` | [iFLYTEK Spark](https://xinghuo.xfyun.cn) | APIPassword |
+| `openai` | `SetOpenAILLMServiceConnector` | [OpenAI](https://platform.openai.com) | `sk-...` |
+| `grok` | `SetGrokLLMServiceConnector` | [xAI Grok](https://console.x.ai) | `xai-...` |
+| `openrouter` | `SetOpenRouterLLMServiceConnector` | [OpenRouter](https://openrouter.ai) | `sk-or-...` |
+| `anthropic` | `SetClaudeLLMServiceConnector` | [Anthropic Claude](https://console.claude.com) | `sk-ant-...` |
 
 **Resolution rules** (matches `core.utils.resolve_token`):
 

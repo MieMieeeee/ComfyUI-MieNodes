@@ -11,7 +11,6 @@
 当前支持以下服务：
   - [智谱 ZhiPu](https://www.bigmodel.cn/glm-coding?ic=QCHZLYWEXV) — [标准 Open Platform](https://bigmodel.cn/)（`zhipu` 密钥）+ [编程 / Token Plan](https://www.bigmodel.cn/glm-coding)（`zhipu_code` 密钥）双轨
   - [硅基流动 SiliconFlow](https://cloud.siliconflow.cn/i/PYyJkS9S)（`siliconflow` 密钥）
-  - [GitHub Models](https://github.com/marketplace?type=models)（`github_models` 密钥，建议用 fine-grained PAT）
   - [Kimi 月之暗面](https://platform.moonshot.cn/)（`kimi` 密钥）
   - [DeepSeek](https://platform.deepseek.com/)（`deepseek` 密钥）
   - [Gemini](https://ai.google.dev/gemini) — 支持多模态（图片按 inline_data 转发）（`gemini` 密钥）
@@ -22,6 +21,15 @@
   - [小米 MiMo](https://mimo.mi.com/) — 标准 Open Platform（`sk-...` 密钥，`mimo`）+ [Token Plan / Coding Plan](https://mimo.mi.com/)（`tp-...` 密钥，`mimo_token_plan`）双轨
   - [Ollama](https://ollama.com/)（本地）— `SetOllamaLLMServiceConnector` 接入，不需要 API 密钥（Authorization 头会发送但被服务端忽略），`ollama` config_key（密钥一般留空）
   - 任何 OpenAI 兼容端点可通过 `SetGeneralLLMServiceConnector` 接入（自定义 base URL + 模型，`openai_compatible` 密钥）
+  - [火山引擎豆包 Volcano Ark](https://www.volcengine.com/product/doubao)（`doubao` 密钥，模型填 doubao-seed-* 或 ep-* 接入点 ID）
+  - [百度千帆 ERNIE](https://cloud.baidu.com/product-qianfan)（`qianfan` 密钥）
+  - [讯飞星火 Spark](https://xinghuo.xfyun.cn)（`spark` 密钥，即 APIPassword，走 X2 `/x2/` 端点）
+  - [OpenAI](https://platform.openai.com)（`openai` 密钥）
+  - [xAI Grok](https://console.x.ai)（`grok` 密钥）
+  - [OpenRouter](https://openrouter.ai)（`openrouter` 密钥，一把 key 路由 400+ 厂商模型）
+  - [Anthropic Claude](https://console.claude.com)（`anthropic` 密钥，官方 OpenAI 兼容层）
+  - [硅基流动 Jev / System One 决策模型](https://jev101.org)（复用 `siliconflow` 密钥走 `/v1/systemone`；配合 `CallJevDecision` 节点做结构化判断/路由，非聊天模型）
+  - [LM Studio](https://lmstudio.ai) 等本地 OpenAI 兼容服务（用「通用 OpenAI 兼容端点」节点，base URL 如 `http://127.0.0.1:1234/v1/chat/completions`）
 
 如果你希望使用其他无法通过 SetGeneralLLMServiceConnector 连接的大语言模型（LLM）服务，请提交 issue 或 pull request 进行反馈。
 
@@ -321,7 +329,6 @@
 | `config_key`（默认） | 连接器 | 服务商 / 资质 | 密钥格式示例 |
 | --- | --- | --- | --- |
 | `openai_compatible` | `SetGeneralLLMServiceConnector` | 任意 OpenAI 兼容端点（自定义 base URL） | 随服务商 |
-| `github_models` | `SetGithubModelsLLMServiceConnector` | [GitHub Models](https://github.com/marketplace?type=models) | `ghp_...`（建议 fine-grained PAT） |
 | `siliconflow` | `SetSiliconFlowLLMServiceConnector` | [硅基流动 SiliconFlow](https://cloud.siliconflow.cn/i/PYyJkS9S) | `sk-...` |
 | `zhipu` | `SetZhiPuLLMServiceConnector` | [智谱 ZhiPu Open Platform](https://bigmodel.cn/) | `... .xxx` |
 | `zhipu_code` | `SetZhiPuCodeLLMServiceConnector` | [智谱 ZhiPu Coding / Token Plan](https://www.bigmodel.cn/glm-coding) | `... .xxx` |
@@ -334,6 +341,13 @@
 | `gemini` | `SetGeminiLLMServiceConnector` | [Google Gemini](https://ai.google.dev/gemini) | `AIza...` |
 | `bailian` | `SetBailianLLMServiceConnector` | [Bailian 阿里云百炼](https://bailian.console.aliyun.com/) | `sk-...` |
 | `ollama` | `SetOllamaLLMServiceConnector` | [Ollama](https://ollama.com/)（本地） | 不需要（占位符 `ollama`） |
+| `doubao` | `SetDoubaoLLMServiceConnector` | [火山引擎豆包 Volcano Ark](https://www.volcengine.com/product/doubao) | 方舟 API Key |
+| `qianfan` | `SetQianfanLLMServiceConnector` | [百度千帆 ERNIE](https://cloud.baidu.com/product-qianfan) | 千帆 API Key |
+| `spark` | `SetSparkLLMServiceConnector` | [讯飞星火 Spark](https://xinghuo.xfyun.cn) | APIPassword |
+| `openai` | `SetOpenAILLMServiceConnector` | [OpenAI](https://platform.openai.com) | `sk-...` |
+| `grok` | `SetGrokLLMServiceConnector` | [xAI Grok](https://console.x.ai) | `xai-...` |
+| `openrouter` | `SetOpenRouterLLMServiceConnector` | [OpenRouter](https://openrouter.ai) | `sk-or-...` |
+| `anthropic` | `SetClaudeLLMServiceConnector` | [Anthropic Claude](https://console.claude.com) | `sk-ant-...` |
 
 **解析规则**（与 `core.utils.resolve_token` 一致）：
 

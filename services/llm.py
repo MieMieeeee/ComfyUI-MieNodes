@@ -1,4 +1,5 @@
 import re
+import json
 import requests
 import time
 import base64
@@ -131,6 +132,10 @@ class GeneralLLMServiceConnector:
         r"|<thinking>[\s\S]*?</thinking>",
         re.IGNORECASE,
     )
+    # Some providers strip the opening tag server-side but leave the closing
+    # one (seen live: SiliconFlow DeepSeek-V4-Flash returning `OK</think>OK`),
+    # so orphan closers are removed as a second pass after paired blocks.
+    _ORPHAN_THINK_CLOSE_RE = re.compile(r"</think(?:ing)?>", re.IGNORECASE)
 
     def _sanitize_response(self, text, preserve_thinking=False):
         """Strip `<think>` / `<thinking>` reasoning blocks from `text`.
@@ -144,6 +149,7 @@ class GeneralLLMServiceConnector:
         if text is None or preserve_thinking:
             return text
         cleaned = self._THINK_BLOCK_RE.sub("", text)
+        cleaned = self._ORPHAN_THINK_CLOSE_RE.sub("", cleaned)
         return cleaned.strip()
 
     @staticmethod
@@ -375,10 +381,13 @@ class ZhiPuConnectorGeneral(StandardOpenAICompatibleConnector):
     """Standard ZhiPu BigModel connector (NOT the Coding / Token Plan tier).
 
     Targets the public ZhiPu BigModel API at the standard
-    `/api/paas/v4/chat/completions` endpoint with regular `eyJ...`
-    API keys. For the Coding / Token Plan subscription
-    (`/api/coding/...` endpoint), use `ZhiPuCodeConnectorGeneral`
-    and `SetZhiPuCodeLLMServiceConnector` instead.
+    `/api/paas/v4/chat/completions` endpoint. ZhiPu API keys are 49-char
+    hex `{id}.{secret}` strings (NOT `eyJ...` JWTs), and the same key
+    format is accepted by both the standard and the `/api/coding/...`
+    endpoints — the endpoint (i.e. which subscription you bought) is
+    what selects the billing tier, not the key format. For the Coding /
+    Token Plan subscription endpoint use `ZhiPuCodeConnectorGeneral`
+    and `SetZhiPuCodeLLMServiceConnector`.
     """
     api_url = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
 
@@ -390,10 +399,11 @@ class ZhiPuCodeConnectorGeneral(StandardOpenAICompatibleConnector):
     """ZhiPu Coding / Token Plan connector.
 
     Targets the ZhiPu Coding Plan endpoint at `/api/coding/...`
-    with a Token Plan / Coding Plan subscription key. Distinct from
-    the standard ZhiPu BigModel API in URL, billing, and model
-    lineup (GLM-5 / GLM-4.7 series rather than GLM-4 / GLM-Z1).
-    Pair with `SetZhiPuCodeLLMServiceConnector`.
+    with a Coding / Token Plan subscription. Distinct from
+    the standard ZhiPu BigModel API in URL and billing (the GLM-5.3
+    series is served here too — both endpoints expose the same model
+    list; verified live 2026-09-29). Keys share the 49-char hex format
+    with the standard tier. Pair with `SetZhiPuCodeLLMServiceConnector`.
     """
     api_url = "https://open.bigmodel.cn/api/coding/paas/v4/chat/completions"
 
@@ -402,18 +412,36 @@ class ZhiPuCodeConnectorGeneral(StandardOpenAICompatibleConnector):
 
 
 class KimiConnectorGeneral(StandardOpenAICompatibleConnector):
+    """Moonshot Kimi connector (api.moonshot.cn, pay-as-you-go only).
+
+    The official Kimi API platform has NO subscription tier (docs:
+    "Kimi API 开放平台是按量计费模式、无订阅制方案"); the Kimi for Coding
+    subscription is a separate OAuth product for CLI tools, not an API-key
+    chat endpoint, so no token-plan sibling connector exists.
+
+    Payload note: per the official model parameter reference the current
+    lineup locks sampling params server-side (kimi-k3 / kimi-k2.7-code /
+    kimi-k2.6-thinking: temperature=1.0; every model: top_p=0.95, n=1,
+    presence/frequency_penalty=0) and recommends NOT sending them
+    explicitly — sending other values fails live with HTTP 400
+    (`invalid temperature: only 1 is allowed for this model`). This
+    payload therefore forwards only `max_tokens` and lets the server
+    apply its own sampling defaults.
+    """
+
     api_url = "https://api.moonshot.cn/v1/chat/completions"
 
     def __init__(self, api_token, model, **kwargs):
         super().__init__(self.api_url, api_token, model, **kwargs)
 
-
-class GithubModelsConnectorGeneral(GeneralLLMServiceConnector):
-    api_url = "https://models.github.ai/inference/chat/completions"
-
-    def __init__(self, api_token, model, **kwargs):
-        # 继承 GeneralLLMServiceConnector 的默认 Payload
-        super().__init__(self.api_url, api_token, model, **kwargs)
+    def generate_payload(self, messages, **kwargs):
+        return {
+            "model": self.model,
+            "messages": self._provider_messages(messages),
+            "stream": False,
+            "max_tokens": kwargs.get("max_tokens", 512),
+            "response_format": {"type": "text"},
+        }
 
 
 class BailianLLMServiceConnector(GeneralLLMServiceConnector):
@@ -558,6 +586,247 @@ class MiMoTokenPlanConnectorGeneral(StandardOpenAICompatibleConnector):
         See `_drop_image_detail_auto` for the rationale.
         """
         return _drop_image_detail_auto(messages)
+
+
+class DoubaoConnectorGeneral(StandardOpenAICompatibleConnector):
+    """ByteDance Volcano Ark (火山方舟) Doubao connector.
+
+    Targets the Ark OpenAI-compatible endpoint at
+    `https://ark.cn-beijing.volces.com/api/v3/chat/completions` with an
+    Ark API Key (or IAM API Key) from the Volcano console. `model`
+    accepts either the versioned doubao-seed ids (see the Set-node
+    dropdown) or an inference Endpoint ID (`ep-xxxx`) created in the
+    console. Pair with `SetDoubaoLLMServiceConnector`.
+    """
+    api_url = "https://ark.cn-beijing.volces.com/api/v3/chat/completions"
+
+    def __init__(self, api_token, model, **kwargs):
+        super().__init__(self.api_url, api_token, model, **kwargs)
+
+
+class QianfanConnectorGeneral(StandardOpenAICompatibleConnector):
+    """Baidu Qianfan (百度千帆) ERNIE connector.
+
+    Targets the Qianfan ModelBuilder v2 OpenAI-compatible endpoint at
+    `https://qianfan.baidubce.com/v2/chat/completions` with a Bearer API
+    key from the Qianfan console. Serves the ERNIE family plus hosted
+    third-party models (glm / deepseek, see the Set-node dropdown).
+    Pair with `SetQianfanLLMServiceConnector`.
+    """
+    api_url = "https://qianfan.baidubce.com/v2/chat/completions"
+
+    def __init__(self, api_token, model, **kwargs):
+        super().__init__(self.api_url, api_token, model, **kwargs)
+
+
+class SparkConnectorGeneral(GeneralLLMServiceConnector):
+    """iFLYTEK Spark (讯飞星火) X2 connector.
+
+    Targets the Spark-X2 OpenAI-compatible endpoint at
+    `https://spark-api-open.xf-yun.com/x2/chat/completions`, authorized
+    with the console-issued APIPassword as a Bearer token. Per the
+    official Spark-X2 HTTP protocol doc the model value is `spark-x`
+    and the generation is selected by the URL path (`/x2/` here;
+    X1.5 lives under `/v2/`, the retired lite/generalv3 classics under
+    `/v1/` — point `SetGeneralLLMServiceConnector` at those paths for
+    legacy models). Slim payload: the doc only shows
+    messages/stream/temperature-style params, so sampling extras are
+    omitted. Pair with `SetSparkLLMServiceConnector`.
+    """
+    api_url = "https://spark-api-open.xf-yun.com/x2/chat/completions"
+
+    def __init__(self, api_token, model, **kwargs):
+        super().__init__(self.api_url, api_token, model, **kwargs)
+
+    def generate_payload(self, messages, **kwargs):
+        return {
+            "model": self.model,
+            "messages": self._provider_messages(messages),
+            "stream": False,
+            "max_tokens": kwargs.get("max_tokens", 512),
+        }
+
+
+class OpenAIConnectorGeneral(GeneralLLMServiceConnector):
+    """OpenAI connector.
+
+    Targets `https://api.openai.com/v1/chat/completions`. Uses
+    `max_completion_tokens` (the newer OpenAI spelling) instead of
+    `max_tokens` — the gpt-5+/o-series models reject `max_tokens`
+    server-side. Sampling params are omitted so the server applies its
+    per-model defaults (reasoning-tier models pin temperature anyway).
+    Pair with `SetOpenAILLMServiceConnector`.
+    """
+    api_url = "https://api.openai.com/v1/chat/completions"
+
+    def __init__(self, api_token, model, **kwargs):
+        super().__init__(self.api_url, api_token, model, **kwargs)
+
+    def generate_payload(self, messages, **kwargs):
+        return {
+            "model": self.model,
+            "messages": self._provider_messages(messages),
+            "stream": False,
+            "max_completion_tokens": kwargs.get("max_tokens", 512),
+        }
+
+
+class GrokConnectorGeneral(StandardOpenAICompatibleConnector):
+    """xAI Grok connector.
+
+    Targets `https://api.x.ai/v1/chat/completions` — an
+    OpenAI-compatible endpoint that accepts the standard parameter set
+    (verified against the xAI docs; `/v1/completions` is legacy).
+    Pair with `SetGrokLLMServiceConnector`.
+    """
+    api_url = "https://api.x.ai/v1/chat/completions"
+
+    def __init__(self, api_token, model, **kwargs):
+        super().__init__(self.api_url, api_token, model, **kwargs)
+
+
+class OpenRouterConnectorGeneral(StandardOpenAICompatibleConnector):
+    """OpenRouter aggregator connector.
+
+    Targets `https://openrouter.ai/api/v1/chat/completions` — one API
+    key routes to 400+ models across OpenAI / Anthropic / Google / xAI /
+    DeepSeek / GLM / Qwen / Kimi / MiniMax / MiMo etc. Model ids are
+    `<vendor>/<model>` slugs (live list at GET /api/v1/models; the
+    Set-node dropdown carries a verified cross-vendor selection).
+    Pair with `SetOpenRouterLLMServiceConnector`.
+    """
+    api_url = "https://openrouter.ai/api/v1/chat/completions"
+
+    def __init__(self, api_token, model, **kwargs):
+        super().__init__(self.api_url, api_token, model, **kwargs)
+
+
+class ClaudeConnectorGeneral(GeneralLLMServiceConnector):
+    """Anthropic Claude connector (official OpenAI-compat layer).
+
+    Targets `https://api.anthropic.com/v1/chat/completions` — Anthropic's
+    official OpenAI SDK compatibility layer, authorized with a Bearer
+    Claude API key. Per the compat docs many OpenAI fields
+    (response_format, penalties, seed, logprobs) are silently ignored
+    and `n` must be 1, so this payload stays slim: model / messages /
+    stream / max_tokens. Model ids use Anthropic's dashed spelling
+    (e.g. `claude-opus-5-5`). For full-feature access (prompt caching,
+    structured outputs, thinking) use the native Anthropic API instead.
+    Pair with `SetClaudeLLMServiceConnector`.
+    """
+    api_url = "https://api.anthropic.com/v1/chat/completions"
+
+    def __init__(self, api_token, model, **kwargs):
+        super().__init__(self.api_url, api_token, model, **kwargs)
+
+    def generate_payload(self, messages, **kwargs):
+        return {
+            "model": self.model,
+            "messages": self._provider_messages(messages),
+            "stream": False,
+            "max_tokens": kwargs.get("max_tokens", 512),
+        }
+
+
+class SiliconFlowJevConnectorGeneral(GeneralLLMServiceConnector):
+    """SiliconFlow Jev / System One decision-model connector.
+
+    Jev models (TypeSafe AI's Jev + the open replicas SiliconFlow hosts:
+    Kev-4B / SemIf / diffusiongemma) are NOT chat models: the standard
+    `/v1/chat/completions` endpoint rejects them with 400. They are
+    called on the bare `/v1/systemone` endpoint with a
+    `state + questions` payload and answer with structured decisions
+    instead of prose — three question types:
+      - ``noul``   -> yes/no probability
+      - ``choice`` -> picked option + full probability distribution
+      - ``score``  -> position on an ordered scale + per-level probs
+    Verified live against SiliconFlow's `/v1/systemone` on 2026-09-29
+    (same API key as the standard SiliconFlow chat tier; open-replica
+    models free until the 2026-10-08 promo ends).
+
+    `ask()` is the real API. `invoke()` exists only so the connector can
+    flow through `LLMServiceConnector` sockets — it requires a
+    `questions` kwarg and otherwise raises a pointer to the
+    `CallJevDecision` node.
+    """
+
+    api_url = "https://api.siliconflow.cn/v1/systemone"
+
+    def __init__(self, api_token, model, **kwargs):
+        super().__init__(self.api_url, api_token, model, **kwargs)
+
+    def ask(self, state, questions):
+        """POST one `state + questions` decision request, return the raw
+        response dict (``{model, answers, usage}``). Retry policy mirrors
+        `invoke()`: 5xx / Timeout / ConnectionError retried, 4xx raised.
+        """
+        payload = {
+            "model": self.model,
+            "state": state,
+            "questions": questions,
+        }
+        headers = {
+            "Authorization": f"Bearer {self.api_token}",
+            "Content-Type": "application/json",
+        }
+        for attempt in range(self.max_retries):
+            is_last_attempt = attempt == self.max_retries - 1
+            attempt_idx = attempt + 1
+            tag = f"[{self.model}] ask {attempt_idx}/{self.max_retries}"
+            mie_log(f"{tag}: POST {self.api_url} timeout={self.timeout}s")
+            attempt_t0 = time.perf_counter()
+            try:
+                response = requests.post(
+                    self.api_url, json=payload, headers=headers, timeout=self.timeout
+                )
+                elapsed = time.perf_counter() - attempt_t0
+                if response.status_code == 200:
+                    data = response.json()
+                    n_answers = len((data or {}).get("answers") or {})
+                    mie_log(
+                        f"{tag} ok in {elapsed:.2f}s questions_answered={n_answers}"
+                    )
+                    return data
+                body_snip = (response.text or "").replace("\n", " ")[:200]
+                if 500 <= response.status_code < 600 and not is_last_attempt:
+                    mie_log(
+                        f"{tag} got HTTP {response.status_code} in {elapsed:.2f}s "
+                        f"body={body_snip!r}. Retrying in {self.retry_delay}s..."
+                    )
+                    time.sleep(self.retry_delay)
+                    continue
+                raise Exception(
+                    f"{tag} failed with HTTP {response.status_code} in {elapsed:.2f}s "
+                    f"body={body_snip!r}"
+                )
+            except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
+                elapsed = time.perf_counter() - attempt_t0
+                detail = f"{tag} {type(e).__name__} after {elapsed:.2f}s"
+                if is_last_attempt:
+                    raise Exception(
+                        f"{detail}. Max retries ({self.max_retries}) exceeded."
+                    )
+                mie_log(f"{detail}. Retrying in {self.retry_delay} seconds...")
+                time.sleep(self.retry_delay)
+        raise Exception(
+            f"Jev decision request failed after {self.max_retries} attempts."
+        )
+
+    def invoke(self, messages, **kwargs):
+        questions = kwargs.pop("questions", None)
+        if not questions:
+            raise Exception(
+                "Jev decision models answer structured questions, not chat "
+                "prompts — CallLLMService cannot drive them. Use the "
+                "CallJevDecision node (state + questions JSON) instead."
+            )
+        state = "\n".join(
+            str(m.get("content", ""))
+            for m in (messages or [])
+            if isinstance(m, dict)
+        )
+        data = self.ask(state, questions)
+        return json.dumps(data.get("answers", data), ensure_ascii=False)
 
 
 class GeminiConnectorGeneral(GeneralLLMServiceConnector):
@@ -823,57 +1092,6 @@ class SetGeneralLLMServiceConnector(object):
         return (GeneralLLMServiceConnector(api_url, api_token, model_select, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
 
 
-class SetGithubModelsLLMServiceConnector(object):
-    @classmethod
-    def INPUT_TYPES(cls):
-        return {
-            "required": {
-                "api_token": ("STRING", {"default": ""}),
-                "model_select": (
-                    [
-                        "openai/gpt-4.1",
-                        "openai/gpt-4.1-mini",
-                        "openai/gpt-4.1-nano",
-                        "openai/gpt-5-chat",
-                        "openai/gpt-5-mini",
-                        "openai/o4-mini",
-                        "deepseek/deepseek-v3-0324",
-                        "deepseek/deepseek-r1-0528",
-                        "meta/llama-4-maverick-17b-128e-instruct-fp8",
-                        "meta/llama-4-scout-17b-16e-instruct",
-                        "meta/llama-3.3-70b-instruct",
-                        "Custom",
-                    ],
-                    {"default": "openai/gpt-4.1"},
-                ),
-            },
-            "optional": {
-                "custom_model": (
-                    "STRING",
-                    {
-                        "default": "",
-                        "placeholder": "Enter custom model name (used when model_select is 'Custom')",
-                    },
-                ),
-                "config_file": ("STRING", {"default": "mie_llm_keys.json"}),
-                "config_key": ("STRING", {"default": "github_models"}),
-                "prefer_local_config": ("BOOLEAN", {"default": True}),
-            },
-        }
-
-    RETURN_TYPES = ("LLMServiceConnector",)
-    RETURN_NAMES = ("llm_service_connector",)
-    FUNCTION = "execute"
-    CATEGORY = MY_CATEGORY
-
-    def execute(self, api_token, model_select, custom_model="", config_file="mie_llm_keys.json", config_key="github_models", prefer_local_config=True):
-        # 确定最终使用的模型
-        model = model_select if model_select != "Custom" else custom_model
-        if not model:
-            model = "openai/gpt-4.1"  # 默认模型
-        return (GithubModelsConnectorGeneral(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
-
-
 class SetSiliconFlowLLMServiceConnector(object):
     @classmethod
     def INPUT_TYPES(cls):
@@ -887,16 +1105,18 @@ class SetSiliconFlowLLMServiceConnector(object):
                         "deepseek-ai/DeepSeek-V3.2",
                         "Pro/deepseek-ai/DeepSeek-V3.2",
                         "deepseek-ai/DeepSeek-V3.1-Terminus",
-                        "deepseek-ai/DeepSeek-V3",
+                        "zai-org/GLM-5.3",
+                        "zai-org/GLM-5.2",
                         "Pro/zai-org/GLM-5.1",
-                        "THUDM/GLM-4-32B-0414",
                         "zai-org/GLM-4.5V",
                         "Pro/moonshotai/Kimi-K2.6",
+                        "moonshotai/Kimi-K2.7-Code",
+                        "Qwen/Qwen3.8-27B",
                         "Qwen/Qwen3.6-35B-A3B",
-                        "Qwen/Qwen3.5-397B-A17B",
+                        "Qwen/Qwen3.6-27B",
+                        "Qwen/Qwen3-VL-32B-Thinking",
                         "Qwen/Qwen3-VL-32B-Instruct",
                         "Qwen/Qwen3-Coder-30B-A3B-Instruct",
-                        "Qwen/Qwen3-8B",
                         "Custom",
                     ],
                     {"default": "deepseek-ai/DeepSeek-V4-Flash"},
@@ -937,6 +1157,9 @@ class SetZhiPuLLMServiceConnector(object):
                 "api_token": ("STRING", {"default": ""}),
                 "model_select": (
                     [
+                        "glm-5.3",
+                        "glm-5.3-flash",
+                        "glm-5.3-flashx",
                         "glm-5.2",
                         "glm-5.1",
                         "glm-5-turbo",
@@ -947,7 +1170,7 @@ class SetZhiPuLLMServiceConnector(object):
                         "glm-4.5-air",
                         "Custom",
                     ],
-                    {"default": "glm-5.1"},
+                    {"default": "glm-5.3"},
                 ),
             },
             "optional": {
@@ -973,7 +1196,7 @@ class SetZhiPuLLMServiceConnector(object):
         # 确定最终使用的模型
         model = model_select if model_select != "Custom" else custom_model
         if not model:
-            model = "glm-5.1"  # 默认模型
+            model = "glm-5.3"  # 默认模型
         return (ZhiPuConnectorGeneral(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
 
 
@@ -985,6 +1208,9 @@ class SetZhiPuCodeLLMServiceConnector(object):
                 "api_token": ("STRING", {"default": ""}),
                 "model_select": (
                     [
+                        "glm-5.3",
+                        "glm-5.3-flash",
+                        "glm-5.3-flashx",
                         "glm-5.2",
                         "glm-5.1",
                         "glm-5-turbo",
@@ -995,7 +1221,7 @@ class SetZhiPuCodeLLMServiceConnector(object):
                         "glm-4.5-air",
                         "Custom",
                     ],
-                    {"default": "glm-5.1"},
+                    {"default": "glm-5.3"},
                 ),
             },
             "optional": {
@@ -1020,7 +1246,7 @@ class SetZhiPuCodeLLMServiceConnector(object):
     def execute(self, api_token, model_select, custom_model="", config_file="mie_llm_keys.json", config_key="zhipu_code", prefer_local_config=True):
         model = model_select if model_select != "Custom" else custom_model
         if not model:
-            model = "glm-5.1"
+            model = "glm-5.3"
         return (ZhiPuCodeConnectorGeneral(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
 
 
@@ -1032,20 +1258,13 @@ class SetKimiLLMServiceConnector(object):
                 "api_token": ("STRING", {"default": ""}),
                 "model_select": (
                     [
+                        "kimi-k3",
                         "kimi-k2.7-code",
                         "kimi-k2.7-code-highspeed",
                         "kimi-k2.6",
-                        "kimi-k2.5",
-                        "moonshot-v1-128k",
-                        "moonshot-v1-128k-vision-preview",
-                        "moonshot-v1-32k",
-                        "moonshot-v1-32k-vision-preview",
-                        "moonshot-v1-8k",
-                        "moonshot-v1-8k-vision-preview",
-                        "moonshot-v1-auto",
                         "Custom",
                     ],
-                    {"default": "kimi-k2.6"},
+                    {"default": "kimi-k3"},
                 ),
             },
             "optional": {
@@ -1071,7 +1290,7 @@ class SetKimiLLMServiceConnector(object):
         # 确定最终使用的模型
         model = model_select if model_select != "Custom" else custom_model
         if not model:
-            model = "kimi-k2.6"  # 默认模型
+            model = "kimi-k3"  # 默认模型
         return (KimiConnectorGeneral(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
 
 
@@ -1084,10 +1303,10 @@ class SetDeepSeekLLMServiceConnector(object):
                 "model_select": (
                     [
                         "deepseek-v4-pro",
-                        "deepseek-v4-flash",
+                        "deepseek-flash",
                         "Custom",
                     ],
-                    {"default": "deepseek-v4-flash"},
+                    {"default": "deepseek-flash"},
                 ),
             },
             "optional": {
@@ -1113,7 +1332,7 @@ class SetDeepSeekLLMServiceConnector(object):
         # 确定最终使用的模型
         model = model_select if model_select != "Custom" else custom_model
         if not model:
-            model = "deepseek-v4-flash"  # 默认模型
+            model = "deepseek-flash"  # 默认模型
         return (DeepSeekConnectorGeneral(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
 
 
@@ -1241,14 +1460,14 @@ class SetMiMoLLMServiceConnector(object):
                 "api_token": ("STRING", {"default": ""}),
                 "model_select": (
                     [
+                        "mimo-v2.6-pro",
+                        "mimo-v2.6-pro-ultraspeed",
+                        "mimo-v2.6-flash",
                         "mimo-v2.5-pro",
                         "mimo-v2.5",
-                        "mimo-v2-omni",
-                        "mimo-v2-flash",
-                        "mimo-v2-pro",
                         "Custom",
                     ],
-                    {"default": "mimo-v2.5-pro"},
+                    {"default": "mimo-v2.6-pro"},
                 ),
             },
             "optional": {
@@ -1273,7 +1492,7 @@ class SetMiMoLLMServiceConnector(object):
     def execute(self, api_token, model_select, custom_model="", config_file="mie_llm_keys.json", config_key="mimo", prefer_local_config=True):
         model = model_select if model_select != "Custom" else custom_model
         if not model:
-            model = "mimo-v2.5-pro"
+            model = "mimo-v2.6-pro"
         return (MiMoConnectorGeneral(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
 
 
@@ -1293,14 +1512,14 @@ class SetMiMoTokenPlanLLMServiceConnector(object):
                 "api_token": ("STRING", {"default": ""}),
                 "model_select": (
                     [
+                        "mimo-v2.6-pro",
+                        "mimo-v2.6-pro-ultraspeed",
+                        "mimo-v2.6-flash",
                         "mimo-v2.5-pro",
                         "mimo-v2.5",
-                        "mimo-v2-omni",
-                        "mimo-v2-flash",
-                        "mimo-v2-pro",
                         "Custom",
                     ],
-                    {"default": "mimo-v2.5-pro"},
+                    {"default": "mimo-v2.6-pro"},
                 ),
             },
             "optional": {
@@ -1325,8 +1544,435 @@ class SetMiMoTokenPlanLLMServiceConnector(object):
     def execute(self, api_token, model_select, custom_model="", config_file="mie_llm_keys.json", config_key="mimo_token_plan", prefer_local_config=True):
         model = model_select if model_select != "Custom" else custom_model
         if not model:
-            model = "mimo-v2.5-pro"
+            model = "mimo-v2.6-pro"
         return (MiMoTokenPlanConnectorGeneral(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
+
+
+class SetDoubaoLLMServiceConnector(object):
+    """ByteDance Volcano Ark (火山方舟) Doubao connector.
+
+    Use this node with an Ark API Key from the Volcano console
+    (https://console.volcengine.com/ark). The model may be a versioned
+    doubao-seed id from the dropdown, or paste an inference Endpoint ID
+    (`ep-xxxx`) into `custom_model` with model_select set to `Custom`.
+    """
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "api_token": ("STRING", {"default": ""}),
+                "model_select": (
+                    [
+                        "doubao-seed-2-0-pro-260215",
+                        "doubao-seed-2-0-lite-260215",
+                        "doubao-seed-2-0-mini-260215",
+                        "doubao-seed-1-8-251228",
+                        "doubao-seed-1-6",
+                        "Custom",
+                    ],
+                    {"default": "doubao-seed-2-0-pro-260215"},
+                ),
+            },
+            "optional": {
+                "custom_model": (
+                    "STRING",
+                    {
+                        "default": "",
+                        "placeholder": "doubao model id or Ark Endpoint ID (ep-xxxx)",
+                    },
+                ),
+                "config_file": ("STRING", {"default": "mie_llm_keys.json"}),
+                "config_key": ("STRING", {"default": "doubao"}),
+                "prefer_local_config": ("BOOLEAN", {"default": True}),
+            },
+        }
+
+    RETURN_TYPES = ("LLMServiceConnector",)
+    RETURN_NAMES = ("llm_service_connector",)
+    FUNCTION = "execute"
+    CATEGORY = MY_CATEGORY
+
+    def execute(self, api_token, model_select, custom_model="", config_file="mie_llm_keys.json", config_key="doubao", prefer_local_config=True):
+        model = model_select if model_select != "Custom" else custom_model
+        if not model:
+            model = "doubao-seed-2-0-pro-260215"
+        return (DoubaoConnectorGeneral(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
+
+
+class SetQianfanLLMServiceConnector(object):
+    """Baidu Qianfan (百度千帆) ERNIE connector.
+
+    Use this node with a Qianfan ModelBuilder API key
+    (https://console.bce.baidu.com/qianfan). Serves the ERNIE family
+    plus hosted third-party models (glm / deepseek).
+    """
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "api_token": ("STRING", {"default": ""}),
+                "model_select": (
+                    [
+                        "ernie-5.1",
+                        "ernie-5.0",
+                        "ernie-5.0-thinking-preview",
+                        "ernie-4.5-turbo-128k",
+                        "ernie-4.5-turbo-32k",
+                        "ernie-4.5-turbo-vl",
+                        "glm-5.3",
+                        "deepseek-v4.1-flash",
+                        "Custom",
+                    ],
+                    {"default": "ernie-5.1"},
+                ),
+            },
+            "optional": {
+                "custom_model": (
+                    "STRING",
+                    {
+                        "default": "",
+                        "placeholder": "Enter custom model name (used when model_select is 'Custom')",
+                    },
+                ),
+                "config_file": ("STRING", {"default": "mie_llm_keys.json"}),
+                "config_key": ("STRING", {"default": "qianfan"}),
+                "prefer_local_config": ("BOOLEAN", {"default": True}),
+            },
+        }
+
+    RETURN_TYPES = ("LLMServiceConnector",)
+    RETURN_NAMES = ("llm_service_connector",)
+    FUNCTION = "execute"
+    CATEGORY = MY_CATEGORY
+
+    def execute(self, api_token, model_select, custom_model="", config_file="mie_llm_keys.json", config_key="qianfan", prefer_local_config=True):
+        model = model_select if model_select != "Custom" else custom_model
+        if not model:
+            model = "ernie-5.1"
+        return (QianfanConnectorGeneral(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
+
+
+class SetSparkLLMServiceConnector(object):
+    """iFLYTEK Spark (讯飞星火) X2 connector.
+
+    Use this node with the APIPassword issued from the iFLYTEK console
+    (https://console.xfyun.cn). Serves the current Spark-X2 generation
+    via the `/x2/` endpoint (model value `spark-x`); the retired
+    lite/generalv3 classics live under `/v1/` — reach them with
+    `SetGeneralLLMServiceConnector` instead.
+    """
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "api_token": ("STRING", {"default": ""}),
+                "model_select": (
+                    [
+                        "spark-x",
+                        "Custom",
+                    ],
+                    {"default": "spark-x"},
+                ),
+            },
+            "optional": {
+                "custom_model": (
+                    "STRING",
+                    {
+                        "default": "",
+                        "placeholder": "Enter custom model name (used when model_select is 'Custom')",
+                    },
+                ),
+                "config_file": ("STRING", {"default": "mie_llm_keys.json"}),
+                "config_key": ("STRING", {"default": "spark"}),
+                "prefer_local_config": ("BOOLEAN", {"default": True}),
+            },
+        }
+
+    RETURN_TYPES = ("LLMServiceConnector",)
+    RETURN_NAMES = ("llm_service_connector",)
+    FUNCTION = "execute"
+    CATEGORY = MY_CATEGORY
+
+    def execute(self, api_token, model_select, custom_model="", config_file="mie_llm_keys.json", config_key="spark", prefer_local_config=True):
+        model = model_select if model_select != "Custom" else custom_model
+        if not model:
+            model = "spark-x"
+        return (SparkConnectorGeneral(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
+
+
+class SetOpenAILLMServiceConnector(object):
+    """OpenAI connector (gpt-6 / gpt-5 families).
+
+    Use this node with an OpenAI API key (https://platform.openai.com).
+    The payload uses `max_completion_tokens` because the newer
+    gpt-5+/o-series models reject the legacy `max_tokens` field.
+    """
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "api_token": ("STRING", {"default": ""}),
+                "model_select": (
+                    [
+                        "gpt-6-astra",
+                        "gpt-6-astra-pro",
+                        "gpt-6-luna",
+                        "gpt-6-luna-pro",
+                        "gpt-5.5",
+                        "gpt-5.5-pro",
+                        "gpt-5.2-chat",
+                        "gpt-5.1",
+                        "Custom",
+                    ],
+                    {"default": "gpt-6-astra"},
+                ),
+            },
+            "optional": {
+                "custom_model": (
+                    "STRING",
+                    {
+                        "default": "",
+                        "placeholder": "Enter custom model name (used when model_select is 'Custom')",
+                    },
+                ),
+                "config_file": ("STRING", {"default": "mie_llm_keys.json"}),
+                "config_key": ("STRING", {"default": "openai"}),
+                "prefer_local_config": ("BOOLEAN", {"default": True}),
+            },
+        }
+
+    RETURN_TYPES = ("LLMServiceConnector",)
+    RETURN_NAMES = ("llm_service_connector",)
+    FUNCTION = "execute"
+    CATEGORY = MY_CATEGORY
+
+    def execute(self, api_token, model_select, custom_model="", config_file="mie_llm_keys.json", config_key="openai", prefer_local_config=True):
+        model = model_select if model_select != "Custom" else custom_model
+        if not model:
+            model = "gpt-6-astra"
+        return (OpenAIConnectorGeneral(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
+
+
+class SetGrokLLMServiceConnector(object):
+    """xAI Grok connector.
+
+    Use this node with an xAI API key (https://console.x.ai). Serves the
+    grok-4.x families via the OpenAI-compatible /v1/chat/completions.
+    """
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "api_token": ("STRING", {"default": ""}),
+                "model_select": (
+                    [
+                        "grok-4.7",
+                        "grok-4.6",
+                        "grok-4.5",
+                        "grok-4.3",
+                        "grok-4.20",
+                        "grok-4.20-multi-agent",
+                        "Custom",
+                    ],
+                    {"default": "grok-4.7"},
+                ),
+            },
+            "optional": {
+                "custom_model": (
+                    "STRING",
+                    {
+                        "default": "",
+                        "placeholder": "Enter custom model name (used when model_select is 'Custom')",
+                    },
+                ),
+                "config_file": ("STRING", {"default": "mie_llm_keys.json"}),
+                "config_key": ("STRING", {"default": "grok"}),
+                "prefer_local_config": ("BOOLEAN", {"default": True}),
+            },
+        }
+
+    RETURN_TYPES = ("LLMServiceConnector",)
+    RETURN_NAMES = ("llm_service_connector",)
+    FUNCTION = "execute"
+    CATEGORY = MY_CATEGORY
+
+    def execute(self, api_token, model_select, custom_model="", config_file="mie_llm_keys.json", config_key="grok", prefer_local_config=True):
+        model = model_select if model_select != "Custom" else custom_model
+        if not model:
+            model = "grok-4.7"
+        return (GrokConnectorGeneral(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
+
+
+class SetOpenRouterLLMServiceConnector(object):
+    """OpenRouter aggregator connector.
+
+    Use this node with an OpenRouter API key (https://openrouter.ai) —
+    one key routes to 400+ vendor models using `vendor/model` slugs.
+    The dropdown carries a cross-vendor selection verified against the
+    live catalog; browse everything at https://openrouter.ai/models and
+    paste any slug into `custom_model`.
+    """
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "api_token": ("STRING", {"default": ""}),
+                "model_select": (
+                    [
+                        "openrouter/auto",
+                        "openai/gpt-6-astra",
+                        "anthropic/claude-opus-5.5",
+                        "google/gemini-3.8-flash",
+                        "x-ai/grok-4.7",
+                        "deepseek/deepseek-v4-pro",
+                        "z-ai/glm-5.3",
+                        "moonshotai/kimi-k3",
+                        "qwen/qwen3.5-397b-a17b",
+                        "minimax/minimax-m3",
+                        "mistralai/mistral-large-2512",
+                        "Custom",
+                    ],
+                    {"default": "openrouter/auto"},
+                ),
+            },
+            "optional": {
+                "custom_model": (
+                    "STRING",
+                    {
+                        "default": "",
+                        "placeholder": "Any OpenRouter slug, e.g. openai/gpt-5.2 or vendor/model:free",
+                    },
+                ),
+                "config_file": ("STRING", {"default": "mie_llm_keys.json"}),
+                "config_key": ("STRING", {"default": "openrouter"}),
+                "prefer_local_config": ("BOOLEAN", {"default": True}),
+            },
+        }
+
+    RETURN_TYPES = ("LLMServiceConnector",)
+    RETURN_NAMES = ("llm_service_connector",)
+    FUNCTION = "execute"
+    CATEGORY = MY_CATEGORY
+
+    def execute(self, api_token, model_select, custom_model="", config_file="mie_llm_keys.json", config_key="openrouter", prefer_local_config=True):
+        model = model_select if model_select != "Custom" else custom_model
+        if not model:
+            model = "openrouter/auto"
+        return (OpenRouterConnectorGeneral(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
+
+
+class SetClaudeLLMServiceConnector(object):
+    """Anthropic Claude connector (official OpenAI-compat layer).
+
+    Use this node with a Claude API key (https://console.claude.com).
+    Goes through Anthropic's official OpenAI SDK compatibility layer —
+    fine for plain chat / prompt rewriting; features the layer ignores
+    (structured outputs, prompt caching, detailed thinking) need the
+    native Anthropic API instead.
+    """
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "api_token": ("STRING", {"default": ""}),
+                "model_select": (
+                    [
+                        "claude-sonnet-5-5",
+                        "claude-opus-5-5",
+                        "claude-fable-5-1",
+                        "claude-haiku-4-5",
+                        "claude-opus-5",
+                        "claude-sonnet-5",
+                        "Custom",
+                    ],
+                    {"default": "claude-sonnet-5-5"},
+                ),
+            },
+            "optional": {
+                "custom_model": (
+                    "STRING",
+                    {
+                        "default": "",
+                        "placeholder": "Enter custom model name (used when model_select is 'Custom')",
+                    },
+                ),
+                "config_file": ("STRING", {"default": "mie_llm_keys.json"}),
+                "config_key": ("STRING", {"default": "anthropic"}),
+                "prefer_local_config": ("BOOLEAN", {"default": True}),
+            },
+        }
+
+    RETURN_TYPES = ("LLMServiceConnector",)
+    RETURN_NAMES = ("llm_service_connector",)
+    FUNCTION = "execute"
+    CATEGORY = MY_CATEGORY
+
+    def execute(self, api_token, model_select, custom_model="", config_file="mie_llm_keys.json", config_key="anthropic", prefer_local_config=True):
+        model = model_select if model_select != "Custom" else custom_model
+        if not model:
+            model = "claude-sonnet-5-5"
+        return (ClaudeConnectorGeneral(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
+
+
+class SetSiliconFlowJevLLMServiceConnector(object):
+    """SiliconFlow Jev / System One decision-model connector.
+
+    Use this node to reach the Jev decision-model replicas hosted on
+    SiliconFlow (Kev-4B / SemIf / diffusiongemma) via
+    `https://api.siliconflow.cn/v1/systemone` — it reuses your existing
+    `siliconflow` API key, and the replicas are free during the
+    2026-10-08 promo window. Jev models are decision models, not chat
+    models — pair this connector with the `CallJevDecision` node, not
+    `CallLLMService`. (TypeSafe's own hosted `jev-latest` is out of
+    scope here; its protocol is identical if you ever need it.)
+    """
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "api_token": ("STRING", {"default": ""}),
+                "model_select": (
+                    [
+                        "Kev-4B",
+                        "SemIf",
+                        "diffusiongemma",
+                        "Custom",
+                    ],
+                    {"default": "Kev-4B"},
+                ),
+            },
+            "optional": {
+                "custom_model": (
+                    "STRING",
+                    {
+                        "default": "",
+                        "placeholder": "Enter custom decision model name (used when model_select is 'Custom')",
+                    },
+                ),
+                "config_file": ("STRING", {"default": "mie_llm_keys.json"}),
+                "config_key": ("STRING", {"default": "siliconflow"}),
+                "prefer_local_config": ("BOOLEAN", {"default": True}),
+            },
+        }
+
+    RETURN_TYPES = ("LLMServiceConnector",)
+    RETURN_NAMES = ("llm_service_connector",)
+    FUNCTION = "execute"
+    CATEGORY = MY_CATEGORY
+
+    def execute(self, api_token, model_select, custom_model="", config_file="mie_llm_keys.json", config_key="siliconflow", prefer_local_config=True):
+        model = model_select if model_select != "Custom" else custom_model
+        if not model:
+            model = "Kev-4B"
+        return (SiliconFlowJevConnectorGeneral(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
 
 
 class SetOllamaLLMServiceConnector(object):
@@ -1398,16 +2044,16 @@ class SetGeminiLLMServiceConnector(object):
                 "api_token": ("STRING", {"default": ""}),
                 "model_select": (
                     [
-                        "gemini-3.1-pro",
-                        "gemini-3.1-pro-preview",
-                        "gemini-3-flash",
+                        "gemini-3.8-flash",
+                        "gemini-3.7-flash",
+                        "gemini-3.5-flash",
+                        "gemini-3.5-flash-lite",
                         "gemini-3.1-flash-lite",
-                        "gemini-2.5-pro",
-                        "gemini-2.5-flash",
-                        "gemini-2.5-flash-lite",
+                        "gemini-3.1-pro-preview",
+                        "gemini-3-flash-preview",
                         "Custom",
                     ],
-                    {"default": "gemini-3.1-pro"},
+                    {"default": "gemini-3.8-flash"},
                 ),
             },
             "optional": {
@@ -1432,7 +2078,7 @@ class SetGeminiLLMServiceConnector(object):
     def execute(self, api_token, model_select, custom_model="", config_file="mie_llm_keys.json", config_key="gemini", prefer_local_config=True):
         model = model_select if model_select != "Custom" else custom_model
         if not model:
-            model = "gemini-3.1-pro"
+            model = "gemini-3.8-flash"
         return (GeminiConnectorGeneral(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
 
 
@@ -1444,8 +2090,11 @@ class SetBailianLLMServiceConnector(object):
                 "api_token": ("STRING", {"default": ""}),
                 "model_select": (
                     [
+                        "qwen3.8-max",
+                        "qwen3.8-flash",
                         "qwen3.7-max",
                         "qwen3.7-plus",
+                        "qwen3.7-flash",
                         "qwen3.6-flash",
                         "qwen3.6-plus",
                         "qwen3.5-flash",
@@ -1455,14 +2104,17 @@ class SetBailianLLMServiceConnector(object):
                         "qwen-flash",
                         "qwen-turbo",
                         "qwen-long",
+                        "glm-5.3",
                         "glm-5.2",
                         "glm-5.1",
                         "glm-5",
+                        "kimi-k3",
                         "kimi-k2.6",
                         "deepseek-v4-pro",
+                        "deepseek-v4.1-flash",
                         "Custom",
                     ],
-                    {"default": "qwen3.7-max"},
+                    {"default": "qwen3.8-max"},
                 ),
             },
             "optional": {
@@ -1487,20 +2139,21 @@ class SetBailianLLMServiceConnector(object):
     def execute(self, api_token, model_select, custom_model="", config_file="mie_llm_keys.json", config_key="bailian", prefer_local_config=True):
             model = model_select if model_select != "Custom" else custom_model
             if not model:
-                model = "qwen3.7-max"
+                model = "qwen3.8-max"
             return (BailianLLMServiceConnector(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
 
 
 class BailianTokenPlanConnectorGeneral(StandardOpenAICompatibleConnector):
-    """Alibaba Bailian Token Plan connector (multimodal subscription tier).
+    """Alibaba Bailian Token Plan connector (subscription tier, Beijing).
 
-    Targets the Bailian Token Plan endpoint at
+    Targets the Bailian Token Plan (个人版, Credits-based) endpoint at
     `https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1/chat/completions`
-    with `sk-sp-...` prefixed API keys issued from
-    https://bailian.console.aliyun.com/. The Token Plan is a fixed-fee
-    subscription that grants access to the full Bailian multimodal lineup
-    (text / vision / image / audio) via a separate host. NOT interchangeable
-    with the PAYG `sk-` key or with the Coding Plan `sk-cp-` key. Pair with
+    with `sk-sp-...` prefixed subscription API keys issued from
+    https://bailian.console.aliyun.com/ (key rotates when the plan is
+    re-purchased). Covers the Qwen3.8 / Qwen3.7 flagships plus DeepSeek,
+    GLM and multimodal families. NOT interchangeable with the PAYG `sk-`
+    key or with the Coding Plan key scoped to
+    `coding.dashscope.aliyuncs.com`. Pair with
     `SetBailianTokenPlanLLMServiceConnector`.
     """
     api_url = "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1/chat/completions"
@@ -1510,15 +2163,17 @@ class BailianTokenPlanConnectorGeneral(StandardOpenAICompatibleConnector):
 
 
 class BailianCodingPlanConnectorGeneral(StandardOpenAICompatibleConnector):
-    """Alibaba Bailian Coding Plan connector (Qwen-Coder-only subscription tier).
+    """Alibaba Bailian Coding Plan connector (subscription tier).
 
     Targets the Bailian Coding Plan endpoint at
     `https://coding.dashscope.aliyuncs.com/v1/chat/completions` with
-    `sk-cp-...` prefixed API keys. The Coding Plan only exposes the
-    Qwen-Coder family of models (no Qwen-Max / Qwen-VL / Qwen-Image);
-    a non-coder model selected here will fail server-side with HTTP 400.
-    NOT interchangeable with the PAYG `sk-` key or with the Token Plan
-    `sk-sp-` key. Pair with `SetBailianCodingPlanLLMServiceConnector`.
+    `sk-sp-...` prefixed subscription API keys (per the official Coding
+    Plan docs — NOT `sk-cp-`). The Coding Plan model list now includes
+    general chat models (qwen3.7-plus, glm-5, MiniMax-M2.5, kimi-k2.5)
+    alongside the qwen3-coder family; keys are NOT interchangeable with
+    the PAYG `sk-` key or with the Token Plan `sk-sp-` key scoped to the
+    `token-plan.cn-beijing.maas.aliyuncs.com` host. Pair with
+    `SetBailianCodingPlanLLMServiceConnector`.
     """
     api_url = "https://coding.dashscope.aliyuncs.com/v1/chat/completions"
 
@@ -1543,19 +2198,19 @@ class SetBailianTokenPlanLLMServiceConnector(object):
                 "api_token": ("STRING", {"default": ""}),
                 "model_select": (
                     [
-                        "qwen3-max",
-                        "qwen3-plus",
-                        "qwen3-flash",
-                        "qwen3-turbo",
-                        "qwen3-long",
-                        "qwen3-vl-plus",
-                        "qwen3-vl-flash",
-                        "qwen-image",
-                        "qwen3-coder-plus",
-                        "qwen3-coder-flash",
+                        "auto",
+                        "qwen3.8-max",
+                        "qwen3.8-flash",
+                        "qwen3.7-max",
+                        "qwen3.7-plus",
+                        "qwen3.6-flash",
+                        "deepseek-v4.1-flash",
+                        "deepseek-v4-pro",
+                        "glm-5.3",
+                        "glm-5.2",
                         "Custom",
                     ],
-                    {"default": "qwen3-max"},
+                    {"default": "qwen3.8-max"},
                 ),
             },
             "optional": {
@@ -1580,18 +2235,21 @@ class SetBailianTokenPlanLLMServiceConnector(object):
     def execute(self, api_token, model_select, custom_model="", config_file="mie_llm_keys.json", config_key="bailian_token_plan", prefer_local_config=True):
         model = model_select if model_select != "Custom" else custom_model
         if not model:
-            model = "qwen3-max"
+            model = "qwen3.8-max"
         return (BailianTokenPlanConnectorGeneral(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
 
 
 class SetBailianCodingPlanLLMServiceConnector(object):
-    """Alibaba Bailian Coding Plan connector (Qwen-Coder-only subscription).
+    """Alibaba Bailian Coding Plan connector (subscription tier).
 
-    Use this node when you have a Coding Plan API key (`sk-cp-...` prefix
-    issued from https://bailian.console.aliyun.com/). The Coding Plan is a
-    Qwen-Coder-only subscription intended for code completion and repo-level
-    reasoning. NOT interchangeable with the PAYG `sk-` key or with the Token
-    Plan `sk-sp-` key.
+    Use this node when you have a Coding Plan API key (`sk-sp-...` prefix
+    issued from https://bailian.console.aliyun.com/ — the official docs
+    use the `sk-sp-` prefix for Coding Plan keys too, same shape as Token
+    Plan keys but scoped to the `coding.dashscope.aliyuncs.com` host).
+    The Coding Plan model list covers both coder models (qwen3-coder-*)
+    and general chat models (qwen3.7-plus, glm-5, MiniMax-M2.5, kimi-k2.5).
+    NOT interchangeable with the PAYG `sk-` key or with the Token Plan
+    `sk-sp-` key.
     """
 
     @classmethod
@@ -1601,12 +2259,19 @@ class SetBailianCodingPlanLLMServiceConnector(object):
                 "api_token": ("STRING", {"default": ""}),
                 "model_select": (
                     [
+                        "qwen3.7-plus",
+                        "qwen3.6-plus",
                         "qwen3-coder-plus",
-                        "qwen3-coder-flash",
-                        "qwen-coder",
+                        "qwen3-coder-next",
+                        "glm-5",
+                        "MiniMax-M2.5",
+                        "kimi-k2.5",
+                        "qwen3.5-plus",
+                        "qwen3-max-2026-01-23",
+                        "glm-4.7",
                         "Custom",
                     ],
-                    {"default": "qwen3-coder-plus"},
+                    {"default": "qwen3.7-plus"},
                 ),
             },
             "optional": {
@@ -1631,7 +2296,7 @@ class SetBailianCodingPlanLLMServiceConnector(object):
     def execute(self, api_token, model_select, custom_model="", config_file="mie_llm_keys.json", config_key="bailian_coding", prefer_local_config=True):
         model = model_select if model_select != "Custom" else custom_model
         if not model:
-            model = "qwen3-coder-plus"
+            model = "qwen3.7-plus"
         return (BailianCodingPlanConnectorGeneral(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
 
 
@@ -1658,6 +2323,72 @@ class CheckLLMServiceConnectivity(object):
             return mie_log(f"LLM服务接口可联通 (HTTP 200 + 正常响应), 返回内容: {result}"),
         except Exception as e:
             return mie_log(f"LLM服务检测失败: {str(e)}"),
+
+
+class CallJevDecision(object):
+    """Ask a Jev / System One decision model a set of structured questions.
+
+    Jev decision models do not write prose — they answer structured
+    questions about a piece of state text. `questions_json` holds the
+    Jev question spec as a JSON object mapping question names to specs:
+
+        {
+          "urgency":  {"type": "noul",
+                       "instructions": "Does this message express urgency?"},
+          "topic":    {"type": "choice",
+                       "instructions": "Classify the inquiry",
+                       "criteria": {"billing": "Refunds, payments",
+                                    "technical": "Defects, troubleshooting"}},
+          "severity": {"type": "score",
+                       "instructions": "How severe is the issue?",
+                       "criteria": ["Low", "Medium", "High"]}
+        }
+
+    - `noul`   -> yes/no probability
+    - `choice` -> picked option + full probability distribution
+    - `score`  -> position on an ordered scale + per-level probabilities
+
+    Returns the full response (`model` / `answers` / `usage`) as a JSON
+    string; parse `answers.<name>` downstream for routing.
+    """
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "llm_service_connector": ("LLMServiceConnector",),
+                "state": ("STRING", {"default": "", "multiline": True,
+                                     "placeholder": "The text to judge, e.g. a customer email or a dialogue line"}),
+                "questions_json": ("STRING", {"default": "", "multiline": True,
+                                              "placeholder": '{"q1": {"type": "noul", "instructions": "Is this urgent?"}}'}),
+            },
+        }
+
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("decision_json",)
+    FUNCTION = "execute"
+    CATEGORY = MY_CATEGORY
+
+    def execute(self, llm_service_connector, state, questions_json):
+        if not hasattr(llm_service_connector, "ask"):
+            raise Exception(
+                "CallJevDecision needs a Jev connector from the "
+                "SetSiliconFlowJevLLMServiceConnector node (got a chat connector)."
+            )
+        try:
+            questions = json.loads(questions_json) if questions_json.strip() else {}
+        except json.JSONDecodeError as e:
+            raise Exception(
+                f"questions_json is not valid JSON: {e}. Keep it as a JSON "
+                "object mapping question names to noul/choice/score specs."
+            )
+        if not isinstance(questions, dict) or not questions:
+            raise Exception(
+                "questions_json must be a non-empty JSON object mapping "
+                "question names to specs (see the node tooltip)."
+            )
+        data = llm_service_connector.ask(state, questions)
+        return (json.dumps(data, ensure_ascii=False, indent=2),)
 
 
 # 通用调用节点：对接任意已创建的 LLMServiceConnector

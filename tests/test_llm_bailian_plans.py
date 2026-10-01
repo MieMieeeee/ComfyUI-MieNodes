@@ -7,8 +7,9 @@ These guard against accidental regression of the most user-visible facts:
   The PAYG / 按量计费 tier uses ``dashscope.aliyuncs.com`` with an ``sk-``
   key. The Token Plan / 套餐 tier uses ``token-plan.cn-beijing.maas.aliyuncs.com``
   with an ``sk-sp-`` key. The Coding Plan / 编程订阅 tier uses
-  ``coding.dashscope.aliyuncs.com`` with an ``sk-cp-`` key. Cross-use always
-  fails server-side.
+  ``coding.dashscope.aliyuncs.com`` — per the 2026-09 official docs its
+  subscription key is ALSO ``sk-sp-`` prefixed (NOT ``sk-cp-``), just
+  scoped to the coding host. Cross-use always fails server-side.
 - The Token Plan and Coding Plan connectors inherit
   ``StandardOpenAICompatibleConnector`` so they pick up ``max_tokens``,
   ``temperature``, ``top_p``, etc. The legacy PAYG ``BailianLLMServiceConnector``
@@ -146,27 +147,34 @@ def test_set_coding_plan_uses_bailian_coding_config_key(llm_module):
     assert spec["optional"]["config_key"][1]["default"] == "bailian_coding"
 
 
-def test_set_token_plan_dropdown_includes_coder_and_vl(llm_module):
-    # The Token Plan is multimodal: must include at least one VL model and
-    # at least one Coder model in the dropdown (Qwen-Image is fine to skip).
+def test_set_token_plan_dropdown_matches_2026_09_docs(llm_module):
+    # 2026-09 Token Plan (个人版) docs list the Qwen3.8/3.7 flagships plus
+    # DeepSeek / GLM; the legacy qwen3-* names are gone.
     models = llm_module.SetBailianTokenPlanLLMServiceConnector.INPUT_TYPES()[
         "required"
     ]["model_select"][0]
-    assert any("vl" in m.lower() for m in models), models
-    assert any("coder" in m.lower() for m in models), models
+    assert "qwen3.8-max" in models, models
+    assert "glm-5.3" in models, models
+    assert "deepseek-v4.1-flash" in models, models
     assert "Custom" in models
+    assert not any(m.startswith("qwen3-") for m in models), (
+        f"Token Plan dropdown still lists retired qwen3-* names: {models}"
+    )
 
 
-def test_set_coding_plan_dropdown_is_coder_only(llm_module):
-    # Coding Plan is Qwen-Coder-only. We must not list non-Coder models in
-    # the dropdown because selecting one would fail server-side with 400.
+def test_set_coding_plan_dropdown_matches_2026_09_docs(llm_module):
+    # 2026-09 Coding Plan (Pro) docs: general chat models (qwen3.7-plus,
+    # glm-5, MiniMax-M2.5, kimi-k2.5) alongside the qwen3-coder family.
     models = llm_module.SetBailianCodingPlanLLMServiceConnector.INPUT_TYPES()[
         "required"
     ]["model_select"][0]
-    assert all(("coder" in m.lower()) or (m == "Custom") for m in models), (
-        f"Coding Plan dropdown leaked non-coder model: {models}"
-    )
+    assert "qwen3.7-plus" in models, models
+    assert "qwen3-coder-plus" in models, models
+    assert "MiniMax-M2.5" in models, models
     assert "Custom" in models
+    assert "qwen-coder" not in models, (
+        f"Coding Plan dropdown still lists retired bare qwen-coder: {models}"
+    )
 
 
 def test_set_token_plan_execute_routes_to_token_plan_url(llm_module):
