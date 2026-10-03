@@ -15,8 +15,8 @@
   - [DeepSeek](https://platform.deepseek.com/)（`deepseek` 密钥）
   - [Gemini](https://ai.google.dev/gemini) — 支持多模态（图片按 inline_data 转发）（`gemini` 密钥）
   - [Bailian 阿里云百炼](https://bailian.console.aliyun.com/)（`bailian` 密钥）
-  - [Bailian 阿里云百炼 Token Plan / 套餐](https://bailian.console.aliyun.com/)（`sk-sp-` 密钥，`bailian_token_plan`）— 固定费用多模态订阅（文本+视觉+图像+音频）
-  - [Bailian 阿里云百炼 Coding Plan / 编程订阅](https://bailian.console.aliyun.com/)（`sk-cp-` 密钥，`bailian_coding`）— 仅支持 Qwen-Coder 的编程订阅
+  - [Bailian 阿里云百炼 Token Plan / 套餐](https://bailian.console.aliyun.com/)（`sk-sp-` 密钥，`bailian_token_plan`）— Credits 计费订阅（个人版，北京地域端点），覆盖 Qwen3.8/3.7 旗舰及 DeepSeek、智谱与多模态系列；续购后密钥会变更
+  - [Bailian 阿里云百炼 Coding Plan / 编程订阅](https://bailian.console.aliyun.com/)（`sk-sp-` 密钥，绑定编程端点，`bailian_coding`）— 编程订阅，既含 qwen3-coder 系列也含通用对话模型（qwen3.7-plus、glm-5、MiniMax-M2.5、kimi-k2.5）
   - [MiniMax](https://api.minimaxi.com/) — 标准 Open Platform（`sk-...` 密钥，`minimax_open_platform`）+ [Token Plan / Coding Plan](https://api.minimaxi.com/)（`sk-cp-...` 密钥，`minimax`）双轨
   - [小米 MiMo](https://mimo.mi.com/) — 标准 Open Platform（`sk-...` 密钥，`mimo`）+ [Token Plan / Coding Plan](https://mimo.mi.com/)（`tp-...` 密钥，`mimo_token_plan`）双轨
   - [Ollama](https://ollama.com/)（本地）— `SetOllamaLLMServiceConnector` 接入，不需要 API 密钥（Authorization 头会发送但被服务端忽略），`ollama` config_key（密钥一般留空）
@@ -28,7 +28,7 @@
   - [xAI Grok](https://console.x.ai)（`grok` 密钥）
   - [OpenRouter](https://openrouter.ai)（`openrouter` 密钥，一把 key 路由 400+ 厂商模型）
   - [Anthropic Claude](https://console.claude.com)（`anthropic` 密钥，官方 OpenAI 兼容层）
-  - [硅基流动 Jev / System One 决策模型](https://jev101.org)（复用 `siliconflow` 密钥走 `/v1/systemone`；配合 `CallJevDecision` 节点做结构化判断/路由，非聊天模型）
+  - [硅基流动 Jev / System One 决策模型](https://jev101.org)（用 `SetSiliconFlowJevLLMServiceConnector` 复用 `siliconflow` 密钥走 `/v1/systemone`；配合 `CallJevDecision` 节点做结构化判断/路由，非聊天模型）
   - [LM Studio](https://lmstudio.ai) 等本地 OpenAI 兼容服务（用「通用 OpenAI 兼容端点」节点，base URL 如 `http://127.0.0.1:1234/v1/chat/completions`）
 
 如果你希望使用其他无法通过 SetGeneralLLMServiceConnector 连接的大语言模型（LLM）服务，请提交 issue 或 pull request 进行反馈。
@@ -326,6 +326,17 @@
 
 每个连接器的 `config_key` 默认值与示例文件里的 JSON 键名一致。默认不动就读对应的条目；也可以在节点上改成其它键名，从同一个文件里读另一个条目。
 
+#### 该选哪个连接器 / 密钥槽位？
+
+各家密钥前缀会撞车（`sk-` 被百炼按量计费、MiniMax 开放平台、MiMo 开放平台、DeepSeek、Kimi、硅基流动共用；`sk-sp-` 被百炼 Token Plan、百炼 Coding Plan、硅基流动 Coding Plan 共用），而且不少平台还有各自的订阅制层级，端点和密钥都不一样。**[docs/LLM_SERVICE_SELECTION_GUIDE.md](docs/LLM_SERVICE_SELECTION_GUIDE.md)** 就是用来解决这些的：密钥前缀 → 连接器对照表、按服务商/场景选型表、端点清单、各连接器当前可选模型，以及常见坑（层级混用导致的 401、已下线模型名、部分厂商锁死采样参数等）。
+
+这份文件是按「给 AI 读的说明书」写的，所以有两种用法：
+
+- **让 AI 帮你填配置** —— 把该文件喂给你的 AI 助手（粘贴进对话，或加入 system prompt / agent 指令），然后描述你的密钥或服务商，比如「我有一个阿里云百炼的 `sk-sp-` 密钥，买的是 Coding Plan」「我想用最便宜且能读图的模型」。指南会引导它走决策树、选出正确的 `Set*LLMServiceConnector`、把密钥放进 `mie_llm_keys.json` 对应的槽位，并提醒你层级选错的坑。
+- **自己查** —— §2 是「密钥前缀 → 连接器」的速查表，§5 列出每个下拉框当前可用的模型 id。
+
+两者必须与代码同步：`services/llm.py` 是唯一事实来源，任何连接器、端点、下拉框变动都要同步更新这份指南。
+
 | `config_key`（默认） | 连接器 | 服务商 / 资质 | 密钥格式示例 |
 | --- | --- | --- | --- |
 | `openai_compatible` | `SetGeneralLLMServiceConnector` | 任意 OpenAI 兼容端点（自定义 base URL） | 随服务商 |
@@ -340,6 +351,8 @@
 | `mimo_token_plan` | `SetMiMoTokenPlanLLMServiceConnector` | 小米 MiMo Token Plan / Coding Plan | `tp-...` |
 | `gemini` | `SetGeminiLLMServiceConnector` | [Google Gemini](https://ai.google.dev/gemini) | `AIza...` |
 | `bailian` | `SetBailianLLMServiceConnector` | [Bailian 阿里云百炼](https://bailian.console.aliyun.com/) | `sk-...` |
+| `bailian_token_plan` | `SetBailianTokenPlanLLMServiceConnector` | 百炼 Token Plan / 套餐（个人版，北京地域） | `sk-sp-...` |
+| `bailian_coding` | `SetBailianCodingPlanLLMServiceConnector` | 百炼 Coding Plan / 编程订阅 | `sk-sp-...`（编程端点） |
 | `ollama` | `SetOllamaLLMServiceConnector` | [Ollama](https://ollama.com/)（本地） | 不需要（占位符 `ollama`） |
 | `doubao` | `SetDoubaoLLMServiceConnector` | [火山引擎豆包 Volcano Ark](https://www.volcengine.com/product/doubao) | 方舟 API Key |
 | `qianfan` | `SetQianfanLLMServiceConnector` | [百度千帆 ERNIE](https://cloud.baidu.com/product-qianfan) | 千帆 API Key |

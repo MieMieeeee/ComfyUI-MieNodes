@@ -15,8 +15,8 @@ Currently, the following services are supported:
   - [DeepSeek](https://platform.deepseek.com/) (`deepseek` key)
   - [Gemini](https://ai.google.dev/gemini) — multimodal-aware (image input is forwarded as inline data) (`gemini` key)
   - [Bailian 阿里云百炼](https://bailian.console.aliyun.com/) (`bailian` key)
-  - [Bailian 阿里云百炼 Token Plan](https://bailian.console.aliyun.com/) (`sk-sp-` key, `bailian_token_plan`) — fixed-fee multimodal subscription (text + vision + image + audio)
-  - [Bailian 阿里云百炼 Coding Plan](https://bailian.console.aliyun.com/) (`sk-cp-` key, `bailian_coding`) — Qwen-Coder-only programming subscription
+  - [Bailian 阿里云百炼 Token Plan](https://bailian.console.aliyun.com/) (`sk-sp-` key, `bailian_token_plan`) — Credits-based subscription (个人版, cn-beijing endpoint) covering the Qwen3.8/3.7 flagships plus DeepSeek, GLM and multimodal families; the key rotates when the plan is re-purchased
+  - [Bailian 阿里云百炼 Coding Plan](https://bailian.console.aliyun.com/) (`sk-sp-` key scoped to the coding host, `bailian_coding`) — programming subscription covering both the qwen3-coder family and general chat models (qwen3.7-plus, glm-5, MiniMax-M2.5, kimi-k2.5)
   - [MiniMax](https://api.minimaxi.com/) — standard Open Platform (`sk-...` key, `minimax_open_platform`) + [Token Plan / Coding Plan](https://api.minimaxi.com/) (`sk-cp-...` key, `minimax`)
   - [Xiaomi MiMo](https://mimo.mi.com/) — standard Open Platform (`sk-...` key, `mimo`) + [Token Plan / Coding Plan](https://mimo.mi.com/) (`tp-...` key, `mimo_token_plan`)
   - [Ollama](https://ollama.com/) (local) — `SetOllamaLLMServiceConnector`, no API key required (the `Authorization` header is sent but ignored), `ollama` config_key (key is usually left empty)
@@ -28,7 +28,7 @@ Currently, the following services are supported:
   - [xAI Grok](https://console.x.ai) (`grok` key)
   - [OpenRouter](https://openrouter.ai) (`openrouter` key; one key routes 400+ vendor models)
   - [Anthropic Claude](https://console.claude.com) (`anthropic` key, official OpenAI-compat layer)
-  - [SiliconFlow Jev / System One decision models](https://jev101.org) (reuse the `siliconflow` key via `/v1/systemone`; pair with the `CallJevDecision` node for structured routing — not a chat model)
+  - [SiliconFlow Jev / System One decision models](https://jev101.org) (reuse the `siliconflow` key via `SetSiliconFlowJevLLMServiceConnector` + `/v1/systemone`; pair with the `CallJevDecision` node for structured routing — not a chat model)
   - [LM Studio](https://lmstudio.ai) and other local OpenAI-compatible servers (use the "General OpenAI-compatible" node, e.g. base URL `http://127.0.0.1:1234/v1/chat/completions`)
 
 If you wish to use other large language model (LLM) services that cannot be connected through SetGeneralLLMServiceConnector, please submit an issue or a pull request for feedback.
@@ -327,6 +327,17 @@ Every `Set*LLMServiceConnector` node can pull its API key from a local JSON file
 
 The default `config_key` for each connector matches the JSON key in the example file. Leave it at the default to read the matching entry, or set a custom value to read a different entry from the same file.
 
+#### Which connector / key slot do I need?
+
+Key prefixes collide across vendors (`sk-` is shared by Bailian PAYG, MiniMax Open, MiMo Open, DeepSeek, Kimi and SiliconFlow; `sk-sp-` by Bailian Token Plan, Bailian Coding Plan and SiliconFlow Coding Plan), and several platforms have subscription tiers with their own endpoint and key. **[docs/LLM_SERVICE_SELECTION_GUIDE.md](docs/LLM_SERVICE_SELECTION_GUIDE.md)** resolves all of it: a key-prefix → connector table, a provider/use-case table, the endpoint reference, current model lists per connector, and a pitfalls section (401 tier mix-ups, retired model names, providers that pin sampling parameters).
+
+It is written as an LLM-readable instruction document, so there are two ways to use it:
+
+- **Ask an assistant to fill it in for you** — point your AI assistant at the guide (paste it, or add it to the system prompt / agent instructions) and describe your key or your provider, e.g. "I have an `sk-sp-` key from Alibaba Bailian and I bought the Coding Plan" or "I want the cheapest model that can read images". The guide teaches it to walk the decision tree, pick the right `Set*LLMServiceConnector`, drop the key into the matching `mie_llm_keys.json` slot, and warn you about the tier traps.
+- **Read it yourself** — §2 is a lookup table from key prefix to connector, §5 lists the model ids currently in each dropdown.
+
+Keep the two in sync: `services/llm.py` is the source of truth, and the guide MUST be updated whenever a connector, endpoint or dropdown changes.
+
 | `config_key` (default) | Connector | Platform / tier | Typical key format |
 | --- | --- | --- | --- |
 | `openai_compatible` | `SetGeneralLLMServiceConnector` | Any OpenAI-compatible endpoint (custom base URL) | varies |
@@ -341,6 +352,8 @@ The default `config_key` for each connector matches the JSON key in the example 
 | `mimo_token_plan` | `SetMiMoTokenPlanLLMServiceConnector` | Xiaomi MiMo Token Plan / Coding Plan | `tp-...` |
 | `gemini` | `SetGeminiLLMServiceConnector` | [Google Gemini](https://ai.google.dev/gemini) | `AIza...` |
 | `bailian` | `SetBailianLLMServiceConnector` | [Bailian 阿里云百炼](https://bailian.console.aliyun.com/) | `sk-...` |
+| `bailian_token_plan` | `SetBailianTokenPlanLLMServiceConnector` | Bailian Token Plan / 套餐 (个人版, cn-beijing) | `sk-sp-...` |
+| `bailian_coding` | `SetBailianCodingPlanLLMServiceConnector` | Bailian Coding Plan / 编程订阅 | `sk-sp-...` (coding host) |
 | `ollama` | `SetOllamaLLMServiceConnector` | [Ollama](https://ollama.com/) (local) | not required (placeholder `ollama` is sent) |
 | `doubao` | `SetDoubaoLLMServiceConnector` | [Volcano Ark Doubao](https://www.volcengine.com/product/doubao) | Ark API key |
 | `qianfan` | `SetQianfanLLMServiceConnector` | [Baidu Qianfan ERNIE](https://cloud.baidu.com/product-qianfan) | Qianfan API key |

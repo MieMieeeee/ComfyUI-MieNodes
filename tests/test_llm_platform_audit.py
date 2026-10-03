@@ -223,3 +223,34 @@ def test_sanitize_response_strips_orphan_close_think(llm_module):
     assert c._sanitize_response("a<think>hidden</think>b") == "ab"
     assert c._sanitize_response("</thinking>tail") == "tail"
     assert c._sanitize_response("no tags") == "no tags"
+
+
+# ---------------------------------------------------------------------------
+# Docs stay in lockstep with the code
+# ---------------------------------------------------------------------------
+
+GUIDE = PROJECT_DIR / "docs" / "LLM_SERVICE_SELECTION_GUIDE.md"
+
+
+def test_guide_lists_every_connector_node():
+    # The guide is what an LLM (or user) reads to pick a node; a connector
+    # that is missing from it is effectively undocumented.
+    guide = GUIDE.read_text(encoding="utf-8")
+    missing = [
+        name
+        for name in dir(llm_module)
+        if name.startswith("Set") and name.endswith("LLMServiceConnector")
+        and name not in guide
+    ]
+    assert not missing, f"connectors missing from the selection guide: {missing}"
+
+
+def test_guide_and_readmes_link_each_other():
+    # README must point users at the guide; the guide must exist relative
+    # to the repo root (it is shipped as-is).
+    assert GUIDE.exists()
+    for readme in ("README.md", "README_CN.md"):
+        text = (PROJECT_DIR / readme).read_text(encoding="utf-8")
+        assert "docs/LLM_SERVICE_SELECTION_GUIDE.md" in text, (
+            f"{readme} should link the LLM selection guide"
+        )

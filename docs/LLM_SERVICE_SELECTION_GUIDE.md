@@ -211,6 +211,10 @@ https://bailian.console.aliyun.com/.
   plus hosted `glm-5.3` / `deepseek-v4.1-flash`.
 - iFLYTEK Spark: `spark-x` on the `/x2/` endpoint (generation is
   selected by URL path, not model name).
+- SiliconFlow Jev decision models: `Kev-4B` (default), `SemIf`,
+  `diffusiongemma` — no "model recommendation" in the usual sense,
+  they answer `noul` / `choice` / `score` questions rather than
+  prompts, so pick by benchmark fit and use `CallJevDecision`.
 
 ### Deliberately NOT added (2026-09)
 
