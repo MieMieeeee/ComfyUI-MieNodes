@@ -1068,6 +1068,18 @@ class OllamaConnectorGeneral(StandardOpenAICompatibleConnector):
 
 
 class SetGeneralLLMServiceConnector(object):
+    """Generic OpenAI-compatible escape hatch (user supplies base URL + model).
+
+    This is also the way in for **local model servers**: llama.cpp
+    (`llama-server`, `http://127.0.0.1:8080/v1/chat/completions`), LM Studio
+    (port 1234), vLLM (port 8000), or any other OpenAI-compatible runtime.
+    Those servers ignore the `Authorization` header, so any token value
+    works. The plugin deliberately does not load models itself — every
+    connector in this module is an HTTP client for a chat endpoint, which
+    is what keeps the plugin dependency-light; see the local-servers box in
+    `docs/LLM_SERVICE_SELECTION_GUIDE.md` for start commands and VRAM notes.
+    """
+
     @classmethod
     def INPUT_TYPES(cls):
         return {

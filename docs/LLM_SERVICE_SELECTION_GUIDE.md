@@ -94,8 +94,31 @@ If the user does not have a key yet, route them by what they want to do:
 | "I bought a 阿里云百炼 Coding Plan / 编程套餐" | `SetBailianCodingPlanLLMServiceConnector` | Pro-tier subscription on the coding host; general chat models (qwen3.7-plus, glm-5, MiniMax-M2.5, kimi-k2.5) plus the qwen3-coder family. |
 | "I bought a 硅基流动 SiliconFlow Coding Plan / 包月套餐" | `SetGeneralLLMServiceConnector` + the console-provided base URL + `sk-sp-` key | SiliconFlow does not publish a fixed Coding Plan endpoint; each subscription gets its base URL from the console. |
 | "I want to run a local model" / "no API key" / "Ollama" | `SetOllamaLLMServiceConnector` | Local; no key needed (key field can stay empty). |
+| "I want to run a local model" / "llama.cpp" / "GGUF" / "LM Studio" | `SetGeneralLLMServiceConnector` with the local server's base URL (see the local-servers box below) | Any OpenAI-compatible local server works; the plugin stays out of the model-runtime business. |
 | "I have a vendor not listed" / "I have a weird base URL" | `SetGeneralLLMServiceConnector` | OpenAI-compatible escape hatch — user fills base URL + model themselves. |
 | Any other named provider | Use the table in §2 by inferring the key prefix once they have one. | |
+
+> ### Local model servers (llama.cpp, LM Studio, Ollama, vLLM, …)
+>
+> This plugin deliberately does **not** load models itself: every
+> `Set*LLMServiceConnector` is an HTTP client for a chat endpoint. Running a
+> local model means running a local *server* and pointing the general
+> connector at it — no plugin change needed:
+>
+> | Runtime | Start it | Base URL for the connector | API key |
+> |---|---|---|---|
+> | llama.cpp | `llama-server -m model.gguf` (binds `127.0.0.1:8080` by default) | `http://127.0.0.1:8080/v1/chat/completions` | any value (ignored) |
+> | LM Studio | built-in "Local Server" tab (port `1234`) | `http://127.0.0.1:1234/v1/chat/completions` | any value (ignored) |
+> | Ollama | `ollama serve` (port `11434`) | prefer `SetOllamaLLMServiceConnector`; the general connector also works | empty |
+> | vLLM | `vllm serve <model>` (port `8000`) | `http://127.0.0.1:8000/v1/chat/completions` | any value unless `--api-key` is set |
+>
+> **VRAM notes.** A local server holds the model in VRAM for its lifetime, so
+> free it before a heavy render step: stop the server process when the prompt
+> stage is done (llama-server / vLLM), or set Ollama's `keep_alive=0` /
+> unload the model from its UI. Ollama additionally pays a cold-start cost on
+> the first call (30-90s for 7B+), so raise the Ollama node's `timeout`.
+> Model loading is *server* management, not connector management — keeping it
+> out of the plugin is what lets the plugin stay dependency-light.
 
 ---
 
@@ -125,7 +148,7 @@ If the user does not have a key yet, route them by what they want to do:
 | `SetOpenRouterLLMServiceConnector` | `https://openrouter.ai/api/v1/chat/completions` | 400+ vendor models via `vendor/model` slugs. |
 | `SetClaudeLLMServiceConnector` | `https://api.anthropic.com/v1/chat/completions` | Anthropic's official OpenAI SDK compat layer; slim payload. |
 | `SetSiliconFlowJevLLMServiceConnector` | `https://api.siliconflow.cn/v1/systemone` | SiliconFlow-hosted Jev decision models (NOT chat): drive with the `CallJevDecision` node (`state` + `questions` JSON → noul/choice/score answers). Reuses the `siliconflow` key; free during the 2026-10-08 promo. (TypeSafe's own hosted endpoint is out of scope — same protocol if ever needed.) |
-| `SetGeneralLLMServiceConnector` | user-supplied | For any OpenAI-compatible service not listed (incl. SiliconFlow Coding Plan with a console base URL, LM Studio `http://127.0.0.1:1234/v1/chat/completions`, Alibaba Model Studio intl `dashscope-intl.aliyuncs.com`, ZhiPu intl `api.z.ai`). |
+| `SetGeneralLLMServiceConnector` | user-supplied | For any OpenAI-compatible service not listed (incl. **local model servers** — llama.cpp / LM Studio / vLLM — see the local-servers box in §3, SiliconFlow Coding Plan with a console base URL, Alibaba Model Studio intl `dashscope-intl.aliyuncs.com`, ZhiPu intl `api.z.ai`). |
 
 ---
 
