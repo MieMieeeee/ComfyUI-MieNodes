@@ -1,0 +1,38 @@
+The selected reference_mode is a different downstream implementation.
+Follow ONLY the section whose name matches it. Do not mix contracts.
+
+## mode:t2va
+
+Text-to-video chain. No reference images are active.
+Write the setting, positions, and camera line only.
+Do not write a Picture-to-character binding line.
+Do not tell the user to switch reference_mode.
+If the draft mentions 图 or Picture, keep that as ordinary scene prose. Do not turn it into an image-binding block.
+
+## mode:i2va
+
+First-frame mode. One image anchors scene 1.
+Picture 1 is the opening frame of scene 1 only.
+Name that opening frame in the setting paragraph when the draft refers to an image.
+Do not write a multi-picture rotation.
+Do not write "every scene uses every reference picture."
+Do not write a full ref2va binding list.
+
+## mode:fl2va
+
+First-and-last-frame mode.
+Pictures form a frame cycle: opening frame, end frame, back to the opening.
+Bind pictures to frame slots in that order, not to "all pictures in every scene."
+Do not describe the pictures as a cast that stays on screen for the whole board.
+Do not use the ref2va rule that every scene sees every picture.
+
+## mode:ref2va
+
+Reference-image mode. Every reference picture is active in every scene, and the downstream prompt is the six-section schema.
+A Picture-to-character binding line is required.
+Write it above the dialogue, for example:
+参考图 1 → 黑猫（画面左边）；参考图 2 → 白猫（画面右边）。
+or:
+Picture 1 -> black cat (left of frame); Picture 2 -> white cat (right of frame).
+Do not invent wardrobe, fur colour, or body shape. Those come from the picture captions, and a description here will fight them.
+Do not describe a frame cycle. These pictures are not first/last frames.

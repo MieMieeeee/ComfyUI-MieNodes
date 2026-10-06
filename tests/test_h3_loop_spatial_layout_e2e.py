@@ -3,7 +3,7 @@
 
 Exercises the FULL pipeline path that was changed:
 
-  1. user_input_enhancer.txt      -> spatial layout rule documented
+  1. user_input_enhancer_compose.txt -> spatial layout rule documented
   2. extract_spatial_layout()     -> deterministic rule-based extraction
   3. prefix_synth_system.txt      -> spatial layout sentence rule
   4. shot_user_template.txt       -> {spatial_layout_directive} slot
@@ -78,9 +78,13 @@ def lp():
 # Stage 1 — prompt assets declare the new contract
 # --------------------------------------------------------------------------- #
 def test_enhancer_prompt_declares_spatial_layout_rule():
-    txt = (PROMPTS_DIR / "h3_loop" / "user_input_enhancer.txt").read_text(
+    txt = (PROMPTS_DIR / "h3_loop" / "user_input_enhancer_compose.txt").read_text(
         encoding="utf-8"
     )
+    lock = (PROMPTS_DIR / "h3_loop" / "user_input_enhancer_lock.txt").read_text(
+        encoding="utf-8"
+    )
+    assert "Spatial layout" in lock
     assert "Spatial layout (all branches)" in txt, (
         "enhancer must declare a universal (not branch-specific) "
         "spatial layout rule"

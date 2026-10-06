@@ -2086,7 +2086,9 @@ def build_reference_directive(
             "do NOT use '[video continuation + ...]' here)."
         )
         lines.append(
-            "retention_analysis: identity slots -> 'fully_preserved - ...'; "
+            "retention_analysis: identity slots -> 'fully_preserved - ...' "
+            "for face identity, fur, wardrobe, and scale only. Do NOT lock "
+            "a front-facing portrait's head angle or eye direction. "
             "non-identity slots -> 'reference - ...'. Every Picture / Subject "
             "label used in this scene MUST appear in retention_analysis."
         )
@@ -2520,6 +2522,7 @@ def assemble_dialogue_line_blocks(
     concept: str = "",
     spatial_layout: Optional[dict] = None,
     role_bindings: Optional[dict] = None,
+    voiceover: bool = False,
 ) -> list[str]:
     """Assemble one speech sentence per line. No identity line.
 
@@ -2549,6 +2552,21 @@ def assemble_dialogue_line_blocks(
         speaker = speaker or (turn_speaker or "(speaker)").strip()
         sid = str(sid_map.get(speaker) or "")
         voice = _clean_voice_descriptor(speaker, voices)
+        spoken = f"<d>{_detect_dialogue_language(line)} {line}</d>"
+        if voiceover:
+            # Do not attach (Sn). On a ref2va board the first speaker
+            # becomes (S1), and (S1) is Picture 1's reference voice.
+            # ref2v_vo2 bound the narrator to Audio 1 (北京话.wav), so
+            # the grandfather's dialect spoke the caption and 板栗 /
+            # 刺猬 collapsed. H3's own voiceover form is the exact
+            # phrase below, with the lips cue after the tag.
+            del sid, voice
+            blocks.append(
+                "An off-screen narrator says in an off-screen voiceover "
+                f"{spoken} The on-screen characters' lips remain "
+                "completely closed."
+            )
+            continue
         facing = resolve_line_facing(
             line, speaker, bound_roles, spatial_layout, set(sid_map),
         )
@@ -2673,6 +2691,261 @@ def replace_description_body(
     return out
 
 
+# Default chain overlap: 39 frames at 24 fps. ``At`` times are on the
+# raw generation clock, which includes this head on every scene after
+# the first. A cut inside the overlap never reaches the edit.
+CHAIN_OVERLAP_HEAD_SEC = 39 / 24
+
+_POSE_LOCK_NOTE = (
+    " Face identity, fur, wardrobe, and scale stay locked. "
+    "The reference picture's front-facing head angle and eye direction "
+    "are not preserved."
+)
+
+_STILL_CUES = ("不动", "没有动作", "静止", "嘴闭", "不说话", "still", "no action")
+
+
+def intra_scene_cut_seconds(duration_seconds: float, clip_index: int) -> float:
+    """Clock time of the one in-scene cut, on the raw generation length."""
+    overlap = 0.0 if int(clip_index) <= 1 else CHAIN_OVERLAP_HEAD_SEC
+    dur = float(duration_seconds or 0.0)
+    if dur < 4.0:
+        dur = 6.0
+    earliest = overlap + 0.8
+    latest = max(earliest, dur - 1.5)
+    cut = overlap + (dur - overlap) * 0.45
+    if cut < earliest:
+        cut = earliest
+    if cut > latest:
+        cut = latest
+    return round(cut, 3)
+
+
+def format_cut_clock(seconds: float) -> str:
+    """``MM:SS.mmm``, the H3 ``At 00:03.500`` form."""
+    total_ms = int(round(max(0.0, float(seconds)) * 1000))
+    minutes = total_ms // 60000
+    rem = (total_ms % 60000) / 1000.0
+    return f"{minutes:02d}:{rem:06.3f}"
+
+
+def _unique_names(names: list[str]) -> list[str]:
+    out: list[str] = []
+    for name in names:
+        text = (name or "").strip()
+        if text and text not in out and text != "(narrator)":
+            out.append(text)
+    return out
+
+
+def _shot1_coverage(speakers: list[str], *, voiceover: bool) -> str:
+    if voiceover:
+        return (
+            "[Shot 1] At the first frame both characters are already seated "
+            "and already turned toward each other in three-quarter view. "
+            "The head does not travel from a front-facing start. "
+            "Noses point at each other, only one eye is fully clear on each face, "
+            "eyes on each other and not on the lens. "
+            "The reference portrait's front-facing head angle is not the starting pose. "
+            "Mouths stay closed for every frame: lips pressed together, "
+            "no lip sync, no mouth animation. "
+            "No gesture, no walk, no head turn, no object passed between them. "
+            "The camera holds still. The voice is off-screen; nobody on screen speaks."
+        )
+    names = _unique_names(speakers)
+    who = " and ".join(names) if names else "The subjects"
+    return (
+        f"[Shot 1] The camera sits beside the pair, not in front of their faces. "
+        f"{who} are in three-quarter view, noses pointed at each other, "
+        f"only one eye fully clear on each face, eyes on each other and not on the lens. "
+        f"The reference picture is a front-facing portrait; that head angle is not used. "
+        f"The camera holds still inside this shot."
+    )
+
+
+def _shot2_coverage(speaker: str, other: str, clock: str) -> str:
+    edge = (
+        f"{other}'s profile stays at the frame edge as the eyeline target. "
+        if other
+        else "The listener's profile stays at the frame edge as the eyeline target. "
+    )
+    who = speaker or "the speaker"
+    return (
+        f"[Shot 2] At {clock}, the camera cuts to a tight close-up of {who}. "
+        f"Three-quarter view, the nose points toward the other subject, "
+        f"only one eye is fully visible. {edge}"
+        f"Eyes are not on the lens. The camera holds still."
+    )
+
+
+# Chinese action sentences next to a <d> line get spoken. Wrapping them
+# in "do not voice this sentence" did not stop ref2v_action or
+# ref2v_action2. The picture direction is English, and any leftover
+# Chinese is dropped so the line cannot be read aloud.
+_CUE_PHRASES = (
+    ("摇了摇头", "and shakes his head"),
+    ("在掌心里转了一圈", "and turns it once in his open palm"),
+    ("放回沙发垫上", "down on the sofa cushion"),
+    ("递到虎斑面前", "and holds it out toward the tabby"),
+    ("接过板栗", "takes the chestnut"),
+    ("举起一颗板栗", "raises one chestnut"),
+    ("把板栗", "puts the chestnut"),
+    ("小猫", "The kitten"),
+    ("虎斑", "the tabby"),
+    ("板栗", "the chestnut"),
+)
+
+
+def _picture_direction(text: str) -> str:
+    out = text or ""
+    for src, dst in _CUE_PHRASES:
+        out = out.replace(src, dst)
+    out = re.sub(r"[\u4e00-\u9fff]", " ", out)
+    out = re.sub(r"[，。、；：！？「」『』（）]", " ", out)
+    return re.sub(r"\s+", " ", out).strip(" ,.")
+
+
+def _cue_sentence(cue: str) -> str:
+    text = (cue or "").strip()
+    if any(mark in text.lower() for mark in _STILL_CUES):
+        if re.search(r"[\u4e00-\u9fff]", text):
+            return (
+                "Held state: the characters stay still, mouths closed, no gesture."
+            )
+        return f"Held state: {text}"
+    picture = _picture_direction(text)
+    shown = picture or "the physical action"
+    return (
+        "Silent picture only. Mouths stay closed and nobody speaks. "
+        f"The picture shows: {shown}."
+    )
+
+
+def _replace_section_body(
+    prompt_lines: list[str],
+    header: str,
+    body_lines: list[str],
+) -> list[str]:
+    """Replace one section body. ``header`` includes the colon."""
+    if not body_lines:
+        return list(prompt_lines)
+    header_set = {h for h in _SIX_SECTION_HEADERS} | {h for h in _THREE_SECTION_HEADERS}
+    target = header.strip().lower()
+    start = None
+    end = None
+    for i, ln in enumerate(prompt_lines):
+        key = ln.strip().lower()
+        if key not in header_set:
+            continue
+        if key == target and start is None:
+            start = i
+            continue
+        if start is not None:
+            end = i
+            break
+    if start is None:
+        return list(prompt_lines)
+    if end is None:
+        end = len(prompt_lines)
+    out = list(prompt_lines)
+    out[start + 1:end] = list(body_lines)
+    return out
+
+
+def annotate_retention_pose(prompt_lines: list[str]) -> list[str]:
+    """Identity lock keeps fur, face, and wardrobe, not the portrait angle."""
+    header_set = {h for h in _SIX_SECTION_HEADERS} | {h for h in _THREE_SECTION_HEADERS}
+    in_retention = False
+    out: list[str] = []
+    for ln in prompt_lines:
+        key = ln.strip().lower()
+        if key in header_set:
+            in_retention = key == "retention_analysis:"
+            out.append(ln)
+            continue
+        if (
+            in_retention
+            and "fully_preserved" in ln
+            and "head angle" not in ln
+        ):
+            out.append(ln.rstrip() + _POSE_LOCK_NOTE)
+            continue
+        out.append(ln)
+    return out
+
+
+def assign_stage_cues(concept: str, shots: list[dict]) -> None:
+    """Attach colon-free concept lines to the spoken line they precede.
+
+    Writes ``_stage_cues`` (one list per spoken line) and, on the shot
+    that holds the last spoken line, ``_trailing_stage`` for action
+    after that line. Character ``speaker：line`` rows are not actions.
+    """
+    spoken: list[tuple[dict, int, str]] = []
+    for shot in shots or []:
+        lines = list((shot or {}).get("_dialogue_lines") or [])
+        n = len(lines)
+        shot["_stage_cues"] = [[] for _ in range(n)]
+        shot.pop("_trailing_stage", None)
+        for index, line in enumerate(lines):
+            spoken.append((shot, index, line))
+    if not spoken or not concept:
+        return
+    item = 0
+    pending: list[str] = []
+
+    def _matches(concept_line: str, spoken_text: str) -> bool:
+        if concept_line.strip() == spoken_text.strip():
+            return True
+        for sep in ("：", ":"):
+            if sep in concept_line:
+                tail = concept_line.split(sep, 1)[1].strip()
+                if tail == spoken_text.strip():
+                    return True
+        return False
+
+    def _is_stage(concept_line: str) -> bool:
+        if "：" in concept_line or ":" in concept_line:
+            return False
+        if concept_line.startswith(("参考图", "Picture", "图")):
+            return False
+        return True
+
+    for raw in concept.splitlines():
+        text = raw.strip()
+        if not text:
+            continue
+        if item < len(spoken) and _matches(text, spoken[item][2]):
+            shot, index, _line = spoken[item]
+            if item == 0:
+                # Prose before the first spoken line is the setting,
+                # not an action beat between lines.
+                if pending:
+                    shot["_opening_setting"] = list(pending)
+                shot["_stage_cues"][index] = []
+            else:
+                shot["_stage_cues"][index] = list(pending)
+            pending = []
+            item += 1
+            continue
+        if _is_stage(text):
+            pending.append(text)
+    if pending:
+        shot, _index, _line = spoken[-1]
+        shot["_trailing_stage"] = list(pending)
+    # Later scenes were losing the opening room (the action render stood
+    # the pair up off the sofa). Repeat that setting on every shot.
+    opening = None
+    for shot in shots or []:
+        if shot.get("_opening_setting"):
+            opening = list(shot["_opening_setting"])
+            break
+    if opening:
+        for shot in shots or []:
+            if not shot.get("_opening_setting"):
+                shot["_opening_setting"] = list(opening)
+
+
 def install_shot_speech(
     prompt_lines: list[str],
     speech_lines: list[str],
@@ -2682,34 +2955,110 @@ def install_shot_speech(
     speaker_identities: Optional[dict] = None,
     identity_speakers: Optional[list[str]] = None,
     first_appearance_speakers: Optional[set] = None,
+    line_speakers: Optional[list[str]] = None,
+    stage_cues: Optional[list] = None,
+    trailing_stage: Optional[list[str]] = None,
+    opening_setting: Optional[list[str]] = None,
+    duration_seconds: float = 0.0,
+    clip_index: int = 1,
+    voiceover: bool = False,
 ) -> list[str]:
     """Put speech sentences in the description, identity somewhere else.
 
     Six-section (ref2va): the picture caption is pinned under
     ``subject_definitions``. Three-section: a short identity line is
     allowed at the top of the description, and only on the speaker's
-    first clip. The description body is then the spatial sentence plus
-    one speech sentence per line.
+    first clip. The description body is node-owned coverage: who faces
+    whom, at most one close-up cut on a two-line scene, then the speech
+    sentences. The model's beat prose is not kept.
     """
     lines = neutralize_offscreen_claims(prompt_lines)
-    speakers = [s for s in (identity_speakers or []) if s]
-    if schema == SCHEMA_SIX and speakers:
+    speakers = [s for s in (identity_speakers or line_speakers or []) if s]
+    if schema == SCHEMA_SIX and speakers and not voiceover:
         pins = identity_pin_lines(speakers, speaker_identities)
         if pins:
             lines = _insert_section_suffix(lines, "subject_definitions:", pins)
-    body: list[str] = ["[Shot 1]"]
+    per_line = list(line_speakers or [])
+    if len(per_line) != len(speech_lines):
+        per_line = list(speakers[:len(speech_lines)]) or [""] * len(speech_lines)
+    cues = list(stage_cues or [])
+    while len(cues) < len(speech_lines):
+        cues.append([])
+    body: list[str] = [_shot1_coverage(per_line, voiceover=voiceover)]
     spatial = build_spatial_layout_directive(spatial_layout)
     if spatial and not spatial.startswith("(no spatial"):
         body.append(spatial)
-    if schema != SCHEMA_SIX:
+    for setting_line in opening_setting or []:
+        text = str(setting_line).strip()
+        if text:
+            body.append(f"Setting: {text}")
+    if schema != SCHEMA_SIX and not voiceover:
         body.extend(identity_pin_lines(
             speakers,
             speaker_identities,
             only=set(first_appearance_speakers or ()),
             max_chars=180,
         ))
-    body.extend(speech_lines)
-    return replace_description_body(lines, body, schema=schema)
+    # Two spoken lines: the action between them stays in the wide shot,
+    # then the node writes the close-up clock. One line, or voiceover,
+    # stays a single held shot — a cut is not a new scene, and a still
+    # voiceover has no speaker close-up.
+    use_cut = (not voiceover) and len(speech_lines) == 2
+    clock = format_cut_clock(intra_scene_cut_seconds(duration_seconds, clip_index))
+    for index, speech in enumerate(speech_lines):
+        for cue in cues[index] or []:
+            if index == 1 and use_cut:
+                break
+            body.append(_cue_sentence(str(cue)))
+        if index == 1 and use_cut:
+            for cue in cues[index] or []:
+                body.append(_cue_sentence(str(cue)))
+            other = ""
+            for name in per_line:
+                if name and name != per_line[1]:
+                    other = name
+                    break
+            body.append(_shot2_coverage(per_line[1], other, clock))
+        body.append(speech)
+    for cue in trailing_stage or []:
+        body.append(_cue_sentence(str(cue)))
+    if voiceover:
+        body.append(
+            "Freeze: both mouths stay shut with lips pressed together "
+            "for every frame. No lip sync. No head turn. No gesture."
+        )
+    lines = replace_description_body(lines, body, schema=schema)
+    if schema == SCHEMA_SIX:
+        names = _unique_names(per_line)
+        who = ", ".join(names) if names else "The subjects"
+        if voiceover:
+            # The voiceover name is not a person in the frame. Name the
+            # picture subjects when the layout knows them.
+            visible = _unique_names(list((spatial_layout or {}).keys()))
+            who_visible = (
+                " and ".join(visible) if visible else "The on-screen characters"
+            )
+            summary = (
+                "[reference generation] "
+                f"{who_visible} are visible and still. An off-screen voice speaks. "
+                "The spoken words are not restated here."
+            )
+            sound = (
+                "Quiet room tone only. No footsteps, no object handling, "
+                "no non-diegetic music bed."
+            )
+        else:
+            summary = (
+                "[reference generation] "
+                f"{who} are visible and speaking. "
+                "The spoken words are not restated here."
+            )
+            sound = ""
+        lines = _replace_section_body(lines, "summary:", [summary, ""])
+        if sound:
+            lines = _replace_section_body(lines, "overall_soundscape:", [sound, ""])
+        lines = annotate_retention_pose(lines)
+    return lines
 
 
 def _insert_section_suffix(

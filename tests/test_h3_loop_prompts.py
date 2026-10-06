@@ -1141,3 +1141,59 @@ def test_append_dialogue_blocks_to_sections_six(lp):
         lines, ["B1"], schema="six_section"
     )
     assert out[6:10] == ["detailed_description:", "d1", "B1", ""]
+
+
+def test_action_cue_is_marked_silent_and_setting_repeats(lp):
+    raised = lp._cue_sentence("小猫举起一颗板栗，递到虎斑面前。")
+    assert "nobody speaks" in raised
+    assert "chestnut" in raised
+    assert "板栗" not in raised
+    taken = lp._cue_sentence("虎斑接过板栗，在掌心里转了一圈。")
+    assert "palm" in taken
+    assert "接过" not in taken
+    shots = [
+        {"_dialogue_lines": ["你好。"]},
+        {"_dialogue_lines": ["再见。"]},
+    ]
+    lp.assign_stage_cues("客厅里，两只猫坐在沙发上。\n甲：你好。\n乙：再见。", shots)
+    assert shots[0]["_opening_setting"]
+    assert shots[1]["_opening_setting"] == shots[0]["_opening_setting"]
+
+
+def test_voiceover_summary_names_on_screen_subjects_not_the_narrator(lp):
+    lines = [
+        "subject_definitions:", "x",
+        "", "summary:", "y",
+        "", "retention_analysis:", "fully_preserved face.",
+        "", "detailed_description:", "d",
+        "", "overall_soundscape:", "s",
+        "", "non_diegetic_music:", "m",
+    ]
+    out = lp.install_shot_speech(
+        lines,
+        ["An off-screen voiceover says as (S1) adult <d>[Chinese] 院子里是板栗。</d> On-screen mouths stay closed."],
+        schema="six_section",
+        spatial_layout={"小猫": "right", "虎斑": "left"},
+        line_speakers=["旁白"],
+        voiceover=True,
+    )
+    text = "\n".join(out)
+    assert "小猫 and 虎斑 are visible and still" in text
+    assert "旁白 are visible" not in text
+    assert "[Shot 2]" not in text
+    assert "Mouths stay closed" in text
+    assert "already turned toward each other" in text
+    assert "No lip sync" in text
+    blocks = lp.assemble_dialogue_line_blocks(
+        ["院子里是板栗。"],
+        line_speakers=["旁白"],
+        speaker_id_map={"旁白": "S1"},
+        speaker_voices={"旁白": "adult male, low pitch"},
+        voiceover=True,
+    )
+    assert blocks == [
+        "An off-screen narrator says in an off-screen voiceover "
+        "<d>[Chinese] 院子里是板栗。</d> "
+        "The on-screen characters' lips remain completely closed."
+    ]
+    assert "(S1)" not in blocks[0]

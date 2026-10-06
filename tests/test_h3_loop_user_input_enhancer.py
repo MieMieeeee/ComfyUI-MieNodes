@@ -4,7 +4,7 @@
 The node is a thin wrapper around the LLM call defined in
 ``nodes/llm/minimax_h3_loop_user_input_enhancer.py``: it takes a rough
 draft + the loop node's ``category`` / ``reference_mode`` widgets,
-calls the LLM with the bundled ``user_input_enhancer.txt`` system
+calls the LLM with the bundled lock or compose system prompt
 prompt, then extracts the ``--- BEGIN user_input ---`` ... block from
 the reply. Tests cover:
 
@@ -65,6 +65,10 @@ def enh():
         "_mienodes_internal.nodes.llm.prompts.loader", PROMPTS_DIR / "loader.py"
     )
     _load_file(
+        "_mienodes_internal.nodes.llm.dialogue_segmenter",
+        LLM_DIR / "dialogue_segmenter.py",
+    )
+    _load_file(
         "_mienodes_internal.nodes.llm.minimax_h3_loop_prompts",
         LLM_DIR / "minimax_h3_loop_prompts.py",
     )
@@ -76,6 +80,24 @@ def enh():
         "_mienodes_internal.nodes.llm.minimax_h3_loop_user_input_enhancer",
         LLM_DIR / "minimax_h3_loop_user_input_enhancer.py",
     )
+
+
+@pytest.fixture(autouse=True)
+def _isolate_enhancer_cache(enh, tmp_path):
+    enh.clear_enhancer_cache()
+    previous = enh._CACHE_ROOT_OVERRIDE
+    enh._CACHE_ROOT_OVERRIDE = str(tmp_path)
+    yield
+    enh.clear_enhancer_cache()
+    enh._CACHE_ROOT_OVERRIDE = previous
+
+
+def _sockets(out):
+    """``enhance`` returns a UI dict; the two sockets live under result."""
+    assert isinstance(out, dict)
+    block, advice = out["result"]
+    assert block in out["ui"]["text"]
+    return block, advice
 
 
 # --------------------------------------------------------------------------- #
@@ -229,21 +251,23 @@ def test_enhance_happy_path_returns_extracted_block(enh):
         reference_mode="t2va - 文生视频链(默认)",
         seed=0,
     )
-    assert isinstance(out, tuple)
-    assert len(out) == 1
-    assert out[0].startswith("场景设定")
-    assert out[0].endswith("莎莉猫：今天天气真好。")
+    block, advice = _sockets(out)
+    assert block.startswith("场景设定")
+    assert block.endswith("莎莉猫：今天天气真好。")
+    # The advice socket carries the Classification the LLM produced —
+    # it used to be dropped on this path.
+    assert "Classification: Dialogue" in advice
+    assert "reference_mode: t2va" in advice
     # Exactly one LLM call.
     assert len(conn.calls) == 1
 
 
 def test_enhance_raises_when_block_missing(enh):
-    """No BEGIN/END in ANY reply -> RuntimeError after 3 attempts
-    (silent fallback is forbidden by design — user choice)."""
+    """No BEGIN/END in either reply -> RuntimeError after the one retry
+    (silent fallback is forbidden — there is nothing to pin)."""
     conn = _make_connector_with_replies([
         "Sure! Here is the rewritten user_input: it starts now...",
         "Still no markers, trust me.",
-        "Third time, no markers either.",
     ])
     node = enh.MiniMaxH3LoopUserInputEnhancer()
     with pytest.raises(RuntimeError) as exc:
@@ -253,17 +277,15 @@ def test_enhance_raises_when_block_missing(enh):
             category="none - 不指定",
             reference_mode="t2va - 文生视频链(默认)",
         )
-    # All three attempts were spent before raising.
-    assert len(conn.calls) == 3
-    # Error message must include the attempt count + raw head.
-    assert "after 3 attempts" in str(exc.value)
-    assert "Third time" in str(exc.value)
+    assert len(conn.calls) == 2
+    assert "after 2 attempts" in str(exc.value)
+    assert "Still no markers" in str(exc.value)
 
 
 def test_enhance_raises_when_reply_is_always_empty(enh):
-    """Connector returns '' every time -> 3 attempts, then RuntimeError
-    (never a silent fallback to the raw draft)."""
-    conn = _make_connector_with_replies(["", "", ""])
+    """Connector returns '' both times -> RuntimeError, never a silent
+    fallback to the raw draft."""
+    conn = _make_connector_with_replies(["", ""])
     node = enh.MiniMaxH3LoopUserInputEnhancer()
     with pytest.raises(RuntimeError):
         node.enhance(
@@ -272,7 +294,7 @@ def test_enhance_raises_when_reply_is_always_empty(enh):
             category="none - 不指定",
             reference_mode="t2va - 文生视频链(默认)",
         )
-    assert len(conn.calls) == 3
+    assert len(conn.calls) == 2
 
 
 def test_enhance_retries_empty_reply_then_succeeds(enh):
@@ -289,7 +311,7 @@ def test_enhance_retries_empty_reply_then_succeeds(enh):
         seed=7,
     )
     assert len(conn.calls) == 2
-    assert out[0].startswith("场景设定")
+    assert _sockets(out)[0].startswith("场景设定")
     # The retry used a FRESH seed (same seed could deterministically
     # reproduce the same empty answer).
     assert conn.calls[0]["seed"] == 7
@@ -381,10 +403,17 @@ def test_input_types_required_and_optional_widgets(enh):
 
 
 def test_return_types_and_names_match_loop_node_widget(enh):
-    """``RETURN_NAMES = ("user_input",)`` so the wire patches straight
-    into the H3 Loop node's ``user_input`` socket without renaming."""
-    assert enh.MiniMaxH3LoopUserInputEnhancer.RETURN_TYPES == ("STRING",)
-    assert enh.MiniMaxH3LoopUserInputEnhancer.RETURN_NAMES == ("user_input",)
+    """``user_input`` stays the FIRST output so the wire patches straight
+    into the H3 Loop node's ``user_input`` socket without renaming. The
+    second ``advice`` output is additive — existing single-socket
+    workflows keep working untouched."""
+    assert enh.MiniMaxH3LoopUserInputEnhancer.RETURN_TYPES == (
+        "STRING",
+        "STRING",
+    )
+    assert enh.MiniMaxH3LoopUserInputEnhancer.RETURN_NAMES[0] == "user_input"
+    assert enh.MiniMaxH3LoopUserInputEnhancer.RETURN_NAMES[1] == "advice"
+    assert enh.MiniMaxH3LoopUserInputEnhancer.OUTPUT_NODE is True
 
 
 def test_category_matches_loop_node_category(enh):
@@ -440,7 +469,7 @@ def test_timeout_override_works_without_connector_attr(enh):
         seed=0,
         timeout=300,
     )
-    assert out[0].startswith("场景设定")
+    assert _sockets(out)[0].startswith("场景设定")
     # The override was visible while invoke() ran...
     assert conn.seen_timeout == 300
     # ...and the attribute we created is cleaned up afterwards.

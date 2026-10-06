@@ -141,6 +141,7 @@ try:
         build_cast_sheet_text,
         extract_role_bindings,
         install_shot_speech,
+        assign_stage_cues,
         extract_spatial_layout,
         scrub_dialogue_from_prompt_text,
         validate_spatial_layout_invariant,
@@ -192,7 +193,10 @@ try:
         narrator_fallback_turn as _dlg_narrator_fallback_turn,
         pacing_report_text as _dlg_pacing_report_text,
         distribute_lines_to_scenes as _dlg_distribute_lines_to_scenes,
+        min_total_seconds_for_scene_count as _dlg_min_total_seconds_for_scene_count,
         parse_structured_dialogue_turns as _dlg_parse_structured_dialogue_turns,
+        parse_voiceover_lines as _dlg_parse_voiceover_lines,
+        MAX_SPOKEN_LINES_PER_SCENE as _DLG_MAX_SPOKEN_LINES,
         scene_raw_seconds as _dlg_scene_raw_seconds,
         group_budgets_into_scenes as _dlg_group_budgets_into_scenes,
         relocate_extracted_lines as _dlg_relocate_extracted_lines,
@@ -224,6 +228,7 @@ except ImportError:
         build_cast_sheet_text,
         extract_role_bindings,
         install_shot_speech,
+        assign_stage_cues,
         extract_spatial_layout,
         scrub_dialogue_from_prompt_text,
         validate_spatial_layout_invariant,
@@ -275,7 +280,10 @@ except ImportError:
         narrator_fallback_turn as _dlg_narrator_fallback_turn,
         pacing_report_text as _dlg_pacing_report_text,
         distribute_lines_to_scenes as _dlg_distribute_lines_to_scenes,
+        min_total_seconds_for_scene_count as _dlg_min_total_seconds_for_scene_count,
         parse_structured_dialogue_turns as _dlg_parse_structured_dialogue_turns,
+        parse_voiceover_lines as _dlg_parse_voiceover_lines,
+        MAX_SPOKEN_LINES_PER_SCENE as _DLG_MAX_SPOKEN_LINES,
         scene_raw_seconds as _dlg_scene_raw_seconds,
         group_budgets_into_scenes as _dlg_group_budgets_into_scenes,
         relocate_extracted_lines as _dlg_relocate_extracted_lines,
@@ -284,6 +292,16 @@ except ImportError:
 
 
 MY_CATEGORY = "\U0001F411 MieNodes/\U0001F411 Prompt Generator"
+
+_VOICEOVER_NAMES = {
+    "旁白", "画外音", "配音", "叙述",
+    "narrator", "voiceover", "voice-over",
+}
+
+
+def _speakers_are_voiceover(names) -> bool:
+    cleaned = [str(n).strip() for n in (names or []) if str(n).strip()]
+    return bool(cleaned) and all(n.lower() in _VOICEOVER_NAMES for n in cleaned)
 
 # Loop-node category widget — a curated 3-entry subset of the full
 # ``h3_prompts.CATEGORIES`` taxonomy. We expose only the entries that
@@ -784,6 +802,25 @@ def _caption_cache_key(image_url: str, prompt_text: str) -> str:
     return h.hexdigest()
 
 
+def _caption_reply_usable(text: str) -> bool:
+    """A caption is one short identity paragraph, not a reasoning dump.
+
+    MiniMax thinking models sometimes return the chain of thought as the
+    only text. Caching that text makes every later prompt tens of
+    thousands of characters and fails label policy.
+    """
+    body = " ".join((text or "").split())
+    if not body or len(body) > 900:
+        return False
+    head = body[:48].lower()
+    if head.startswith((
+        "we need", "let's", "let us", "need answer", "the user",
+        "i need", "first,", "okay,",
+    )):
+        return False
+    return True
+
+
 def _caption_cache_disk_root() -> str:
     """Resolve the on-disk caption cache directory.
 
@@ -1234,6 +1271,108 @@ def _build_shots_from_scenes(
             f"H3 single-generation window"
         )
     return shots
+
+
+def _cut_budget_advice(
+    *,
+    turns: list,
+    pacing_obj,
+    user_scene_count: int,
+    explicit_total: int,
+    delivered_scenes: int,
+) -> list[str]:
+    """Cut-budget guidance for the run summary — only when actionable.
+
+    Two situations earn a line, and nothing else does:
+
+    1. **Auto cut (0/0).** The run used minimal-cut packing, which
+       optimises for the FEWEST scenes, not for the rhythm the user
+       probably wants in a conversation. Naming a concrete alternative
+       lets them dial it in next run.
+    2. **Explicit values that truncate speech.** The user picked a
+       count and a budget; if the budget cannot hold the speech, a
+       spoken line gets cut by the sampler, and the fix is a number.
+
+    When the user already gave a workable combination this returns
+    ``[]``. Suggesting "try scene_count=4" beside a finished 5-scene
+    plan_json would be noise: the cut already happened, and the user
+    cannot act on it without a rerun anyway.
+
+    Returns ``[]`` for boards too small to have a choice (1 line, 1
+    scene) or when the estimator is unavailable.
+    """
+    try:
+        fine, _report = _dlg_estimate_shot_budget(
+            turns, pacing_obj, max_shot_seconds=0.0
+        )
+    except Exception as exc:  # advice must never break a run
+        log_pipeline(f"cut-budget advice skipped ({exc!r})")
+        return []
+    line_total = len(fine)
+    if line_total < 2:
+        return []
+
+    # Per-line duration: a line can never be split across scenes, so
+    # this is the floor any per-scene share must clear.
+    longest = max((b.duration_sec for b in fine), default=0.0)
+
+    def _min_total_for(count: int) -> int:
+        # Shared with the user-input enhancer so both surfaces name the
+        # same whole-second total (rounded up, never floored).
+        return _dlg_min_total_seconds_for_scene_count(fine, count)
+
+    if user_scene_count > 0 and explicit_total > 0:
+        # Explicit cut already honoured; the ONLY thing worth saying is
+        # whether the speech fits. `even_time_split` gives every scene an
+        # equal share, so the heaviest scene is the binding constraint.
+        eff = min(user_scene_count, line_total)
+        try:
+            scenes = _dlg_distribute_lines_to_scenes(
+                fine, scene_count=eff
+            )
+            heaviest = max(
+                (sum(y.duration_sec for y in sc) for sc in scenes),
+                default=0.0,
+            )
+        except Exception:
+            return []
+        share = explicit_total / max(1, eff)
+        # The estimator's own figure carries a head/tail pad per line, so
+        # a sub-second shortfall is inside the noise the pad already
+        # covers. Warning about 10.0 vs 10.1 would train the user to
+        # ignore the line that matters (9.0 vs 10.1).
+        if share >= heaviest - 1.0:
+            return []  # fits within the pad; nothing to add
+        # Round UP via the shared helper: flooring would hand back a
+        # total that still truncates.
+        need_total = _dlg_min_total_seconds_for_scene_count(fine, eff)
+        return [
+            f"Cut budget: {explicit_total}s / {user_scene_count} scene(s) "
+            f"= {share:.1f}s per scene, but the heaviest scene needs "
+            f"{heaviest:.1f}s of speech — the longest single line is "
+            f"{longest:.1f}s and cannot be split, so it will be truncated. "
+            f"Raise total_duration_seconds to about {need_total} (or lower "
+            f"scene_count) so every line finishes."
+        ]
+
+    # Auto cut: suggest a concrete alternative only when it is genuinely
+    # different from what minimal-cut packing produced.
+    for candidate in (4, 3, 5, 6):
+        if candidate >= line_total or candidate == delivered_scenes:
+            continue
+        need = _min_total_for(candidate)
+        if need <= 0:
+            continue
+        return [
+            f"Cut budget: auto packing used {delivered_scenes} scene(s) "
+            f"(at most 2 spoken lines per scene, inside the 14s window). "
+            f"For a conversation, "
+            f"one line per scene reads as shot/reverse-shot — try "
+            f"scene_count={candidate} with total_duration_seconds≈"
+            f"{int(need)} ({need / candidate:.1f}s per scene; the longest "
+            f"single line needs {longest:.1f}s and cannot be split)."
+        ]
+    return []
 
 
 def _insert_reaction_cuts(
@@ -2200,6 +2339,12 @@ class H3LoopPromptEnhancer:
                             f"stage0.6 caption[{slot_n}] cache hit (disk, key={short_key}, "
                             f"{len(about)} chars)"
                         )
+                if about and not _caption_reply_usable(about):
+                    log_pipeline(
+                        f"stage0.6 caption[{slot_n}] cache ignored "
+                        f"(key={short_key}, {len(about)} chars, not a caption)"
+                    )
+                    about = ""
                 if about:
                     cache_hits += 1
                     _emit_caption_manifest_entry(
@@ -2246,6 +2391,11 @@ class H3LoopPromptEnhancer:
                     f"{slot_n}: captioning returned empty reply"
                 )
             about = raw.strip()
+            if not _caption_reply_usable(about):
+                raise RuntimeError(
+                    f"caption[{slot_n}]: reply is not a short identity "
+                    f"paragraph ({len(about)} chars); not cached"
+                )
             # Cache the new caption before appending to manifest; the
             # cache key already encodes the prompt version, so the next
             # call (with the same image + no force_recaption) hits.
@@ -2571,6 +2721,9 @@ class H3LoopPromptEnhancer:
                             + ")"
                         )
                         lines_out = scrubbed_text.split("\n")
+                    voiceover = _speakers_are_voiceover(
+                        list(line_speakers or []) or [turn_speaker or ""]
+                    )
                     blocks = assemble_dialogue_line_blocks(
                         list(dialogue_lines),
                         line_speakers=line_speakers,
@@ -2582,6 +2735,7 @@ class H3LoopPromptEnhancer:
                         concept=concept,
                         spatial_layout=spatial_layout,
                         role_bindings=role_bindings,
+                        voiceover=voiceover,
                     )
                     lines_out = install_shot_speech(
                         lines_out,
@@ -2592,6 +2746,13 @@ class H3LoopPromptEnhancer:
                         identity_speakers=list(line_speakers or [])
                         or [turn_speaker or ""],
                         first_appearance_speakers=first_appearance_speakers,
+                        line_speakers=list(line_speakers or []),
+                        stage_cues=shot.get("_stage_cues"),
+                        trailing_stage=shot.get("_trailing_stage"),
+                        opening_setting=shot.get("_opening_setting"),
+                        duration_seconds=float(duration_seconds or 0.0),
+                        clip_index=int(clip_index or 1),
+                        voiceover=voiceover,
                     )
                     errors = validate_dialogue_invariantity(
                         [{"prompt": lines_out}],
@@ -2726,6 +2887,7 @@ class H3LoopPromptEnhancer:
                             f"single-call {shot_id}: scrubbed model-written "
                             "dialogue (" + "; ".join(scrub_notes[:3]) + ")"
                         )
+                    voiceover = _speakers_are_voiceover(spk_per_line or [speaker])
                     blocks = assemble_dialogue_line_blocks(
                         list(dl),
                         line_speakers=spk_per_line,
@@ -2737,6 +2899,7 @@ class H3LoopPromptEnhancer:
                         concept=concept,
                         spatial_layout=spatial_layout,
                         role_bindings=role_bindings,
+                        voiceover=voiceover,
                     )
                     result[shot_id] = install_shot_speech(
                         (
@@ -2750,6 +2913,13 @@ class H3LoopPromptEnhancer:
                         speaker_identities=speaker_identities,
                         identity_speakers=spk_per_line,
                         first_appearance_speakers=set(spk_per_line) - seen_firsts,
+                        line_speakers=spk_per_line,
+                        stage_cues=shot.get("_stage_cues"),
+                        trailing_stage=shot.get("_trailing_stage"),
+                        opening_setting=shot.get("_opening_setting"),
+                        duration_seconds=float(shot.get("duration_seconds") or 0.0),
+                        clip_index=shots.index(shot) + 1,
+                        voiceover=voiceover,
                     )
                     seen_firsts.update(spk_per_line)
             # Dialogue invariant post-validate (per-shot).
@@ -3028,6 +3198,22 @@ class H3LoopPromptEnhancer:
             turns, _structured_prologue = (
                 _dlg_parse_structured_dialogue_turns(idea)
             )
+            if not turns:
+                voice_lines = _dlg_parse_voiceover_lines(idea)
+                if voice_lines:
+                    turns = [
+                        _DLG_DialogueTurn(
+                            speaker="旁白",
+                            lines=list(voice_lines),
+                            start=0,
+                            end=len(idea or ""),
+                        )
+                    ]
+                    log_pipeline(
+                        "voiceover board: "
+                        f"{len(voice_lines)} off-screen line(s), "
+                        "on-screen characters stay still"
+                    )
             if turns:
                 self._dialogue_extract_warnings = []
                 # Facts gate (high-recall DETECTION, not extraction):
@@ -3175,6 +3361,19 @@ class H3LoopPromptEnhancer:
                         turns, pacing_obj, max_shot_seconds=0.0
                     )
                     total_lines = len(fine_budgets)
+                    min_for_cap = max(
+                        1,
+                        (total_lines + _DLG_MAX_SPOKEN_LINES - 1)
+                        // _DLG_MAX_SPOKEN_LINES,
+                    )
+                    if 0 < user_scene_count < min_for_cap:
+                        warnings.append(
+                            f"scene_count={user_scene_count} would put more "
+                            f"than {_DLG_MAX_SPOKEN_LINES} spoken lines in one "
+                            f"scene; raised to {min_for_cap}"
+                        )
+                        log_pipeline(warnings[-1])
+                        user_scene_count = min_for_cap
                     if user_scene_count > total_lines:
                         # Ceiling: one line per scene; the rest become
                         # silent reaction cuts after the board is built.
@@ -3214,16 +3413,22 @@ class H3LoopPromptEnhancer:
                     # Scene durations come from the same speech+pause
                     # math, so the lines fit by construction — no
                     # fits-warning needed here.
+                    fine_budgets, _fine_report = _dlg_estimate_shot_budget(
+                        turns, pacing_obj, max_shot_seconds=0.0
+                    )
                     turn_scenes = _dlg_group_budgets_into_scenes(
-                        budgets, pacing_obj, bias="balanced"
+                        fine_budgets,
+                        pacing_obj,
+                        bias="balanced",
+                        max_lines_per_scene=_DLG_MAX_SPOKEN_LINES,
                     )
                     natural = len(turn_scenes)
                     log_pipeline(
-                        f"scene_count auto (minimal-cut packing): "
-                        f"{len(budgets)} turn budget(s) -> {natural} "
-                        f"scene(s) within the 14s H3 single-generation "
-                        f"window (pacing={pacing_key} owns speech tempo, "
-                        f"not cut count)"
+                        f"scene_count auto: {len(fine_budgets)} line(s) -> "
+                        f"{natural} scene(s), at most "
+                        f"{_DLG_MAX_SPOKEN_LINES} spoken lines per scene, "
+                        f"inside the 14s window (pacing={pacing_key} owns "
+                        f"speech tempo, not cut count)"
                     )
                     scene_count = natural
             # 4) Duration model:
@@ -3393,6 +3598,7 @@ class H3LoopPromptEnhancer:
         )
         if not entries:
             raise RuntimeError("no usable shots produced from shots_text / storyboard")
+        assign_stage_cues(idea, [entry["source"] for entry in entries])
 
         # ---- Stage 1: prefix + CAST ----------------------------------- #
         # The pacing preset's binding tempo directive rides into the
@@ -3672,6 +3878,10 @@ class H3LoopPromptEnhancer:
             }
             for entry in entries
         ]
+        # Framing lives in the installed description. The prefix is a
+        # whole-video style lock and must not grow a shot-grammar line
+        # (prefix contract, and narration snapshots expect the prefix
+        # paragraph alone).
         plan: dict[str, Any] = {
             "shots": shots_for_plan,
             "prompt_prefix": list(prefix_lines),
@@ -3717,6 +3927,27 @@ class H3LoopPromptEnhancer:
                 else "no spoken lines detected"
             )
             summary_lines.append(f"Board: narration ({fallback_reason})")
+        # ---- Cut-budget check ---------------------------------------- #
+        # Useful only while the cut values are still a CHOICE, never as
+        # commentary on a finished board: once scene_count /
+        # total_duration are concrete, the plan_json above already
+        # embodies them, and a "try scene_count=4" line next to a
+        # delivered 5-scene plan is noise the user cannot act on. So this
+        # reports in exactly two cases:
+        #   1. the widgets are 0/0 (auto) and the run used minimal-cut
+        #      packing — name a concrete cut the user can dial in;
+        #   2. the user gave explicit values that cannot fit the speech —
+        #      say by how much, because that truncates a spoken line.
+        if dialogue_board and not is_narrator_fallback:
+            summary_lines.extend(
+                _cut_budget_advice(
+                    turns=turns,
+                    pacing_obj=pacing_obj,
+                    user_scene_count=user_scene_count,
+                    explicit_total=int(effective_total_duration or 0),
+                    delivered_scenes=len(plan["shots"]),
+                )
+            )
         if enhance_header is not None:
             # Auto-enhance ran: surface the rewrite after the fact so
             # the intermediate stays inspectable without the two-node
@@ -3796,18 +4027,19 @@ class MiniMaxH3LoopPromptGenerator:
                     {
                         "default": _ENHANCE_USER_INPUT_LABELS[0],
                         "tooltip": (
-                            "on: run the MiniMax H3 Loop User Input "
-                            "Enhancer's rewrite once inside this node (one "
-                            "extra LLM call) before planning — paste any "
-                            "rough draft. off (default): consume user_input "
-                            "verbatim. Keep off when you already write the "
-                            "canonical format or when the standalone "
-                            "Enhancer node is wired upstream (it would "
-                            "re-rewrite an already-canonical text). The "
-                            "rewrite (Classification + Notes + full text) "
-                            "is surfaced at the top of the preflight "
-                            "report. NOTE: with on, ANY widget change "
-                            "re-runs the rewrite too (single-node caching)."
+                            "on: rewrite user_input with the User Input "
+                            "Enhancer before planning. A dialogue board or "
+                            "a single spoken line is cached and kept "
+                            "verbatim — a paraphrase is pinned back on the "
+                            "first try, not retried. A colon line inside "
+                            "ordinary prose is rewritten, not pinned. "
+                            "off (default): use "
+                            "user_input as written. Keep off when the "
+                            "standalone Enhancer is already wired upstream. "
+                            "The rewrite is appended to the run summary. "
+                            "Changing scene_count or duration re-runs "
+                            "planning but reuses a cached rewrite of the "
+                            "same draft and reference_mode."
                         ),
                     },
                 ),
@@ -3835,9 +4067,9 @@ class MiniMaxH3LoopPromptGenerator:
                         "max": 128,
                         "tooltip": (
                             "Number of scenes.\n\n"
-                            "0 = auto. Dialogue boards pack consecutive "
-                            "turns into the fewest scenes that fit the 14s "
-                            "H3 window (a speaker change does NOT force a "
+                            "0 = auto. Dialogue boards hold at most 2 "
+                            "spoken lines per scene, inside the 14s H3 "
+                            "window (a speaker change does NOT force a "
                             "cut). Pacing does not change this cut count — "
                             "it only changes speech tempo and the BRISK/"
                             "MEASURED prompt directive. Narration boards "
@@ -3889,8 +4121,8 @@ class MiniMaxH3LoopPromptGenerator:
                             "NOT a cut-density control.\n\n"
                             "On a dialogue board with scene_count=0, "
                             "pacing does NOT change how many scenes you "
-                            "get (auto packing is always fewest cuts "
-                            "inside the 14s window). It does:\n"
+                            "get (auto packing is at most 2 spoken lines "
+                            "per scene, inside the 14s window). It does:\n"
                             "1. Prompt tempo: BRISK / natural / MEASURED "
                             "injected into the prefix and every shot.\n"
                             "2. Auto length (total=0): TTS rate + turn "

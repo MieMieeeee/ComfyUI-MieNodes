@@ -57,10 +57,36 @@ def lg():
         "_mienodes_internal.nodes.llm.minimax_h3_loop_prompts",
         LLM_DIR / "minimax_h3_loop_prompts.py",
     )
-    return _load_file(
+    lg = _load_file(
         "_mienodes_internal.nodes.llm.minimax_h3_loop_prompt_generator",
         LLM_DIR / "minimax_h3_loop_prompt_generator.py",
     )
+    # Same module object the generator's lazy import will reuse, so the
+    # cache override below is the one inline auto-enhance actually hits.
+    # dialogue_segmenter is already loaded by the generator import above.
+    _load_file(
+        "_mienodes_internal.nodes.llm.minimax_h3_loop_user_input_enhancer",
+        LLM_DIR / "minimax_h3_loop_user_input_enhancer.py",
+    )
+    return lg
+
+
+@pytest.fixture(autouse=True)
+def _isolate_inline_enhancer_cache(lg, tmp_path):
+    """Inline auto-enhance defaults to a repo-local disk cache.
+
+    Without this, a happy-path test writes an entry that a later test
+    (or the next pytest process) consumes as a scripted reply.
+    """
+    enh = sys.modules[
+        "_mienodes_internal.nodes.llm.minimax_h3_loop_user_input_enhancer"
+    ]
+    enh.clear_enhancer_cache()
+    previous = enh._CACHE_ROOT_OVERRIDE
+    enh._CACHE_ROOT_OVERRIDE = str(tmp_path)
+    yield
+    enh.clear_enhancer_cache()
+    enh._CACHE_ROOT_OVERRIDE = previous
 
 
 class FakeConnector:
@@ -737,7 +763,6 @@ def test_auto_enhance_parse_failure_raises_no_silent_fallback(lg):
     conn = ScriptedConnector([
         "Sure! Here is your rewrite, trust me.",
         "Still nothing structured.",
-        "Third unstructured reply.",
     ])
     with pytest.raises(RuntimeError, match="BEGIN user_input"):
         lg.H3LoopPromptEnhancer(conn)(
@@ -746,9 +771,9 @@ def test_auto_enhance_parse_failure_raises_no_silent_fallback(lg):
             seed=1,
             enhance_user_input=True,
         )
-    # Nothing downstream ran — 3 enhancer attempts, no storyboard /
-    # prefix / shot calls spent.
-    assert len(conn.calls) == 3
+    # Nothing downstream ran. Empty / markerless replies retry once
+    # (2 calls) and then raise. A bad block would pin instead.
+    assert len(conn.calls) == 2
 
 
 def test_auto_enhance_survives_empty_llm_reply(lg):
@@ -1124,24 +1149,23 @@ def test_pacing_derives_scene_count_and_injects_tempo(lg):
         plan = json.loads(out["plan_json"])
         return out, plan, conn
 
-    # auto (scene_count=0): MINIMAL-CUT packing — this 4-line exchange
-    # (~5.6s speech+pause math on fast) fits ONE scene under the 14s H3
-    # window, so both fast and slow pack to a single scene. Auto never
-    # multiplies cuts; the explicit 20s total just rescales/clamps it.
-    out_f, plan_f, conn_f = run("fast - 快", [[0, 1, 2, 3]])
-    assert len(plan_f["shots"]) == 1
-    assert plan_f["shots"][0]["length"] <= 345  # 14s H3 cap on the grid
-    out_s, plan_s, conn_s = run("slow - 慢", [[0, 1, 2, 3]])
-    assert len(plan_s["shots"]) == 1
+    # auto (scene_count=0): at most two spoken lines per scene. This
+    # 4-line exchange becomes two scenes on both fast and slow. The
+    # explicit 20s total rescales each scene inside the 4-14s window.
+    out_f, plan_f, conn_f = run("fast - 快", [[0, 1], [2, 3]])
+    assert len(plan_f["shots"]) == 2
+    assert all(s["length"] <= 345 for s in plan_f["shots"])
+    out_s, plan_s, conn_s = run("slow - 慢", [[0, 1], [2, 3]])
+    assert len(plan_s["shots"]) == 2
 
     # The tempo directive still rides into every per-shot user template —
     # pacing owns the SPEECH tempo vocabulary, not the cut count.
     shot_calls_f = [c for c in conn_f.calls if "Clip duration" in c[1]["content"]]
-    assert len(shot_calls_f) == 1
+    assert len(shot_calls_f) == 2
     for c in shot_calls_f:
         assert "Tempo: BRISK" in c[1]["content"]
     shot_calls_s = [c for c in conn_s.calls if "Clip duration" in c[1]["content"]]
-    assert len(shot_calls_s) == 1
+    assert len(shot_calls_s) == 2
     for c in shot_calls_s:
         assert "Tempo: MEASURED" in c[1]["content"]
 
@@ -1243,3 +1267,12 @@ def test_dialogue_board_upgrades_none_category(lg):
     assert "category: none -> dialogue" in out["summary"]
     for call in conn.calls:
         assert "spoken-scene cinematography" in call[1]["content"]
+
+
+def test_caption_reply_rejects_reasoning_dump(lg):
+    assert lg._caption_reply_usable(
+        "The sole subject is a tabby in a tweed blazer."
+    )
+    assert not lg._caption_reply_usable("We need answer only paragraph.")
+    assert not lg._caption_reply_usable("Need answer. " * 80)
+    assert not lg._caption_reply_usable("")

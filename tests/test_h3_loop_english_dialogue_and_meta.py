@@ -75,7 +75,31 @@ def mods():
         "_mienodes_internal.nodes.llm.minimax_h3_loop_prompt_generator",
         LLM_DIR / "minimax_h3_loop_prompt_generator.py",
     )
+    # Preload the enhancer under the alias the generator lazy-imports,
+    # so the autouse cache override and the inline call share one module.
+    _load_file(
+        "_mienodes_internal.nodes.llm.minimax_h3_loop_user_input_enhancer",
+        LLM_DIR / "minimax_h3_loop_user_input_enhancer.py",
+    )
     return lg, lp
+
+
+@pytest.fixture(autouse=True)
+def _isolate_inline_enhancer_cache(mods, tmp_path):
+    """The ref2va e2e writes an enhancer disk entry on a cold run.
+
+    A second run used to consume that entry and shift every scripted
+    reply by one, so the enhancer text landed in a caption.
+    """
+    enh = sys.modules[
+        "_mienodes_internal.nodes.llm.minimax_h3_loop_user_input_enhancer"
+    ]
+    enh.clear_enhancer_cache()
+    previous = enh._CACHE_ROOT_OVERRIDE
+    enh._CACHE_ROOT_OVERRIDE = str(tmp_path)
+    yield
+    enh.clear_enhancer_cache()
+    enh._CACHE_ROOT_OVERRIDE = previous
 
 
 # The user's scenario, in the enhancer's canonical rewrite shape:
@@ -134,11 +158,10 @@ PREFIX_REPLY = (
 
 def test_english_dialogue_pipeline_no_phantom_speaker(mods):
     lg, _lp = mods
-    # Normal pacing, scene_count auto -> minimal-cut packing.
-    # Speech math: [t1..t3] packs one scene (~12s), [t4..t5] the second
-    # (~4.5s). 5 turns >= 5 -> the stage-1 prefix LLM call runs. The
-    # concept mentions 图1-3 -> the semantic-facts gate fires -> one
-    # facts call (layout/bindings) between parse and prefix.
+    # Normal pacing, scene_count auto -> at most two spoken lines per
+    # scene, so five lines become three scenes. 5 turns >= 5 -> the
+    # stage-1 prefix LLM call runs. The concept mentions 图1-3 -> the
+    # semantic-facts gate fires -> one facts call between parse and prefix.
     FACTS = json.dumps({
         "turns": [],
         "layout": [
@@ -163,13 +186,16 @@ def test_english_dialogue_pipeline_no_phantom_speaker(mods):
         "and the father closes the exchange.\n\n"
         "overall_soundscape:\nRoom tone.\n\n"
         "non_diegetic_music:\nNo non-diegetic music.\n",
+        "integrated_multimodal_description:\n[Shot 1] The father closes.\n\n"
+        "overall_soundscape:\nRoom tone.\n\n"
+        "non_diegetic_music:\nNo non-diegetic music.\n",
     ])
     out = lg.H3LoopPromptEnhancer(conn, temperature=0.4, timeout=60)(
         user_input=CONCEPT,
         seed=1,
     )
     plan = json.loads(out["plan_json"])
-    assert len(plan["shots"]) == 2
+    assert len(plan["shots"]) == 3
     all_text = "\n".join(
         "\n".join(s["prompt"]) for s in plan["shots"]
     )
@@ -195,14 +221,14 @@ def test_english_dialogue_pipeline_no_phantom_speaker(mods):
     assert all(":" not in ln.split("<d>")[0] for ln in d_lines)
     mom_lines = [ln for ln in d_lines if ln.startswith("白猫")]
     assert mom_lines and all("turns to face" not in ln for ln in mom_lines)
-    # 1 facts call + 1 prefix call + 2 shot calls; no extractor call
+    # 1 facts call + 1 prefix call + 3 shot calls; no extractor call
     # for turns (fast path).
-    assert len(conn.calls) == 4
+    assert len(conn.calls) == 5
     # The LLM-harvested layout rides every shot user template.
     shot_user = [
         c[1]["content"] for c in conn.calls if "Clip duration" in c[1]["content"]
     ]
-    assert len(shot_user) == 2
+    assert len(shot_user) == 3
     for t in shot_user:
         assert "黑猫 stays at right of frame" in t
         assert "白猫 stays at left of frame" in t
@@ -553,7 +579,8 @@ def test_prefix_spatial_pin_uses_roster_names():
 # seed_mode per_scene_increment, temperature 0.4 / max_tokens 16384 /
 # timeout 300, caption cache memory+disk. Locks down the whole chain:
 # enhancer rewrite -> captions (incl. duplicate-image cache hit) ->
-# structured parse (5 turns) -> minimal-cut packing (2 scenes) -> LLM
+# structured parse (5 turns) -> at most two spoken lines per scene
+# (3 scenes) -> LLM
 # prefix -> six-section shots (Subjects 1-3 only) -> label policy OK.
 # --------------------------------------------------------------------------- #
 import numpy as np  # noqa: E402  (test-local, after module constants)
@@ -567,20 +594,26 @@ WF_RAW_INPUT = (
     "图1的黑猫：well nobody's perfect\n"
 )
 
-# What M3's auto-enhance actually returns for this draft (shape from the
-# live log: rewritten 196 -> 302 chars; branch-D binding line + the 5
-# English speaker lines kept verbatim).
+# A COMPLIANT auto-enhance reply for this draft: branch-D binding line
+# plus the 5 English speaker lines kept verbatim.
+#
+# The live M3 reply this fixture was originally captured from punctuated
+# and capitalised the lines (「Mommy,daddy is so ugly,why…」became
+# 「Mommy, daddy is so ugly, why did you marry him.」). That is exactly
+# the paraphrase the enhancer's content contract now rejects, so the
+# fixture carries the compliant form — the pinned, verbatim one — and
+# the rest of the workflow is unchanged.
 WF_ENHANCED = (
     "Classification: Reference-driven\n"
     "Notes for the user: speaker names stable; binding line added.\n"
     "--- BEGIN user_input ---\n"
     "场景设定：温暖家庭客厅。参考图 1 → 黑猫（画面右边）；"
     "参考图 2 → 白猫（画面左边）；参考图 3 → 小猫（画面中间）。\n"
-    "小猫：Mommy, daddy is so ugly, why did you marry him.\n"
-    "白猫：Iguess I was blind.\n"
-    "小猫：Daddy, why did you marry a blind lady?\n"
-    "白猫：Oh my god.\n"
-    "黑猫：Well, nobody's perfect.\n"
+    "小猫：Mommy,daddy is so ugly,why did you marry him.\n"
+    "白猫：Iguess I was blind\n"
+    "小猫：daddy,why did you marry a blind lady\n"
+    "白猫：oh my god\n"
+    "黑猫：well nobody's perfect\n"
     "--- END user_input ---"
 )
 
@@ -651,7 +684,7 @@ def test_full_workflow_e2e_ref2va_english_dialogue(mods, monkeypatch, tmp_path):
     #   1 auto-enhance, 4 caption misses (5th is a memory-cache hit),
     #   1 semantic-facts call (canonical turns from the fast path; the
     #   concept's 图1-3 mentions fire the facts gate), 1 prefix (5
-    #   turns >= LLM-prefix threshold), 2 shot calls.
+    #   turns >= LLM-prefix threshold), 3 shot calls.
     WF_FACTS = json.dumps({
         "turns": [],
         "layout": [
@@ -671,7 +704,7 @@ def test_full_workflow_e2e_ref2va_english_dialogue(mods, monkeypatch, tmp_path):
         WF_FACTS,
         WF_PREFIX,
         _wf_shot_reply(
-            [1, 2, 3],
+            [1, 2, 3, 4],
             "[Shot 1] The kitten asks the mother; the mother answers; "
             "the kitten presses the question.",
         ),
@@ -680,8 +713,15 @@ def test_full_workflow_e2e_ref2va_english_dialogue(mods, monkeypatch, tmp_path):
         # them with <Picture 4>/<Picture 5> — the run must still pass.
         _wf_shot_reply(
             [1, 2, 3],
-            "[Shot 1] The mother gasps and the father delivers the "
-            "closing line. <Subject 4>: reference - not on screen. "
+            "[Shot 1] The kitten presses and the mother gasps.",
+        ),
+        # scene_03 replays the 2026-09-21 20:58 live failure: the model
+        # VOLUNTARILY mentions the unused Subjects 4/5 without pairing
+        # them with <Picture 4>/<Picture 5> — the run must still pass.
+        _wf_shot_reply(
+            [1, 2, 3],
+            "[Shot 1] The father delivers the closing line. "
+            "<Subject 4>: reference - not on screen. "
             "<Subject 5>: reference - not on screen.",
         ),
     ])
@@ -705,15 +745,15 @@ def test_full_workflow_e2e_ref2va_english_dialogue(mods, monkeypatch, tmp_path):
 
     # ── LLM spend is exactly the scripted sequence: the duplicated
     #    picture was served from the memory cache, not re-captioned.
-    assert len(conn.calls) == 9, (
-        f"expected 9 LLM calls (enhance+4 captions+facts+prefix+2 "
+    assert len(conn.calls) == 10, (
+        f"expected 10 LLM calls (enhance+4 captions+facts+prefix+3 "
         f"shots); got {len(conn.calls)}"
     )
 
     plan = json.loads(out["plan_json"])
     assert set(plan.keys()) == {"shots", "prompt_prefix"}
     assert out["board_kind"] == "dialogue"
-    assert len(plan["shots"]) == 2
+    assert len(plan["shots"]) == 3
     for s in plan["shots"]:
         assert set(s.keys()) == {"id", "prompt", "length", "seed"}
         assert 96 <= s["length"] <= 345  # 4s floor .. 14s cap on the grid
@@ -722,7 +762,7 @@ def test_full_workflow_e2e_ref2va_english_dialogue(mods, monkeypatch, tmp_path):
     # increments inside the uint64 digit-string headroom).
     wf_base = 199573759057408 % 10**12
     assert [s["seed"] for s in plan["shots"]] == [
-        str(wf_base + 1), str(wf_base + 2),
+        str(wf_base + 1), str(wf_base + 2), str(wf_base + 3),
     ]
 
     all_text = "\n".join("\n".join(s["prompt"]) for s in plan["shots"])
@@ -737,9 +777,10 @@ def test_full_workflow_e2e_ref2va_english_dialogue(mods, monkeypatch, tmp_path):
     assert any(ln.startswith("白猫") and "as (S2) " in ln for ln in d_lines)
     assert any(ln.startswith("黑猫") and "as (S3) " in ln for ln in d_lines)
     assert all(":" not in ln.split("<d>")[0] for ln in d_lines)
-    # Scene split: [t1-3] then [t4-5].
-    assert sum(1 for ln in plan["shots"][0]["prompt"] if "<d>" in ln) == 3
+    # Scene split: two spoken lines, then two, then the last line alone.
+    assert sum(1 for ln in plan["shots"][0]["prompt"] if "<d>" in ln) == 2
     assert sum(1 for ln in plan["shots"][1]["prompt"] if "<d>" in ln) == 2
+    assert sum(1 for ln in plan["shots"][2]["prompt"] if "<d>" in ln) == 1
     # Six-section schema everywhere (ref2va).
     for s in plan["shots"]:
         for header in ("subject_definitions:", "summary:",
@@ -750,12 +791,12 @@ def test_full_workflow_e2e_ref2va_english_dialogue(mods, monkeypatch, tmp_path):
     # the directive; scene_02's voluntary unpaired mentions are
     # tolerated; the plan still validates (both post-spend hard fails).
     shot_user_texts = [c[1]["content"] for c in conn.calls]
-    assert all("do NOT reference" in t for t in shot_user_texts[-2:])
-    assert all("<Subject 4> -> <Picture 4>" not in t for t in shot_user_texts[-2:])
+    assert all("do NOT reference" in t for t in shot_user_texts[-3:])
+    assert all("<Subject 4> -> <Picture 4>" not in t for t in shot_user_texts[-3:])
     # The description body is node-owned speech, so a Subject mention
     # that lived only in the model's beat prose is not kept. The run
     # still returns a plan (validation did not die on that mention).
-    assert "<Subject 4>" not in "\n".join(plan["shots"][1]["prompt"])
+    assert "<Subject 4>" not in "\n".join(plan["shots"][2]["prompt"])
 
     # ── Caption-grounded CAST: the <d> speaker identity lines follow
     #    the BOUND PICTURE's caption, never the name's literal meaning
@@ -763,14 +804,15 @@ def test_full_workflow_e2e_ref2va_english_dialogue(mods, monkeypatch, tmp_path):
     #    "black short-haired" while Picture 1 is a brown tabby).
     s1_text = "\n".join(plan["shots"][0]["prompt"])
     s2_text = "\n".join(plan["shots"][1]["prompt"])
-    # 黑猫 (bound to Picture 1 = brown tabby caption) speaks in scene_02.
+    # 黑猫 (bound to Picture 1 = brown tabby caption) speaks in scene_03.
     # Caption pin lives under subject_definitions, not on the <d> line.
-    hei_pin = next(ln for ln in s2_text.split("\n") if ln.startswith("黑猫:"))
+    s3_text = "\n".join(plan["shots"][2]["prompt"])
+    hei_pin = next(ln for ln in s3_text.split("\n") if ln.startswith("黑猫:"))
     assert "brown_tabby_cat" in hei_pin
     assert "black" not in hei_pin.lower()
     assert "<d>" not in hei_pin
     hei_speech = next(
-        ln for ln in s2_text.split("\n") if "<d>" in ln and "黑猫" in ln
+        ln for ln in s3_text.split("\n") if "<d>" in ln and "黑猫" in ln
     )
     assert "brown_tabby_cat" not in hei_speech
     bai_pin = [ln for ln in s1_text.split("\n") if ln.startswith("白猫:")]

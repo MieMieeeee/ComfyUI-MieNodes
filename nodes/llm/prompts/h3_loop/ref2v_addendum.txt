@@ -29,10 +29,12 @@ non_diegetic_music:
 - summary:
   - MUST start with the literal token `[reference generation]` (Ref2VA
     task type marker; do NOT use `[video continuation + ...]` here).
-  - One sentence summarising this scene's reference-driven action.
+  - One sentence: who is visible and who is speaking. Do NOT quote or
+    paraphrase any spoken line.
 - retention_analysis:
-  - Identity slots -> `fully_preserved - ...` (preserve face, wardrobe,
-    props, scale, motion phase, lighting).
+  - Identity slots -> `fully_preserved - ...` (preserve face identity,
+    fur, wardrobe, and scale. Do NOT preserve a front-facing portrait's
+    head angle or eye direction).
   - Non-identity slots -> `reference - ...` (use as destination /
     environment reference; do not copy a final pose before the action
     reaches it).

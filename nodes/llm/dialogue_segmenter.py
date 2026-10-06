@@ -13,8 +13,8 @@ text — so three invariants hold by construction:
 2. No splitting or paraphrasing of a line: each extracted line becomes
    exactly one verbatim ``<d>`` block (span anchoring makes anything
    else impossible to accept).
-3. Same-speaker consecutive lines share one scene (turn grouping): the
-   scene boundary only moves when the speaker changes.
+3. A scene holds at most two spoken lines. Same-speaker lines may cross
+   a scene boundary, but only at a line edge — a line is never split.
 
 This module is the single source of truth for those invariants; the rest
 of the pipeline consumes its output rather than re-deriving turn /
@@ -335,9 +335,13 @@ def parse_structured_dialogue_turns(
                     )
                 )
             elif in_dialogue:
-                # Non-dialogue content after dialogue started -> not
-                # confidently structured.
-                return None, ""
+                # A colon after dialogue has started is an ambiguous
+                # speaker line (``镜头：`` / a mistyped name). Bail out
+                # so the LLM extractor can judge it. A colon-free line
+                # is a stage direction, not a new speaker; it stays in
+                # the concept for the stage-cue pass.
+                if "：" in stripped or ":" in stripped:
+                    return None, ""
             else:
                 prologue_lines.append(stripped)
         offset = next_offset
@@ -356,6 +360,47 @@ def parse_structured_dialogue_turns(
         return None, ""
     prologue = "\n".join(prologue_lines).strip()
     return turns, prologue
+
+
+_VOICEOVER_SPEAKERS = {
+    "旁白", "画外音", "配音", "叙述", "narrator", "voiceover", "voice-over",
+}
+
+
+def parse_voiceover_lines(concept: str) -> list[str] | None:
+    """Spoken lines of a pure voiceover board, or ``None``.
+
+    A line is voiceover when its speaker is ``旁白`` / ``画外音`` / the
+    English equivalents. If the concept also has a character
+    ``speaker：line``, this is not a pure voiceover board and the
+    function returns ``None`` so dialogue parsing stays in charge.
+    """
+    if not concept or not concept.strip():
+        return None
+    pattern = _structured_line_re()
+    voice_lines: list[str] = []
+    saw_character = False
+    for raw_line in concept.split("\n"):
+        stripped = raw_line.strip()
+        if not stripped:
+            continue
+        match = pattern.match(stripped)
+        if not match:
+            continue
+        speaker = match.group("speaker").strip()
+        text = match.group("text").strip()
+        if not text:
+            continue
+        if speaker.lower() in _VOICEOVER_SPEAKERS or speaker in _VOICEOVER_SPEAKERS:
+            voice_lines.append(text)
+            continue
+        if speaker.lower() in _NON_SPEAKER_PREFIXES:
+            continue
+        if any("\u4e00" <= c <= "\u9fff" or c.isalpha() for c in speaker):
+            saw_character = True
+    if saw_character or not voice_lines:
+        return None
+    return voice_lines
 
 
 def turns_from_extraction(
@@ -788,12 +833,20 @@ def scene_raw_seconds(budgets: list, pacing) -> float:
     return round(speech + pauses + boundaries + pad, 3)
 
 
+# Live H3 renders inserted an unscripted sentence when one scene carried
+# three or more ``<d>`` lines (Chinese, normal pacing, ~12s). Two lines
+# did not. The cap is a speech-density limit, not a camera cut: a camera
+# cut stays inside the scene.
+MAX_SPOKEN_LINES_PER_SCENE = 2
+
+
 def group_budgets_into_scenes(
     budgets: list,
     pacing,
     *,
     bias: str = "balanced",
     max_shot_seconds: float = 14.0,
+    max_lines_per_scene: int | None = None,
 ) -> list:
     """Group consecutive per-turn budgets into scenes honouring split_bias.
 
@@ -808,23 +861,35 @@ def group_budgets_into_scenes(
 
     ``balanced`` / ``conservative`` (and any unknown value): greedily
     pack CONSECUTIVE budgets into multi-turn scenes while
-    ``scene_raw_seconds`` stays within ``max_shot_seconds``. A turn is
-    never cut mid-utterance and same-speaker consecutive lines (already
-    merged into one turn) are never separated — packing only ever
-    MERGES across speaker changes, so all three dialogue invariants
-    survive.
+    ``scene_raw_seconds`` stays within ``max_shot_seconds``. A single
+    budget is never split here. ``max_lines_per_scene`` stops the pack
+    before the next budget would push the scene over that spoken-line
+    count (the dialogue auto path passes per-line budgets and ``2``).
 
     Returns a list of scenes; each scene is a non-empty list of
     consecutive ``ShotBudget`` entries.
     """
     if bias == "aggressive":
         return [[b] for b in budgets]
+    line_cap = None
+    if max_lines_per_scene is not None and int(max_lines_per_scene) > 0:
+        line_cap = int(max_lines_per_scene)
+
+    def _lines(group: list) -> int:
+        return sum(int(getattr(b, "line_count", 1) or 1) for b in group)
+
     scenes: list = []
     current: list = []
     for budget in budgets:
-        if current and (
+        fits_time = (
             scene_raw_seconds(current + [budget], pacing) <= max_shot_seconds
-        ):
+        )
+        fits_lines = (
+            line_cap is None
+            or _lines(current) + int(getattr(budget, "line_count", 1) or 1)
+            <= line_cap
+        )
+        if current and fits_time and fits_lines:
             current.append(budget)
             continue
         if current:
@@ -879,6 +944,27 @@ def distribute_lines_to_scenes(
         start = best_end
     scenes.append(list(budgets[start:]))
     return scenes
+
+
+def min_total_seconds_for_scene_count(budgets: list, scene_count: int) -> int:
+    """Smallest whole-second total whose equal per-scene share fits the
+    heaviest scene.
+
+    Even time split gives every scene ``total / count`` seconds, so the
+    heaviest scene is the binding constraint. Round UP. Flooring hands
+    back a total that still cuts a line off.
+    """
+    count = max(1, int(scene_count))
+    if not budgets:
+        return 0
+    scenes = distribute_lines_to_scenes(budgets, scene_count=count)
+    heaviest = max(
+        (sum(float(item.duration_sec) for item in scene) for scene in scenes),
+        default=0.0,
+    )
+    if heaviest <= 0:
+        return 0
+    return int(_math.ceil(heaviest * count))
 
 
 def scale_shots_to_total(

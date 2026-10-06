@@ -609,10 +609,40 @@ def test_parse_structured_dialogue_turns_rejects_directives(seg):
     ) == (None, "")
 
 
-def test_parse_structured_dialogue_turns_rejects_mixed_tail(seg):
+def test_parse_structured_dialogue_turns_rejects_colon_tail(seg):
+    """A colon line after dialogue starts is an ambiguous speaker.
+    Colon-free prose is a stage direction and stays a dialogue board."""
     assert seg.parse_structured_dialogue_turns(
-        "甲：你好。\n乙：好的。\n突然，画外传来巨响。"
+        "甲：你好。\n乙：好的。\n镜头：突然推进"
     ) == (None, "")
+    turns, _ = seg.parse_structured_dialogue_turns(
+        "甲：你好。\n乙：好的。\n突然，画外传来巨响。"
+    )
+    assert turns is not None
+    assert [(t.speaker, t.lines) for t in turns] == [
+        ("甲", ["你好。"]),
+        ("乙", ["好的。"]),
+    ]
+
+
+def test_group_budgets_respects_spoken_line_cap(seg):
+    """Five single-line budgets pack by time into one scene, and stop
+    at two lines when the dialogue cap is on."""
+    pacing = seg.PACING_PRESETS["normal"]
+    budgets = [_make_budget(seg, speech=1.0) for _ in range(5)]
+    capped = seg.group_budgets_into_scenes(
+        budgets, pacing, bias="balanced", max_lines_per_scene=2
+    )
+    assert [len(scene) for scene in capped] == [2, 2, 1]
+
+
+def test_parse_voiceover_lines_ignores_character_dialogue(seg):
+    assert seg.parse_voiceover_lines(
+        "旁白：院子里是板栗。\n旁白：不是刺猬。"
+    ) == ["院子里是板栗。", "不是刺猬。"]
+    assert seg.parse_voiceover_lines(
+        "小猫：你好。\n旁白：院子里是板栗。"
+    ) is None
 
 
 def test_parse_structured_dialogue_turns_single_line_not_confident(seg):
