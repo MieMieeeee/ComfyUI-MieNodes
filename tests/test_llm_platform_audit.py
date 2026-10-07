@@ -174,6 +174,46 @@ def test_zhipu_dropdowns_2026_09(llm_module, node):
     assert models == other[0]
 
 
+def test_minimax_m31_payload_requests_low_reasoning(llm_module):
+    token = llm_module.MiniMaxTokenPlanConnectorGeneral(
+        "sk-cp-x", "MiniMax-M3.1-Flash-Preview"
+    )
+    payload = token.generate_payload([{"role": "user", "content": "hi"}])
+    assert payload["reasoning_effort"] == "low"
+    older = llm_module.MiniMaxConnectorGeneral("eyJ", "MiniMax-M3")
+    older_payload = older.generate_payload([{"role": "user", "content": "hi"}])
+    assert "reasoning_effort" not in older_payload
+    forced = older.generate_payload(
+        [{"role": "user", "content": "hi"}], reasoning_effort="low"
+    )
+    assert forced["reasoning_effort"] == "low"
+
+
+def test_reasoning_effort_is_not_sent_to_other_providers(llm_module):
+    """``reasoning_effort`` is a MiniMax request hint. Other platforms
+    reject unknown fields, so their payloads must stay without it.
+    """
+    cases = [
+        (llm_module.DeepSeekConnectorGeneral, "deepseek-flash"),
+        (llm_module.ClaudeConnectorGeneral, "claude-sonnet"),
+        (llm_module.KimiConnectorGeneral, "kimi-k2.6-thinking"),
+        (llm_module.MiMoConnectorGeneral, "mimo-v2.6-pro"),
+        (llm_module.BailianLLMServiceConnector, "qwen3.8-max"),
+        (llm_module.DoubaoConnectorGeneral, "doubao-seed"),
+        (llm_module.QianfanConnectorGeneral, "ernie-5.0"),
+        (llm_module.GrokConnectorGeneral, "grok-4"),
+        (llm_module.OpenAIConnectorGeneral, "gpt-5"),
+        (llm_module.GeminiConnectorGeneral, "gemini-3.8-flash"),
+        (llm_module.ZhiPuConnectorGeneral, "glm-5.3"),
+        (llm_module.SiliconFlowConnectorGeneral, "deepseek-ai/DeepSeek-V3"),
+        (llm_module.OpenRouterConnectorGeneral, "openai/gpt-4.1"),
+    ]
+    messages = [{"role": "user", "content": "hi"}]
+    for cls, model in cases:
+        payload = cls("tok", model).generate_payload(messages)
+        assert "reasoning_effort" not in payload, cls.__name__
+
+
 def test_minimax_token_plan_default_is_m31_flash_preview(llm_module):
     models, meta = _dropdown(llm_module, "SetMiniMaxTokenPlanLLMServiceConnector")
     assert models[0] == "MiniMax-M3.1-Flash-Preview"

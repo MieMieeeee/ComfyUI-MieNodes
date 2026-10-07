@@ -241,22 +241,18 @@ def test_shot_parse_retry_then_success(lg):
     assert "could not be parsed" in retry_call[2]["content"]
     assert "integrated_multimodal_description:" in retry_call[2]["content"]
 
-def test_shot_parse_failure_raises_no_partial_plan(lg):
-    # Storyboard emits 2 shots; shot1 attempt 1 + attempt 2 both
-    # garbage -> 2 attempts raise, no shot2 ever runs.
-    conn = ScriptedConnector([
-        _extract_dialogue_empty(),
-        _auto_storyboard_reply(2),
-        PREFIX_REPLY,
-        "bad",
-        "still bad",
-    ])
-    with pytest.raises(RuntimeError, match="scene_01"):
-        lg.H3LoopPromptEnhancer(conn)(
-            user_input="a quiet courtyard summer afternoon",
-            scene_count=2,
-            seed=1,
-        )
+def test_shot_parse_failure_uses_deterministic_fallback(lg):
+    conn = ScriptedConnector(["not a prompt", "still not"])
+    out = lg.H3LoopPromptEnhancer(conn)(
+        user_input="甲猫：你好。\n乙猫：好的。",
+        scene_count=1,
+        seed=1,
+    )
+    text = "\n".join(json.loads(out["plan_json"])["shots"][0]["prompt"])
+    assert "你好。" in text
+    assert "好的。" in text
+    assert "still not" not in text
+    assert "using captions, positions, and the locked lines" in out["summary"]
 
 def test_prefix_retry(lg):
     # First prefix reply is empty -> 'no prefix paragraph' retry trigger.
@@ -1269,10 +1265,37 @@ def test_dialogue_board_upgrades_none_category(lg):
         assert "spoken-scene cinematography" in call[1]["content"]
 
 
+def test_shot_reasoning_dump_is_retried(lg):
+    dump = (
+        "subject_definitions:\nA long thought.\n\n"
+        "summary:\nstill thinking\n\n"
+        "retention_analysis:\nmore thought\n\n"
+        "detailed_description:\n[Shot 1] thinking\n\n"
+        "overall_soundscape:\nroom tone\n\n"
+        "non_diegetic_music:\nNo non-diegetic music.\n"
+    )
+    dump = dump + (" we keep thinking." * 800)
+    conn = ScriptedConnector([
+        _extract_dialogue_empty(),
+        _auto_storyboard_reply(1),
+        PREFIX_REPLY,
+        dump,
+        _clip_reply(1),
+    ])
+    out = lg.H3LoopPromptEnhancer(conn)(
+        user_input="a quiet courtyard summer afternoon",
+        scene_count=1,
+        seed=1,
+    )
+    assert len(json.loads(out["plan_json"])["shots"]) == 1
+    assert "could not be parsed" in conn.calls[4][2]["content"]
+
+
 def test_caption_reply_rejects_reasoning_dump(lg):
     assert lg._caption_reply_usable(
         "The sole subject is a tabby in a tweed blazer."
     )
     assert not lg._caption_reply_usable("We need answer only paragraph.")
     assert not lg._caption_reply_usable("Need answer. " * 80)
+    assert not lg._caption_reply_usable("我需要先描述这张参考图的毛色和衣服。")
     assert not lg._caption_reply_usable("")

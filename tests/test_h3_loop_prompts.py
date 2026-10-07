@@ -540,6 +540,87 @@ def test_build_shots_digest(lp):
     assert len(body) <= 160 + len("- scene_02: ") + 3
 
 
+def test_buried_section_header_is_not_a_shot_reply(lp):
+    buried = (
+        "We keep thinking about the scene for a while before answering.\n"
+        + ("more thought\n" * 40)
+        + "subject_definitions:\nPicture 1: a tabby.\n\n"
+        "summary:\nTwo cats sit.\n\n"
+        "retention_analysis:\nfully_preserved - face.\n\n"
+        "detailed_description:\n[Shot 1] They sit.\n\n"
+        "overall_soundscape:\nRoom tone.\n\n"
+        "non_diegetic_music:\nNo non-diegetic music.\n"
+    )
+    error = lp.sectioned_reply_structure_error(buried, lp.SIX_SECTION_FIELDS)
+    assert error and "buried" in error
+    plain_lines = lp.build_fallback_shot_lines(
+        lp.SCHEMA_SIX,
+        manifest=[{"slot": "Picture 1", "about": "a brown tabby in a tweed blazer"}],
+        spatial_layout={"虎斑": "left of frame"},
+    )
+    plain = "\n".join(plain_lines)
+    assert lp.sectioned_reply_structure_error(plain, lp.SIX_SECTION_FIELDS) is None
+    assert "a brown tabby in a tweed blazer" in plain
+    assert "虎斑 stays left of frame." in plain
+
+
+def _six_section_reply(detail="[Shot 1] They sit.", sound="Room tone.", preamble=""):
+    return (
+        f"{preamble}"
+        "subject_definitions:\nPicture 1: a tabby.\n\n"
+        "summary:\nTwo cats sit.\n\n"
+        "retention_analysis:\nfully_preserved - face.\n\n"
+        f"detailed_description:\n{detail}\n\n"
+        f"overall_soundscape:\n{sound}\n\n"
+        "non_diegetic_music:\nNo non-diegetic music.\n"
+    )
+
+
+def test_polite_and_long_sectioned_replies_stay_valid(lp):
+    """Other models open with 'Okay,' and write longer sections than M3.1.
+    A well-formed reply is still a shot. An unstructured blob is not.
+    """
+    polite = _six_section_reply(preamble="Okay, the sections follow.\n\n")
+    assert lp.sectioned_reply_structure_error(polite, lp.SIX_SECTION_FIELDS) is None
+    detail = "[Shot 1] " + ("The tabby holds the counter. " * 200)
+    sound = "Room tone. " + ("A fridge hums. " * 350)
+    long_reply = _six_section_reply(detail=detail, sound=sound)
+    assert len(lp._reply_compact(long_reply)) > 10000
+    assert lp.sectioned_reply_structure_error(long_reply, lp.SIX_SECTION_FIELDS) is None
+    chinese = "我需要先把用户的分镜要求拆开。\n" * 30
+    assert lp.sectioned_reply_structure_error(chinese, lp.SIX_SECTION_FIELDS)
+    essay = _six_section_reply().replace(
+        "No non-diegetic music.",
+        "theme " * 800,
+    )
+    music_error = lp.sectioned_reply_structure_error(essay, lp.SIX_SECTION_FIELDS)
+    assert music_error and "non_diegetic_music" in music_error
+
+
+def test_prefix_accepts_a_polite_style_note(lp):
+    assert lp.prefix_reply_structure_error(
+        "Okay, tungsten practicals and fine grain.\n"
+    ) is None
+    long_thought = "我需要先分析用户到底想要什么风格。" * 80
+    assert lp.prefix_reply_structure_error(long_thought)
+    buried = (
+        "We need to think this through before answering.\n" * 40
+        + "CAST:\n虎斑: low voice\n"
+    )
+    assert "buried" in (lp.prefix_reply_structure_error(buried) or "")
+
+
+def test_voice_descriptor_rejects_appearance_paragraph(lp):
+    assert lp.voice_descriptor_usable(
+        "adult male, low-mid pitch, steady timbre"
+    )
+    assert not lp.voice_descriptor_usable(
+        "A single anthropomorphic kitten character with cream-white fur, "
+        "soft apricot patches, and the reference night-shift uniform."
+    )
+    assert not lp.voice_descriptor_usable("x" * 200)
+
+
 def test_prefix_user_text_carries_storyboard(lp):
     user = lp.build_prefix_user_text(
         "concept",

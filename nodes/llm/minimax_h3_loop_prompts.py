@@ -760,6 +760,211 @@ def _find_marker(lines: list[str], field: str, from_index: int) -> int:
     return -1
 
 
+# Meta openings of a chain of thought, in the languages these models
+# actually write. Polite answer openers ("Okay,", "Let's", "First,")
+# are not in this list: Claude, Gemini, GPT, and Qwen start real
+# prompts that way.
+_THOUGHT_HEADS = (
+    "we need", "let us", "need answer", "the user",
+    "i need", "let me", "i should", "the task",
+    "我需要", "用户要求", "用户希望", "我们需要", "思考过程", "首先我",
+)
+# A real section is a few paragraphs. A thought dump is tens of
+# thousands of characters in one body. The cap sits between those.
+_SECTION_BODY_MAX = 6000
+_MUSIC_BODY_MAX = 1500
+_UNSTRUCTURED_MAX = 10000
+
+
+def _reply_compact(text: str) -> str:
+    return " ".join((text or "").split())
+
+
+def _opens_as_thought(text: str) -> bool:
+    return _reply_compact(text)[:48].lower().startswith(_THOUGHT_HEADS)
+
+
+def reply_thought_error(text: str) -> Optional[str]:
+    """Fast reject for an unstructured blob. A well-formed sectioned
+    answer is judged by ``sectioned_reply_structure_error`` instead,
+    so a long-but-valid prompt from another model is not a dump.
+    """
+    compact = _reply_compact(text)
+    if not compact:
+        return "empty clip reply"
+    if len(compact) > _UNSTRUCTURED_MAX:
+        return f"reasoning dump, not a sectioned prompt ({len(compact)} chars)"
+    if _opens_as_thought(compact):
+        return "reply opens with chain-of-thought"
+    return None
+
+
+def _section_body_limit(field: str) -> int:
+    if field == SECTION_MUSIC:
+        return _MUSIC_BODY_MAX
+    return _SECTION_BODY_MAX
+
+
+def sectioned_reply_structure_error(text: str, fields: tuple[str, ...]) -> Optional[str]:
+    """The first header must be its own early line, and no section body
+    may be an essay. Headers mentioned deep inside a thought do not count.
+
+    A reply that already has that shape is accepted even when it is
+    longer than the unstructured cap, and even when a polite opener
+    precedes the first header. The cap still rejects a blob that only
+    mentions the headers inside a thought.
+    """
+    compact = _reply_compact(text)
+    if not compact:
+        return "empty clip reply"
+    structure = _section_layout_error(text, fields)
+    if structure is None:
+        return None
+    if len(compact) > _UNSTRUCTURED_MAX:
+        return f"reasoning dump, not a sectioned prompt ({len(compact)} chars)"
+    return structure
+
+
+def _section_layout_error(text: str, fields: tuple[str, ...]) -> Optional[str]:
+    lines = (text or "").replace("\r\n", "\n").split("\n")
+    first = _find_marker(lines, fields[0], 0)
+    if first < 0:
+        return f"missing {fields[0]}: header"
+    preamble_lines = [ln for ln in lines[:first] if ln.strip()]
+    preamble = "\n".join(lines[:first]).strip()
+    if len(preamble) > 400 or len(preamble_lines) > 6:
+        return f"{fields[0]} header is buried in preamble"
+    cursor = first
+    last_field = fields[0]
+    for index, field in enumerate(fields):
+        if index == 0:
+            idx = first
+        else:
+            idx = _find_marker(lines, field, cursor + 1)
+            if idx < 0:
+                if field == SECTION_MUSIC:
+                    break
+                return f"missing {field}: header"
+            previous = fields[index - 1]
+            body = _reply_compact("\n".join(lines[cursor + 1:idx]))
+            body_error = _section_body_error(previous, body)
+            if body_error:
+                return body_error
+        cursor = idx
+        last_field = field
+    tail = _reply_compact("\n".join(lines[cursor + 1:]))
+    return _section_body_error(last_field, tail)
+
+
+def _section_body_error(field: str, body: str) -> Optional[str]:
+    if field == SECTION_MUSIC:
+        if len(body) > _MUSIC_BODY_MAX:
+            return f"{field} body is too long to be a section answer"
+        return None
+    if not body:
+        return f"empty {field} body"
+    if len(body) > _section_body_limit(field):
+        return f"{field} body is too long to be a section answer"
+    return None
+
+
+def prefix_reply_structure_error(text: str) -> Optional[str]:
+    """A prefix may omit CAST. When CAST is present it must follow a
+    short style paragraph, not sit inside a thought dump.
+
+    A one-line style note may start the way other models start an
+    answer ("Okay,", "Let's"). Only a long meta opening is a thought.
+    """
+    compact = _reply_compact(text)
+    if not compact:
+        return "empty clip reply"
+    if len(compact) > _UNSTRUCTURED_MAX:
+        return f"reasoning dump, not a sectioned prompt ({len(compact)} chars)"
+    lines = (text or "").replace("\r\n", "\n").split("\n")
+    cast_at = next(
+        (i for i, ln in enumerate(lines) if ln.strip().lower().startswith("cast:")),
+        -1,
+    )
+    if cast_at < 0:
+        if len(compact) > 800 and _opens_as_thought(compact):
+            return "prefix opens with chain-of-thought"
+        return None
+    preamble = "\n".join(lines[:cast_at]).strip()
+    if len(preamble) > 1200:
+        return "CAST header is buried in a long preamble"
+    if len(_reply_compact(preamble)) > 400 and _opens_as_thought(preamble):
+        return "prefix opens with chain-of-thought"
+    return None
+
+
+def build_fallback_shot_lines(
+    schema: str,
+    manifest: Optional[list[dict]] = None,
+    spatial_layout: Optional[dict] = None,
+) -> list[str]:
+    """Plain six- or three-section clip used when the model never returns
+    a sectioned answer. Picture captions and positions stay. Speech is
+    installed later by the caller, from the locked lines.
+    """
+    subject_lines: list[str] = []
+    for item in manifest or []:
+        slot = str(item.get("slot") or "").strip() or "Subject"
+        about = _reply_compact(str(item.get("about") or ""))
+        if len(about) > 400:
+            about = about[:400].rstrip()
+        if about:
+            subject_lines.append(f"{slot}: {about}")
+    if not subject_lines:
+        subject_lines = [
+            "The characters keep the appearance already established for this clip."
+        ]
+    layout_bits = [
+        f"{name} stays {pos}"
+        for name, pos in (spatial_layout or {}).items()
+        if str(name).strip() and str(pos).strip()
+    ]
+    summary = (
+        ". ".join(layout_bits) + "."
+        if layout_bits
+        else "The scene holds the established framing."
+    )
+    detail = (
+        "[Shot 1] Wide view. The characters hold their positions. "
+        "The locked lines carry the speech."
+    )
+    sound = "Only the locked speech and the room tone of the setting."
+    if schema == SCHEMA_SIX:
+        return [
+            f"{SECTION_SUBJECT}:",
+            *subject_lines,
+            "",
+            f"{SECTION_SUMMARY}:",
+            summary,
+            "",
+            f"{SECTION_RETENTION}:",
+            "fully_preserved - face identity, fur, wardrobe, and scale.",
+            "",
+            f"{SECTION_DETAIL}:",
+            detail,
+            "",
+            f"{SECTION_SOUND}:",
+            sound,
+            "",
+            f"{SECTION_MUSIC}:",
+            DEFAULT_MUSIC_LINE,
+        ]
+    return [
+        f"{SECTION_DESCRIPTION}:",
+        detail,
+        "",
+        f"{SECTION_SOUND}:",
+        sound,
+        "",
+        f"{SECTION_MUSIC}:",
+        DEFAULT_MUSIC_LINE,
+    ]
+
+
 def split_three_sections(
     text: str,
     *,
@@ -3510,6 +3715,25 @@ _VOICE_MALE_MARKERS = (
     "father", "dad", "papa", "son", "boy", "brother", "husband", "he",
     "him", "male", "king", "prince", "uncle",
 )
+
+
+def voice_descriptor_usable(text: str) -> bool:
+    """A VOICE sheet entry is a short timbre line, not a picture caption.
+
+    A reasoning dump can place an appearance paragraph under ``VOICE:``.
+    Gluing that paragraph onto the speech tag makes the clip describe
+    the costume instead of the voice.
+    """
+    body = " ".join((text or "").split())
+    if not body or len(body) > 180:
+        return False
+    low = body.lower()
+    if any(tok in low for tok in (
+        "fur", "blazer", "anthropomorphic", "wardrobe", "tabby",
+        "patches", "muzzle", "uniform", "curly",
+    )):
+        return False
+    return True
 
 
 def default_voice_for(name: str) -> str:

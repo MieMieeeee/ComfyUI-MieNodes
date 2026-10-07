@@ -136,6 +136,32 @@ class GeneralLLMServiceConnector:
     # one (seen live: SiliconFlow DeepSeek-V4-Flash returning `OK</think>OK`),
     # so orphan closers are removed as a second pass after paired blocks.
     _ORPHAN_THINK_CLOSE_RE = re.compile(r"</think(?:ing)?>", re.IGNORECASE)
+    # An opening tag with no closer means the whole field is still the
+    # thought. Do not treat that as the answer. A closer anywhere in the
+    # text is left for ``_sanitize_response`` (the SiliconFlow shape above
+    # keeps the text on both sides of the orphan tag).
+    _UNCLOSED_THINK_RE = re.compile(
+        r"^\s*<think(?:ing)?>([\s\S]*)$",
+        re.IGNORECASE,
+    )
+    # Answer-channel vs thought-channel. These names show up across
+    # OpenAI-compatible gateways; none of them is MiniMax-specific.
+    #   reasoning_content: DeepSeek, Qwen, GLM, Kimi, MiniMax, MiMo
+    #   reasoning / reasoning_text: OpenRouter and some OpenAI gateways
+    #   reasoning_details: OpenRouter list of reasoning parts
+    #   content parts typed reasoning/thinking, or Gemini ``thought: true``
+    _REASONING_FIELDS = (
+        "reasoning_content",
+        "reasoning",
+        "reasoning_text",
+        "reasoning_details",
+    )
+    _REASONING_PART_TYPES = {
+        "reasoning",
+        "thinking",
+        "thought",
+        "reasoning_text",
+    }
 
     def _sanitize_response(self, text, preserve_thinking=False):
         """Strip `<think>` / `<thinking>` reasoning blocks from `text`.
@@ -148,9 +174,158 @@ class GeneralLLMServiceConnector:
         """
         if text is None or preserve_thinking:
             return text
+        if not isinstance(text, str):
+            return ""
         cleaned = self._THINK_BLOCK_RE.sub("", text)
         cleaned = self._ORPHAN_THINK_CLOSE_RE.sub("", cleaned)
         return cleaned.strip()
+
+    def _pop_answer_policy(self, kwargs):
+        """Response-side switches. Pop them so they never enter the payload.
+
+        ``allow_reasoning_fallback`` defaults True, which preserves the
+        older prompt-rewriter behavior. Structured callers set it False
+        on the connector (or pass the kwarg) so an empty answer stays
+        empty on every provider, not only MiniMax.
+        """
+        preserve_thinking = bool(kwargs.pop("preserve_thinking", False))
+        if "allow_reasoning_fallback" in kwargs:
+            allow_reasoning_fallback = bool(kwargs.pop("allow_reasoning_fallback"))
+        else:
+            allow_reasoning_fallback = bool(
+                getattr(self, "allow_reasoning_fallback", True)
+            )
+        return preserve_thinking, allow_reasoning_fallback
+
+    @classmethod
+    def _part_is_reasoning(cls, part):
+        if part.get("thought") is True or part.get("thoughtsContent"):
+            return True
+        ptype = str(part.get("type") or "").strip().lower()
+        if ptype in cls._REASONING_PART_TYPES:
+            return True
+        return "reason" in ptype or ptype == "thinking"
+
+    @classmethod
+    def _part_text(cls, part):
+        for key in ("text", "thinking", "reasoning", "thoughtsContent", "content"):
+            value = part.get(key)
+            if isinstance(value, str) and value:
+                return value
+        return ""
+
+    @classmethod
+    def _reasoning_value_text(cls, value):
+        if isinstance(value, str):
+            return value
+        if isinstance(value, dict):
+            return cls._part_text(value)
+        if isinstance(value, list):
+            chunks = []
+            for item in value:
+                if isinstance(item, str) and item:
+                    chunks.append(item)
+                elif isinstance(item, dict):
+                    text = cls._part_text(item)
+                    if text:
+                        chunks.append(text)
+            return "\n".join(chunks)
+        return ""
+
+    @classmethod
+    def _split_content(cls, content):
+        """Split a string or a part list into ``(answer, reasoning)``.
+
+        Reasoning parts stay out of the answer. A plain string is the
+        answer channel; inline ``<think>`` blocks are stripped later.
+        """
+        if content is None:
+            return "", ""
+        if isinstance(content, str):
+            return content, ""
+        if not isinstance(content, list):
+            return str(content), ""
+        answer_chunks = []
+        reasoning_chunks = []
+        for part in content:
+            if isinstance(part, str):
+                if part:
+                    answer_chunks.append(part)
+                continue
+            if not isinstance(part, dict):
+                continue
+            text = cls._part_text(part)
+            if not text:
+                continue
+            if cls._part_is_reasoning(part):
+                reasoning_chunks.append(text)
+            else:
+                answer_chunks.append(text)
+        return "\n".join(answer_chunks), "\n".join(reasoning_chunks)
+
+    def _message_channels(self, message):
+        """Answer text and thought text from one chat ``message`` object."""
+        if not isinstance(message, dict):
+            return "", ""
+        answer, reasoning = self._split_content(message.get("content"))
+        extra = [reasoning] if reasoning else []
+        for key in self._REASONING_FIELDS:
+            text = self._reasoning_value_text(message.get(key))
+            if text:
+                extra.append(text)
+        return answer, "\n".join(extra)
+
+    def _peel_unclosed_think(self, answer, reasoning):
+        if not isinstance(answer, str) or not answer:
+            return answer or "", reasoning or ""
+        if self._ORPHAN_THINK_CLOSE_RE.search(answer):
+            return answer, reasoning or ""
+        match = self._UNCLOSED_THINK_RE.match(answer)
+        if not match:
+            return answer, reasoning or ""
+        peeled = match.group(1).strip()
+        merged = "\n".join(bit for bit in (reasoning, peeled) if bit)
+        return "", merged
+
+    def _select_answer(
+        self,
+        answer,
+        reasoning,
+        *,
+        preserve_thinking,
+        allow_reasoning_fallback,
+        tag,
+    ):
+        """Return ``(text, saw_reasoning)``.
+
+        The answer channel wins whenever it survives sanitizing. The
+        thought channel is used only when the caller still allows that
+        fallback. The log phrase stays ``reasoning_content`` so existing
+        operators and tests match every provider's thought field.
+        """
+        answer, reasoning = self._peel_unclosed_think(answer, reasoning)
+        cleaned = self._sanitize_response(
+            answer, preserve_thinking=preserve_thinking
+        )
+        if cleaned:
+            return cleaned, bool(reasoning)
+        if reasoning and allow_reasoning_fallback:
+            mie_log(
+                f"{tag} content empty after sanitize; "
+                f"falling back to reasoning_content "
+                f"({len(reasoning)} chars)"
+            )
+            cleaned = self._sanitize_response(
+                reasoning, preserve_thinking=preserve_thinking
+            )
+            return cleaned or "", True
+        if reasoning:
+            mie_log(
+                f"{tag} content empty; ignoring "
+                f"reasoning_content ({len(reasoning)} chars)"
+            )
+            return "", True
+        return "", False
 
     @staticmethod
     def _payload_chars(payload):
@@ -207,9 +382,9 @@ class GeneralLLMServiceConnector:
         外部 caller（如 Bernini 的 ``_chat``）会再记一次合并耗时，但不会覆盖
         单次 attempt 的真实耗时——两边互补。
         """
-        # `preserve_thinking` is response-side, not payload-side; pop it
-        # before generate_payload so it cannot leak into the request body.
-        preserve_thinking = bool(kwargs.pop("preserve_thinking", False))
+        # Response-side switches. Pop before generate_payload so they
+        # cannot leak into a provider that rejects unknown fields.
+        preserve_thinking, allow_reasoning_fallback = self._pop_answer_policy(kwargs)
         payload = self.generate_payload(messages, **kwargs)
 
         headers = {
@@ -242,50 +417,33 @@ class GeneralLLMServiceConnector:
                         raise ValueError(
                             f"Unexpected response format: {type(e).__name__}. "
                             f"Response: {response.text[:200]}...")
-                    content = message.get("content") or ""
-                    cleaned = self._sanitize_response(
-                        content, preserve_thinking=preserve_thinking
+                    answer, reasoning = self._message_channels(message)
+                    cleaned, saw_reasoning = self._select_answer(
+                        answer,
+                        reasoning,
+                        preserve_thinking=preserve_thinking,
+                        allow_reasoning_fallback=allow_reasoning_fallback,
+                        tag=tag,
                     )
-                    # Reasoning models (MiniMax-M3, DeepSeek-R1 API, GLM-5.x)
-                    # emit their chain-of-thought in a separate
-                    # ``reasoning_content`` field while the real answer sits in
-                    # ``content``. Some providers (e.g. MiniMax-M3 inline mode)
-                    # instead put the whole `<think>...</think>` chain inside
-                    # ``content`` so that ``_sanitize_response`` strips it; when
-                    # that leaves ``content`` empty (chain consumed the whole
-                    # token budget before the answer), fall back to
-                    # ``reasoning_content`` so callers still get the model's
-                    # final reasoning instead of a bare empty string.
-                    if not cleaned:
-                        reasoning = message.get("reasoning_content") or ""
-                        if reasoning:
-                            mie_log(
-                                f"{tag} content empty after sanitize; "
-                                f"falling back to reasoning_content "
-                                f"({len(reasoning)} chars)"
+                    if not cleaned and not saw_reasoning:
+                        # HTTP 200 but zero usable text. finish_reason
+                        # distinguishes the two causes we have seen live:
+                        # "length" = the reasoning chain consumed the
+                        # whole max_tokens budget before the answer
+                        # started (raise the caller's budget); anything
+                        # else = provider-side empty reply.
+                        try:
+                            finish = response_data["choices"][0].get(
+                                "finish_reason"
                             )
-                            cleaned = self._sanitize_response(
-                                reasoning, preserve_thinking=preserve_thinking
-                            )
-                        else:
-                            # HTTP 200 but zero usable text. finish_reason
-                            # distinguishes the two causes we have seen live:
-                            # "length" = the reasoning chain consumed the
-                            # whole max_tokens budget before the answer
-                            # started (raise the caller's budget); anything
-                            # else = provider-side empty reply.
-                            try:
-                                finish = response_data["choices"][0].get(
-                                    "finish_reason"
-                                )
-                            except (KeyError, IndexError):
-                                finish = "<unknown>"
-                            mie_log(
-                                f"{tag} empty reply; finish_reason={finish!r} "
-                                f"(length => raise the caller's max_tokens "
-                                f"budget so reasoning cannot starve the "
-                                f"answer)"
-                            )
+                        except (KeyError, IndexError):
+                            finish = "<unknown>"
+                        mie_log(
+                            f"{tag} empty reply; finish_reason={finish!r} "
+                            f"(length => raise the caller's max_tokens "
+                            f"budget so reasoning cannot starve the "
+                            f"answer)"
+                        )
                     mie_log(
                         f"{tag} ok in {attempt_elapsed:.2f}s "
                         f"response_chars={len(cleaned or '')}"
@@ -467,6 +625,27 @@ class DeepSeekConnectorGeneral(GeneralLLMServiceConnector):
         super().__init__(self.api_url, api_token, model, **kwargs)
 
 
+def _minimax_reasoning_effort(model: str, kwargs: dict):
+    """MiniMax-only request hint. Other providers are not sent this field.
+
+    MiniMax-M3.1 thinks before ``content`` is written, and
+    ``reasoning_effort=low`` leaves the answer in ``content``.
+    ``thinking.type=disabled`` is HTTP 400 on this API. DeepSeek, Qwen,
+    GLM, Kimi, Gemini, and Claude each use a different switch; sending
+    this one to them is how a MiniMax patch breaks those calls. The
+    cross-provider guarantee is ``_select_answer``: the answer channel
+    is what callers receive, and a structured caller can refuse the
+    thought channel.
+    """
+    explicit = kwargs.get("reasoning_effort")
+    if explicit:
+        return str(explicit)
+    name = (model or "").lower().replace("_", ".")
+    if "m3.1" in name:
+        return "low"
+    return None
+
+
 class MiniMaxConnectorGeneral(StandardOpenAICompatibleConnector):
     """Standard MiniMax Open Platform connector.
 
@@ -480,6 +659,13 @@ class MiniMaxConnectorGeneral(StandardOpenAICompatibleConnector):
 
     def __init__(self, api_token, model, **kwargs):
         super().__init__(self.api_url, api_token, model, **kwargs)
+
+    def generate_payload(self, messages, **kwargs):
+        payload = super().generate_payload(messages, **kwargs)
+        effort = _minimax_reasoning_effort(self.model, kwargs)
+        if effort:
+            payload["reasoning_effort"] = effort
+        return payload
 
     def _sanitize_image_detail(self, messages):
         """Drop `detail: "auto"` from image_url parts. MiniMax rejects
@@ -503,6 +689,13 @@ class MiniMaxTokenPlanConnectorGeneral(StandardOpenAICompatibleConnector):
 
     def __init__(self, api_token, model, **kwargs):
         super().__init__(self.api_url, api_token, model, **kwargs)
+
+    def generate_payload(self, messages, **kwargs):
+        payload = super().generate_payload(messages, **kwargs)
+        effort = _minimax_reasoning_effort(self.model, kwargs)
+        if effort:
+            payload["reasoning_effort"] = effort
+        return payload
 
     def _sanitize_image_detail(self, messages):
         """Same as MiniMaxConnectorGeneral: drop `detail: "auto"`.
@@ -916,8 +1109,8 @@ class GeminiConnectorGeneral(GeneralLLMServiceConnector):
         重写 invoke 方法以处理 Gemini 特有的认证方式 (URL 参数) 和响应解析。
         日志格式与基类 ``GeneralLLMServiceConnector.invoke()`` 对齐，方便排查。
         """
-        # Same response-side flag as the base class; pop before payload build.
-        preserve_thinking = bool(kwargs.pop("preserve_thinking", False))
+        # Same answer/thought policy as the OpenAI-compatible connectors.
+        preserve_thinking, allow_reasoning_fallback = self._pop_answer_policy(kwargs)
         payload = self.generate_payload(messages, **kwargs)
         headers = {"Content-Type": "application/json"}
         # Gemini 认证方式：Token 作为 URL 参数
@@ -943,31 +1136,19 @@ class GeminiConnectorGeneral(GeneralLLMServiceConnector):
                     # 适配 Gemini 响应解析: candidates -> content -> parts -> text
                     if not response_data.get("candidates"):
                         raise ValueError(f"No candidates in response. Response: {response.text}")
-                    parts = response_data["candidates"][0]["content"]["parts"]
-                    text = parts[0].get("text", "") if parts else ""
-                    cleaned = self._sanitize_response(text, preserve_thinking=preserve_thinking)
-                    # Gemini thinking models put reasoning in parts flagged
-                    # ``thought: true`` (or with a ``thoughtsContent`` key). If
-                    # the first / non-thought text sanitizes to empty (think
-                    # chain consumed the whole budget), fall back to the first
-                    # reasoning part so callers still get the model's output.
-                    # Mirrors the OpenAI-compat ``reasoning_content`` fallback.
-                    if not cleaned:
-                        for p in parts[1:]:
-                            rtext = p.get("thoughtsContent") or (
-                                p.get("text") if p.get("thought") else ""
-                            )
-                            if rtext:
-                                mie_log(
-                                    f"{tag} content empty after sanitize; "
-                                    f"falling back to Gemini thought part "
-                                    f"({len(rtext)} chars)"
-                                )
-                                cleaned = self._sanitize_response(
-                                    rtext, preserve_thinking=preserve_thinking
-                                )
-                                if cleaned:
-                                    break
+                    parts = response_data["candidates"][0]["content"].get("parts") or []
+                    # Thinking models put the chain in parts flagged
+                    # ``thought: true``. Those parts are not the answer, even
+                    # when they are first. The fallback policy matches the
+                    # OpenAI-compatible connectors.
+                    answer, reasoning = self._split_content(parts)
+                    cleaned, _saw_reasoning = self._select_answer(
+                        answer,
+                        reasoning,
+                        preserve_thinking=preserve_thinking,
+                        allow_reasoning_fallback=allow_reasoning_fallback,
+                        tag=tag,
+                    )
                     mie_log(
                         f"{tag} ok in {attempt_elapsed:.2f}s "
                         f"response_chars={len(cleaned or '')}"

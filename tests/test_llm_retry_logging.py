@@ -183,6 +183,29 @@ def test_response_falls_back_to_reasoning_content_when_content_empty(llm_module)
     assert "response_chars=25" in joined  # len("The real enhanced prompt.")
 
 
+def test_structured_caller_ignores_reasoning_when_content_empty(llm_module):
+    captured = []
+    conn = _conn(llm_module)
+    conn.allow_reasoning_fallback = False
+    resp = MagicMock()
+    resp.status_code = 200
+    resp.json.return_value = {
+        "choices": [{
+            "message": {
+                "content": "",
+                "reasoning_content": "subject_definitions:\nthought",
+            }
+        }]
+    }
+    with patch.object(llm_module, "mie_log", side_effect=lambda m: captured.append(m)), \
+         patch("services.llm.time.sleep"), \
+         patch("services.llm.requests.post", return_value=resp), \
+         patch("services.llm.resolve_token", return_value="tok"):
+        out = conn.invoke([{"role": "user", "content": "hi"}])
+    assert out == ""
+    assert "ignoring reasoning_content" in "\n".join(captured)
+
+
 def test_response_returns_content_when_non_empty_after_sanitize(llm_module):
     """Normal case: content has a think block + real answer -> return the
     sanitized answer; reasoning_content is NOT consulted."""
@@ -245,3 +268,134 @@ def test_response_returns_empty_when_both_content_and_reasoning_empty(llm_module
         captured,
     )
     assert out == ""
+
+
+def test_reasoning_string_field_uses_the_same_fallback(llm_module):
+    """OpenRouter and some OpenAI gateways name the thought ``reasoning``,
+    not ``reasoning_content``. Default callers still receive it."""
+    captured = []
+    out = _run_with_response(
+        llm_module,
+        {
+            "choices": [{
+                "message": {
+                    "content": "",
+                    "reasoning": "Answer from the reasoning field.",
+                }
+            }]
+        },
+        captured,
+    )
+    assert out == "Answer from the reasoning field."
+    assert "falling back to reasoning_content" in "\n".join(captured)
+
+
+def test_content_parts_keep_the_text_answer(llm_module):
+    captured = []
+    out = _run_with_response(
+        llm_module,
+        {
+            "choices": [{
+                "message": {
+                    "content": [
+                        {"type": "thinking", "thinking": "SHOULD NOT BE USED"},
+                        {"type": "text", "text": "The answer paragraph."},
+                    ]
+                }
+            }]
+        },
+        captured,
+    )
+    assert out == "The answer paragraph."
+    assert "falling back" not in "\n".join(captured)
+
+
+def test_structured_caller_ignores_thought_parts_and_reasoning_field(llm_module):
+    captured = []
+    conn = _conn(llm_module)
+    conn.allow_reasoning_fallback = False
+    resp = MagicMock()
+    resp.status_code = 200
+    resp.json.return_value = {
+        "choices": [{
+            "message": {
+                "content": [
+                    {"type": "thinking", "thinking": "long chain"},
+                ],
+                "reasoning_details": [
+                    {"type": "reasoning.text", "text": "SHOULD NOT BE USED"}
+                ],
+            }
+        }]
+    }
+    with patch.object(llm_module, "mie_log", side_effect=lambda m: captured.append(m)), \
+         patch("services.llm.time.sleep"), \
+         patch("services.llm.requests.post", return_value=resp), \
+         patch("services.llm.resolve_token", return_value="tok"):
+        out = conn.invoke([{"role": "user", "content": "hi"}])
+    assert out == ""
+    assert "ignoring reasoning_content" in "\n".join(captured)
+
+
+def test_unclosed_think_is_not_a_structured_answer(llm_module):
+    conn = _conn(llm_module)
+    conn.allow_reasoning_fallback = False
+    resp = MagicMock()
+    resp.status_code = 200
+    resp.json.return_value = {
+        "choices": [{
+            "message": {"content": "<think>only the chain, no closer"}
+        }]
+    }
+    with patch.object(llm_module, "mie_log"), \
+         patch("services.llm.time.sleep"), \
+         patch("services.llm.requests.post", return_value=resp), \
+         patch("services.llm.resolve_token", return_value="tok"):
+        out = conn.invoke([{"role": "user", "content": "hi"}])
+    assert out == ""
+
+
+def _gemini_invoke(llm_module, parts, *, allow_fallback):
+    resp = MagicMock()
+    resp.status_code = 200
+    resp.json.return_value = {
+        "candidates": [{"content": {"parts": parts}}]
+    }
+    with patch.object(llm_module, "mie_log"), \
+         patch("services.llm.time.sleep"), \
+         patch("services.llm.requests.post", return_value=resp), \
+         patch("services.llm.resolve_token", return_value="tok"):
+        conn = llm_module.GeminiConnectorGeneral("tok", "gemini-test")
+        if not allow_fallback:
+            conn.allow_reasoning_fallback = False
+        return conn.invoke([{"role": "user", "content": "hi"}])
+
+
+def test_gemini_answer_part_wins_over_a_leading_thought(llm_module):
+    out = _gemini_invoke(
+        llm_module,
+        [
+            {"text": "we need to plan the scene", "thought": True},
+            {"text": "subject_definitions:\nPicture 1: a tabby."},
+        ],
+        allow_fallback=True,
+    )
+    assert out.startswith("subject_definitions:")
+
+
+def test_gemini_structured_caller_ignores_a_thought_only_reply(llm_module):
+    out = _gemini_invoke(
+        llm_module,
+        [{"text": "subject_definitions:\nthought", "thought": True}],
+        allow_fallback=False,
+    )
+    assert out == ""
+
+
+def test_gemini_default_can_fall_back_to_a_thought_part(llm_module):
+    out = _gemini_invoke(
+        llm_module,
+        [{"text": "The real enhanced prompt.", "thought": True}],
+        allow_fallback=True,
+    )
+    assert out == "The real enhanced prompt."

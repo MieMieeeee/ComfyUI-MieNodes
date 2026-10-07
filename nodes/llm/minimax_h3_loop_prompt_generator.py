@@ -126,6 +126,10 @@ try:
         append_dialogue_blocks_to_sections,
         assemble_dialogue_line_blocks,
         default_voice_for,
+        voice_descriptor_usable,
+        sectioned_reply_structure_error,
+        prefix_reply_structure_error,
+        build_fallback_shot_lines,
         split_prefix_sections,
         build_continuation_block,
         build_continuation_block_ref2v,
@@ -213,6 +217,10 @@ except ImportError:
         append_dialogue_blocks_to_sections,
         assemble_dialogue_line_blocks,
         default_voice_for,
+        voice_descriptor_usable,
+        sectioned_reply_structure_error,
+        prefix_reply_structure_error,
+        build_fallback_shot_lines,
         split_prefix_sections,
         build_continuation_block,
         build_continuation_block_ref2v,
@@ -813,9 +821,14 @@ def _caption_reply_usable(text: str) -> bool:
     if not body or len(body) > 900:
         return False
     head = body[:48].lower()
+    # Same meta openings as the shot gate, plus the polite English
+    # starters. A caption is one identity paragraph; it does not start
+    # by talking about the task. Chinese openings are included so a
+    # Qwen / DeepSeek / GLM thought is not cached as the caption.
     if head.startswith((
         "we need", "let's", "let us", "need answer", "the user",
         "i need", "first,", "okay,",
+        "我需要", "用户要求", "用户希望", "我们需要", "思考过程", "首先我",
     )):
         return False
     return True
@@ -1569,6 +1582,7 @@ class H3LoopPromptEnhancer:
         # ({"turns": []}); non-empty when JSON/span failed and the
         # caller is about to fall back to the narrator storyboard.
         self._dialogue_extract_warnings: list[str] = []
+        self._shot_fallback_notes: list[str] = []
 
     def _record_usage(self, stage: str, messages, reply: str) -> None:
         prompt_text = "\n".join(
@@ -1639,12 +1653,25 @@ class H3LoopPromptEnhancer:
             if self._timeout_override is not None:
                 self.llm.timeout = self._timeout_override
             t0 = time.perf_counter()
-            out = self.llm.invoke(
-                messages,
-                seed=seed,
-                temperature=temperature,
-                max_tokens=int(max_tokens) if max_tokens else self.max_tokens,
-            )
+            # Structured stages only accept the answer field. A thought
+            # dump must not become a prefix or a shot.
+            previous_fallback = getattr(self.llm, "allow_reasoning_fallback", None)
+            self.llm.allow_reasoning_fallback = False
+            try:
+                out = self.llm.invoke(
+                    messages,
+                    seed=seed,
+                    temperature=temperature,
+                    max_tokens=int(max_tokens) if max_tokens else self.max_tokens,
+                )
+            finally:
+                if previous_fallback is None:
+                    try:
+                        delattr(self.llm, "allow_reasoning_fallback")
+                    except AttributeError:
+                        pass
+                else:
+                    self.llm.allow_reasoning_fallback = previous_fallback
             self._record_usage(stage, messages, out or "")
             elapsed = time.perf_counter() - t0
             model_name = getattr(self.llm, "model", "?")
@@ -2167,6 +2194,13 @@ class H3LoopPromptEnhancer:
                     stage=f"prefix[attempt {attempt + 1}]",
                 )
             )
+            structure_error = prefix_reply_structure_error(raw)
+            if structure_error:
+                problems = [structure_error]
+                log_pipeline(
+                    f"prefix: rejected unusable reply ({structure_error})"
+                )
+                continue
             _, _, cast, voices = split_prefix_sections(raw)
             # prefix = paragraphs before the CAST header
             raw_lines = raw.split("\n")
@@ -2187,9 +2221,22 @@ class H3LoopPromptEnhancer:
                     problems.append("CAST sheet missing names: " + ", ".join(missing))
             if not problems:
                 return prefix_lines, cast, voices
-        raise RuntimeError(
-            f"prompt_prefix synthesis failed: {'; '.join(problems)}"
+        note = (
+            "prompt_prefix: model reply rejected; using the deterministic prefix"
         )
+        self._shot_fallback_notes.append(note)
+        log_pipeline(note + " (" + "; ".join(problems) + ")")
+        cast = {
+            name: (
+                "speaking character; keep appearance and voice "
+                "consistent across all clips"
+            )
+            for name in roster
+        }
+        return [
+            "Consistent visual style, setting and characters across "
+            "every clip of this production."
+        ], cast, {}
 
     # ------------------------------------------------------------------ #
     # Stage 0.6: image captioning (only when reference_mode != t2va and
@@ -2548,6 +2595,79 @@ class H3LoopPromptEnhancer:
     # ------------------------------------------------------------------ #
     # Stage 2, per-shot mode
     # ------------------------------------------------------------------ #
+    def _apply_locked_speech(
+        self,
+        lines_out: list[str],
+        *,
+        dialogue_lines: list[str],
+        line_speakers,
+        turn_speaker: str,
+        speaker_id_map,
+        speaker_identities,
+        first_appearance_speakers,
+        speaker_voices,
+        concept: str,
+        spatial_layout,
+        role_bindings,
+        schema: str,
+        shot: dict,
+        duration_seconds: float,
+        clip_index: int,
+    ) -> list[str]:
+        """Scrub model-written speech and install the locked lines."""
+        scrubbed_text, scrub_notes = scrub_dialogue_from_prompt_text(
+            "\n".join(lines_out), list(dialogue_lines)
+        )
+        if scrub_notes:
+            log_pipeline(
+                f"shot {shot['id']}: scrubbed model-written dialogue ("
+                + "; ".join(scrub_notes[:3])
+                + ")"
+            )
+            lines_out = scrubbed_text.split("\n")
+        voiceover = _speakers_are_voiceover(
+            list(line_speakers or []) or [turn_speaker or ""]
+        )
+        blocks = assemble_dialogue_line_blocks(
+            list(dialogue_lines),
+            line_speakers=line_speakers,
+            turn_speaker=turn_speaker or "",
+            speaker_id_map=speaker_id_map,
+            speaker_identities=speaker_identities,
+            first_appearance_speakers=first_appearance_speakers,
+            speaker_voices=speaker_voices,
+            concept=concept,
+            spatial_layout=spatial_layout,
+            role_bindings=role_bindings,
+            voiceover=voiceover,
+        )
+        lines_out = install_shot_speech(
+            lines_out,
+            blocks,
+            schema=schema,
+            spatial_layout=spatial_layout,
+            speaker_identities=speaker_identities,
+            identity_speakers=list(line_speakers or []) or [turn_speaker or ""],
+            first_appearance_speakers=first_appearance_speakers,
+            line_speakers=list(line_speakers or []),
+            stage_cues=shot.get("_stage_cues"),
+            trailing_stage=shot.get("_trailing_stage"),
+            opening_setting=shot.get("_opening_setting"),
+            duration_seconds=float(duration_seconds or 0.0),
+            clip_index=int(clip_index or 1),
+            voiceover=voiceover,
+        )
+        errors = validate_dialogue_invariantity(
+            [{"prompt": lines_out}],
+            [_DLG_DialogueTurn(speaker=turn_speaker or "", lines=list(dialogue_lines))],
+        )
+        if errors:
+            raise ValueError(
+                "dialogue invariant violated for "
+                f"{shot['id']}: {errors[0]}"
+            )
+        return lines_out
+
     def _generate_shot_prompt(
     self,
     *,
@@ -2682,6 +2802,14 @@ class H3LoopPromptEnhancer:
                 )
             )
             try:
+                fields = SIX_SECTION_FIELDS if schema == SCHEMA_SIX else (
+                    "integrated_multimodal_description",
+                    "overall_soundscape",
+                    "non_diegetic_music",
+                )
+                structure_error = sectioned_reply_structure_error(raw, fields)
+                if structure_error:
+                    raise ValueError(structure_error)
                 if schema == SCHEMA_SIX:
                     lines_out = split_six_sections(raw)
                 else:
@@ -2710,22 +2838,9 @@ class H3LoopPromptEnhancer:
                 # below is a self-check — it cannot fire by
                 # construction, but stays as the hard gate.
                 if dialogue_lines:
-                    scrubbed_text, scrub_notes = scrub_dialogue_from_prompt_text(
-                        "\n".join(lines_out), list(dialogue_lines)
-                    )
-                    if scrub_notes:
-                        log_pipeline(
-                            f"shot {shot['id']}: scrubbed model-written "
-                            "dialogue ("
-                            + "; ".join(scrub_notes[:3])
-                            + ")"
-                        )
-                        lines_out = scrubbed_text.split("\n")
-                    voiceover = _speakers_are_voiceover(
-                        list(line_speakers or []) or [turn_speaker or ""]
-                    )
-                    blocks = assemble_dialogue_line_blocks(
-                        list(dialogue_lines),
+                    lines_out = self._apply_locked_speech(
+                        lines_out,
+                        dialogue_lines=list(dialogue_lines),
                         line_speakers=line_speakers,
                         turn_speaker=turn_speaker or "",
                         speaker_id_map=speaker_id_map,
@@ -2735,55 +2850,44 @@ class H3LoopPromptEnhancer:
                         concept=concept,
                         spatial_layout=spatial_layout,
                         role_bindings=role_bindings,
-                        voiceover=voiceover,
-                    )
-                    lines_out = install_shot_speech(
-                        lines_out,
-                        blocks,
                         schema=schema,
-                        spatial_layout=spatial_layout,
-                        speaker_identities=speaker_identities,
-                        identity_speakers=list(line_speakers or [])
-                        or [turn_speaker or ""],
-                        first_appearance_speakers=first_appearance_speakers,
-                        line_speakers=list(line_speakers or []),
-                        stage_cues=shot.get("_stage_cues"),
-                        trailing_stage=shot.get("_trailing_stage"),
-                        opening_setting=shot.get("_opening_setting"),
+                        shot=shot,
                         duration_seconds=float(duration_seconds or 0.0),
                         clip_index=int(clip_index or 1),
-                        voiceover=voiceover,
                     )
-                    errors = validate_dialogue_invariantity(
-                        [{"prompt": lines_out}],
-                        [_DLG_DialogueTurn(speaker=turn_speaker or "", lines=list(dialogue_lines))],
-                    )
-                    if errors:
-                        raise ValueError(
-                            "dialogue invariant violated for "
-                            f"{shot['id']}: {errors[0]}"
-                        )
-                # Speaker-ID contract: with dialogue-as-data the tags
-                # are code-owned — every appended block carries the
-                # speaker's name, fixed (S<n>) tag, and CAST identity
-                # (first appearance only) straight from the stage-0.5
-                # turn data. The old post-hoc repair (rewriting tags the
-                # model misplaced, retrying on genderless first
-                # appearances) targeted model-written speech and is
-                # obsolete on this path; the invariant check above is
-                # the hard gate.
                 return lines_out
             except ValueError as exc:
                 last_error = exc
                 log_pipeline(f"shot {shot['id']}: parse failed ({exc}); retrying")
-        if schema == SCHEMA_SIX:
-            raise RuntimeError(
-                f"clip {shot['id']}: unparseable six-section reply after "
-                f"{1 + _PARSE_RETRIES} attempts: {last_error}"
-            )
-        raise RuntimeError(
-            f"clip {shot['id']}: unparseable three-section reply after "
-            f"{1 + _PARSE_RETRIES} attempts: {last_error}"
+        note = (
+            f"{shot['id']}: model reply rejected ({last_error}); "
+            "using captions, positions, and the locked lines"
+        )
+        self._shot_fallback_notes.append(note)
+        log_pipeline(note)
+        lines_out = build_fallback_shot_lines(
+            schema,
+            manifest=effective_manifest,
+            spatial_layout=spatial_layout,
+        )
+        if not dialogue_lines:
+            return lines_out
+        return self._apply_locked_speech(
+            lines_out,
+            dialogue_lines=list(dialogue_lines),
+            line_speakers=line_speakers,
+            turn_speaker=turn_speaker or "",
+            speaker_id_map=speaker_id_map,
+            speaker_identities=speaker_identities,
+            first_appearance_speakers=first_appearance_speakers,
+            speaker_voices=speaker_voices,
+            concept=concept,
+            spatial_layout=spatial_layout,
+            role_bindings=role_bindings,
+            schema=schema,
+            shot=shot,
+            duration_seconds=float(duration_seconds or 0.0),
+            clip_index=int(clip_index or 1),
         )
 
     # ------------------------------------------------------------------ #
@@ -3019,6 +3123,7 @@ class H3LoopPromptEnhancer:
         enhance_user_input: bool = False,
     ) -> dict:
         warnings: list[str] = []
+        self._shot_fallback_notes = []
         pacing_key = _PACING_LABEL_TO_KEY.get(
             (pacing or "").split(" - ", 1)[0].strip().lower(), "normal"
         )
@@ -3216,6 +3321,7 @@ class H3LoopPromptEnhancer:
                     )
             if turns:
                 self._dialogue_extract_warnings = []
+                self._shot_fallback_notes = []
                 # Facts gate (high-recall DETECTION, not extraction):
                 # only spend the semantic-facts call when the concept
                 # mentions picture slots or any positional language at
@@ -3655,6 +3761,12 @@ class H3LoopPromptEnhancer:
                 if not name or name in speaker_voices:
                     continue
                 v = str(llm_voices.get(name.lower()) or "").strip()
+                if v and not voice_descriptor_usable(v):
+                    log_pipeline(
+                        f"speaker voice discarded for {name}: "
+                        "not a timbre descriptor"
+                    )
+                    v = ""
                 speaker_voices[name] = v or default_voice_for(name)
             log_pipeline(
                 "speaker voice sheet: "
@@ -3965,6 +4077,8 @@ class H3LoopPromptEnhancer:
             f"{effective_total_duration}s budget), mode={gen_code}, "
             f"reference={ref_code}"
         )
+        if self._shot_fallback_notes:
+            warnings.extend(self._shot_fallback_notes)
         if warnings:
             summary_lines.append(f"Warnings ({len(warnings)}):")
             summary_lines.extend(f"  - {w}" for w in warnings)
