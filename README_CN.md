@@ -399,7 +399,7 @@
 **功能：** 用 `sk-cp-...` 密钥接入 MiniMax Token Plan / 编程包端点。
 **参数：**
 - `api_token`（str）：Token Plan 密钥，留空时使用 `mie_llm_keys.json` 里的 `minimax` 条目。
-- `model_select`：`MiniMax-M3`（默认）/ `MiniMax-M2.7` / `MiniMax-M2.7-highspeed` / `MiniMax-M2.5` / `MiniMax-M2.5-highspeed` / `Custom`。
+- `model_select`：`MiniMax-M3.1-Flash-Preview`（默认）/ `MiniMax-M3` / `MiniMax-M2.7` / `MiniMax-M2.7-highspeed` / `MiniMax-M2.5` / `MiniMax-M2.5-highspeed` / `MiniMax-M2.1` / `MiniMax-M2.1-highspeed` / `MiniMax-M2` / `Custom`。
 - `config_file` / `config_key` / `prefer_local_config`：标准配置项。
 
 MiniMax 连接器在请求前会做一次 image_detail 清洗，把 `detail: "auto"` 从 `image_url` 中去掉——MiniMax API 拒绝该值（HTTP 400）。其他 OpenAI 兼容服务（SiliconFlow、智谱、Kimi 等）不受影响。

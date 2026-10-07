@@ -200,8 +200,10 @@ https://bailian.console.aliyun.com/.
   `zai-org/GLM-5.3`, `zai-org/GLM-5.2`, `Pro/zai-org/GLM-5.1`,
   `moonshotai/Kimi-K2.7-Code`, `Qwen/Qwen3.8-27B`, `Qwen/Qwen3-VL-32B-*`
   and more (dropdown mirrors `GET /v1/models`).
-- MiniMax (both tiers, same list): `MiniMax-M3`, `MiniMax-M2.7(-highspeed)`,
+- MiniMax Token Plan default: `MiniMax-M3.1-Flash-Preview`. The dropdown
+  also keeps `MiniMax-M3`, `MiniMax-M2.7(-highspeed)`,
   `MiniMax-M2.5(-highspeed)`, `MiniMax-M2.1(-highspeed)`, `MiniMax-M2`.
+  Open Platform stays on the M2 lineup (`MiniMax-M2.7` default).
 - MiMo (both tiers): `mimo-v2.6-pro`, `mimo-v2.6-pro-ultraspeed`,
   `mimo-v2.6-flash`, `mimo-v2.5-pro`, `mimo-v2.5` (v2.5 marked
   "Offline Soon" on the product page).

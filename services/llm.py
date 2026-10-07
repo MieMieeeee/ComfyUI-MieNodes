@@ -496,8 +496,8 @@ class MiniMaxTokenPlanConnectorGeneral(StandardOpenAICompatibleConnector):
     Targets the MiniMax Token Plan endpoint with `sk-cp-...` prefixed
     API keys (the Token Plan / Coding Plan subscription). The endpoint
     URL is shared with the Open Platform for now; the key prefix is
-    what distinguishes the two billing tracks. M3 ships first on the
-    Token Plan tier.
+    what distinguishes the two billing tracks. The node default is
+    MiniMax-M3.1-Flash-Preview.
     """
     api_url = "https://api.minimaxi.com/v1/chat/completions"
 
@@ -1406,8 +1406,8 @@ class SetMiniMaxTokenPlanLLMServiceConnector(object):
     """MiniMax Token Plan / Coding Plan connector.
 
     Use this node when you have a Token Plan / Coding Plan API key
-    (`sk-cp-...` prefix). M3 is the headline model on this tier; the
-    older M2.7 / M2.5 lineup is kept for back-compat.
+    (`sk-cp-...` prefix). MiniMax-M3.1-Flash-Preview is the default;
+    M3 and the older M2 lineup stay available.
     """
 
     @classmethod
@@ -1417,6 +1417,7 @@ class SetMiniMaxTokenPlanLLMServiceConnector(object):
                 "api_token": ("STRING", {"default": ""}),
                 "model_select": (
                     [
+                        "MiniMax-M3.1-Flash-Preview",
                         "MiniMax-M3",
                         "MiniMax-M2.7",
                         "MiniMax-M2.7-highspeed",
@@ -1427,7 +1428,7 @@ class SetMiniMaxTokenPlanLLMServiceConnector(object):
                         "MiniMax-M2",
                         "Custom",
                     ],
-                    {"default": "MiniMax-M3"},
+                    {"default": "MiniMax-M3.1-Flash-Preview"},
                 ),
             },
             "optional": {
@@ -1452,7 +1453,7 @@ class SetMiniMaxTokenPlanLLMServiceConnector(object):
     def execute(self, api_token, model_select, custom_model="", config_file="mie_llm_keys.json", config_key="minimax", prefer_local_config=True):
         model = model_select if model_select != "Custom" else custom_model
         if not model:
-            model = "MiniMax-M3"
+            model = "MiniMax-M3.1-Flash-Preview"
         return (MiniMaxTokenPlanConnectorGeneral(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
 
 

@@ -400,7 +400,7 @@ To use a different config file (for example, a shared team config kept outside t
 **Function:** Connect to the MiniMax Token Plan / Coding Plan endpoint with an `sk-cp-...` prefixed key.
 **Parameters:**
 - `api_token` (str): Token Plan API key, or leave empty to use the `minimax` entry in `mie_llm_keys.json`.
-- `model_select`: `MiniMax-M3` (default), `MiniMax-M2.7`, `MiniMax-M2.7-highspeed`, `MiniMax-M2.5`, `MiniMax-M2.5-highspeed`, `Custom`.
+- `model_select`: `MiniMax-M3.1-Flash-Preview` (default), `MiniMax-M3`, `MiniMax-M2.7`, `MiniMax-M2.7-highspeed`, `MiniMax-M2.5`, `MiniMax-M2.5-highspeed`, `MiniMax-M2.1`, `MiniMax-M2.1-highspeed`, `MiniMax-M2`, `Custom`.
 - `config_file` / `config_key` / `prefer_local_config`: standard config plumbing.
 
 The MiniMax connectors share a per-connector image-detail sanitization step that drops `detail: "auto"` from `image_url` parts before sending — MiniMax rejects that value with HTTP 400. The OpenAI-compat services (SiliconFlow, ZhiPu, Kimi, etc.) are unaffected by this.

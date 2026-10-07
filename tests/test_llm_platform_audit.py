@@ -174,6 +174,16 @@ def test_zhipu_dropdowns_2026_09(llm_module, node):
     assert models == other[0]
 
 
+def test_minimax_token_plan_default_is_m31_flash_preview(llm_module):
+    models, meta = _dropdown(llm_module, "SetMiniMaxTokenPlanLLMServiceConnector")
+    assert models[0] == "MiniMax-M3.1-Flash-Preview"
+    assert "MiniMax-M3" in models
+    assert meta["default"] == "MiniMax-M3.1-Flash-Preview"
+    node = llm_module.SetMiniMaxTokenPlanLLMServiceConnector()
+    connector = node.execute(api_token="sk-cp-x", model_select="Custom", custom_model="")[0]
+    assert connector.model == "MiniMax-M3.1-Flash-Preview"
+
+
 def test_deepseek_dropdown_2026_09(llm_module):
     models, meta = _dropdown(llm_module, "SetDeepSeekLLMServiceConnector")
     # deepseek-v4-flash was renamed deepseek-flash server-side.
