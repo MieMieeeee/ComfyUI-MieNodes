@@ -785,3 +785,131 @@ def test_load_asset_batch_node_names_mismatched_picture_sizes(lib_dir):
     message = str(e.value)
     assert "Alice" in message and "Store" in message
     assert "8x6" in message and "4x2" in message
+
+
+# --------------------------------------------------------------------------- #
+# Frontend assist: dropdown payload, save-name resolution, validation exempt
+# --------------------------------------------------------------------------- #
+def test_list_assets_payload_merges_kinds_and_skip_notes(lib_dir):
+    png, wav = make_png(), make_wav()
+    library.save_character(str(lib_dir), "Alice", "red hair", "voice A", png, wav)
+    library.save_scene(str(lib_dir), "便利店", "cold light", png)
+    payload = library.list_assets_payload(str(lib_dir))
+    assert payload == {
+        "ok": True,
+        "characters": ["Alice"],
+        "scenes": ["便利店"],
+        "error": None,
+    }
+
+
+def test_list_assets_payload_empty_and_missing_library(lib_dir, tmp_path):
+    assert library.list_assets_payload(str(lib_dir)) == {
+        "ok": True, "characters": [], "scenes": [], "error": None,
+    }
+    assert library.list_assets_payload(str(tmp_path / "nope")) == {
+        "ok": True, "characters": [], "scenes": [], "error": None,
+    }
+
+
+def test_list_assets_payload_never_raises_on_bad_dir():
+    bad = library.list_assets_payload("relative/path")
+    assert bad["ok"] is False
+    assert bad["characters"] == [] and bad["scenes"] == []
+    assert "absolute" in bad["error"]
+    inside = library.list_assets_payload(str(Path(library.__file__).parent))
+    assert inside["ok"] is False
+    assert "inside the plugin folder" in inside["error"]
+
+
+def test_list_assets_payload_carries_skip_notes(lib_dir):
+    chars = lib_dir / "characters"
+    chars.mkdir(parents=True)
+    broken = chars / "broken"
+    broken.mkdir()
+    (broken / "character.json").write_text("{ nope", encoding="utf-8")
+    (broken / "portrait.png").write_bytes(make_png())
+    (broken / "voice_sample.wav").write_bytes(make_wav())
+    payload = library.list_assets_payload(str(lib_dir))
+    assert payload["ok"] is True
+    assert payload["characters"] == []
+    assert payload["error"] and "broken" in payload["error"]
+
+
+def test_resolve_save_name_sentinel_and_overwrite():
+    from nodes.assets.nodes import resolve_save_name, NEW_NAME_SENTINEL
+
+    # Sentinel + empty new_name -> actionable error, not a weird filename.
+    with pytest.raises(ValueError, match="new_name is empty"):
+        resolve_save_name(NEW_NAME_SENTINEL, "  ")
+    with pytest.raises(ValueError, match="new_name is empty"):
+        resolve_save_name(NEW_NAME_SENTINEL, "")
+    # Sentinel + new name -> the new name wins.
+    assert resolve_save_name(NEW_NAME_SENTINEL, " 虎斑 ") == "虎斑"
+    # Existing name picked from the dropdown -> explicit overwrite intent.
+    assert resolve_save_name("[角色] 夏栀", "") == "[角色] 夏栀"
+    assert resolve_save_name("夏栀", "whatever") == "夏栀"
+
+
+def test_save_character_node_resolves_new_name(lib_dir):
+    from nodes.assets.nodes import SaveCharacterAsset, NEW_NAME_SENTINEL
+
+    node = SaveCharacterAsset()
+    with pytest.raises(ValueError, match="new_name is empty"):
+        node.save_character(
+            str(lib_dir), NEW_NAME_SENTINEL, "looks", "voice",
+            png_bytes_to_image_tensor(make_png()),
+            wav_bytes_to_audio(make_wav()),
+            new_name="",
+        )
+    out = node.save_character(
+        str(lib_dir), NEW_NAME_SENTINEL, "looks", "voice",
+        png_bytes_to_image_tensor(make_png()),
+        wav_bytes_to_audio(make_wav()),
+        new_name="虎斑",
+    )
+    assert out[0] == "虎斑" and out[3] == "created"
+    assert (lib_dir / "characters" / "虎斑").is_dir()
+
+
+def test_validate_inputs_exempts_combo_membership():
+    """The anchor the whole dropdown scheme rests on: a name typed in an
+    older workflow (or fed by the frontend scan) is NOT in the class-level
+    placeholder list, and VALIDATE_INPUTS must wave it through — the
+    executor's own not-found error is the message users need."""
+    from nodes.assets import nodes as asset_nodes
+
+    for cls in (
+        asset_nodes.LoadCharacterAsset,
+        asset_nodes.LoadSceneAsset,
+        asset_nodes.SaveCharacterAsset,
+        asset_nodes.SaveSceneAsset,
+    ):
+        assert cls.VALIDATE_INPUTS("夏栀", new_name="") is True
+        assert cls.VALIDATE_INPUTS("（先填 library_dir，下拉自动出现）", new_name="") is True
+
+
+def test_name_widgets_are_combos_with_placeholder():
+    from nodes.assets import nodes as asset_nodes
+
+    for cls in (
+        asset_nodes.LoadCharacterAsset,
+        asset_nodes.LoadSceneAsset,
+        asset_nodes.SaveCharacterAsset,
+        asset_nodes.SaveSceneAsset,
+    ):
+        spec = cls.INPUT_TYPES()["required"]["name"]
+        assert isinstance(spec[0], list) and "library_dir" in spec[0][0]
+
+
+def test_save_nodes_append_new_name_last():
+    """Old workflows' widgets_values arrays are positional; new widgets must
+    come AFTER every widget that existed before."""
+    from nodes.assets import nodes as asset_nodes
+
+    order = list(asset_nodes.SaveCharacterAsset.INPUT_TYPES()["required"])
+    assert order[-1] == "new_name"
+    assert order[:4] == ["library_dir", "name", "appearance", "voice"]
+    order = list(asset_nodes.SaveSceneAsset.INPUT_TYPES()["required"])
+    assert order[-1] == "new_name"
+    assert order[:3] == ["library_dir", "name", "description"]

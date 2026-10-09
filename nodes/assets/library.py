@@ -482,6 +482,31 @@ def list_characters(library_dir, plugin_root=None):
     }
 
 
+def list_assets_payload(library_dir, plugin_root=None):
+    """One scan for the frontend dropdowns: both kinds, plus per-kind skip
+    notes. Never raises — an unusable library_dir becomes ``{"ok": False,
+    "error": ...}`` so the dropdown can show the reason instead of guessing.
+
+    Returns only names and kinds; no file contents leave the machine.
+    """
+    try:
+        chars = list_characters(library_dir, plugin_root=plugin_root)
+        scenes = list_scenes(library_dir, plugin_root=plugin_root)
+    except (ValueError, OSError) as e:
+        return {"ok": False, "characters": [], "scenes": [], "error": str(e)}
+    error_parts = []
+    if chars["status"] != "ok":
+        error_parts.append(chars["status"])
+    if scenes["status"] != "ok":
+        error_parts.append(scenes["status"])
+    return {
+        "ok": True,
+        "characters": [n for n in chars["names"].splitlines() if n],
+        "scenes": [n for n in scenes["names"].splitlines() if n],
+        "error": "; ".join(error_parts) or None,
+    }
+
+
 def _character_entry_problem(entry):
     try:
         validate_name(entry.name)

@@ -42,6 +42,13 @@ from _mienodes_internal.core.utils import add_suffix, add_emoji
 
 WEB_DIRECTORY = "./js"
 
+# Frontend-assist endpoint (POST /mie_nodes/assets/list). Needs the ComfyUI
+# server process; dev/pytest environments lack it and skip registration.
+try:
+    from _mienodes_internal.nodes.assets import server as _asset_server  # noqa: F401
+except Exception:  # pragma: no cover - only outside a ComfyUI process
+    _asset_server = None
+
 NODE_CLASS_MAPPINGS = {
     add_suffix("BatchRenameFiles"): BatchRenameFiles,
     add_suffix("BatchDeleteFiles"): BatchDeleteFiles,

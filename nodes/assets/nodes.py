@@ -23,6 +23,47 @@ except ImportError:
 
 ASSETS_CATEGORY = "🐑 MieNodes/🐑 Assets"
 
+# Combo placeholders + save-mode sentinel. The real option lists are filled
+# per node INSTANCE by js/assetLibraryUI.js from POST /mie_nodes/assets/list;
+# the class-level list is only what an un-connected node shows. Combos whose
+# real value came from there (or from an older workflow's typed name) would
+# fail the "value in class options" check, so every node below carries a
+# VALIDATE_INPUTS that lists the name inputs — execution.py:1019 skips the
+# combo check for inputs named in that signature, and the executor's own
+# not-found error is the message users actually need.
+NAME_PLACEHOLDER = ["（先填 library_dir，下拉自动出现）"]
+NEW_NAME_SENTINEL = "（✏️ 新名字…）"
+
+
+def _validate_exempt(name, **_kwargs):
+    """Exempt the combo-fed name inputs from class-level membership checks.
+
+    Pure exemption: returns True (or None) no matter what — a wrong name is
+    reported by the load/save executor with the asset's kind and the
+    absolute path, which beats a generic "value not in list" here.
+    """
+    return True
+
+
+def resolve_save_name(name, new_name):
+    """The save dropdown lists existing names plus a new-name sentinel.
+
+    Picking the sentinel means "I am creating a new asset" — the real name
+    comes from the new_name text field the frontend reveals for that
+    choice. Picking an existing name is an explicit overwrite intent.
+    """
+    name = (name or "").strip()
+    new_name = (new_name or "").strip()
+    if name == NEW_NAME_SENTINEL or (NEW_NAME_SENTINEL in (name or "")):
+        if not new_name:
+            raise ValueError(
+                "name is %r but new_name is empty: pick an existing name from "
+                "the dropdown to overwrite, or type the new asset's name in "
+                "new_name" % NEW_NAME_SENTINEL
+            )
+        return new_name
+    return name
+
 
 def image_tensor_to_png_bytes(images):
     """float32 RGB [B,H,W,3] in 0..1 -> PNG bytes. B must be exactly 1."""
@@ -134,11 +175,14 @@ class SaveCharacterAsset(object):
         return {
             "required": {
                 "library_dir": ("STRING", {"default": ""}),
-                "name": ("STRING", {"default": ""}),
+                "name": (list(NAME_PLACEHOLDER), {"default": NAME_PLACEHOLDER[0]}),
                 "appearance": ("STRING", {"default": "", "multiline": True}),
                 "voice": ("STRING", {"default": "", "multiline": True}),
                 "image": ("IMAGE",),
                 "voice_sample": ("AUDIO",),
+                # Appended LAST on purpose: older workflows' widgets_values
+                # arrays are one entry short and load positionally-safe.
+                "new_name": ("STRING", {"default": "", "placeholder": "新资产的名字"}),
             }
         }
 
@@ -151,9 +195,15 @@ class SaveCharacterAsset(object):
     def IS_CHANGED(cls, **kwargs):
         return float("nan")
 
+    @classmethod
+    def VALIDATE_INPUTS(cls, name, new_name, **kwargs):
+        return _validate_exempt(name, new_name=new_name, **kwargs)
+
     def save_character(
-        self, library_dir, name, appearance, voice, image, voice_sample
+        self, library_dir, name, appearance, voice, image, voice_sample,
+        new_name="",
     ):
+        name = resolve_save_name(name, new_name)
         png_bytes = image_tensor_to_png_bytes(image)
         wav_bytes = audio_to_wav_bytes(voice_sample)
         result = library.save_character(
@@ -179,7 +229,7 @@ class LoadCharacterAsset(object):
         return {
             "required": {
                 "library_dir": ("STRING", {"default": ""}),
-                "name": ("STRING", {"default": ""}),
+                "name": (list(NAME_PLACEHOLDER), {"default": NAME_PLACEHOLDER[0]}),
             }
         }
 
@@ -190,6 +240,10 @@ class LoadCharacterAsset(object):
     @classmethod
     def IS_CHANGED(cls, library_dir, name):
         return library.character_cache_key(library_dir, name)
+
+    @classmethod
+    def VALIDATE_INPUTS(cls, name, **kwargs):
+        return _validate_exempt(name, **kwargs)
 
     def load_character(self, library_dir, name):
         result = library.load_character(library_dir, name)
@@ -317,9 +371,11 @@ class SaveSceneAsset(object):
         return {
             "required": {
                 "library_dir": ("STRING", {"default": ""}),
-                "name": ("STRING", {"default": ""}),
+                "name": (list(NAME_PLACEHOLDER), {"default": NAME_PLACEHOLDER[0]}),
                 "description": ("STRING", {"default": "", "multiline": True}),
                 "image": ("IMAGE",),
+                # Appended LAST on purpose (see SaveCharacterAsset).
+                "new_name": ("STRING", {"default": "", "placeholder": "新资产的名字"}),
             }
         }
 
@@ -332,7 +388,12 @@ class SaveSceneAsset(object):
     def IS_CHANGED(cls, **kwargs):
         return float("nan")
 
-    def save_scene(self, library_dir, name, description, image):
+    @classmethod
+    def VALIDATE_INPUTS(cls, name, new_name, **kwargs):
+        return _validate_exempt(name, new_name=new_name, **kwargs)
+
+    def save_scene(self, library_dir, name, description, image, new_name=""):
+        name = resolve_save_name(name, new_name)
         png_bytes = image_tensor_to_png_bytes(image)
         result = library.save_scene(library_dir, name, description, png_bytes)
         picture = png_bytes_to_image_tensor(result["png_bytes"])
@@ -349,7 +410,7 @@ class LoadSceneAsset(object):
         return {
             "required": {
                 "library_dir": ("STRING", {"default": ""}),
-                "name": ("STRING", {"default": ""}),
+                "name": (list(NAME_PLACEHOLDER), {"default": NAME_PLACEHOLDER[0]}),
             }
         }
 
@@ -360,6 +421,10 @@ class LoadSceneAsset(object):
     @classmethod
     def IS_CHANGED(cls, library_dir, name):
         return library.scene_cache_key(library_dir, name)
+
+    @classmethod
+    def VALIDATE_INPUTS(cls, name, **kwargs):
+        return _validate_exempt(name, **kwargs)
 
     def load_scene(self, library_dir, name):
         result = library.load_scene(library_dir, name)
