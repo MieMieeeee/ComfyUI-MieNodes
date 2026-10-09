@@ -117,6 +117,22 @@ function wireNode(node, cfg) {
     if (!dirWidget) return;
     node.__mieAssets = { cfg, payload: null, syncing: false };
 
+    // 库目录是每台机器固定的（第六次修订）：widget 默认隐藏（仍序列化，
+    // 老工作流已填的值继续生效）。「📁 库目录」按钮显隐它并显示解析结果。
+    dirWidget.hidden = true;
+    node.addWidget("button", "📁 库目录…", null, () => {
+        dirWidget.hidden = !dirWidget.hidden;
+        const resolved = node.__mieAssets?.payload?.library_dir;
+        app.extensionManager?.toast?.add?.({
+            severity: "info",
+            summary: dirWidget.hidden ? "库目录（已隐藏）" : "库目录（可直接编辑）",
+            detail: resolved ? "当前生效: " + resolved
+                : "默认: $MIE_ASSET_LIBRARY 或 ~/mie_asset_library",
+            life: 5000,
+        });
+        node.setDirtyCanvas?.(true, true);
+    }).serialize = false;
+
     // 刷新按钮（serialize:false，位于 widgets 末尾）。
     node.addWidget("button", "🔄 刷新资产列表", null, () => {
         applyLibrary(node, { force: true });

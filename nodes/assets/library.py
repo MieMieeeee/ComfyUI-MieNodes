@@ -61,19 +61,39 @@ _WINDOWS_DEVICE_NAMES = (
 # every other character the plan rejects.
 _NAME_PATTERN = re.compile("[A-Za-z0-9_\\-\\u3400-\\u4DBF\\u4E00-\\u9FFF\\uF900-\\uFAFF]+")
 
+# The library location is FIXED per machine, not hand-typed per node (sixth
+# revision): blank library_dir resolves to $MIE_ASSET_LIBRARY when set, else
+# ~/mie_asset_library. A non-blank value still wins — it is the escape hatch
+# older workflows already depend on.
+LIBRARY_DIR_ENV = "MIE_ASSET_LIBRARY"
+
+
+def resolve_library_dir(library_dir=""):
+    """Return the effective library dir string: the given one when non-blank,
+    else the machine's fixed default ($MIE_ASSET_LIBRARY, then
+    ``~/mie_asset_library``). Pure string resolution — validation happens
+    in validate_library_dir as before."""
+    raw = "" if library_dir is None else str(library_dir).strip()
+    if raw:
+        return raw
+    env = os.environ.get(LIBRARY_DIR_ENV, "").strip()
+    if env:
+        return env
+    return os.path.join(os.path.expanduser("~"), "mie_asset_library")
+
 
 def validate_library_dir(library_dir, plugin_root=None):
     """Return the resolved library root, or raise for empty/relative/inside-plugin paths.
 
     Accepts ``str`` or ``os.PathLike`` so an already-resolved ``Path`` can be
-    re-validated (the batch loader validates once and then loops).
+    re-validated (the batch loader validates once and then loops). A BLANK
+    value is the "use the machine default" marker and resolves through
+    resolve_library_dir first.
     """
     if isinstance(library_dir, os.PathLike):
         library_dir = os.fspath(library_dir)
     if not isinstance(library_dir, str) or not library_dir.strip():
-        raise ValueError(
-            "library_dir is empty; pass an absolute path outside the plugin folder"
-        )
+        library_dir = resolve_library_dir(library_dir)
     raw = library_dir.strip()
     candidate = Path(raw)
     if not candidate.is_absolute():
@@ -490,8 +510,9 @@ def list_assets_payload(library_dir, plugin_root=None):
     Returns only names and kinds; no file contents leave the machine.
     """
     try:
-        chars = list_characters(library_dir, plugin_root=plugin_root)
-        scenes = list_scenes(library_dir, plugin_root=plugin_root)
+        root = validate_library_dir(library_dir, plugin_root=plugin_root)
+        chars = list_characters(str(root), plugin_root=plugin_root)
+        scenes = list_scenes(str(root), plugin_root=plugin_root)
     except (ValueError, OSError) as e:
         return {"ok": False, "characters": [], "scenes": [], "error": str(e)}
     error_parts = []
@@ -501,6 +522,9 @@ def list_assets_payload(library_dir, plugin_root=None):
         error_parts.append(scenes["status"])
     return {
         "ok": True,
+        # Echoed so the frontend can show WHERE the fixed library resolved
+        # to (blank library_dir = machine default).
+        "library_dir": str(root),
         "characters": [n for n in chars["names"].splitlines() if n],
         "scenes": [n for n in scenes["names"].splitlines() if n],
         "error": "; ".join(error_parts) or None,

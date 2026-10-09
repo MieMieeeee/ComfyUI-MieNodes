@@ -45,7 +45,7 @@ MieNodes 的资产库把「跨镜头要重复用的角色和场景」存成磁�
 
 **老资产的迁移**：缺 `appearance` 的 `character.json` 会**大声报错**，不会静默退回 caption。理由是：一份 plan 里同时存在「手写真相」和「机器猜的真相」，就会烧出两个互相矛盾的身份（这是 H3 管线里"钉身份"机制当初要治的 bug）。要么全手写，要么全 caption。报错文本会告诉你怎么补，补法是直接往 JSON 里加一行，或者用 `Save Character Asset` 重存一次。
 
-**库必须放在插件目录外面。** `scripts/sync_to_comfyui.py` 是镜像同步——目标端多出来的文件会被删掉。库存写在 `custom_nodes/ComfyUI-MieNodes/` 里，下一次部署同步就没了，不是被覆盖而是直接消失。代码用 `library.py` 自己的 `__file__` 往上三层定位插件根，开发仓库和部署副本共用同一条判断，不写死某台机器的路径。
+**库目录每台机器固定、不用手填**（第六次修订）：默认 `$MIE_ASSET_LIBRARY` 环境变量，未设则 `~/mie_asset_library`。所有节点上 `library_dir` 已隐藏，点「📁 库目录」按钮可查看/临时编辑（老工作流里已填的路径继续生效）。**库必须放在插件目录外面。** `scripts/sync_to_comfyui.py` 是镜像同步——目标端多出来的文件会被删掉。库存写在 `custom_nodes/ComfyUI-MieNodes/` 里，下一次部署同步就没了，不是被覆盖而是直接消失。代码用 `library.py` 自己的 `__file__` 往上三层定位插件根，开发仓库和部署副本共用同一条判断，不写死某台机器的路径。
 
 ---
 

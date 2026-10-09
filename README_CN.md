@@ -160,6 +160,8 @@
 
 7. **下拉选择，不用手打。** 所有资产节点的 `name` 都是跟随库实时刷新的下拉（内置端点 + 前端辅助）；保存节点列出已有名字和「新名字」模式，`Load Asset Batch` 每个图片槽位一个下拉。老工作流里手打名字照常工作。
 
+8. **库目录每台机器固定，不用手填。** 默认 `$MIE_ASSET_LIBRARY`，未设则 `~/mie_asset_library`；widget 已隐藏，节点上的 📁 按钮可查看/编辑。
+
 完整说明见 [`docs/ASSET_LIBRARY_GUIDE.md`](docs/ASSET_LIBRARY_GUIDE.md)。
 
 ---

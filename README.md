@@ -163,6 +163,8 @@ A reusable on-disk library for the characters and scenes you want to repeat acro
 
 7. **Dropdowns, not typing.** Every asset node's `name` is a dropdown fed live from your library (via a small built-in endpoint + frontend assist); Save nodes list existing names plus a "new name" mode, and `Load Asset Batch` shows one dropdown per picture slot. Hand-typed names in older workflows keep working.
 
+8. **One fixed library location per machine.** `library_dir` defaults to `$MIE_ASSET_LIBRARY`, then `~/mie_asset_library` — the widget is hidden; a 📁 button on each node shows/edits it.
+
 Full guide: [`docs/ASSET_LIBRARY_GUIDE.md`](docs/ASSET_LIBRARY_GUIDE.md) (中文).
 
 ---

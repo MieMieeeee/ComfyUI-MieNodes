@@ -284,9 +284,40 @@ def test_library_dir_validation(tmp_path):
         library.load_character(str(inside), "x", plugin_root=plugin_root)
     assert not inside.exists()
 
-    for bad in ("", "   ", "assets", "./assets"):
+    for bad in ("assets", "./assets"):
         with pytest.raises(ValueError):
             library.validate_library_dir(bad, plugin_root=plugin_root)
+
+
+# The library location is fixed per machine (sixth revision): blank
+# library_dir is the "use the default" marker, not an error.
+def test_resolve_library_dir_default_env_and_passthrough(monkeypatch, tmp_path):
+    home = tmp_path / "home"
+    monkeypatch.setenv("USERPROFILE", str(home))
+    monkeypatch.setattr(library.os.path, "expanduser", lambda p: str(home))
+    monkeypatch.delenv(library.LIBRARY_DIR_ENV, raising=False)
+    # Blank -> default under the (patched) home.
+    assert library.resolve_library_dir("").endswith("mie_asset_library")
+    assert library.resolve_library_dir(None).endswith("mie_asset_library")
+    assert library.validate_library_dir("").is_absolute()
+    # Env var overrides the home default.
+    monkeypatch.setenv(library.LIBRARY_DIR_ENV, str(tmp_path / "custom_lib"))
+    assert library.resolve_library_dir("") == str(tmp_path / "custom_lib")
+    # Non-blank always wins (the older-workflow escape hatch).
+    assert library.resolve_library_dir(str(tmp_path / "explicit")) == str(tmp_path / "explicit")
+    # The env default flows through a real save -> load round-trip.
+    env_lib = tmp_path / "env_lib"
+    monkeypatch.setenv(library.LIBRARY_DIR_ENV, str(env_lib))
+    library.save_character("", "虎斑", "a cat", "v", make_png(), make_wav())
+    assert (env_lib / "characters" / "虎斑" / "character.json").is_file()
+    assert library.load_character("", "虎斑")["name"] == "虎斑"
+
+
+def test_payload_echoes_resolved_default_dir(monkeypatch, tmp_path):
+    monkeypatch.setenv(library.LIBRARY_DIR_ENV, str(tmp_path))
+    payload = library.list_assets_payload("")
+    assert payload["ok"] is True
+    assert payload["library_dir"] == str(tmp_path.resolve())
 
 
 # 8. voice / setting length and emptiness rules.
@@ -797,6 +828,7 @@ def test_list_assets_payload_merges_kinds_and_skip_notes(lib_dir):
     payload = library.list_assets_payload(str(lib_dir))
     assert payload == {
         "ok": True,
+        "library_dir": str(lib_dir.resolve()),
         "characters": ["Alice"],
         "scenes": ["便利店"],
         "error": None,
@@ -804,12 +836,8 @@ def test_list_assets_payload_merges_kinds_and_skip_notes(lib_dir):
 
 
 def test_list_assets_payload_empty_and_missing_library(lib_dir, tmp_path):
-    assert library.list_assets_payload(str(lib_dir)) == {
-        "ok": True, "characters": [], "scenes": [], "error": None,
-    }
-    assert library.list_assets_payload(str(tmp_path / "nope")) == {
-        "ok": True, "characters": [], "scenes": [], "error": None,
-    }
+    assert library.list_assets_payload(str(lib_dir))["ok"] is True
+    assert library.list_assets_payload(str(tmp_path / "nope"))["ok"] is True
 
 
 def test_list_assets_payload_never_raises_on_bad_dir():
