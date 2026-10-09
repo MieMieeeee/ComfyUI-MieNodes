@@ -135,6 +135,7 @@ try:
         build_continuation_block_ref2v,
         build_prefix_user_text,
         build_reference_directive,
+        build_asset_roster_block,
         build_shot_user_text,
         build_tempo_directive,
         build_shots_digest,
@@ -176,6 +177,11 @@ try:
         _manifest_digest,
         _mode_note_for_prefix,
         parse_references_text,
+        parse_asset_roster,
+        roster_appearance_by_slot,
+        roster_bindings,
+        roster_voices,
+        roster_scene_slots,
     )
     from _mienodes_internal.nodes.llm.minimax_h3_storyboard_prompts import (
         SYSTEM_STORYBOARD_PROMPT,
@@ -226,6 +232,7 @@ except ImportError:
         build_continuation_block_ref2v,
         build_prefix_user_text,
         build_reference_directive,
+        build_asset_roster_block,
         build_shot_user_text,
         build_tempo_directive,
         build_shots_digest,
@@ -267,6 +274,11 @@ except ImportError:
         _manifest_digest,
         _mode_note_for_prefix,
         parse_references_text,
+        parse_asset_roster,
+        roster_appearance_by_slot,
+        roster_bindings,
+        roster_voices,
+        roster_scene_slots,
     )
     from .minimax_h3_storyboard_prompts import (
         SYSTEM_STORYBOARD_PROMPT,
@@ -892,6 +904,50 @@ def _write_caption_cache_disk(root: str, key: str, about: str) -> Optional[str]:
         return err
 
 
+def _emit_asset_manifest_entry(
+    *,
+    manifest: list[dict],
+    slot_n: int,
+    about: str,
+    ref_code: str,
+    warnings: list[str],
+    is_scene: bool = False,
+) -> None:
+    """Append one AUTHORED slot to the manifest.
+
+    Same slot naming as the captioned path, but the text is the asset's
+    authored description: no vision call, no caption cache, and no
+    caption-specific scrubbing — the whole point of an authored description
+    is that it reaches the prompt exactly as written.
+
+    Role: a scene slot is ``environment`` in every mode — it anchors where
+    the story happens, never a character identity, so it must not consume a
+    ``<Subject N>`` (``_identity_subject_slots`` counts identity slots
+    only). Character slots keep the captioned path's role policy.
+    """
+    if is_scene:
+        role = "environment"
+    else:
+        role = "identity" if ref_code in ("ref2va",) or slot_n == 1 else "destination"
+    manifest.append(
+        {
+            "slot": f"Picture {slot_n}",
+            "about": about,
+            "role": role,
+            "source": "asset",
+        }
+    )
+    kind = "scene" if is_scene else "character"
+    log_pipeline(
+        f"stage0.6 Picture {slot_n} supplied by the asset roster "
+        f"({kind}, {len(about)} chars, role={role}) — no vision caption call"
+    )
+    warnings.append(
+        f"asset roster: Picture {slot_n} uses the authored description from "
+        f"the {kind} asset (vision caption skipped)"
+    )
+
+
 def _emit_caption_manifest_entry(
     *,
     manifest: list[dict],
@@ -924,7 +980,9 @@ def _emit_caption_manifest_entry(
         if ref_code in ("ref2va",) or slot_n == 1
         else "destination"
     )
-    manifest.append({"slot": f"Picture {slot_n}", "about": about, "role": role})
+    manifest.append(
+        {"slot": f"Picture {slot_n}", "about": about, "role": role, "source": "caption"}
+    )
     log_pipeline(
         f"stage0.6 captioned Picture {slot_n} ({len(about)} chars, "
         f"role={role})"
@@ -2251,6 +2309,8 @@ class H3LoopPromptEnhancer:
         images: Any,
         ref_code: str,
         seed: Optional[int],
+        roster_slots: Optional[dict] = None,
+        scene_slots: Optional[set] = None,
         **kwargs: Any,
     ) -> tuple[list[dict], list[str]]:
         # ``force_recaption`` is taken from kwargs (not a typed param) so
@@ -2273,6 +2333,12 @@ class H3LoopPromptEnhancer:
             the storyboard LLM distributes the frames accordingly.
           - ref2va: every frame is active in every scene (six-section
             schema); one caption per frame in connection order.
+
+        ``roster_slots`` (``{slot: appearance}``) short-circuits the vision
+        call for those slots: the description was authored in the asset
+        library, so there is nothing to look at. Slots outside the roster
+        still go through the captioner, which is what a mixed batch (portraits
+        plus an environment reference) needs.
         """
         warnings: list[str] = []
         if ref_code == "t2va":
@@ -2281,8 +2347,21 @@ class H3LoopPromptEnhancer:
                     "reference_mode=t2va ignores the images socket; switch "
                     "to i2va / fl2va / ref2va to use images"
                 )
+            if roster_slots:
+                warnings.append(
+                    "reference_mode=t2va has no reference slots, so the "
+                    "asset roster was ignored; switch to ref2va to bind "
+                    "characters to their portraits"
+                )
             return [], warnings
         if images is None:
+            if roster_slots:
+                raise RuntimeError(
+                    "asset_roster was provided but the images socket is "
+                    "empty; connect the portraits from Load Asset Batch "
+                    "Batch to the images socket (its batch order IS the slot "
+                    "order)"
+                )
             return [], warnings
         # Single un-batched image (H,W,C): normalize to a batch of 1 —
         # mirrors core.utils.image_tensor_batch_to_data_urls, which also
@@ -2326,6 +2405,35 @@ class H3LoopPromptEnhancer:
         else:
             emit_count = used  # fl2va / ref2va: keep all (within cap)
 
+        # Reconcile the roster against the batch actually connected. A
+        # roster slot with no image behind it is the one wiring mistake
+        # that cannot be guessed around: the character would be described
+        # to the model while their portrait is missing.
+        scene_slot_nums = {int(n) for n in (scene_slots or set())}
+        authored_slots: dict = {}
+        for slot_n, about in (roster_slots or {}).items():
+            slot_n = int(slot_n)
+            if slot_n > emit_count:
+                raise RuntimeError(
+                    f"asset_roster puts a character in slot {slot_n}, but only "
+                    f"{emit_count} reference slot(s) exist for "
+                    f"reference_mode={ref_code} with the connected images "
+                    f"socket; connect the portraits from Load Asset Batch "
+                    f"Batch to the images socket (its batch order IS the slot "
+                    f"order), or trim the roster"
+                )
+            if not str(about or "").strip():
+                raise RuntimeError(
+                    f"asset_roster slot {slot_n} has an empty appearance text"
+                )
+            authored_slots[slot_n] = str(about).strip()
+        if authored_slots:
+            log_pipeline(
+                "stage0.6: asset roster covers "
+                + ", ".join(f"Picture {n}" for n in sorted(authored_slots))
+                + f"; {emit_count - len(authored_slots)} slot(s) still captioned"
+            )
+
         manifest: list[dict] = []
         caption_budget = max(
             int(self.max_tokens), _DEFAULT_MAX_TOKENS_CAPTION
@@ -2353,7 +2461,19 @@ class H3LoopPromptEnhancer:
         )
         cache_hits = 0
         cache_misses = 0
+        asset_slots = 0
         for slot_n in range(1, emit_count + 1):
+            if slot_n in authored_slots:
+                asset_slots += 1
+                _emit_asset_manifest_entry(
+                    manifest=manifest,
+                    slot_n=slot_n,
+                    about=authored_slots[slot_n],
+                    ref_code=ref_code,
+                    warnings=warnings,
+                    is_scene=slot_n in scene_slot_nums,
+                )
+                continue
             # Honour ComfyUI's interrupt between per-frame LLM calls.
             _check_interrupt(f"caption[{slot_n}]")
             slot_tensor = images[slot_n - 1 : slot_n]
@@ -2697,9 +2817,10 @@ class H3LoopPromptEnhancer:
         tempo_directive: str = "",
         speaker_identities: Optional[dict] = None,
         referenced_pictures: Optional[set] = None,
-        speaker_voices: Optional[dict] = None,
-        role_bindings: Optional[dict] = None,
-    ) -> list[str]:
+    speaker_voices: Optional[dict] = None,
+    role_bindings: Optional[dict] = None,
+    asset_roster_block: str = "",
+) -> list[str]:
         code = parse_reference_mode(mode)
         schema = schema_for_mode(mode)
         effective_manifest = list(manifest or [])
@@ -2761,6 +2882,7 @@ class H3LoopPromptEnhancer:
             tempo_directive=tempo_directive,
             speaker_voices=speaker_voices,
             role_bindings=role_bindings,
+            asset_roster_block=asset_roster_block,
         )
         # System prompt dispatch: ref2va uses the six-section addendum.
         system = (
@@ -3121,6 +3243,7 @@ class H3LoopPromptEnhancer:
         force_recaption: bool = False,
         caption_cache_scope: str = "memory_disk",
         enhance_user_input: bool = False,
+        asset_roster: str = "",
     ) -> dict:
         warnings: list[str] = []
         self._shot_fallback_notes = []
@@ -3166,6 +3289,31 @@ class H3LoopPromptEnhancer:
         for _role, _name in extract_role_bindings(idea).items():
             role_bindings[_role] = _name
 
+        # ---- Authored asset roster -------------------------------------- #
+        # Characters and scenes handed in by the asset library. Everything
+        # the roster carries is a FACT: the picture behind slot N is this
+        # character or this place, this is what they look like, this is
+        # their timbre. The pipeline therefore skips the vision caption for
+        # those slots and stops guessing identity and voice from names and
+        # captions. Scene slots are marked 'environment' in the manifest —
+        # they anchor WHERE the story happens and never get a <Subject N>.
+        roster_entries = parse_asset_roster(asset_roster)
+        roster_slot_appearances = roster_appearance_by_slot(roster_entries)
+        roster_pairs = roster_bindings(roster_entries)
+        roster_voice_map = roster_voices(roster_entries)
+        roster_scene_slot_set = roster_scene_slots(roster_entries)
+        roster_block = ""
+        if roster_entries:
+            roster_block = build_asset_roster_block(roster_entries).strip() + "\n"
+            log_pipeline(
+                "asset roster: "
+                + ", ".join(
+                    "%s %s->Picture %d"
+                    % (e["kind"], e["name"], e["slot"])
+                    for e in roster_entries
+                )
+            )
+
         # Single source of truth for the budget. 0 = auto: derived from
         # dialogue pacing + line count below.
         effective_total_duration = int(total_duration_seconds or 0)
@@ -3204,6 +3352,12 @@ class H3LoopPromptEnhancer:
             )
 
         if ref_code != "t2va" and not has_images and not (references_text or "").strip():
+            if roster_entries:
+                raise RuntimeError(
+                    "asset_roster was provided but the images socket is empty; "
+                    "connect the portraits from Load Asset Batch to "
+                    "the images socket (its batch order IS the slot order)"
+                )
             raise RuntimeError(
                 f"{ref_code} requires images on the images socket or a "
                 f"references_text manifest; provide one of them to run "
@@ -3234,6 +3388,8 @@ class H3LoopPromptEnhancer:
                     images=images,
                     ref_code=ref_code,
                     seed=seed,
+                    roster_slots=roster_slot_appearances,
+                    scene_slots=roster_scene_slot_set,
                     force_recaption=effective_force_recaption,
                     caption_cache_scope=effective_caption_cache_scope,
                 )
@@ -3244,6 +3400,8 @@ class H3LoopPromptEnhancer:
                     images=images,
                     ref_code=ref_code,
                     seed=seed,
+                    roster_slots=roster_slot_appearances,
+                    scene_slots=roster_scene_slot_set,
                 )
             warnings.extend(caption_warnings)
             if captioned_manifest:
@@ -3327,7 +3485,9 @@ class H3LoopPromptEnhancer:
                 # mentions picture slots or any positional language at
                 # all — a canonical board with neither has no facts to
                 # harvest and the regex extractors return empty anyway.
-                if _FACT_CANDIDATE_RE.search(idea):
+                # An authored roster also opens it: the board now has
+                # bound characters, so layout and kinship are worth a call.
+                if _FACT_CANDIDATE_RE.search(idea) or roster_entries:
                     log_pipeline(
                         "structured dialogue parsed deterministically "
                         f"({len(turns)} turn(s)); semantic-facts call "
@@ -3388,9 +3548,14 @@ class H3LoopPromptEnhancer:
             # call so the colour check rides the LLM-harvested bindings
             # (regex fallback when the facts came back empty).
             fact_bindings = list(semantic_facts.get("bindings") or [])
-            merged_bindings = (
-                fact_bindings or _concept_picture_bindings(idea)
-            )
+            # Roster first: it is a fact (this portrait IS this character),
+            # not a reading of prose. A name the LLM or the regex also
+            # bound keeps the roster's slot — first mention wins per name,
+            # and the roster is the earlier, harder mention.
+            merged_bindings = list(roster_pairs) + [
+                (n, s) for (n, s) in (fact_bindings or _concept_picture_bindings(idea))
+                if n not in {rn for rn, _ in roster_pairs}
+            ]
             warnings.extend(
                 _manifest_consistency_warnings(
                     idea, manifest, ref_code, bindings=merged_bindings
@@ -3753,7 +3918,8 @@ class H3LoopPromptEnhancer:
         # on the attribution line, C4 broke attribution when the
         # descriptor sat between (Sn) and the colon, C5 ignored the
         # same words written paragraphs above the block). Source order:
-        # prefix LLM's VOICE sheet, then the stable per-name heuristic.
+        # the character asset's authored voice, then the prefix LLM's VOICE
+        # sheet, then the stable per-name heuristic.
         speaker_voices: dict = {}
         if dialogue_board:
             for t in turns:
@@ -3767,7 +3933,21 @@ class H3LoopPromptEnhancer:
                         "not a timbre descriptor"
                     )
                     v = ""
-                speaker_voices[name] = v or default_voice_for(name)
+                # The asset's voice line is authored for this character and
+                # lands verbatim in front of the <d> tag, so it outranks
+                # anything the prefix LLM guessed from the name.
+                authored = str(
+                    roster_voice_map.get(name)
+                    or roster_voice_map.get(name.lower())
+                    or ""
+                ).strip()
+                if authored and v and v != authored:
+                    warnings.append(
+                        f"asset voice: {name!r} uses the authored voice from "
+                        f"the character asset instead of the prefix LLM's "
+                        f"sheet ({v!r})"
+                    )
+                speaker_voices[name] = authored or v or default_voice_for(name)
             log_pipeline(
                 "speaker voice sheet: "
                 + ", ".join(f"{n}={v}" for n, v in speaker_voices.items())
@@ -3816,11 +3996,19 @@ class H3LoopPromptEnhancer:
                     elif key not in cast:
                         cast[key] = about
                 if pinned:
+                    source = (
+                        manifest[slot - 1].get("source") or "caption"
+                    )
+                    origin = (
+                        "the character asset's authored description"
+                        if source == "asset"
+                        else "the picture's caption"
+                    )
                     note = (
                         f"identity pin: {bind_name!r} is bound to "
-                        f"Picture {slot}; CAST line replaced with the "
-                        "picture's caption (the name's literal meaning "
-                        "does not describe the reference image)"
+                        f"Picture {slot}; CAST line replaced with "
+                        f"{origin} (the name's literal meaning does not "
+                        "describe the reference image)"
                     )
                     warnings.append(note)
                     log_pipeline(note)
@@ -3936,6 +4124,7 @@ class H3LoopPromptEnhancer:
                     referenced_pictures=concept_referenced_pics,
                     speaker_voices=speaker_voices,
                     role_bindings=role_bindings,
+                    asset_roster_block=roster_block,
                 )
                 entry["prompt"] = shot_prompt
                 seen_speakers.update(
@@ -4547,4 +4736,91 @@ class MiniMaxH3LoopPromptGenerator:
             h.update(str(getattr(llm_service_connector, "api_url", "")).encode("utf-8"))
             h.update(str(getattr(llm_service_connector, "api_token", "")).encode("utf-8"))
             h.update(str(getattr(llm_service_connector, "model", "")).encode("utf-8"))
+        return h.hexdigest()
+
+
+class MiniMaxH3LoopPromptGeneratorV2(MiniMaxH3LoopPromptGenerator):
+    """The same generator, with the asset library wired in as DATA.
+
+    The single contract that separates this from V1:
+
+    * ``asset_roster`` carries each asset's name, kind (character / scene),
+      authored text and picture slot as JSON. Those are facts, so the
+      pipeline stops inferring them: no vision caption for a roster slot, no
+      CAST line invented from a name, no timbre guessed from a gender
+      keyword — and a scene slot anchors WHERE the story happens as an
+      environment reference (never a ``<Subject N>``).
+
+    ``user_input`` is therefore STORY ONLY — who is where, what happens,
+    what is said. Where the story takes place comes from the scene assets in
+    the roster, or from the prose when no scene asset is wired. Outputs are
+    byte-for-byte the same ``plan_json`` schema, so the downstream
+    Production Plan node is wired exactly as it is for V1.
+    """
+
+    CATEGORY = MY_CATEGORY
+    FUNCTION = "generate_v2"
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        # Derived from V1 rather than copied: the widget set must never
+        # drift, and a duplicated 280-line INPUT_TYPES is a drift waiting
+        # to happen.
+        spec = dict(MiniMaxH3LoopPromptGenerator.INPUT_TYPES())
+        optional = dict(spec.get("optional") or {})
+        optional["asset_roster"] = (
+            "STRING",
+            {
+                "default": "",
+                "multiline": True,
+                "tooltip": (
+                    "Authored asset roster (JSON). Connect roster_json from "
+                    "Load Asset Batch, or paste it by hand. Format: "
+                    '[{"name": ..., "kind": "character"|"scene", "slot": N}] '
+                    "plus the kind's text — characters carry appearance and "
+                    "voice, scenes carry description. slot N is that asset's "
+                    "picture position in the images batch. Roster slots skip "
+                    "the vision caption entirely (authored text reaches the "
+                    "prompt verbatim); a character's voice line outranks "
+                    "anything the model would guess, and a scene slot is an "
+                    "environment reference where the story happens."
+                ),
+            },
+        )
+        spec["optional"] = optional
+        return spec
+
+    def generate_v2(
+        self,
+        llm_service_connector,
+        *,
+        asset_roster: str = "",
+        enhance_user_input: str = _ENHANCE_USER_INPUT_LABELS[0],
+        temperature=_DEFAULT_TEMPERATURE,
+        max_tokens=_DEFAULT_MAX_TOKENS,
+        timeout=_DEFAULT_TIMEOUT,
+        **kwargs,
+    ):
+        enhancer = H3LoopPromptEnhancer(
+            llm_service_connector,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            timeout=timeout,
+        )
+        out = enhancer(
+            asset_roster=asset_roster or "",
+            enhance_user_input=parse_enhance_user_input(enhance_user_input),
+            **kwargs,
+        )
+        return (
+            out["plan_json"],
+            out["summary"],
+            out["board_kind"],
+        )
+
+    def is_changed(self, llm_service_connector, **kwargs):
+        roster = str(kwargs.pop("asset_roster", "") or "")
+        base = super().is_changed(llm_service_connector, **kwargs)
+        h = hashlib.md5(base.encode("utf-8"), usedforsecurity=False)
+        h.update(roster.encode("utf-8"))
         return h.hexdigest()

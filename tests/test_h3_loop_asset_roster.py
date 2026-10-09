@@ -1,0 +1,779 @@
+# -*- coding: utf-8 -*-
+"""Tests for the authored asset roster on the H3 Loop prompt generator.
+
+The roster is the contract between the asset library and this pipeline: a
+character's name, appearance, voice and picture slot arrive as DATA. The
+pipeline's job is then to stop guessing — no vision caption for a roster
+slot, no CAST line invented from a name, no timbre guessed from a gender
+keyword.
+
+Headline assertion (test_roster_skips_the_vision_caption_entirely): a
+fully-rostered ref2va run makes ZERO multimodal calls. Everything else
+locks the edges: mixed batches, reconciliation, voice priority, and
+byte-identical output when the roster is empty.
+"""
+import importlib.util
+import json
+import sys
+import types
+from pathlib import Path
+
+import numpy as np
+import pytest
+
+PROJECT_DIR = Path(__file__).resolve().parents[1]
+PROMPTS_DIR = PROJECT_DIR / "nodes" / "llm" / "prompts"
+LLM_DIR = PROJECT_DIR / "nodes" / "llm"
+
+
+def _ensure_pkg(fqn, path=None):
+    if fqn in sys.modules:
+        return sys.modules[fqn]
+    mod = types.ModuleType(fqn)
+    if path is not None:
+        mod.__path__ = [str(path)]
+    mod.__package__ = fqn
+    sys.modules[fqn] = mod
+    return mod
+
+
+def _load_file(fqn, path):
+    if fqn in sys.modules:
+        del sys.modules[fqn]
+    spec = importlib.util.spec_from_file_location(fqn, str(path))
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[fqn] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+@pytest.fixture(scope="module")
+def lp():
+    _ensure_pkg("_mienodes_internal", PROJECT_DIR)
+    _ensure_pkg("_mienodes_internal.core", PROJECT_DIR / "core")
+    _load_file("_mienodes_internal.core.utils", PROJECT_DIR / "core" / "utils.py")
+    _ensure_pkg("_mienodes_internal.nodes", PROJECT_DIR / "nodes")
+    _ensure_pkg("_mienodes_internal.nodes.llm", LLM_DIR)
+    _ensure_pkg("_mienodes_internal.nodes.llm.prompts", PROMPTS_DIR)
+    _load_file(
+        "_mienodes_internal.nodes.llm.prompts.loader", PROMPTS_DIR / "loader.py"
+    )
+    _load_file("_mienodes_internal.nodes.llm.h3_prompts", LLM_DIR / "h3_prompts.py")
+    _load_file(
+        "_mienodes_internal.nodes.llm.minimax_h3_storyboard_prompts",
+        LLM_DIR / "minimax_h3_storyboard_prompts.py",
+    )
+    return _load_file(
+        "_mienodes_internal.nodes.llm.minimax_h3_loop_prompts",
+        LLM_DIR / "minimax_h3_loop_prompts.py",
+    )
+
+
+@pytest.fixture(scope="module")
+def lg(lp):
+    return _load_file(
+        "_mienodes_internal.nodes.llm.minimax_h3_loop_prompt_generator",
+        LLM_DIR / "minimax_h3_loop_prompt_generator.py",
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Roster parsing (pure)
+# --------------------------------------------------------------------------- #
+def test_parse_asset_roster_orders_by_slot(lp):
+    entries = lp.parse_asset_roster(
+        json.dumps(
+            [
+                {"name": "Bob", "kind": "character",
+                 "appearance": " a man ", "voice": "low", "slot": 2},
+                {"name": "Alice", "kind": "character",
+                 "appearance": "a woman", "voice": "clear", "slot": 1},
+                {"name": "Alley", "kind": "scene",
+                 "description": "a rainy alley", "slot": 3},
+            ]
+        )
+    )
+    assert [e["name"] for e in entries] == ["Alice", "Bob", "Alley"]
+    assert entries[0]["appearance"] == "a woman"  # stripped
+    assert lp.roster_appearance_by_slot(entries) == {
+        1: "a woman", 2: "a man", 3: "a rainy alley",
+    }
+    # Scenes never feed the identity pin or the voice sheet.
+    assert lp.roster_bindings(entries) == [("Alice", 1), ("Bob", 2)]
+    assert lp.roster_voices(entries) == {"Alice": "clear", "Bob": "low"}
+    assert lp.roster_scene_slots(entries) == {3}
+
+
+def test_parse_asset_roster_empty_is_not_an_error(lp):
+    assert lp.parse_asset_roster("") == []
+    assert lp.parse_asset_roster("   \n ") == []
+
+
+@pytest.mark.parametrize(
+    "payload,message",
+    [
+        ("{ not json", "not valid JSON"),
+        ('{"name": "x"}', "must be a JSON list"),
+        ('["x"]', "must be an object"),
+        ('[{"kind": "character", "appearance": "a", "voice": "v", "slot": 1}]',
+         "non-empty 'name'"),
+        ('[{"name": "x", "voice": "v", "slot": 1, "kind": "character"}]',
+         "non-empty 'appearance'"),
+        ('[{"name": "x", "appearance": "a", "slot": 1, "kind": "character"}]',
+         "non-empty 'voice'"),
+        ('[{"name": "x", "appearance": "a", "kind": "scene"}]',
+         "non-empty 'description'"),
+        ('[{"name": "x", "appearance": "a", "voice": "v", "slot": 1}]',
+         "'kind' to be"),
+        ('[{"name": "x", "appearance": "a", "voice": "v", "slot": 1, "kind": "prop"}]',
+         "'kind' to be"),
+        ('[{"name": "x", "kind": "character", "appearance": "a", "voice": "v"}]',
+         "integer 'slot'"),
+        ('[{"name": "x", "kind": "character", "appearance": "a", "voice": "v", "slot": "1"}]',
+         "integer 'slot'"),
+        ('[{"name": "x", "kind": "character", "appearance": "a", "voice": "v", "slot": 0}]',
+         "1..9"),
+        ('[{"name": "x", "kind": "character", "appearance": "a", "voice": "v", "slot": 10}]',
+         "1..9"),
+        (
+            '[{"name": "x", "kind": "character", "appearance": "a", "voice": "v", "slot": 1},'
+            ' {"name": "x", "kind": "character", "appearance": "b", "voice": "w", "slot": 2}]',
+            "twice",
+        ),
+        (
+            '[{"name": "x", "kind": "scene", "description": "a", "slot": 1},'
+            ' {"name": "y", "kind": "scene", "description": "b", "slot": 1}]',
+            "slot 1 to both",
+        ),
+    ],
+)
+def test_parse_asset_roster_rejects_bad_shapes(lp, payload, message):
+    with pytest.raises(ValueError, match=message):
+        lp.parse_asset_roster(payload)
+
+
+def test_roster_block_names_pictures_but_never_subjects(lp):
+    """<Subject N> numbering belongs to _identity_subject_slots and the
+    reference directive; restating it here would hand the model two
+    numbering systems to reconcile."""
+    entries = lp.parse_asset_roster(
+        json.dumps([
+            {"name": "Alice", "kind": "character", "appearance": "a woman",
+             "voice": "clear", "slot": 1},
+            {"name": "Alley", "kind": "scene", "description": "a rainy alley",
+             "slot": 2},
+        ])
+    )
+    block = lp.build_asset_roster_block(entries)
+    assert "<Picture 1> is Alice: a woman" in block
+    assert "<Picture 2> is Alley (scene): a rainy alley" in block
+    assert "ENVIRONMENT reference" in block
+    assert "<Subject" not in block
+    # A scene line does not inherit the character fidelity rules.
+    char_rules = block.split("Scene roster")[0]
+    assert "wardrobe" in char_rules
+    assert "wardrobe" not in block.split("Scene roster")[1]
+
+
+def test_roster_block_is_empty_without_entries(lp):
+    assert lp.build_asset_roster_block([]) == ""
+
+
+# --------------------------------------------------------------------------- #
+# Generator E2E helpers
+# --------------------------------------------------------------------------- #
+class FakeConnector:
+    model = "fake-model"
+
+    def get_state(self):
+        return "fake-state"
+
+
+class ScriptedConnector(FakeConnector):
+    def __init__(self, replies):
+        self.replies = list(replies)
+        self.calls = []
+
+    def invoke(self, messages, *, seed=None, temperature=None, max_tokens=None):
+        self.calls.append(messages)
+        if not self.replies:
+            raise AssertionError("scripted connector exhausted")
+        return self.replies.pop(0)
+
+
+def _vision_call_count(conn):
+    """How many recorded calls carried an image (a multimodal turn)."""
+    total = 0
+    for messages in conn.calls:
+        blob = json.dumps(messages, ensure_ascii=False, default=str)
+        if "image_url" in blob:
+            total += 1
+    return total
+
+
+def _fake_images(n=1):
+    return np.zeros((n, 4, 4, 3), dtype=np.float32)
+
+
+ENV_CAPTION = (
+    "A greenhouse interior at dusk, condensation on the glass roof, rusted "
+    "shelving packed with seedling trays, wet concrete floor."
+)
+CAPTION = (
+    "A woman in a yellow courier jacket stands at a greenhouse door, "
+    "short dark hair, warm brown eyes, canvas messenger bag."
+)
+EXTRACT_DIALOGUE_EMPTY = json.dumps({"turns": []})
+# The semantic-facts gate runs only on DIALOGUE boards, so a narration
+# concept spends no extra call even when a roster is present.
+SEMANTIC_FACTS = json.dumps(
+    {"turns": [], "layout": [], "bindings": []}, ensure_ascii=False
+)
+PREFIX_REPLY = "Always the same young woman in a Jiangnan courtyard at high summer."
+
+
+def _storyboard(n=1):
+    """The storyboard LLM answers with a bare JSON array of shots."""
+    shots = []
+    for i in range(1, n + 1):
+        shots.append(
+            {
+                "id": "scene_%02d" % i,
+                "description": "Shot %d description." % i,
+                "shot_type": "medium_shot",
+                "camera_movement": "slow_push_in",
+                "transition_in": "fade_from_black" if i == 1 else "hard_cut",
+                "duration_seconds": 10,
+                "narrative_beat": "establish",
+                "characters": ["Alice"],
+                "props": [],
+                "notes": "",
+            }
+        )
+    return json.dumps(shots, ensure_ascii=False)
+
+
+def _ref2va_scene1_reply():
+    return (
+        "subject_definitions:\n"
+        "<Picture 1> defines <Subject 1>, the courier waiting by the door.\n"
+        "\n"
+        "summary:\n"
+        "[reference generation] The courier waits.\n"
+        "\n"
+        "retention_analysis:\n"
+        "<Subject 1>: fully_preserved - retain face, jacket.\n"
+        "\n"
+        "detailed_description:\n"
+        "[Shot 1] The courier stands still and looks toward the door.\n"
+        "\n"
+        "overall_soundscape:\n"
+        "Rain on glass, quiet room tone.\n"
+        "\n"
+        "non_diegetic_music:\n"
+        "No non-diegetic music.\n"
+    )
+
+
+def _ref2va_environment_second_reply():
+    return (
+        "subject_definitions:\n"
+        "<Picture 1> defines <Subject 1>, the courier waiting by the door.\n"
+        "<Picture 2> defines the greenhouse interior (environment).\n"
+        "\n"
+        "summary:\n"
+        "[reference generation] The courier waits inside the greenhouse.\n"
+        "\n"
+        "retention_analysis:\n"
+        "<Subject 1>: fully_preserved - retain face, jacket.\n"
+        "<Picture 2>: reference - environment where it happens.\n"
+        "\n"
+        "detailed_description:\n"
+        "[Shot 1] The courier stands among the seedling trays.\n"
+        "\n"
+        "overall_soundscape:\n"
+        "Rain on glass, quiet room tone.\n"
+        "\n"
+        "non_diegetic_music:\n"
+        "No non-diegetic music.\n"
+    )
+
+
+def _ref2va_two_identity_reply():
+    return (
+        "subject_definitions:\n"
+        "<Picture 1> defines <Subject 1>, the courier waiting by the door.\n"
+        "<Picture 2> defines <Subject 2>, the greenhouse keeper.\n"
+        "\n"
+        "summary:\n"
+        "[reference generation] Two people are in the greenhouse.\n"
+        "\n"
+        "retention_analysis:\n"
+        "<Subject 1>: fully_preserved - retain face, jacket.\n"
+        "<Subject 2>: fully_preserved - retain face, apron.\n"
+        "\n"
+        "detailed_description:\n"
+        "[Shot 1] The courier stands among the seedling trays.\n"
+        "\n"
+        "overall_soundscape:\n"
+        "Rain on glass, quiet room tone.\n"
+        "\n"
+        "non_diegetic_music:\n"
+        "No non-diegetic music.\n"
+    )
+
+
+def _t2va_scene_reply():
+    return (
+        "integrated_multimodal_description:\n"
+        "[Shot 1] A woman waits by a greenhouse door in the rain.\n"
+        "\n"
+        "overall_soundscape:\n"
+        "Rain on glass.\n"
+        "\n"
+        "non_diegetic_music:\n"
+        "No non-diegetic music.\n"
+    )
+
+
+def _prefix_reply_with_cast_and_voice(voice_line):
+    return (
+        "Hand-drawn 2D animation, warm greenhouse interior at dusk.\n"
+        "\n"
+        "CAST:\n"
+        "Alice: a young woman with short dark hair, wearing a navy coat.\n"
+        "\n"
+        "VOICE:\n"
+        "Alice: %s\n" % voice_line
+    )
+
+
+REF2VA = "ref2va - 参考图(N张/全场景)"
+T2VA = "t2va - 文生视频链(默认)"
+NO_CACHE = "no_cache - 禁用缓存"
+
+ALICE = {
+    "name": "Alice",
+    "kind": "character",
+    "appearance": (
+        "A young woman with short dark hair and warm brown eyes, wearing a "
+        "yellow courier jacket and a canvas messenger bag."
+    ),
+    "voice": "adult female, clear and slightly warm, mid register, unhurried",
+    "slot": 1,
+}
+STORE = {
+    "name": "Greenhouse",
+    "kind": "scene",
+    "description": "A greenhouse interior at dusk with a wet concrete floor.",
+    "slot": 2,
+}
+GUESSED_VOICE = "adult female, bright and slightly husky, mid register, fast"
+# A canonical 角色：台词 board parses deterministically. The roster opens
+# the semantic-facts gate on dialogue boards, so that reply is spent first.
+DIALOGUE_BOARD = "Alice：I'm here." + chr(10) + "Alice：I'm still here."
+
+
+def _roster(entries):
+    return json.dumps(entries, ensure_ascii=False)
+
+
+def _run(lg, conn, **kwargs):
+    return lg.H3LoopPromptEnhancer(conn)(**kwargs)
+
+
+def _shot_text(out, index=0):
+    return "\n".join(json.loads(out["plan_json"])["shots"][index]["prompt"])
+
+
+def _shot_prompts(conn):
+    """The user messages of every per-shot LLM call.
+
+    The node hands the model the authored description; what the model then
+    writes is the model's job. Asserting on the prompt is the honest
+    contract — a fake connector cannot be made to "copy" anything.
+    """
+    return [
+        json.dumps(m, ensure_ascii=False)
+        for m in conn.calls
+        if "Write this clip's prompt now" in json.dumps(m, ensure_ascii=False)
+    ]
+
+
+# --------------------------------------------------------------------------- #
+# The headline: a fully-rostered run makes no vision call at all
+# --------------------------------------------------------------------------- #
+def test_roster_skips_the_vision_caption_entirely(lg):
+    conn = ScriptedConnector([
+        EXTRACT_DIALOGUE_EMPTY,
+        _storyboard(1),
+        PREFIX_REPLY,
+        _ref2va_scene1_reply(),
+    ])
+    out = _run(
+        lg, conn,
+        user_input="Alice waits by the greenhouse door.",
+        reference_mode=REF2VA,
+        images=_fake_images(1),
+        caption_mode=NO_CACHE,
+        asset_roster=_roster([ALICE]),
+        seed=1,
+    )
+    assert _vision_call_count(conn) == 0, (
+        "a roster-covered slot must not spend a multimodal call: its "
+        "description is already authored"
+    )
+    assert len(json.loads(out["plan_json"])["shots"]) == 1
+    # The authored description is handed to the model verbatim...
+    prompts = _shot_prompts(conn)
+    assert prompts
+    for blob in prompts:
+        assert ALICE["appearance"] in blob
+    # ...and the preflight report says where that description came from.
+    assert "authored description" in out["summary"]
+
+
+def test_roster_appearance_replaces_the_manifest_caption(lg):
+    """The prefix LLM invents appearance from the NAME; the identity pin
+    overwrites it with the slot's description. With a roster that
+    description is authored, so the pin is what the model writes from."""
+    conn = ScriptedConnector([
+        EXTRACT_DIALOGUE_EMPTY,
+        _storyboard(1),
+        _prefix_reply_with_cast_and_voice(GUESSED_VOICE),
+        _ref2va_scene1_reply(),
+    ])
+    out = _run(
+        lg, conn,
+        user_input="Alice waits by the greenhouse door.",
+        reference_mode=REF2VA,
+        images=_fake_images(1),
+        caption_mode=NO_CACHE,
+        asset_roster=_roster([ALICE]),
+        seed=1,
+    )
+    prompts = _shot_prompts(conn)
+    assert prompts
+    for blob in prompts:
+        assert ALICE["appearance"] in blob
+        assert "navy coat" not in blob  # the name-derived CAST line loses
+    assert "identity pin" in out["summary"]
+    assert "character asset" in out["summary"]
+
+
+def test_mixed_batch_captions_only_the_slots_the_roster_does_not_cover(lg):
+    conn = ScriptedConnector([
+        ENV_CAPTION,  # slot 2 is outside the roster -> one vision call
+        EXTRACT_DIALOGUE_EMPTY,
+        _storyboard(1),
+        PREFIX_REPLY,
+        _ref2va_two_identity_reply(),  # slot 2 captioned => identity role
+    ])
+    out = _run(
+        lg, conn,
+        user_input="Alice waits in the greenhouse.",
+        reference_mode=REF2VA,
+        images=_fake_images(2),
+        caption_mode=NO_CACHE,
+        asset_roster=_roster([ALICE]),  # only slot 1
+        seed=1,
+    )
+    assert _vision_call_count(conn) == 1
+    blob = _shot_prompts(conn)[0]
+    assert ALICE["appearance"] in blob
+    assert ENV_CAPTION[:40] in blob
+
+
+def test_roster_slot_beyond_the_batch_fails_loudly(lg):
+    conn = ScriptedConnector([])
+    with pytest.raises(RuntimeError, match="slot 2, but only 1 reference slot"):
+        _run(
+            lg, conn,
+            user_input="Alice waits.",
+            reference_mode=REF2VA,
+            images=_fake_images(1),  # only one portrait wired
+            caption_mode=NO_CACHE,
+            asset_roster=_roster([ALICE, dict(ALICE, name="Bob", slot=2)]),
+            seed=1,
+        )
+    assert conn.calls == []
+
+
+def test_roster_without_images_fails_loudly(lg):
+    conn = ScriptedConnector([])
+    with pytest.raises(RuntimeError, match="images socket is empty"):
+        _run(
+            lg, conn,
+            user_input="Alice waits.",
+            reference_mode=REF2VA,
+            images=None,
+            asset_roster=_roster([ALICE]),
+            seed=1,
+        )
+    assert conn.calls == []
+
+
+def test_roster_under_t2va_is_reported_not_silently_dropped(lg):
+    conn = ScriptedConnector([
+        EXTRACT_DIALOGUE_EMPTY,
+        _storyboard(1),
+        PREFIX_REPLY,
+        _t2va_scene_reply(),
+    ])
+    out = _run(
+        lg, conn,
+        user_input="Alice waits by a greenhouse door.",
+        reference_mode=T2VA,
+        images=_fake_images(1),
+        asset_roster=_roster([ALICE]),
+        seed=1,
+    )
+    assert "t2va has no reference slots" in out["summary"]
+
+
+def test_malformed_roster_json_raises_before_any_llm_call(lg):
+    conn = ScriptedConnector([])
+    with pytest.raises(ValueError, match="not valid JSON"):
+        _run(
+            lg, conn,
+            user_input="x",
+            asset_roster="{ nope",
+            reference_mode=REF2VA,
+            images=_fake_images(1),
+            seed=1,
+        )
+    assert conn.calls == []
+
+
+# --------------------------------------------------------------------------- #
+# Voice priority
+# --------------------------------------------------------------------------- #
+def test_roster_voice_outranks_the_prefix_llm_sheet(lg):
+    conn = ScriptedConnector([
+        SEMANTIC_FACTS,
+        _prefix_reply_with_cast_and_voice(GUESSED_VOICE),
+        _ref2va_scene1_reply(),
+        _ref2va_scene1_reply(),  # the shot gate retries a malformed reply
+    ])
+    out = _run(
+        lg, conn,
+        # A canonical 角色：台词 board parses deterministically, so the LLM
+        # calls are the facts (which the roster opens the gate for),
+        # storyboard, prefix and the shot.
+        user_input=DIALOGUE_BOARD,
+        reference_mode=REF2VA,
+        images=_fake_images(1),
+        caption_mode=NO_CACHE,
+        asset_roster=_roster([ALICE]),
+        seed=1,
+    )
+    text = _shot_text(out)
+    assert ALICE["voice"] in text
+    assert "slightly husky" not in text
+    assert "asset voice" in out["summary"]
+
+
+def test_speaker_missing_from_the_roster_falls_back_silently(lg):
+    conn = ScriptedConnector([
+        SEMANTIC_FACTS,
+        _prefix_reply_with_cast_and_voice("adult male, low and gravelly, slow"),
+        _ref2va_scene1_reply(),
+        _ref2va_scene1_reply(),
+    ])
+    out = _run(
+        lg, conn,
+        user_input=DIALOGUE_BOARD,
+        reference_mode=REF2VA,
+        images=_fake_images(1),
+        caption_mode=NO_CACHE,
+        asset_roster=_roster([dict(ALICE, name="Bob", voice="a different voice")]),
+        seed=1,
+    )
+    assert "asset voice" not in out["summary"]
+    assert "gravelly" in _shot_text(out)
+
+
+# --------------------------------------------------------------------------- #
+# Regression anchor: an empty roster changes nothing
+# --------------------------------------------------------------------------- #
+def test_empty_roster_is_byte_identical_to_the_pre_roster_path(lg):
+    # No roster -> the vision captioner runs, so its reply leads the script.
+    replies = [
+        CAPTION,
+        EXTRACT_DIALOGUE_EMPTY,
+        _storyboard(1),
+        PREFIX_REPLY,
+        _ref2va_scene1_reply(),
+    ]
+    plain = ScriptedConnector(list(replies))
+    empty = ScriptedConnector(list(replies))
+    shared = dict(
+        user_input="Alice waits by the greenhouse door.",
+        reference_mode=REF2VA,
+        images=_fake_images(1),
+        caption_mode=NO_CACHE,
+        seed=7,
+    )
+    out_plain = _run(lg, plain, **shared)
+    out_empty = _run(lg, empty, **shared, asset_roster="")
+    assert out_empty["plan_json"] == out_plain["plan_json"]
+    assert out_empty["summary"] == out_plain["summary"]
+    # The template must not grow an empty roster section.
+    shot_calls = [
+        m for m in empty.calls
+        if "Write this clip's prompt now" in json.dumps(m, ensure_ascii=False)
+    ]
+    assert shot_calls
+    for messages in shot_calls:
+        assert "Authored character roster" not in json.dumps(
+            messages, ensure_ascii=False
+        )
+
+
+def test_scene_entry_in_roster_reaches_the_shot_prompt(lg):
+    """A scene asset in the roster is where the story happens: its
+    description reaches the clip prompt and its slot is an environment
+    reference (t2va has no picture slots, so this must use ref2va)."""
+    conn = ScriptedConnector([
+        EXTRACT_DIALOGUE_EMPTY,
+        _storyboard(1),
+        PREFIX_REPLY,
+        _ref2va_environment_second_reply(),
+    ])
+    out = _run(
+        lg, conn,
+        user_input="Alice waits in the greenhouse.",
+        reference_mode=REF2VA,
+        images=_fake_images(2),
+        caption_mode=NO_CACHE,
+        asset_roster=_roster([ALICE, STORE]),
+        seed=1,
+    )
+    prompts = _shot_prompts(conn)
+    assert prompts
+    for blob in prompts:
+        assert STORE["description"] in blob
+        assert "ENVIRONMENT reference" in blob
+    # Zero vision calls: the scene slot is authored too.
+    assert _vision_call_count(conn) == 0
+    # The scene never feeds the identity machinery.
+    assert "identity pin" not in out["summary"]
+    assert "asset voice" not in out["summary"]
+
+
+# --------------------------------------------------------------------------- #
+# V2 node shell
+# --------------------------------------------------------------------------- #
+def test_v2_node_extends_v1_widgets_without_copying_them(lg):
+    v1 = lg.MiniMaxH3LoopPromptGenerator.INPUT_TYPES()
+    v2 = lg.MiniMaxH3LoopPromptGeneratorV2.INPUT_TYPES()
+    assert set(v1) == set(v2)
+    assert set(v1["required"]) == set(v2["required"])
+    for key, spec in v1["optional"].items():
+        assert v2["optional"][key] == spec, key
+    assert "asset_roster" in v2["optional"]
+    assert "scene_setting" not in v2["optional"]
+    assert v2["optional"]["asset_roster"][1]["multiline"] is True
+    # Outputs are the same schema, so the downstream Plan node is unchanged.
+    assert (
+        lg.MiniMaxH3LoopPromptGeneratorV2.RETURN_TYPES
+        == lg.MiniMaxH3LoopPromptGenerator.RETURN_TYPES
+    )
+    assert (
+        lg.MiniMaxH3LoopPromptGeneratorV2.RETURN_NAMES
+        == lg.MiniMaxH3LoopPromptGenerator.RETURN_NAMES
+    )
+
+
+def test_v2_is_changed_tracks_the_roster(lg):
+    node = lg.MiniMaxH3LoopPromptGeneratorV2()
+    conn = FakeConnector()
+    base = dict(user_input="x", seed=1, reference_mode=REF2VA)
+    a = node.is_changed(conn, asset_roster=_roster([ALICE]), **base)
+    b = node.is_changed(conn, asset_roster=_roster([ALICE]), **base)
+    c = node.is_changed(
+        conn, asset_roster=_roster([dict(ALICE, voice="a different voice")]), **base
+    )
+    d = node.is_changed(conn, asset_roster="", **base)
+    assert a == b
+    assert a != c and a != d
+
+
+# --------------------------------------------------------------------------- #
+# Template regression: an empty roster renders the PRE-ROSTER template
+# --------------------------------------------------------------------------- #
+# The only shot-template change was: the blank line between {concept} and
+# the prefix became {asset_roster_block}. An empty roster block must
+# therefore reproduce the b1df1f6 template byte-for-byte — the blank line
+# is the empty substitution, not a removed line. Frozen here so a future
+# template edit cannot silently change V1's prompt shape.
+_B1DF1F6_SHOT_USER_TEMPLATE = """Concept (whole production):
+{concept}
+
+Shared identity / style prefix (binding for every clip):
+{prompt_prefix}
+
+Spatial layout for THIS clip (binding — must match the prefix above and must be preserved exactly from any prior clip that named these positions):
+{spatial_layout_directive}
+
+{tempo_directive}
+
+{genre_advice}
+
+{continuation_block}
+
+Cast on screen in THIS clip (identity binding — weave each member's exact identity into the description, using these exact names):
+{cast_block}
+
+Cast block rule: copy each named character's CAST identity line
+VERBATIM into this clip's integrated_multimodal_description. Do not
+paraphrase ("navy wool coat" must not become "dark jacket"); the model
+treats paraphrases as different subjects. Wardrobe is described as a
+`color + material + item` triple (e.g. `mustard-yellow waterproof
+jacket, dark teal trousers, charcoal helmet, olive messenger bag`) —
+see official H3 example_workflows `I2V Normal - MiniMax H3 0.6.json`
+shot 0 for the canonical wording.
+
+Storyboard entry for THIS clip (clip {clip_index} of {clip_count}):
+{shot_json}
+
+{reference_directive}
+
+Reference manifest (binding):
+{manifest_digest}
+
+Dialogue lines for this shot (turn {turn_index}, speaker {turn_speaker}):
+{dialogue_lines_block}
+{speaker_id_directive}
+Clip duration: {duration_seconds:.1f} seconds (exact raw length on the H3 grid). Output language: {language_name}.
+Language policy: narrative prose follows {language_name}. {dialogue_language_policy}
+
+{pacing_directive}
+
+Write this clip's prompt now: exactly the three bare-header sections, nothing else.
+"""
+
+
+def test_empty_roster_template_is_byte_identical_to_pre_roster(lp, monkeypatch):
+    """The shot template's ONLY roster hook is the former blank line.
+
+    Substituting an empty roster block must yield the b1df1f6 template
+    exactly. This is the honest version of the "V1 unchanged" claim: the
+    template rendering is locked byte-for-byte; what IS different for all
+    generations (documented in the guide) is two shared system prompts'
+    wording.
+    """
+    from pathlib import Path
+
+    current = Path(
+        lp.__file__ if hasattr(lp, "__file__") else "."
+    )
+    template_path = (
+        PROJECT_DIR / "nodes" / "llm" / "prompts" / "h3_loop" / "shot_user_template.txt"
+    )
+    new_text = template_path.read_text(encoding="utf-8")
+    substituted = new_text.replace("{asset_roster_block}", "")
+    assert substituted == _B1DF1F6_SHOT_USER_TEMPLATE, (
+        "the shot template changed beyond the single roster hook; V1's "
+        "prompt shape for roster-less runs is no longer byte-identical"
+    )

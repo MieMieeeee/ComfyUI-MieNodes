@@ -1,6 +1,6 @@
 Concept (whole production):
 {concept}
-
+{asset_roster_block}
 Shared identity / style prefix (binding for every clip):
 {prompt_prefix}
 

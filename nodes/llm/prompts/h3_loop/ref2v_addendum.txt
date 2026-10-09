@@ -19,11 +19,13 @@ non_diegetic_music:
   - Bind each <Subject N> to its manifest Picture slot (deterministic;
     do NOT invent extra subjects). Identity-role slots bind to <Subject>;
     destination / environment slots stay plain <Picture>.
-  - Restate the about text for each Picture / Subject slot. Caption
-    fidelity: copy the caption's FACTS exactly — add NO wardrobe,
-    feature, or colour the caption does not state (no invented
-    trousers on a bare-paws subject, no new eye colour), and drop
-    nothing the caption states.
+  - Restate the about text for each Picture / Subject slot. Slot
+    fidelity: copy the description's FACTS exactly — add NO wardrobe,
+    feature, or colour it does not state (no invented trousers on a
+    bare-paws subject, no new eye colour), and drop nothing it
+    states. The description comes either from an authored roster line
+    or from the picture caption; both are ground truth, and an
+    authored roster line outranks the caption.
   - Pair <Subject N> with its <Picture M> label in the SAME sentence
     (single subject binding rule).
 - summary:

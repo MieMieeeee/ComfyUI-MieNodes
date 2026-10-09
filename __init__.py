@@ -15,7 +15,7 @@ from _mienodes_internal.nodes.common import ShowAnythingMie, ShowAndSaveAnything
 from _mienodes_internal.nodes.files import BatchRenameFiles, BatchDeleteFiles, BatchEditTextFiles, BatchSyncImageCaptionFiles, \
     SummaryTextFiles, BatchConvertImageFiles, DedupImageFiles, ModelDownloader, HFRepoDownloader
 from _mienodes_internal.nodes.llm import TextTranslator, PromptGenerator, KontextPromptGenerator, AddUserKontextPreset, RemoveUserKontextPreset, \
-    FrameTransitionPromptGenerator, HunyuanVideoI2VPromptGenerator, HunyuanVideoT2VPromptGenerator, ZImagePromptGenerator, Flux2PromptGenerator, FluxKleinT2VPromptGenerator, LTX2PromptGenerator, BerniniPromptGenerator, Ideogram4PromptGenerator, CustomSystemPromptGenerator, AddCustomSystemPrompt, RemoveCustomSystemPrompt, Scail2PromptGenerator, Krea2PromptGenerator, MiniMaxH3PromptGenerator, LTX25PromptGenerator, MiniMaxH3StoryboardGenerator, MiniMaxH3LoopPromptGenerator, MiniMaxH3LoopUserInputEnhancer, QwenImage21PromptGenerator
+    FrameTransitionPromptGenerator, HunyuanVideoI2VPromptGenerator, HunyuanVideoT2VPromptGenerator, ZImagePromptGenerator, Flux2PromptGenerator, FluxKleinT2VPromptGenerator, LTX2PromptGenerator, BerniniPromptGenerator, Ideogram4PromptGenerator, CustomSystemPromptGenerator, AddCustomSystemPrompt, RemoveCustomSystemPrompt, Scail2PromptGenerator, Krea2PromptGenerator, MiniMaxH3PromptGenerator, LTX25PromptGenerator, MiniMaxH3StoryboardGenerator, MiniMaxH3LoopPromptGenerator, MiniMaxH3LoopPromptGeneratorV2, MiniMaxH3LoopUserInputEnhancer, QwenImage21PromptGenerator
 from _mienodes_internal.services.llm import SetGeneralLLMServiceConnector, SetSiliconFlowLLMServiceConnector, \
     SetZhiPuLLMServiceConnector, SetZhiPuCodeLLMServiceConnector, SetKimiLLMServiceConnector, \
     SetDeepSeekLLMServiceConnector, SetGeminiLLMServiceConnector, SetBailianLLMServiceConnector, \
@@ -105,6 +105,7 @@ NODE_CLASS_MAPPINGS = {
     add_suffix("LTX25PromptGenerator"): LTX25PromptGenerator,
     add_suffix("MiniMaxH3StoryboardGenerator"): MiniMaxH3StoryboardGenerator,
     add_suffix("MiniMaxH3LoopPromptGenerator"): MiniMaxH3LoopPromptGenerator,
+    add_suffix("MiniMaxH3LoopPromptGeneratorV2"): MiniMaxH3LoopPromptGeneratorV2,
     add_suffix("MiniMaxH3LoopUserInputEnhancer"): MiniMaxH3LoopUserInputEnhancer,
     add_suffix("QwenImage21PromptGenerator"): QwenImage21PromptGenerator,
     add_suffix("GetAbsolutePath"): GetAbsolutePath,
@@ -252,6 +253,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     add_suffix("LTX25PromptGenerator"): add_emoji("LTX2.5 Prompt Generator"),
     add_suffix("MiniMaxH3StoryboardGenerator"): add_emoji("MiniMax H3 Storyboard Generator"),
     add_suffix("MiniMaxH3LoopPromptGenerator"): add_emoji("MiniMax H3 Loop Plan Generator"),
+    add_suffix("MiniMaxH3LoopPromptGeneratorV2"): add_emoji("MiniMax H3 Loop Plan Generator V2"),
     add_suffix("MiniMaxH3LoopUserInputEnhancer"): add_emoji("MiniMax H3 Loop User Input Enhancer"),
     add_suffix("QwenImage21PromptGenerator"): add_emoji("Qwen-Image-2.1 Prompt Generator"),
     add_suffix("GetAbsolutePath"): add_emoji("Get Absolute Path"),

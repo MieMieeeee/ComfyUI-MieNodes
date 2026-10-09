@@ -487,6 +487,194 @@ def validate_manifest(manifest: list[dict], mode: str) -> list[str]:
 
 
 # --------------------------------------------------------------------------- #
+# Asset roster (authored characters & scenes handed in by the asset library)
+# --------------------------------------------------------------------------- #
+def parse_asset_roster(raw: str) -> list[dict]:
+    """Parse the ``asset_roster`` JSON string into validated entries.
+
+    The roster is DATA, not prose: it is the one place where a character's
+    name, appearance and voice — and a scene's name and description — are
+    facts rather than something the pipeline guesses from a caption or from
+    the spelling of a name. Every shape problem raises, because a
+    silently-dropped entry would shift the picture slot of every asset
+    after it.
+
+    Each entry is ``{"name": str, "kind": "character"|"scene", "slot": int}``
+    plus the kind's text: characters carry ``appearance`` and ``voice``,
+    scenes carry ``description``. ``slot`` is the 1-based position of the
+    asset's picture in the IMAGE batch.
+    """
+    text = (raw or "").strip()
+    if not text:
+        return []
+    try:
+        payload = json.loads(text)
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise ValueError(
+            "asset_roster is not valid JSON: %s; expected a list of "
+            '{"name": ..., "kind": "character"|"scene", "slot": N} objects '
+            "— connect roster_json from Load Asset Batch, or write the JSON "
+            "by hand" % exc
+        ) from exc
+    if not isinstance(payload, list):
+        raise ValueError(
+            "asset_roster must be a JSON list of asset objects, got %s"
+            % type(payload).__name__
+        )
+    entries: list[dict] = []
+    seen_names: set = set()
+    seen_slots: dict = {}
+    for index, item in enumerate(payload, 1):
+        if not isinstance(item, dict):
+            raise ValueError(
+                "asset_roster entry %d must be an object, got %s"
+                % (index, type(item).__name__)
+            )
+        name = item.get("name")
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError(
+                "asset_roster entry %d has no non-empty 'name'" % index
+            )
+        name = name.strip()
+        kind = item.get("kind")
+        if kind not in ("character", "scene"):
+            raise ValueError(
+                "asset_roster entry %d (%r) needs 'kind' to be 'character' or "
+                "'scene', got %r" % (index, name, kind)
+            )
+        fields = (
+            ("appearance", "voice") if kind == "character" else ("description",)
+        )
+        entry = {"name": name, "kind": kind}
+        for field in fields:
+            value = item.get(field)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(
+                    "asset_roster entry %d (%r, %s) has no non-empty %r; the "
+                    "text fields are authored English inserted verbatim into "
+                    "the prompt" % (index, name, kind, field)
+                )
+            entry[field] = value.strip()
+        slot = item.get("slot")
+        if isinstance(slot, bool) or not isinstance(slot, int):
+            raise ValueError(
+                "asset_roster entry %d (%r) needs an integer 'slot', got %r"
+                % (index, name, slot)
+            )
+        if not 1 <= slot <= MAX_MANIFEST_PICTURES:
+            raise ValueError(
+                "asset_roster entry %d (%r) has slot %d; a slot must be 1..%d "
+                "and must match the asset's position in the images batch"
+                % (index, name, slot, MAX_MANIFEST_PICTURES)
+            )
+        if name in seen_names:
+            raise ValueError(
+                "asset_roster lists %r twice; one asset occupies one slot"
+                % name
+            )
+        if slot in seen_slots:
+            raise ValueError(
+                "asset_roster gives slot %d to both %r and %r"
+                % (slot, seen_slots[slot], name)
+            )
+        seen_names.add(name)
+        seen_slots[slot] = name
+        entry["slot"] = slot
+        entries.append(entry)
+    entries.sort(key=lambda e: e["slot"])
+    return entries
+
+
+def roster_appearance_by_slot(entries: list) -> dict:
+    """``{slot: text}`` — the authored text that replaces the vision caption,
+    characters and scenes alike."""
+    out: dict = {}
+    for e in entries:
+        text = e.get("appearance") if e.get("kind") == "character" else e.get("description")
+        if text:
+            out[int(e["slot"])] = str(text)
+    return out
+
+
+def roster_bindings(entries: list) -> list:
+    """``[(name, slot)]`` for CHARACTERS only, in slot order.
+
+    Scenes are excluded on purpose: bindings feed the identity pin, and
+    pinning an environment onto a CAST line is exactly the wrong thing."""
+    return [
+        (str(e["name"]), int(e["slot"]))
+        for e in entries
+        if e.get("kind") == "character"
+    ]
+
+
+def roster_voices(entries: list) -> dict:
+    """``{name: voice}`` for CHARACTERS only — scenes do not speak."""
+    return {
+        str(e["name"]): str(e["voice"])
+        for e in entries
+        if e.get("kind") == "character"
+    }
+
+
+def roster_scene_slots(entries: list) -> set:
+    """``{slot}`` of scene entries — the picture slots the manifest marks
+    ``environment`` rather than ``identity``."""
+    return {int(e["slot"]) for e in entries if e.get("kind") == "scene"}
+
+
+def build_asset_roster_block(entries: list) -> str:
+    """Render the authored roster as a deterministic prompt block.
+
+    Only ``<Picture N>`` is named here. ``<Subject N>`` numbering is derived
+    from the identity slots of the manifest (``_identity_subject_slots``) and
+    the reference directive already prints it; restating it here would hand
+    the model two numbering systems to reconcile. Characters and scenes get
+    SEPARATE rule paragraphs: the fidelity rule for a character forbids
+    inventing wardrobe, which would be nonsense advice for a place.
+    """
+    characters = [e for e in entries if e.get("kind") == "character"]
+    scenes = [e for e in entries if e.get("kind") == "scene"]
+    lines: list[str] = []
+    if characters:
+        lines.append(
+            "Authored character roster (binding — ground truth, not a guess):"
+        )
+        for entry in characters:
+            lines.append(
+                "  <Picture %d> is %s: %s"
+                % (int(entry["slot"]), entry["name"], entry["appearance"])
+            )
+        lines.append("")
+        lines.append(
+            "Character roster rules: copy each character's description "
+            "EXACTLY — add no wardrobe, feature or colour it does not state, "
+            "and drop nothing it states. A character's appearance comes only "
+            "from their line above, never from what their name suggests."
+        )
+    if scenes:
+        if lines:
+            lines.append("")
+        lines.append(
+            "Scene roster (binding — this is where the production happens; "
+            "each picture is an ENVIRONMENT reference, not a character):"
+        )
+        for entry in scenes:
+            lines.append(
+                "  <Picture %d> is %s (scene): %s"
+                % (int(entry["slot"]), entry["name"], entry["description"])
+            )
+        lines.append("")
+        lines.append(
+            "Scene roster rules: copy each scene's description exactly — the "
+            "space, its contents, its light. A scene picture is referenced "
+            "as a plain <Picture N> for where the action takes place; it "
+            "never carries a subject binding."
+        )
+    return "\n".join(lines)
+
+
+# --------------------------------------------------------------------------- #
 # Label policy per reference mode (validator: errors, not warnings)
 # --------------------------------------------------------------------------- #
 def _shot_texts(plan: dict) -> list[str]:
@@ -3442,6 +3630,7 @@ def build_shot_user_text(
     tempo_directive: str = "",
     speaker_voices: Optional[dict] = None,
     role_bindings: Optional[dict] = None,
+    asset_roster_block: str = "",
 ) -> str:
     # ``duration_seconds`` should be the clip's ACTUAL grid-rounded length
     # (``length_to_seconds(length)``) so the pacing budget matches what H3
@@ -3536,6 +3725,7 @@ def build_shot_user_text(
         language_name=language_name,
         dialogue_language_policy=build_dialogue_language_policy(dialogue_lines),
         reference_directive=(reference_directive or "").strip(),
+        asset_roster_block=(asset_roster_block or "").strip(),
         manifest_digest=(manifest_digest or "no reference images").strip(),
         cast_block=(cast_block or "(none named)").strip(),
         turn_index=t_idx,
