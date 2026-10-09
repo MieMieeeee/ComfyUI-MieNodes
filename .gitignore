@@ -19,6 +19,7 @@ debug_logs/
 
 __pycache__/
 .pytest_tmp/
+output/
 findings.md
 progress.md
 review_task.md

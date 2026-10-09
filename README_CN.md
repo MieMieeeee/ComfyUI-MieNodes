@@ -145,6 +145,23 @@
 
 ---
 
+### 资产库功能
+
+一套可复用的角色与场景磁盘库，把跨镜头要重复使用的材料存下来：
+
+1. **Save / Load / List Character Asset** — 角色资产是名字、一句人物描述、一句音色描述、恰好一张定妆图和一段音色样本（`characters/<名字>/character.json` + `portrait.png` + `voice_sample.wav`）。`Load` 返回名字、音色和人物描述（`STRING`）、定妆图（`IMAGE`）和音色样本（`AUDIO`）。两个 text 字段都是**英文、原样注入**，不过任何翻译——改角色就是改文件，不用重跑模型。手工放进一个 `voice_sample.mp3` 也可以（用 `soundfile` 解码）；但 `.wav` 和 `.mp3` 同时存在会报错。
+1b. **Load Asset Batch** — 一次读多个资产（角色和场景混装），把图片按顺序拼成一个 `IMAGE` 批次，另出一个 `roster_json` 记录哪个资产占哪个槽位、是什么类型（`character` / `scene`）。缺任何一个就报错而不是跳过——跳过会让后面所有槽位整体错位；同名同时存在角色和场景也会报错。
+2. **Save / Load / List Scene Asset** — 场景资产是名字、一句手写英文描述和一张场景图（`scenes/<名字>/scene.json` + `scene.png`）。`Load` 返回名字和描述（`STRING`）与场景图（`IMAGE`）。场景是「角色减去音色」：同一套图 + 手写描述的形状，锚定「故事发生在哪里」。
+3. `library_dir` 必须是**插件目录之外的绝对路径** —— 插件目录在部署时会被镜像同步，写在里面的库文件会被删掉。空串、相对路径、插件目录内的路径都会被拒绝。
+4. 同名保存就是**覆盖**（`status` 输出区分 `created` 和 `overwritten`）；仅大小写不同的名字视为同一份资产，磁盘上保留最先创建时的拼写。
+5. `Save Character Asset` 返回的定妆图是从落盘的 PNG 读回的，是输入经过 8-bit 量化后的版本（相差不超过 `1/255`）——也就是之后 `Load Character Asset` 会给出的那张图。
+
+6. **作为数据喂给 H3 提示词生成器。** `MiniMaxH3LoopPromptGeneratorV2` 有个 `asset_roster` 输入，接 `Load Asset Batch` 的 `roster_json`。进了花名册的槽位**完全跳过视觉打标**——名字 / 长相 / 音色 / 故事发生在哪里都不再从散文里推断。场景槽位锚定环境（manifest role 为 `environment`，不占 `<Subject N>`）。输出的 `plan_json` 与 V1 逐字节同格式。
+
+完整说明见 [`docs/ASSET_LIBRARY_GUIDE.md`](docs/ASSET_LIBRARY_GUIDE.md)。
+
+---
+
 ## 节点功能
 
 ### **BatchRenameFiles**

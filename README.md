@@ -148,6 +148,23 @@ The plugin also provides utility nodes for general-purpose tasks:
 
 ---
 
+### Asset Library Features
+
+A reusable on-disk library for the characters and scenes you want to repeat across shots:
+
+1. **Save / Load / List Character Asset** — a character is a name, an authored appearance description, an authored voice description, exactly one portrait PNG and one voice sample (`characters/<name>/character.json` + `portrait.png` + `voice_sample.wav`). `Load` returns the name, voice and appearance as `STRING`s, the portrait as an `IMAGE` and the voice sample as an `AUDIO`. Both text fields are **English, inserted verbatim** — no translation step, so changing a character means editing a file, not re-running a model. Hand-dropping a `voice_sample.mp3` next to the JSON also works (it is decoded with `soundfile`); keeping both `.wav` and `.mp3` is an error.
+1b. **Load Asset Batch** — loads characters AND scenes in one go and returns their pictures as one ordered `IMAGE` batch plus a `roster_json` recording which asset owns which slot and of which kind (`character` / `scene`). Missing assets fail loudly rather than being skipped, because a skipped one would shift every later slot; a name existing under both kinds is an error.
+2. **Save / Load / List Scene Asset** — a scene is a name, one authored English description and one picture (`scenes/<name>/scene.json` + `scene.png`). `Load` returns the name and description as `STRING`s and the picture as an `IMAGE`. A scene is a character minus the voice: the same picture-plus-authored-text shape, anchored as WHERE the story happens.
+3. `library_dir` must be an **absolute path outside the plugin folder** — the plugin folder is mirror-synced on deploy, and library files inside it would be deleted. Empty / relative / inside-plugin paths are rejected.
+4. Saving with an existing name **overwrites** it (the `status` output says `created` or `overwritten`); names differing only in case are treated as the same asset and keep the first-created disk spelling.
+5. The portrait returned by `Save Character Asset` is read back from the PNG on disk, so it is the 8-bit quantized version of the input (within `1/255`) — exactly what `Load Character Asset` will return later.
+
+6. **Feeds the H3 prompt generator as data.** `MiniMaxH3LoopPromptGeneratorV2` takes `Load Asset Batch`'s `roster_json` as an `asset_roster` input. A rostered slot's authored text skips the vision-model caption call entirely — name / appearance / voice / where-the-story-happens all stop being inferred from prose. Scene slots anchor the environment (manifest role `environment`, never a `<Subject N>`). The output `plan_json` is byte-for-byte the same schema as V1.
+
+Full guide: [`docs/ASSET_LIBRARY_GUIDE.md`](docs/ASSET_LIBRARY_GUIDE.md) (中文).
+
+---
+
 ## Nodes  
 
 ### **BatchRenameFiles**  
