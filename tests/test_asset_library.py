@@ -941,3 +941,33 @@ def test_save_nodes_append_new_name_last():
     order = list(asset_nodes.SaveSceneAsset.INPUT_TYPES()["required"])
     assert order[-1] == "new_name"
     assert order[:3] == ["library_dir", "name", "description"]
+
+
+# --------------------------------------------------------------------------- #
+# Picture endpoint payload (picker cards)
+# --------------------------------------------------------------------------- #
+def test_read_picture_serves_both_kinds(lib_dir):
+    png, wav = make_png((1, 2, 3)), make_wav()
+    library.save_character(str(lib_dir), "Alice", "red hair", "voice A", png, wav)
+    scene_png = make_png((9, 8, 7))
+    library.save_scene(str(lib_dir), "便利店", "cold light", scene_png)
+    assert library.read_picture(str(lib_dir), "Alice", "character") == png
+    assert library.read_picture(str(lib_dir), "便利店", "scene") == scene_png
+    # casefold lookup still applies
+    assert library.read_picture(str(lib_dir), "alice", "character") == png
+
+
+def test_read_picture_rejects_traversal_and_bad_kind(lib_dir):
+    png, wav = make_png(), make_wav()
+    library.save_character(str(lib_dir), "Alice", "red hair", "voice A", png, wav)
+    # The name whitelist structurally excludes separators and dots — every
+    # traversal spelling dies at validate_name, not at the filesystem.
+    for evil in ("../Alice", "..\Alice", "A/lice", "A.lce", "  ", ""):
+        with pytest.raises(ValueError):
+            library.read_picture(str(lib_dir), evil, "character")
+    with pytest.raises(ValueError, match="kind must be"):
+        library.read_picture(str(lib_dir), "Alice", "prop")
+    with pytest.raises(FileNotFoundError):
+        library.read_picture(str(lib_dir), "Ghost", "character")
+    with pytest.raises(FileNotFoundError):
+        library.read_picture(str(lib_dir), "Alice", "scene")

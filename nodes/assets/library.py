@@ -531,6 +531,31 @@ def list_assets_payload(library_dir, plugin_root=None):
     }
 
 
+def read_picture(library_dir, name, kind, plugin_root=None):
+    """Return the PNG bytes of one asset's picture for the picker cards.
+
+    ``kind`` is ``character`` (portrait.png) or ``scene`` (scene.png). Both
+    the library dir and the name go through their validators first — the
+    name whitelist (CJK/letters/digits/-/_) structurally excludes every
+    path separator, so there is no traversal case to chase.
+    """
+    root = validate_library_dir(library_dir, plugin_root=plugin_root)
+    n = validate_name(name)
+    if kind == "character":
+        target = _find_casefold_sibling(root / CHARACTERS_DIRNAME, n)
+        path = target / PORTRAIT_NAME if target else None
+    elif kind == "scene":
+        target = _find_casefold_sibling(root / SCENES_DIRNAME, n)
+        path = target / SCENE_IMAGE_NAME if target else None
+    else:
+        raise ValueError("kind must be 'character' or 'scene', got %r" % kind)
+    if path is None or not path.is_file():
+        raise FileNotFoundError(
+            "%s %r has no picture under %s" % (kind, n, root)
+        )
+    return path.read_bytes()
+
+
 def _character_entry_problem(entry):
     try:
         validate_name(entry.name)

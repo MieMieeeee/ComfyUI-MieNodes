@@ -158,7 +158,7 @@
 
 6. **作为数据喂给 H3 提示词生成器。** `MiniMaxH3LoopPromptGeneratorV2` 有个 `asset_roster` 输入，接 `Load Asset Batch` 的 `roster_json`。进了花名册的槽位**完全跳过视觉打标**——名字 / 长相 / 音色 / 故事发生在哪里都不再从散文里推断。场景槽位锚定环境（manifest role 为 `environment`，不占 `<Subject N>`）。输出的 `plan_json` 与 V1 逐字节同格式。
 
-7. **下拉选择，不用手打。** 所有资产节点的 `name` 都是跟随库实时刷新的下拉（内置端点 + 前端辅助）；保存节点列出已有名字和「新名字」模式，`Load Asset Batch` 每个图片槽位一个下拉。老工作流里手打名字照常工作。
+7. **选择器，不用手打。** 所有资产节点的 `name` 都是跟随库实时刷新的下拉；`Load Asset Batch` 有图片选择器——点 🖼 浏览带定妆图/场景图的卡片，点卡片按顺序填充图片槽位。老工作流里手打名字照常工作。
 
 8. **库目录每台机器固定，不用手填。** 默认 `$MIE_ASSET_LIBRARY`，未设则 `~/mie_asset_library`；widget 已隐藏，节点上的 📁 按钮可查看/编辑。
 

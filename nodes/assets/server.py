@@ -43,5 +43,21 @@ def _register() -> None:
         payload = library.list_assets_payload(library_dir)
         return web.json_response(payload)
 
+    @routes.get("/mie_nodes/assets/picture")
+    async def asset_picture(request):  # noqa: ANN001 - aiohttp handler
+        q = request.rel_url.query
+        try:
+            data = library.read_picture(
+                q.get("dir", ""), q.get("name", ""), q.get("kind", "")
+            )
+        except (ValueError, FileNotFoundError) as e:
+            return web.json_response({"error": str(e)}, status=404)
+        # Cache per URL: the URL pins dir+name+kind, and any edit changes
+        # the bytes under a DIFFERENT list refresh — short cache is safe and
+        # keeps the picker grid instant on reopen.
+        return web.Response(
+            body=data, content_type="image/png", headers={"Cache-Control": "max-age=60"}
+        )
+
 
 _register()
