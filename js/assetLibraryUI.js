@@ -196,7 +196,7 @@ function wireNode(node, cfg) {
     dirWidget.hidden = true;
 
     // 「📂 打开文件夹」请求固定端点，打开解析出的那一个目录。
-    node.addWidget("button", "📂 打开文件夹", null, async () => {
+    const openBtn = node.addWidget("button", "📂 打开文件夹", null, async () => {
         try {
             const r = await fetch(OPEN_ENDPOINT, { method: "POST" });
             const j = await r.json();
@@ -209,11 +209,21 @@ function wireNode(node, cfg) {
                 severity: "error", summary: "打开失败", detail: String(err).slice(0, 160), life: 5000,
             });
         }
-    }).serialize = false;
+    });
+    openBtn.serialize = false;
 
-    node.addWidget("button", "🔄 刷新资产列表", null, () => {
+    const refreshBtn = node.addWidget("button", "🔄 刷新资产列表", null, () => {
         applyLibrary(node, { force: true });
-    }).serialize = false;
+    });
+    refreshBtn.serialize = false;
+
+    // 库操作按钮置顶：addWidget 默认排在所有输入 widget 之后，这里移到
+    // 最上面。两个按钮都 serialize:false，前端 litegraph 序列化/加载两侧
+    // 都按 serialize 过滤后再顺序映射（1.53/1.55 已核实），位置不影响
+    // 老工作流 widgets_values 的下标对应。原地重排，不换数组对象。
+    const rest = node.widgets.filter((w) => w !== openBtn && w !== refreshBtn);
+    node.widgets.length = 0;
+    node.widgets.push(openBtn, refreshBtn, ...rest);
 
     if (cfg.save) {
         // 保存是 OUTPUT_NODE：点「执行/Queue」才真正落盘。这个按钮就是
@@ -250,7 +260,8 @@ function wireNode(node, cfg) {
             });
             wrap.append(btn);
             const w = node.addDOMWidget("应用保存", "mie-save-apply", wrap, {
-                serialize: false, hideOnZoom: false, getHeight: () => 40,
+                serialize: false, hideOnZoom: false,
+                getHeight: () => Math.max(40, wrap.offsetHeight + 6),
             });
             w.serialize = false;
         }
@@ -351,6 +362,8 @@ function makeMediaPicker(node, stateName, kind, accept, endpoint, field, icon, l
         thumb.className = "mie-media-thumb";
         thumb.alt = "";
         thumb.style.display = "none";
+        // 缩略图异步加载完成会撑高卡片；通知画布重排，避免压住下一个 widget。
+        thumb.addEventListener("load", () => relayoutNode(node));
     }
 
     const btn = document.createElement("button");
@@ -463,7 +476,9 @@ function makeMediaPicker(node, stateName, kind, accept, endpoint, field, icon, l
     });
 
     const widget = node.addDOMWidget(label, "mie-media-picker", wrap, {
-        serialize: false, hideOnZoom: false, getHeight: () => 58,
+        serialize: false, hideOnZoom: false,
+        // 缩略图出现/消失时卡片实际高度变化，静态高度会与下方 widget 重叠。
+        getHeight: () => Math.max(58, wrap.offsetHeight + 6),
     });
     widget.serialize = false;
 }
@@ -577,7 +592,8 @@ function makePreviewWidget(node) {
     const widget = node.addDOMWidget("预览", "mie-asset-preview", wrap, {
         serialize: false,
         hideOnZoom: false,
-        getHeight: () => 96,
+        // 预览内容异步填充（图片加载、文字回填），高度跟随实际内容。
+        getHeight: () => Math.max(96, wrap.offsetHeight + 6),
     });
     widget.serialize = false;
     node.__mieAssets.previewEl = wrap;
@@ -645,10 +661,23 @@ function renderPreviewState(node, state) {
         }
     }
     wrap.append(img, body);
+    // 内容异步变化后高度变了，让画布重排，避免预览面板压住下方 widget。
+    img.addEventListener("load", () => relayoutNode(node));
+    relayoutNode(node);
 }
 
 function kindName(kind) {
     return kind === "scene" ? KIND_SCENE : KIND_CHAR;
+}
+
+// 内容异步变化（图片加载、正文回填）后重排：画布重绘 + 节点外框只放大
+// 不缩小，避免最后一个 DOM 控件戳出节点边框。
+function relayoutNode(node) {
+    node.setDirtyCanvas?.(true, true);
+    try {
+        const need = node.computeSize?.();
+        if (need && need[1] > (node.size?.[1] || 0) + 1) node.setSize?.(need);
+    } catch (_) { /* computeSize 在部分节点上不可用，忽略 */ }
 }
 
 // ---- 生成器 V2：character_N / scene_N 插座自动生长 -----------------------------
