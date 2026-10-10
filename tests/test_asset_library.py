@@ -829,12 +829,13 @@ def test_save_node_socket_beats_upload_picker(lib_dir, monkeypatch, tmp_path):
     loaded = library.load_character("", "Wired")
     assert library._png_dimensions(loaded["png_bytes_list"][0]) == (6, 4)  # tensor path, not upload
 
-    # Native upload hints present; scene has image only.
+    # Hidden STRING state (the visible picker+upload row is a JS DOM
+    # widget); scene has image only.
     char_spec = asset_nodes.SaveCharacterAssetV2.INPUT_TYPES()["optional"]
-    assert char_spec["image_upload"][1].get("image_upload") is True
-    assert char_spec["audio_upload"][1].get("audio_upload") is True
+    assert char_spec["image_upload"][0] == "STRING"
+    assert char_spec["audio_upload"][0] == "STRING"
     scene_spec = asset_nodes.SaveSceneAssetV2.INPUT_TYPES()["optional"]
-    assert scene_spec["image_upload"][1].get("image_upload") is True
+    assert scene_spec["image_upload"][0] == "STRING"
     assert "audio_upload" not in scene_spec
 
 

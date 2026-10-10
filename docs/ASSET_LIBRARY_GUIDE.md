@@ -47,7 +47,7 @@ MieNodes 的资产库把「跨镜头要重复用的角色和场景」存成磁�
 - `Save/Load Character Asset`：单图单音频；每个输出之外还有一根 **`asset`** 线（MIE_CHARACTER_ASSET 资产包，一根线带全 name/description/voice/image/audio）。
 - `Save/Load Scene Asset`：单图；同样有 `asset` 线（MIE_SCENE_ASSET）。
 - 保存节点：下拉只列本类型；选中已有名字会预览库里的内容（缩略图 + 描述 + 音色，**只展示、不做一致性判断**）；「✏️ 新名字…」新建。
-- **图和音频不用接线**：除了 `image` / `audio` 插座，还有 `image_upload` / `audio_upload` 两个下拉，直接选 **ComfyUI input 目录**里的文件——把文件拖到画布上任意一个 LoadImage 框就算上传了（按 R 刷新列表）。**接了插座时插座优先**；两者都空且是覆盖 = 保留磁盘上的文件。
+- **图和音频不用接线**：节点上有两个醒目的媒体卡片（🖼 定妆图、🎵 音色样本），每张卡片 = 一个文件下拉 + 一个渐变色**上传按钮**。支持：点按钮选文件、把文件**拖到卡片上**、聚焦卡片后 **Ctrl+V 粘贴**；上传成功自动选中新文件（不用刷新）。下拉列出 ComfyUI input 目录的已有文件（音频在 input/audio/）。**接了 `image`/`audio` 插座时插座优先**；两者都空且是覆盖 = 保留磁盘上的文件。
 
 **镜头纪律**：生成器上的 `camera_discipline` 选 `locked - 固定机位` 可保证「镜头固定、构图全场不变」——分镜 LLM 默认有一条景别交替规则会主动切特写，概念里的中文相机语言只是软提示；locked 由代码强制执行（详见 `h3_loop_prompt_generator_node.md`）。
 

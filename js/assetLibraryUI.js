@@ -198,16 +198,16 @@ function wireNode(node, cfg) {
             };
         }
         syncNewNameVisibility(node);
-        makeUploadWidget(
-            node, "image_upload",
+        makeMediaPicker(
+            node, "image_upload", "image",
             ".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp",
-            "/upload/image", "image", "📤 上传图片"
+            "/upload/image", "image", "🖼", "定妆图"
         );
         if (cfg.save === "character") {
-            makeUploadWidget(
-                node, "audio_upload",
+            makeMediaPicker(
+                node, "audio_upload", "audio",
                 ".wav,.mp3,audio/wav,audio/mpeg",
-                "/mie_nodes/assets/upload_audio", "audio", "🎵 上传音频"
+                "/mie_nodes/assets/upload_audio", "audio", "🎵", "音色样本"
             );
         }
         makePreviewWidget(node);
@@ -244,46 +244,79 @@ function applyLibrary(node, { force = false } = {}) {
 }
 
 // ---- 上传控件：选择文件 / 拖放 / 粘贴，全走我们自己的 DOM --------------------
-// 前端 1.32 的 canvas combo 不渲染 image_upload 按钮（那个机制只服务于新式
-// IMAGEUPLOAD 组件，需要 imageInputName 增强，核心 Python 不产出它），核心
-// 也没有 /upload/audio。所以这里自建：一个真实 <input type=file> 渲染成按钮，
-// 支持拖放和粘贴；图片走核心 /upload/image，音频走我们自己的端点。
-const uploadWidgetNodes = new WeakSet();
+// 每种媒体一个 DOM 行：[好看的文件下拉] + [醒目的上传按钮]。选中/上传的
+// 文件名写进隐藏的 STRING widget（image_upload / audio_upload），
+// Python 端照常读它；连线插座仍然优先。
+function fetchUploadFiles(kind) {
+    return fetch("/mie_nodes/assets/upload_files?kind=" + kind)
+        .then((r) => (r.ok ? r.json() : Promise.reject(new Error("HTTP " + r.status))))
+        .then((j) => (j.ok ? j.files : []))
+        .catch(() => []);
+}
 
-function makeUploadWidget(node, comboName, accept, endpoint, field, label) {
+function makeMediaPicker(node, stateName, kind, accept, endpoint, field, icon, label) {
     if (typeof node.addDOMWidget !== "function") return;
-    if (uploadWidgetNodes.has(node)) {
-        // one pair per node: second call only registers the combo mapping
-    }
-    uploadWidgetNodes.add(node);
-    if (!node.__mieUploads) node.__mieUploads = {};
+    const stateWidget = node.widgets.find((w) => w.name === stateName);
+    if (!stateWidget) return;
+    stateWidget.hidden = true;  // state only — the DOM row is the UI
+
     const wrap = document.createElement("div");
-    wrap.className = "mie-upload";
+    wrap.className = "mie-media";
+    const head = document.createElement("div");
+    head.className = "mie-media-head";
+    const iconEl = document.createElement("span");
+    iconEl.className = "mie-media-icon";
+    iconEl.textContent = icon;
+    const titleEl = document.createElement("span");
+    titleEl.className = "mie-media-title";
+    titleEl.textContent = label;
+    head.append(iconEl, titleEl);
+    const row = document.createElement("div");
+    row.className = "mie-media-row";
+
+    const select = document.createElement("select");
+    select.className = "mie-media-select";
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = "（选择文件或点右侧上传）";
+    select.append(placeholder);
+
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "mie-media-btn";
+    btn.innerHTML = "<span class='mie-media-btn-icon'>📤</span> 上传";
+    btn.title = "点击选择文件；也可以把文件拖到这一行，或聚焦后 Ctrl+V 粘贴";
+
     const input = document.createElement("input");
     input.type = "file";
     input.accept = accept;
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.textContent = label;
-    btn.title = "点击选择文件；也可以把文件拖到这里，或在聚焦此区域时 Ctrl+V 粘贴";
-    btn.addEventListener("click", () => input.click());
-    wrap.append(btn, input);
     input.style.display = "none";
+    row.append(select, btn, input);
+    wrap.append(head, row);
 
-    const comboWidget = () => node.widgets.find((w) => w.name === comboName);
-    const selectInCombo = (name) => {
-        const w = comboWidget();
-        if (!w) return;
-        const values = (w.options.values = w.options.values || []);
-        if (!values.includes(name)) values.push(name);
-        w.value = name;
-        w.callback?.(name);
+    const setSelection = (name) => {
+        if (!name) {
+            select.value = "";
+        } else {
+            if (![...select.options].some((o) => o.value === name)) {
+                const opt = document.createElement("option");
+                opt.value = name;
+                opt.textContent = name;
+                select.append(opt);
+            }
+            select.value = name;
+        }
+        stateWidget.value = name || "";
+        stateWidget.callback?.(stateWidget.value);
         node.setDirtyCanvas?.(true, true);
     };
+    select.addEventListener("change", () => setSelection(select.value));
+
     const upload = async (file) => {
         btn.disabled = true;
-        const old = btn.textContent;
-        btn.textContent = "⏳ 上传中…";
+        btn.classList.add("busy");
+        const old = btn.innerHTML;
+        btn.innerHTML = "⏳ …";
         try {
             const form = new FormData();
             form.append(field, file, file.name);
@@ -292,7 +325,7 @@ function makeUploadWidget(node, comboName, accept, endpoint, field, label) {
             const name = j && (j.name || (j.data && j.data.name));
             if (!r.ok || !name) throw new Error((j && j.error) || ("HTTP " + r.status));
             const sub = j.subfolder ? j.subfolder + "/" + name : name;
-            selectInCombo(sub);
+            setSelection(sub);
             app.extensionManager?.toast?.add?.({
                 severity: "success", summary: "已上传", detail: sub, life: 2500,
             });
@@ -303,16 +336,18 @@ function makeUploadWidget(node, comboName, accept, endpoint, field, label) {
             });
         } finally {
             btn.disabled = false;
-            btn.textContent = old;
+            btn.classList.remove("busy");
+            btn.innerHTML = old;
         }
     };
+    btn.addEventListener("click", () => input.click());
     input.addEventListener("change", () => {
         if (input.files && input.files[0]) upload(input.files[0]);
         input.value = "";
     });
-    wrap.addEventListener("dragover", (e) => { e.preventDefault(); wrap.classList.add("drag"); });
-    wrap.addEventListener("dragleave", () => wrap.classList.remove("drag"));
-    wrap.addEventListener("drop", (e) => {
+    row.addEventListener("dragover", (e) => { e.preventDefault(); wrap.classList.add("drag"); });
+    row.addEventListener("dragleave", () => wrap.classList.remove("drag"));
+    row.addEventListener("drop", (e) => {
         e.preventDefault();
         wrap.classList.remove("drag");
         const f = e.dataTransfer?.files?.[0];
@@ -324,11 +359,21 @@ function makeUploadWidget(node, comboName, accept, endpoint, field, label) {
         if (f) { e.preventDefault(); upload(f); }
     });
 
-    const widget = node.addDOMWidget(label, "mie-upload", wrap, {
-        serialize: false, hideOnZoom: false, getHeight: () => 34,
+    // Initial list + restore a saved selection.
+    fetchUploadFiles(kind).then((files) => {
+        for (const f of files) {
+            const opt = document.createElement("option");
+            opt.value = f;
+            opt.textContent = f;
+            select.append(opt);
+        }
+        if (stateWidget.value) setSelection(stateWidget.value);
+    });
+
+    const widget = node.addDOMWidget(label, "mie-media-picker", wrap, {
+        serialize: false, hideOnZoom: false, getHeight: () => 58,
     });
     widget.serialize = false;
-    node.__mieUploads[comboName] = widget;
 }
 
 // ---- 保存节点：new_name 显隐 + 回填 + 将覆盖 ---------------------------------
@@ -406,11 +451,23 @@ function ensureStyles() {
         ".mie-badge.ok{background:#2e4d34;color:#b7e4c0}",
         ".badge.diff{background:#5a3535;color:#f3b6b6}",
         ".mie-pv-hint{font-size:11px;opacity:.55;padding:8px 2px}",
-        ".mie-upload{display:flex;align-items:center;padding:2px 0}",
-        ".mie-upload button{cursor:pointer;font-size:12px;padding:3px 10px;",
-        "border:1px solid var(--border-color,#555);border-radius:6px;",
-        "background:rgba(255,255,255,.05);color:inherit}",
-        ".mie-upload.drag button{border-color:#7f9cf5}",
+        ".mie-media{padding:2px 0 4px;border:1px solid var(--border-color,#444);",
+        "border-radius:10px;background:rgba(127,156,245,.06)}",
+        ".mie-media.drag{border-color:#7f9cf5;background:rgba(127,156,245,.14)}",
+        ".mie-media-head{display:flex;align-items:center;gap:6px;padding:4px 10px 0;",
+        "font-size:12px;font-weight:600;color:var(--descrip-text,#c9d4e8)}",
+        ".mie-media-icon{font-size:14px}",
+        ".mie-media-row{display:flex;gap:6px;padding:6px 8px 8px;align-items:stretch}",
+        ".mie-media-select{flex:1;min-width:0;font-size:12px;padding:4px 6px;",
+        "border:1px solid var(--border-color,#555);border-radius:8px;",
+        "background:var(--comfy-input-bg,#1e1e1e);color:var(--input-text,#ddd)}",
+        ".mie-media-btn{cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap;",
+        "padding:5px 14px;border:none;border-radius:8px;color:#fff;",
+        "background:linear-gradient(135deg,#4f7cff,#7f5cff);",
+        "box-shadow:0 1px 6px rgba(79,124,255,.45);transition:filter .12s,transform .06s}",
+        ".mie-media-btn:hover{filter:brightness(1.15)}",
+        ".mie-media-btn:active{transform:translateY(1px)}",
+        ".mie-media-btn.busy{filter:saturate(.4) brightness(.9);cursor:wait}",
     ].join("");
     document.head.appendChild(pickerStyleEl);
 }

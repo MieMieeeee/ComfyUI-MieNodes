@@ -58,6 +58,29 @@ def _register() -> None:
         payload = library.list_assets_payload("")
         return web.json_response(payload)
 
+    @routes.get("/mie_nodes/assets/upload_files")
+    async def upload_files(request):  # noqa: ANN001 - aiohttp handler
+        """File list for the save-node upload pickers: ?kind=image|audio."""
+        try:
+            import folder_paths
+        except Exception as e:  # pragma: no cover - outside ComfyUI
+            return web.json_response({"ok": False, "files": [], "error": str(e)})
+        kind = request.rel_url.query.get("kind", "image")
+        if kind == "audio":
+            try:
+                files = folder_paths.get_filename_list("audio")
+            except Exception:
+                files = []
+            exts = (".wav", ".mp3", ".flac", ".ogg")
+        else:
+            try:
+                files = folder_paths.get_filename_list("input")
+            except Exception:
+                files = []
+            exts = (".png", ".jpg", ".jpeg", ".webp")
+        out = [f for f in files if str(f).lower().endswith(exts)]
+        return web.json_response({"ok": True, "files": sorted(out)})
+
     @routes.post("/mie_nodes/assets/upload_audio")
     async def upload_audio(request):  # noqa: ANN001 - aiohttp handler
         """Upload one audio clip into the folder_paths 'audio' category

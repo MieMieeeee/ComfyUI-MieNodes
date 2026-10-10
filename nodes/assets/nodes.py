@@ -304,27 +304,10 @@ class SaveCharacterAssetV2(object):
                 # Upload pickers: files in ComfyUI's input directory. A
                 # WIRED socket wins over a picked file; both empty on an
                 # overwrite = keep the disk media.
-                "image_upload": (
-                    _upload_image_options(),
-                    {
-                        "image_upload": True,  # native frontend upload button
-                        "tooltip": (
-                            "选择/上传一张图（LoadImage 同款：按钮上传、"
-                            "拖到 LoadImage 框、或直接选已有文件；按 R 刷新）。"
-                            "接了 image 插座时以插座为准。"
-                        ),
-                    },
-                ),
-                "audio_upload": (
-                    _upload_audio_options(),
-                    {
-                        "audio_upload": True,  # native frontend upload button
-                        "tooltip": (
-                            "选择/上传一段音频（LoadAudio 同款；按 R 刷新）。"
-                            "接了 audio 插座时以插座为准。"
-                        ),
-                    },
-                ),
+                # Hidden STRING state; the visible picker + upload button
+                # is one DOM widget built by js/assetLibraryUI.js.
+                "image_upload": ("STRING", {"default": ""}),
+                "audio_upload": ("STRING", {"default": ""}),
             },
         }
 
@@ -434,17 +417,9 @@ class SaveSceneAssetV2(object):
             },
             "optional": {
                 "image": ("IMAGE",),
-                "image_upload": (
-                    _upload_image_options(),
-                    {
-                        "image_upload": True,  # native frontend upload button
-                        "tooltip": (
-                            "选择/上传一张图（LoadImage 同款：按钮上传、"
-                            "拖到 LoadImage 框、或直接选已有文件；按 R 刷新）。"
-                            "接了 image 插座时以插座为准。"
-                        ),
-                    },
-                ),
+                # Hidden STRING state; the visible picker + upload button
+                # is one DOM widget built by js/assetLibraryUI.js.
+                "image_upload": ("STRING", {"default": ""}),
             },
         }
 
