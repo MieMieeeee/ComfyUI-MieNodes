@@ -165,6 +165,23 @@ app.api?.addEventListener?.("executed", (e) => {
     });
 });
 
+app.api?.addEventListener?.("execution_success", () => {
+    // A finished queue may have written assets. Only spend a re-scan when
+    // at least one save node is on the canvas.
+    const nodes = app.graph?._nodes || [];
+    const hasSave = nodes.some((n) => n.__mieAssets?.cfg?.save);
+    if (!hasSave) return;
+    cache.clear();
+    fetchAssets({ force: true }).then((payload) => {
+        for (const other of nodes) {
+            if (!other.__mieAssets) continue;
+            other.__mieAssets.payload = payload;
+            if (other.__mieAssets.cfg?.preview) refreshLoadPreview(other);
+            if (other.__mieAssets.cfg?.save) refreshSavePreview(other, { autofill: false });
+        }
+    });
+});
+
 function wireNode(node, cfg) {
     if (cfg.generatorSockets) {
         node.__mieAssets = { cfg };
@@ -329,6 +346,12 @@ function makeMediaPicker(node, stateName, kind, accept, endpoint, field, icon, l
     placeholder.value = "";
     placeholder.textContent = "（选择文件或点右侧上传）";
     select.append(placeholder);
+    const thumb = kind === "image" ? document.createElement("img") : null;
+    if (thumb) {
+        thumb.className = "mie-media-thumb";
+        thumb.alt = "";
+        thumb.style.display = "none";
+    }
 
     const btn = document.createElement("button");
     btn.type = "button";
@@ -342,6 +365,24 @@ function makeMediaPicker(node, stateName, kind, accept, endpoint, field, icon, l
     input.style.display = "none";
     row.append(select, btn, input);
     wrap.append(head, row);
+    if (thumb) wrap.append(thumb);
+
+    // 选中即预览：输入目录里的图片走核心 /view 端点，上传/换选立刻看到
+    // 自己选的那张（库预览面板反映的是已保存状态，两者角色不同）。
+    const showThumb = (name) => {
+        if (!thumb) return;
+        if (!name) {
+            thumb.style.display = "none";
+            thumb.removeAttribute("src");
+            return;
+        }
+        const slash = name.lastIndexOf("/");
+        const q = "filename=" + encodeURIComponent(slash >= 0 ? name.slice(slash + 1) : name)
+            + "&type=input&subfolder=" + encodeURIComponent(slash >= 0 ? name.slice(0, slash) : "")
+            + "&t=" + Date.now();
+        thumb.src = "/view?" + q;
+        thumb.style.display = "block";
+    };
 
     const setSelection = (name) => {
         if (!name) {
@@ -357,6 +398,7 @@ function makeMediaPicker(node, stateName, kind, accept, endpoint, field, icon, l
         }
         stateWidget.value = name || "";
         stateWidget.callback?.(stateWidget.value);
+        showThumb(name || "");
         node.setDirtyCanvas?.(true, true);
     };
     select.addEventListener("change", () => setSelection(select.value));
@@ -417,6 +459,7 @@ function makeMediaPicker(node, stateName, kind, accept, endpoint, field, icon, l
             select.append(opt);
         }
         if (stateWidget.value) setSelection(stateWidget.value);
+        else showThumb("");
     });
 
     const widget = node.addDOMWidget(label, "mie-media-picker", wrap, {
@@ -517,6 +560,8 @@ function ensureStyles() {
         ".mie-media-btn:hover{filter:brightness(1.15)}",
         ".mie-media-btn:active{transform:translateY(1px)}",
         ".mie-media-btn.busy{filter:saturate(.4) brightness(.9);cursor:wait}",
+        ".mie-media-thumb{display:block;margin:6px 8px 4px;max-height:96px;",
+        "width:100%;object-fit:contain;background:#151515;border-radius:8px}",
         ".mie-save-apply{padding:2px 0}",
         ".mie-save-apply .mie-save-btn{width:100%;padding:7px 14px;font-size:13px;", 
         "background:linear-gradient(135deg,#2f9e6e,#4f7cff)}",
