@@ -198,7 +198,6 @@ function wireNode(node, cfg) {
             };
         }
         syncNewNameVisibility(node);
-        patchSaveTextListeners(node);
         makePreviewWidget(node);
     } else if (cfg.preview) {
         const nameWidget = node.widgets.find((w) => w.name === "name");
@@ -242,16 +241,6 @@ function syncNewNameVisibility(node) {
     node.setDirtyCanvas?.(true, true);
 }
 
-function saveTextFields(node, kind) {
-    if (kind === "character") {
-        return {
-            description: node.widgets.find((w) => w.name === "description"),
-            voice: node.widgets.find((w) => w.name === "voice"),
-        };
-    }
-    return { description: node.widgets.find((w) => w.name === "description") };
-}
-
 async function refreshSavePreview(node, { autofill }) {
     const ui = node.__mieAssets;
     if (!ui) return;
@@ -269,7 +258,9 @@ async function refreshSavePreview(node, { autofill }) {
         return;
     }
     if (autofill) {
-        for (const [field, widget] of Object.entries(saveTextFields(node, kind))) {
+        const fields = kind === "character" ? ["description", "voice"] : ["description"];
+        for (const field of fields) {
+            const widget = node.widgets.find((w) => w.name === field);
             if (widget) widget.value = meta[field] || "";
         }
         node.setDirtyCanvas?.(true, true);
@@ -294,30 +285,6 @@ async function refreshLoadPreview(node) {
         return;
     }
     renderPreviewState(node, { mode: "existing", meta, kind, readonly: true });
-}
-
-// 文本改动刷新将覆盖标记：onWidgetChanged 包装 + 输入框 input 事件双保险。
-const patchedNodes = new WeakSet();
-function patchSaveTextListeners(node) {
-    if (patchedNodes.has(node)) return;
-    patchedNodes.add(node);
-    const wants = (name) => ["description", "voice"].includes(name);
-    const orig = node.onWidgetChanged;
-    node.onWidgetChanged = function (widgetName, ...rest) {
-        orig?.apply(this, [widgetName, ...rest]);
-        if (this.__mieAssets?.cfg?.save && wants(widgetName)) {
-            refreshSavePreview(this, { autofill: false });
-        }
-    };
-    for (const widget of node.widgets || []) {
-        if (!wants(widget.name) || !widget.inputEl) continue;
-        let timer = null;
-        widget.inputEl.addEventListener("input", () => {
-            widget.value = widget.inputEl.value;
-            clearTimeout(timer);
-            timer = setTimeout(() => refreshSavePreview(node, { autofill: false }), 300);
-        });
-    }
 }
 
 // ---- 预览面板 ----------------------------------------------------------------
@@ -399,26 +366,17 @@ function renderPreviewState(node, state) {
             body.append(v);
         }
     } else {
-        const fields = kind === "character"
-            ? [["description", "描述"], ["voice", "音色"]]
-            : [["description", "描述"]];
-        for (const [field, label] of fields) {
-            const widget = saveTextFields(node, kind)[field];
-            const row = document.createElement("div");
-            row.className = "mie-pv-row";
-            const current = (widget?.value || "").trim();
-            const disk = (meta[field] || "").trim();
-            row.textContent = label + ": ";
-            const badge = document.createElement("span");
-            if (current === disk) {
-                badge.className = "mie-badge ok";
-                badge.textContent = "与库一致";
-            } else {
-                badge.className = "badge diff";
-                badge.textContent = "将覆盖";
-            }
-            row.append(badge);
-            body.append(row);
+        // 2026-10-10 ruling: NO consistency/overwrite judgments on the
+        // save node — the preview shows what is IN THE LIBRARY, full stop.
+        const line = document.createElement("div");
+        line.className = "mie-pv-text";
+        line.textContent = (meta.description || "").slice(0, 90);
+        body.append(line);
+        if (meta.voice) {
+            const v = document.createElement("div");
+            v.className = "mie-pv-text";
+            v.textContent = "🔊 " + meta.voice.slice(0, 70);
+            body.append(v);
         }
     }
     wrap.append(img, body);

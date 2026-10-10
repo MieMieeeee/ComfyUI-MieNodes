@@ -12,6 +12,8 @@ import io
 import json
 import wave
 
+from pathlib import Path
+
 import numpy as np
 import torch
 from PIL import Image
@@ -202,6 +204,69 @@ def voice_sample_bytes_to_audio(data, ext):
     raise ValueError("unsupported voice sample extension %r" % ext)
 
 
+# Upload-style pickers: files in ComfyUI's input directory (drag a file
+# onto ANY LoadImage box to land it there), offered as dropdowns so a save
+# never requires wiring sockets. ComfyUI is imported lazily and tests run
+# without it (empty option lists then).
+IMAGE_UPLOAD_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp")
+AUDIO_UPLOAD_EXTENSIONS = (".wav", ".mp3")
+
+
+def _input_dir():
+    try:
+        import folder_paths
+
+        return Path(folder_paths.get_input_directory())
+    except Exception:
+        return None
+
+
+def _upload_options(extensions):
+    root = _input_dir()
+    if root is None:
+        return [""]
+    out = [""]
+    try:
+        for p in sorted(root.rglob("*")):
+            if p.is_file() and p.suffix.lower() in extensions:
+                out.append(str(p.relative_to(root)).replace("\\", "/"))
+    except OSError:
+        pass
+    return out
+
+
+def _read_upload_file(name):
+    root = _input_dir()
+    if root is None or not name:
+        raise ValueError(
+            "upload picker needs the ComfyUI input directory; wire the "
+            "image/audio socket instead"
+        )
+    path = root / name
+    if not path.is_file():
+        raise FileNotFoundError(
+            "%r is not in the ComfyUI input directory (drop the file onto "
+            "any LoadImage box first, then refresh)" % name
+        )
+    return path.read_bytes()
+
+
+def upload_image_to_tensor(name):
+    """A picked input-dir image -> IMAGE tensor [1,H,W,3]."""
+    blob = _read_upload_file(name)
+    img = Image.open(io.BytesIO(blob)).convert("RGB")
+    arr = np.asarray(img, dtype=np.float32) / 255.0
+    import torch as _torch
+
+    return _torch.from_numpy(arr.copy()).unsqueeze(0)
+
+
+def upload_audio_to_audio(name):
+    """A picked input-dir audio clip -> ComfyUI AUDIO dict (wav or mp3)."""
+    blob = _read_upload_file(name)
+    return voice_sample_bytes_to_audio(blob, Path(name).suffix.lower())
+
+
 # One wire carries the whole asset: the bundle types the generator slots
 # consume. Named per kind so a scene cannot be wired into a character slot.
 CHARACTER_ASSET_TYPE = "MIE_CHARACTER_ASSET"
@@ -232,6 +297,22 @@ class SaveCharacterAssetV2(object):
                 # stay on the (V1) nodes.
                 "image": ("IMAGE",),
                 "audio": ("AUDIO",),
+                # Upload pickers: files in ComfyUI's input directory. A
+                # WIRED socket wins over a picked file; both empty on an
+                # overwrite = keep the disk media.
+                "image_upload": (
+                    _upload_options(IMAGE_UPLOAD_EXTENSIONS),
+                    {"default": "", "tooltip": (
+                        "从 ComfyUI input 目录选一张图（把文件拖到任意 "
+                        "LoadImage 框即可上传；按 R 刷新列表）。接了 image "
+                        "插座时以插座为准。")},
+                ),
+                "audio_upload": (
+                    _upload_options(AUDIO_UPLOAD_EXTENSIONS),
+                    {"default": "", "tooltip": (
+                        "从 ComfyUI input 目录选一段音频（.wav/.mp3；按 R "
+                        "刷新列表）。接了 audio 插座时以插座为准。")},
+                ),
             },
         }
 
@@ -249,8 +330,13 @@ class SaveCharacterAssetV2(object):
         return _validate_exempt(name, new_name=new_name, **kwargs)
 
     def save_character(self, library_dir="", name="", description="", voice="",
-                       new_name="", image=None, audio=None):
+                       new_name="", image=None, audio=None,
+                       image_upload="", audio_upload=""):
         name = resolve_save_name(name, new_name)
+        if image is None and (image_upload or "").strip():
+            image = upload_image_to_tensor((image_upload or "").strip())
+        if audio is None and (audio_upload or "").strip():
+            audio = upload_audio_to_audio((audio_upload or "").strip())
         png = None if image is None else image_tensor_to_png_bytes(image)
         wav = None if audio is None else audio_to_wav_bytes(audio)
         result = library.save_character("", name, description, voice,
@@ -336,6 +422,13 @@ class SaveSceneAssetV2(object):
             },
             "optional": {
                 "image": ("IMAGE",),
+                "image_upload": (
+                    _upload_options(IMAGE_UPLOAD_EXTENSIONS),
+                    {"default": "", "tooltip": (
+                        "从 ComfyUI input 目录选一张图（把文件拖到任意 "
+                        "LoadImage 框即可上传；按 R 刷新列表）。接了 image "
+                        "插座时以插座为准。")},
+                ),
             },
         }
 
@@ -352,8 +445,11 @@ class SaveSceneAssetV2(object):
     def VALIDATE_INPUTS(cls, name, new_name="", **kwargs):
         return _validate_exempt(name, new_name=new_name, **kwargs)
 
-    def save_scene(self, library_dir="", name="", description="", new_name="", image=None):
+    def save_scene(self, library_dir="", name="", description="", new_name="",
+                   image=None, image_upload=""):
         name = resolve_save_name(name, new_name)
+        if image is None and (image_upload or "").strip():
+            image = upload_image_to_tensor((image_upload or "").strip())
         png = None if image is None else image_tensor_to_png_bytes(image)
         result = library.save_scene("", name, description,
                                     None if png is None else [png])
