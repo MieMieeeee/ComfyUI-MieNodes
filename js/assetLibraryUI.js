@@ -153,14 +153,16 @@ app.api?.addEventListener?.("executed", (e) => {
         severity: "success", summary: "资产已保存",
         detail: "资产库写入完成；画布上的资产节点已刷新", life: 3500,
     });
-    for (const other of nodes) {
-        if (!other.__mieAssets) continue;
-        applyLibrary(other, { force: true });
-        // 刷新预览缩略图：保存改了库内容后，Load/Save 节点上的旧图必须
-        // 消失（下拉选项由 applyLibrary 刷新；缩略图在这里补刷）。
-        if (other.__mieAssets.cfg?.preview) refreshLoadPreview(other);
-        if (other.__mieAssets.cfg?.save) refreshSavePreview(other, { autofill: false });
-    }
+    // 先重扫库（拿到新的名单和扫描戳），再刷新各节点的预览——顺序反了
+    // 的话预览会拿旧 payload 渲染，看起来“保存没生效”。
+    fetchAssets({ force: true }).then((payload) => {
+        for (const other of nodes) {
+            if (!other.__mieAssets) continue;
+            other.__mieAssets.payload = payload;
+            if (other.__mieAssets.cfg?.preview) refreshLoadPreview(other);
+            if (other.__mieAssets.cfg?.save) refreshSavePreview(other, { autofill: false });
+        }
+    });
 });
 
 function wireNode(node, cfg) {
@@ -555,7 +557,13 @@ function renderPreviewState(node, state) {
     }
     const meta = state.meta;
     const img = document.createElement("img");
-    img.src = thumbUrl(meta.name, kind, ts);
+    // 缓存键用图片自己的内容戳（meta.picture_*），不用扫描时间戳：保存
+    // 换图后 stamp 必变、URL 必变，浏览器缓存里的旧图不可能再出现。
+    const stamp =
+        meta.picture_size != null
+            ? meta.picture_size + "-" + meta.picture_mtime_ns
+            : ts;
+    img.src = thumbUrl(meta.name, kind, stamp);
     img.alt = meta.name;
     const body = document.createElement("div");
     body.className = "mie-pv-body";
