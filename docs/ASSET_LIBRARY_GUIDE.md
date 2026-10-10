@@ -48,6 +48,8 @@ MieNodes 的资产库把「跨镜头要重复用的角色和场景」存成磁�
 - `Save/Load Scene Asset`：单图；同样有 `asset` 线（MIE_SCENE_ASSET）。
 - 保存节点：下拉只列本类型；选中已有名字自动回填正文并标「与库一致 / **将覆盖**」；图/音频插座可不接（覆盖时保留磁盘文件）；「✏️ 新名字…」新建。
 
+**镜头纪律**：生成器上的 `camera_discipline` 选 `locked - 固定机位` 可保证「镜头固定、构图全场不变」——分镜 LLM 默认有一条景别交替规则会主动切特写，概念里的中文相机语言只是软提示；locked 由代码强制执行（详见 `h3_loop_prompt_generator_node.md`）。
+
 **Prompt Generator V2 的接法**：`character_1..9` / `scene_1..9` 是**插座**——把 Load 节点的 `asset` 输出一根线接过来；接上 `character_1` 才露出 `character_2`。节点上没有任何选择控件；生成器从线上的资产包组装 roster 与 manifest（零视觉调用），槽位顺序（角色在前、场景在后）就是 `<Picture N>`。第 4 个输出 `images` 是按槽位拼好的图片批次，直接接视频链。
 
 ```text

@@ -177,7 +177,11 @@ try:
         _manifest_digest,
         _mode_note_for_prefix,
         parse_references_text,
+        CAMERA_DISCIPLINES,
         parse_asset_roster,
+        parse_camera_discipline,
+        build_camera_discipline_directive,
+        apply_camera_discipline,
         roster_appearance_by_slot,
         roster_bindings,
         roster_voices,
@@ -274,7 +278,11 @@ except ImportError:
         _manifest_digest,
         _mode_note_for_prefix,
         parse_references_text,
+        CAMERA_DISCIPLINES,
         parse_asset_roster,
+        parse_camera_discipline,
+        build_camera_discipline_directive,
+        apply_camera_discipline,
         roster_appearance_by_slot,
         roster_bindings,
         roster_voices,
@@ -3245,6 +3253,7 @@ class H3LoopPromptEnhancer:
         enhance_user_input: bool = False,
         asset_roster: str = "",
         roster_manifest=None,
+        camera_discipline: str = "auto",
     ) -> dict:
         warnings: list[str] = []
         self._shot_fallback_notes = []
@@ -3257,6 +3266,14 @@ class H3LoopPromptEnhancer:
                 "connect a full LLMServiceConnector"
             )
         raw_input = (user_input or "").strip()
+        # Camera discipline (2026-10-10 ruling): the storyboard LLM's
+        # standing SHOT-SIZE VARIETY rule actively fights a user-stated
+        # locked camera, and Chinese camera prose is only softly honored.
+        # The discipline is therefore DATA: a binding English directive
+        # appended to the WORKING concept (never persisted), plus a
+        # deterministic clamp on the normalized storyboard below.
+        camera_code = parse_camera_discipline(camera_discipline)
+        camera_directive_text = build_camera_discipline_directive(camera_discipline)
         # Auto-enhance (toggle on + non-empty draft): rewrite the rough
         # draft into the canonical user_input format first. The
         # category / reference_mode passed down are THIS node's widget
@@ -3283,6 +3300,8 @@ class H3LoopPromptEnhancer:
                 warnings.append(
                     "user_input empty: used the built-in default concept"
                 )
+        if camera_directive_text:
+            idea = idea.rstrip("\n") + "\n" + camera_directive_text
         # Kinship survives a rewrite that drops 「是爸爸」. The raw draft
         # fills roles the rewritten text no longer states; a role the
         # rewrite still states wins.
@@ -3763,6 +3782,22 @@ class H3LoopPromptEnhancer:
                 scene_target_total_sec=packed_scale_total,
             )
             warnings.extend(f"auto-storyboard: {w}" for w in sb_warnings)
+            # Code-side guarantee behind the camera directive: whatever the
+            # storyboard LLM decided, locked/no_closeups is enforced here.
+            if camera_code != "auto" and shots:
+                before = [str(sh.get("shot_type") or "") for sh in shots]
+                apply_camera_discipline(shots, camera_discipline)
+                clamped = [
+                    (b, str(sh.get("shot_type") or ""))
+                    for b, sh in zip(before, shots)
+                    if b != str(sh.get("shot_type") or "")
+                ]
+                if clamped:
+                    warnings.append(
+                        "camera discipline %s: %d shot(s) widened (%s)"
+                        % (camera_code, len(clamped),
+                           ", ".join("%s->%s" % c for c in clamped))
+                    )
             # 5b) Even time split: every scene gets an equal share of
             #     the budget (T / scene_count). Whether a scene's speech
             #     fits its share was already warned about above; the
@@ -4467,6 +4502,23 @@ class MiniMaxH3LoopPromptGenerator:
                         ),
                     },
                 ),
+                "camera_discipline": (
+                    list(CAMERA_DISCIPLINES),
+                    {
+                        "default": CAMERA_DISCIPLINES[0],
+                        "tooltip": (
+                            "镜头纪律。auto：分镜自由构图（默认——注意分镜 "
+                            "LLM 有一条「景别交替」硬规则，会主动切特写，"
+                            "概念里的「镜头固定」只是软性提示）。locked："
+                            "固定机位——全场一个构图（two_shot/medium_shot），"
+                            "禁止景别交替和特写，camera_movement 一律 "
+                            "static_lockoff；概念里写的构图就是全片的构图。"
+                            "no_closeups：禁特写——景别保持中景及以上，机位"
+                            "运动自由。locked/no_closeups 由代码在分镜归一"
+                            "化后强制执行，不依赖模型自觉。",
+                        ),
+                    },
+                ),
                 "category": (
                     list(LOOP_CATEGORIES),
                     {
@@ -4633,6 +4685,7 @@ class MiniMaxH3LoopPromptGenerator:
         caption_cache_scope: str = "memory_disk",
         pacing: str = _PACING_LABELS[1],
         enhance_user_input: str = _ENHANCE_USER_INPUT_LABELS[0],
+        camera_discipline: str = CAMERA_DISCIPLINES[0],
     ):
         enhancer = H3LoopPromptEnhancer(
             llm_service_connector,
@@ -4657,6 +4710,7 @@ class MiniMaxH3LoopPromptGenerator:
             caption_cache_scope=caption_cache_scope,
             pacing=pacing,
             enhance_user_input=parse_enhance_user_input(enhance_user_input),
+            camera_discipline=camera_discipline,
         )
         return (
             out["plan_json"],
@@ -4687,6 +4741,7 @@ class MiniMaxH3LoopPromptGenerator:
         caption_cache_scope: str = "memory_disk",
         pacing: str = _PACING_LABELS[1],
         enhance_user_input: str = _ENHANCE_USER_INPUT_LABELS[0],
+        camera_discipline: str = CAMERA_DISCIPLINES[0],
     ):
         h = hashlib.md5(usedforsecurity=False)
         for part in (
@@ -4707,6 +4762,7 @@ class MiniMaxH3LoopPromptGenerator:
             str(caption_cache_scope or "memory_disk"),
             pacing,
             str(parse_enhance_user_input(enhance_user_input)),
+            parse_camera_discipline(camera_discipline),
             (references_text or "").strip(),
         ):
             h.update((part or "").encode("utf-8"))
@@ -4942,6 +4998,7 @@ class MiniMaxH3LoopPromptGeneratorV2(MiniMaxH3LoopPromptGenerator):
             asset_roster=roster_arg,
             roster_manifest=roster_manifest,
             enhance_user_input=parse_enhance_user_input(enhance_user_input),
+            camera_discipline=kwargs.pop("camera_discipline", CAMERA_DISCIPLINES[0]),
             **kwargs,
         )
         return (

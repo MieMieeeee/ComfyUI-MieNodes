@@ -86,6 +86,18 @@ ComfyUI 节点 `MiniMaxH3LoopPromptGenerator|Mie`，类路径 `nodes.llm.minimax
 
 ---
 
+### camera_discipline（镜头纪律，V1/V2 通用）
+
+| 值 | 行为 |
+|---|---|
+| `auto - 自动(分镜自由构图)` | 现状。**注意**：分镜 LLM 有一条「景别交替」硬规则（system_storyboard.txt 规则 3），会主动切特写；概念里的「镜头固定」只是软性提示，中文相机语言经常被忽略 |
+| `locked - 固定机位(构图全场不变)` | 全场一个构图：景别统一为概念声明的取景（two_shot/medium_shot 族），特写一律展宽，`camera_movement` 全部强制 `static_lockoff`。概念里写的构图就是全片的构图 |
+| `no_closeups - 禁特写(中景以上)` | 景别保持中景及以上（close_up/medium_close_up/extreme_close_up/insert_shot 展宽为 medium_shot），机位运动自由 |
+
+locked / no_closeups 是**双层保障**：分镜用户回合追加一段英文 BINDING 指令（分镜与逐镜两层的 honor 规则都吃英文），并且**代码在分镜归一化后强制夹紧** shot_type / camera_movement——模型不听话也会被改掉；被夹紧的镜头会在 `summary` 里报告 `camera discipline locked: N shot(s) widened (close_up->medium_shot)`。
+
+---
+
 ## 5. V2 变体：`MiniMaxH3LoopPromptGeneratorV2`
 
 类路径同上，`MiniMaxH3LoopPromptGeneratorV2`。**参数与 V1 完全一致**（`INPUT_TYPES` 是从 V1 派生的，不是抄的，所以 widget 集合永远不会漂移），只多两个可选插座：

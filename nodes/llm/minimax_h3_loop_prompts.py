@@ -489,6 +489,83 @@ def validate_manifest(manifest: list[dict], mode: str) -> list[str]:
 # --------------------------------------------------------------------------- #
 # Asset roster (authored characters & scenes handed in by the asset library)
 # --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+# Camera discipline (user ruling 2026-10-10: close-up switching must be an
+# OPTION, and the concept's camera language must not lose to the storyboard
+# LLM's standing SHOT-SIZE VARIETY rule)
+# --------------------------------------------------------------------------- #
+CAMERA_DISCIPLINES = (
+    "auto - 自动(分镜自由构图)",
+    "locked - 固定机位(构图全场不变)",
+    "no_closeups - 禁特写(中景以上)",
+)
+CAMERA_DISCIPLINE_CODES = ("auto", "locked", "no_closeups")
+
+_CLOSEUP_FAMILY = frozenset(
+    {"medium_close_up", "close_up", "extreme_close_up", "insert_shot"}
+)
+
+
+def parse_camera_discipline(mode: str) -> str:
+    code = (mode or "").split(" - ", 1)[0].strip()
+    return code if code in CAMERA_DISCIPLINE_CODES else "auto"
+
+
+def build_camera_discipline_directive(mode: str) -> str:
+    """The BINDING text appended to the working concept for the storyboard
+    and shot stages. English on purpose: both system prompts' honor-rule
+    examples are English, and the storyboard LLM reads the concept as
+    directorial intent."""
+    code = parse_camera_discipline(mode)
+    if code == "locked":
+        return (
+            "[Directorial lock — BINDING, overrides any style advice: the "
+            "camera is LOCKED OFF for the entire production. One constant "
+            "framing for every shot (the framing this concept states, e.g. a "
+            "symmetrical two-shot); NO shot-size alternation, NO close-ups, "
+            "NO cut-ins unless this concept itself demands one. Every "
+            "shot_type stays the same declared framing (two_shot / "
+            "medium_shot); every camera_movement is static_lockoff.]"
+        )
+    if code == "no_closeups":
+        return (
+            "[Directorial rule — BINDING: no close-ups anywhere on this "
+            "board. Shots stay at medium shot or wider (two_shot / "
+            "medium_shot / wider); medium_close_up, close_up, "
+            "extreme_close_up and insert_shot are forbidden. Camera movement "
+            "itself may vary.]"
+        )
+    return ""
+
+
+def apply_camera_discipline(shots: list, mode: str) -> list:
+    """Deterministic clamp on the normalized storyboard — the code-side
+    guarantee behind the directive. `locked` forces one framing family +
+    static_lockoff everywhere; `no_closeups` only remaps the close-up
+    family. Returns the (mutated) list so call sites can chain."""
+    code = parse_camera_discipline(mode)
+    if code == "auto" or not shots:
+        return shots
+
+    def _widen(shot_type: str) -> str:
+        return "medium_shot" if shot_type in _CLOSEUP_FAMILY else shot_type
+
+    for shot in shots:
+        current = str(shot.get("shot_type") or "medium_shot")
+        if code == "locked":
+            shot["shot_type"] = _widen(current)
+            shot["camera_movement"] = "static_lockoff"
+            notes = str(shot.get("notes") or "").strip()
+            lock_note = "camera locked; constant framing across the board"
+            if lock_note not in notes:
+                shot["notes"] = (notes + "; " + lock_note).strip("; ")
+        elif code == "no_closeups":
+            widened = _widen(current)
+            if widened != current:
+                shot["shot_type"] = widened
+    return shots
+
+
 def parse_asset_roster(raw: str) -> list[dict]:
     """Parse the ``asset_roster`` JSON string into validated entries.
 

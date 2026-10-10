@@ -907,3 +907,86 @@ def test_generator_socket_rules(lg, tmp_path, monkeypatch):
     with pytest.raises(RuntimeError, match="not a character asset bundle"):
         node.generate_v2(ScriptedConnector([]), user_input="x",
                          reference_mode=REF2VA, seed=1, character_1=scene_bundle)
+
+
+# --------------------------------------------------------------------------- #
+# Camera discipline (2026-10-10 ruling): close-up switching is an OPTION, and
+# the concept's locked-camera prose must not lose to the storyboard's
+# SHOT-SIZE VARIETY rule.
+# --------------------------------------------------------------------------- #
+def test_camera_discipline_pure_helpers(lp):
+    assert lp.parse_camera_discipline("locked - 固定机位(构图全场不变)") == "locked"
+    assert lp.parse_camera_discipline("no_closeups - 禁特写(中景以上)") == "no_closeups"
+    assert lp.parse_camera_discipline("auto - 自动(分镜自由构图)") == "auto"
+    assert lp.parse_camera_discipline("garbage") == "auto"
+    directive = lp.build_camera_discipline_directive("locked")
+    assert "LOCKED OFF" in directive and "no close-ups" in directive.lower()
+    assert lp.build_camera_discipline_directive("auto") == ""
+
+    shots = [
+        {"id": "scene_01", "shot_type": "close_up", "camera_movement": "slow_push_in"},
+        {"id": "scene_02", "shot_type": "two_shot", "camera_movement": "tracking_left"},
+        {"id": "scene_03", "shot_type": "medium_close_up", "camera_movement": "static_lockoff"},
+    ]
+    lp.apply_camera_discipline(shots, "locked")
+    assert all(sh["camera_movement"] == "static_lockoff" for sh in shots)
+    assert all(sh["shot_type"] not in ("close_up", "medium_close_up") for sh in shots)
+    assert shots[1]["shot_type"] == "two_shot"  # non-closeup framing survives
+    assert "camera locked" in shots[0]["notes"]
+
+    shots2 = [
+        {"id": "scene_01", "shot_type": "extreme_close_up", "camera_movement": "handheld"},
+        {"id": "scene_02", "shot_type": "two_shot", "camera_movement": "crane_up"},
+    ]
+    lp.apply_camera_discipline(shots2, "no_closeups")
+    assert shots2[0]["shot_type"] == "medium_shot"
+    assert shots2[0]["camera_movement"] == "handheld"  # camera stays free
+    assert shots2[1]["shot_type"] == "two_shot"
+
+    shots3 = [{"id": "s", "shot_type": "close_up"}]
+    lp.apply_camera_discipline(shots3, "auto")
+    assert shots3[0]["shot_type"] == "close_up"  # auto: untouched
+
+
+def test_generator_camera_discipline_clamps_storyboard(lg):
+    """The storyboard LLM returns close-ups; locked widens them and locks
+    the camera, and the summary reports the clamp."""
+    closeup_board = json.dumps([
+        {"id": "scene_01", "description": "d1", "shot_type": "close_up",
+         "camera_movement": "slow_push_in", "duration_seconds": 6,
+         "characters": ["孙女"], "props": []},
+        {"id": "scene_02", "description": "d2", "shot_type": "extreme_close_up",
+         "camera_movement": "handheld", "duration_seconds": 6,
+         "characters": ["孙女"], "props": []},
+    ], ensure_ascii=False)
+    conn = ScriptedConnector([
+        EXTRACT_DIALOGUE_EMPTY,
+        closeup_board,
+        PREFIX_REPLY,
+        _ref2va_scene1_reply(),
+        _ref2va_scene1_reply(),
+    ])
+    out = _run(
+        lg, conn,
+        user_input="孙女和爷爷坐在客厅沙发上，镜头固定，对称双人中景。",
+        reference_mode=REF2VA,
+        images=_fake_images(1),
+        caption_mode=NO_CACHE,
+        asset_roster=_roster([ALICE]),
+        camera_discipline="locked - 固定机位(构图全场不变)",
+        seed=1,
+    )
+    assert "camera discipline locked: 2 shot(s) widened" in out["summary"]
+    # The clamp shows up in the storyboard user turn the LLM saw? The shot
+    # turn's shot_json carries the CLAMPED types (downstream inherits them).
+    shots = json.loads(out["plan_json"])["shots"]
+    prompts = [ln for s in shots for ln in s["prompt"]]
+    assert not any("close_up" in ln for ln in prompts)
+
+
+def test_camera_discipline_widget_present(lg):
+    spec = lg.MiniMaxH3LoopPromptGenerator.INPUT_TYPES()["optional"]
+    assert "camera_discipline" in spec
+    assert spec["camera_discipline"][0][0].startswith("auto")
+    v2 = lg.MiniMaxH3LoopPromptGeneratorV2.INPUT_TYPES()["optional"]
+    assert "camera_discipline" in v2  # derived from V1
