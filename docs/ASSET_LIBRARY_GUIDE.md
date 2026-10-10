@@ -35,50 +35,28 @@ MieNodes 的资产库把「跨镜头要重复用的角色和场景」存成磁�
 
 2026-10-09 之前的库（`portrait.png` / `voice_sample.wav|mp3` / `scene.png`、JSON 字段 `appearance`）**直接可读**：按 1 图 + 1 音频对待，`appearance` 当作 `description`。对旧资产做任何一次成功保存都会写成新布局，并把旧文件**晋升**（原字节搬进 `images/01.png` / `audio/01.<原扩展名>`）后清理——只读永远不删。
 
-## 3. 节点：两代并存（2026-10-10 起）
+## 3. 节点（四个，简化模型）
 
-菜单里老节点带 **(V1)** 标志（多图/多音频模型，行为不变）；新节点无标志，是**简化模型**：
-
-| 简化模型 | 内容 |
+| 模型 | 内容 |
 |---|---|
 | 角色 | **一张图**（可以是三视图/角色设定图）+ 一句图片描述 + **一段音频** + 一句声音描述 |
 | 场景 | **一张图** + 一句图片描述 |
 
-- `Save/Load Character Asset`（无标志）：单图单音频；磁盘上仍是 `images/01.png` + `audio/01.*`，库里的多图/多音频资产在这些节点上会报错并指向 (V1) 节点。
-- `Save/Load Scene Asset`（无标志）：单图。
-- **Prompt Generator V2 的正确接法（新）**：节点上直接有 `character_1 / character_2 / …`（选了才出现下一个）和 `scene_1 / …` 下拉槽。选好后**什么都不用接**——图片、描述、音色在执行时从固定库读取；顺序（角色在前、场景在后）就是 `<Picture N>`。新增第 4 个输出 `images` 是按槽位拼好的图片批次，直接接视频链。旧接法（`LoadAssetBatch.roster_json → asset_roster` + `images` 批次）继续可用，但与下拉槽**互斥**。
+（2026-10-10 深夜裁定：V1 多图/多音频节点已**整体移除**，只保留简化模型；旧工作流里的 V1 节点会显示为缺失。）
 
+- `Save/Load Character Asset`：单图单音频；每个输出之外还有一根 **`asset`** 线（MIE_CHARACTER_ASSET 资产包，一根线带全 name/description/voice/image/audio）。
+- `Save/Load Scene Asset`：单图；同样有 `asset` 线（MIE_SCENE_ASSET）。
+- 保存节点：下拉只列本类型；选中已有名字自动回填正文并标「与库一致 / **将覆盖**」；图/音频插座可不接（覆盖时保留磁盘文件）；「✏️ 新名字…」新建。
 
-### Load Character Asset
+**Prompt Generator V2 的接法**：`character_1..9` / `scene_1..9` 是**插座**——把 Load 节点的 `asset` 输出一根线接过来；接上 `character_1` 才露出 `character_2`。节点上没有任何选择控件；生成器从线上的资产包组装 roster 与 manifest（零视觉调用），槽位顺序（角色在前、场景在后）就是 `<Picture N>`。第 4 个输出 `images` 是按槽位拼好的图片批次，直接接视频链。
 
-| 输出 | 类型 | 内容 |
-|---|---|---|
-| `name` / `description` / `voice` | STRING | 目录名 / 描述 / 音色描述 |
-| `images` | IMAGE | `[N,H,W,3]`，N 为 1–8，顺序即文件名顺序 |
-| `audio_1` … `audio_8` | AUDIO | 每条音频一个插座。角色只有 K 条时，`audio_{K+1}..8` 是 `ExecutionBlocker`，消息写明只有几条；接了它的下游会失败并显示该消息，没人接则无影响 |
-
-### Load Scene Asset
-
-输出 `name` / `description`（STRING）+ `images`（`[N,H,W,3]`）。场景没有音频。
-
-### Save Character / Save Scene
-
-- 名字下拉只列本类型；首项 `（✏️ 新名字…）` 选后才出现 `new_name`。
-- 选中已有名字：**自动回填库里的 description / voice** 并逐字段标「与库一致 / **将覆盖**」，缩略图预览。
-- `images` 插座接一个 `[1..8,H,W,3]` 批次 = **整组替换**；不接 = 保留磁盘上的图（改一句描述不用重接任何东西）。音频同理：`audio_1..8` 一条都不接 = 保留；接任意几条 = 用这几条整组替换。插座逐个生长：接上 `audio_1` 才露出 `audio_2`，上限 8。新建必须至少一张图。
-- 保存成功后画布上所有资产节点的下拉/缩略图自动作废刷新。
-
-### Load Asset Batch
-
-- 「🖼 选择资产…」弹窗：卡片**3:4 竖幅完整显示**第一张图（`object-fit: contain`，不裁剪），角标写「N 张」「N 条音频」；同名角色/场景的卡片不可选并写明原因。
-- 节点上是**可拖动排序的缩略图槽位条**（序号 = `<Picture N>`），✕ 移除。
-- **没有名单编辑入口**：`names` 文本永久隐藏，只作工作流里的顺序记录；老工作流加载后照常还原槽位条。
-- 输出 `images` 只取每个资产的**第一张**（多图会打乱 `<Picture N>`）；完整图组走 Load 节点。
-- `roster_json` 条目：`name/kind/slot/description/image_count`（+角色的 `voice/audio_count/appearance`，`appearance` 与 `description` 同值，兼容已上线的花名册解析）。
-
-### List Character / List Scene Assets
-
-不变：名字一行一个 + status（下拉时代之后基本只剩兼容用途）。
+```text
+Load Character Asset ──asset──► V2.character_1
+Load Character Asset ──asset──► V2.character_2
+Load Scene Asset     ──asset──► V2.scene_1
+V2.plan_json ─────────────────► MiniMaxH3ChainPlanModern.plan_json_input
+V2.images   ─────────────────► 视频链参考图
+```
 
 ## 4. 接到 H3
 

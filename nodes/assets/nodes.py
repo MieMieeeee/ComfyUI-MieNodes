@@ -21,18 +21,6 @@ try:
 except ImportError:
     from . import library
 
-# Missing audio_i outputs become blockers (plan V2 section 5): a consumer
-# wired to a clip the asset does not have fails with a message that says how
-# many exist; an unconnected empty socket harms nothing. The class lives in
-# the ComfyUI server process; dev/pytest get a local stand-in.
-try:
-    from comfy_execution.graph import ExecutionBlocker
-except Exception:  # pragma: no cover - outside a ComfyUI process
-
-    class ExecutionBlocker(object):
-        def __init__(self, message):
-            self.message = message
-
 ASSETS_CATEGORY = "🐑 MieNodes/🐑 Assets"
 
 # Combo placeholders + save-mode sentinel. The real option lists are filled
@@ -214,329 +202,10 @@ def voice_sample_bytes_to_audio(data, ext):
     raise ValueError("unsupported voice sample extension %r" % ext)
 
 
-class SaveCharacterAsset(object):
-    """Write name + description + voice + an image set + an audio set.
-
-    The audio sockets grow one at a time (js/assetLibraryUI.js mirrors the
-    stringFormat autogrow): audio_1 is always there, audio_2 appears once
-    audio_1 is wired, up to 8. None connected = keep the disk clips;
-    ANY connected = replace the whole set with those clips. Same rule for
-    the image batch. A new character needs at least one image.
-    """
-
-    CATEGORY = ASSETS_CATEGORY
-
-    @classmethod
-    def INPUT_TYPES(cls):
-        optional = {
-            "images": ("IMAGE",),
-        }
-        for i in range(1, library.MAX_AUDIO + 1):
-            optional["audio_%d" % i] = ("AUDIO",)
-        return {
-            "required": {
-                # Hidden and IGNORED since plan V2: the library location is
-                # fixed per machine. Stays first so old workflows'
-                # widgets_values arrays stay positionally aligned.
-                "library_dir": ("STRING", {"default": ""}),
-                "name": (list(NAME_PLACEHOLDER), {"default": NAME_PLACEHOLDER[0]}),
-                "description": ("STRING", {"default": "", "multiline": True}),
-                "voice": ("STRING", {"default": "", "multiline": True}),
-                # Appended LAST on purpose: older workflows' widgets_values
-                # arrays are one entry short and load positionally-safe.
-                "new_name": ("STRING", {"default": "", "placeholder": "新资产的名字"}),
-            },
-            "optional": optional,
-        }
-
-    RETURN_TYPES = ("STRING", "STRING", "STRING", "IMAGE", "STRING")
-    RETURN_NAMES = ("name", "description", "voice", "image", "status")
-    FUNCTION = "save_character"
-    OUTPUT_NODE = True
-
-    @classmethod
-    def IS_CHANGED(cls, **kwargs):
-        return float("nan")
-
-    @classmethod
-    def VALIDATE_INPUTS(cls, name, new_name="", **kwargs):
-        return _validate_exempt(name, new_name=new_name, **kwargs)
-
-    def save_character(
-        self, library_dir="", name="", description="", voice="", new_name="",
-        images=None, **audio_kwargs,
-    ):
-        name = resolve_save_name(name, new_name)
-        png_list = None if images is None else image_batch_to_png_bytes_list(images)
-        wav_list = [audio_to_wav_bytes(a) for a in audio_kwargs.values() if a is not None]
-        result = library.save_character(
-            "", name, description, voice, png_list, wav_list or None
-        )
-        picture = png_bytes_list_to_image_tensor(result["png_bytes_list"][:1])
-        return (
-            result["name"],
-            result["description"],
-            result["voice"],
-            picture,
-            result["status"],
-        )
-
-
-class LoadCharacterAsset(object):
-    """Read one character: name, description, the image batch, the voice
-    line, and every audio clip on its own socket."""
-
-    CATEGORY = ASSETS_CATEGORY
-
-    @classmethod
-    def INPUT_TYPES(cls):
-        return {
-            "required": {
-                "library_dir": ("STRING", {"default": ""}),
-                "name": (list(NAME_PLACEHOLDER), {"default": NAME_PLACEHOLDER[0]}),
-            }
-        }
-
-    RETURN_TYPES = ("STRING", "STRING", "IMAGE", "STRING") + ("AUDIO",) * library.MAX_AUDIO
-    RETURN_NAMES = ("name", "description", "images", "voice") + tuple(
-        "audio_%d" % i for i in range(1, library.MAX_AUDIO + 1)
-    )
-    FUNCTION = "load_character"
-
-    @classmethod
-    def IS_CHANGED(cls, library_dir, name):
-        return library.character_cache_key("", name)
-
-    @classmethod
-    def VALIDATE_INPUTS(cls, name, **kwargs):
-        return _validate_exempt(name, **kwargs)
-
-    def load_character(self, library_dir="", name=""):
-        result = library.load_character("", name)
-        images = png_bytes_list_to_image_tensor(result["png_bytes_list"])
-        clips = [
-            voice_sample_bytes_to_audio(blob, ext)
-            for blob, ext in zip(result["audio_bytes_list"], result["audio_exts"])
-        ]
-        blocker_note = (
-            "%s has %d audio clip(s); %%s does not exist. Wire a lower "
-            "audio socket, or drop more clips under characters/%s/audio/."
-            % (result["name"], len(clips), result["name"])
-        )
-        outs = [
-            result["name"],
-            result["description"],
-            images,
-            result["voice"],
-        ]
-        for i in range(1, library.MAX_AUDIO + 1):
-            if i <= len(clips):
-                outs.append(clips[i - 1])
-            else:
-                outs.append(ExecutionBlocker(blocker_note % ("audio_%d" % i)))
-        return tuple(outs)
-
-
-class LoadAssetBatch(object):
-    """Load characters AND scenes in one go, batched and numbered for H3.
-
-    The IMAGE batch order IS the slot contract: picture N of this node's
-    output is <Picture N> in the prompt. Each asset contributes its FIRST
-    image only (plan V2 section 6) — expanding extra images would shift
-    <Picture N> behind the user's back; the full sets come from the Load
-    nodes, and roster_json carries image_count / audio_count.
-    """
-
-    CATEGORY = ASSETS_CATEGORY
-
-    @classmethod
-    def INPUT_TYPES(cls):
-        return {
-            "required": {
-                "library_dir": ("STRING", {"default": ""}),
-                "names": ("STRING", {"default": "", "multiline": True}),
-            }
-        }
-
-    RETURN_TYPES = ("IMAGE", "STRING", "STRING", "STRING")
-    RETURN_NAMES = ("images", "names", "roster_json", "status")
-    FUNCTION = "load_asset_batch"
-
-    @classmethod
-    def IS_CHANGED(cls, library_dir, names):
-        return library.asset_batch_cache_key("", names)
-
-    def load_asset_batch(self, library_dir="", names=""):
-        result = library.load_character_batch("", names)
-        assets = result["assets"]
-        pictures = [png_bytes_to_image_tensor(entry["png_bytes"]) for entry in assets]
-        # One IMAGE batch needs one shape. Resizing here would silently
-        # rewrite the user's picture, so name the offending assets and the
-        # sizes instead — torch.cat's own message does not.
-        shapes = {}
-        for entry, picture in zip(assets, pictures):
-            shapes.setdefault(tuple(picture.shape[1:]), []).append(entry["name"])
-        if len(shapes) > 1:
-            detail = "; ".join(
-                "%dx%d: %s" % (w, h, ", ".join(names))
-                for (h, w, _c), names in sorted(shapes.items())
-            )
-            raise ValueError(
-                "cannot batch pictures of different sizes (%s). Export the "
-                "asset pictures at one resolution — H3 resizes its reference "
-                "images to a 2048 short edge anyway, so a consistent size "
-                "costs nothing and keeps <Picture N> predictable" % detail
-            )
-        images = torch.cat(pictures, dim=0)
-        roster = []
-        for entry in assets:
-            item = {
-                "name": entry["name"],
-                "kind": entry["kind"],
-                "slot": entry["slot"],
-                "description": entry["description"],
-                "image_count": entry["image_count"],
-            }
-            if entry["kind"] == "character":
-                # appearance mirrors description so the already-shipped
-                # roster parser needs no change in this plan (V2 section 6).
-                item["appearance"] = entry["description"]
-                item["voice"] = entry["voice"]
-                item["audio_count"] = entry["audio_count"]
-            roster.append(item)
-        kinds = [e["kind"] for e in assets]
-        return (
-            images,
-            "\n".join(entry["name"] for entry in assets),
-            json.dumps(roster, ensure_ascii=False, indent=2),
-            "loaded %d character(s), %d scene(s)"
-            % (kinds.count("character"), kinds.count("scene")),
-        )
-
-
-class ListCharacterAssets(object):
-    """List readable character names, one per line, sorted."""
-
-    CATEGORY = ASSETS_CATEGORY
-
-    @classmethod
-    def INPUT_TYPES(cls):
-        return {
-            "required": {
-                "library_dir": ("STRING", {"default": ""}),
-            }
-        }
-
-    RETURN_TYPES = ("STRING", "STRING")
-    RETURN_NAMES = ("names", "status")
-    FUNCTION = "list_characters"
-
-    @classmethod
-    def IS_CHANGED(cls, **kwargs):
-        return float("nan")
-
-    def list_characters(self, library_dir=""):
-        result = library.list_characters("")
-        return (result["names"], result["status"])
-
-
-class SaveSceneAsset(object):
-    """Write name + description + an image set (scenes have no audio)."""
-
-    CATEGORY = ASSETS_CATEGORY
-
-    @classmethod
-    def INPUT_TYPES(cls):
-        return {
-            "required": {
-                "library_dir": ("STRING", {"default": ""}),
-                "name": (list(NAME_PLACEHOLDER), {"default": NAME_PLACEHOLDER[0]}),
-                "description": ("STRING", {"default": "", "multiline": True}),
-                # Appended LAST on purpose (see SaveCharacterAsset).
-                "new_name": ("STRING", {"default": "", "placeholder": "新资产的名字"}),
-            },
-            "optional": {
-                "images": ("IMAGE",),
-            },
-        }
-
-    RETURN_TYPES = ("STRING", "STRING", "IMAGE", "STRING")
-    RETURN_NAMES = ("name", "description", "image", "status")
-    FUNCTION = "save_scene"
-    OUTPUT_NODE = True
-
-    @classmethod
-    def IS_CHANGED(cls, **kwargs):
-        return float("nan")
-
-    @classmethod
-    def VALIDATE_INPUTS(cls, name, new_name="", **kwargs):
-        return _validate_exempt(name, new_name=new_name, **kwargs)
-
-    def save_scene(self, library_dir="", name="", description="", new_name="", images=None):
-        name = resolve_save_name(name, new_name)
-        png_list = None if images is None else image_batch_to_png_bytes_list(images)
-        result = library.save_scene("", name, description, png_list)
-        picture = png_bytes_list_to_image_tensor(result["png_bytes_list"][:1])
-        return (result["name"], result["description"], picture, result["status"])
-
-
-class LoadSceneAsset(object):
-    """Read name + description + the image batch for one scene."""
-
-    CATEGORY = ASSETS_CATEGORY
-
-    @classmethod
-    def INPUT_TYPES(cls):
-        return {
-            "required": {
-                "library_dir": ("STRING", {"default": ""}),
-                "name": (list(NAME_PLACEHOLDER), {"default": NAME_PLACEHOLDER[0]}),
-            }
-        }
-
-    RETURN_TYPES = ("STRING", "STRING", "IMAGE")
-    RETURN_NAMES = ("name", "description", "images")
-    FUNCTION = "load_scene"
-
-    @classmethod
-    def IS_CHANGED(cls, library_dir, name):
-        return library.scene_cache_key("", name)
-
-    @classmethod
-    def VALIDATE_INPUTS(cls, name, **kwargs):
-        return _validate_exempt(name, **kwargs)
-
-    def load_scene(self, library_dir="", name=""):
-        result = library.load_scene("", name)
-        images = png_bytes_list_to_image_tensor(result["png_bytes_list"])
-        return (result["name"], result["description"], images)
-
-
-class ListSceneAssets(object):
-    """List readable scene names, one per line, sorted."""
-
-    CATEGORY = ASSETS_CATEGORY
-
-    @classmethod
-    def INPUT_TYPES(cls):
-        return {
-            "required": {
-                "library_dir": ("STRING", {"default": ""}),
-            }
-        }
-
-    RETURN_TYPES = ("STRING", "STRING")
-    RETURN_NAMES = ("names", "status")
-    FUNCTION = "list_scenes"
-
-    @classmethod
-    def IS_CHANGED(cls, **kwargs):
-        return float("nan")
-
-    def list_scenes(self, library_dir=""):
-        result = library.list_scenes("")
-        return (result["names"], result["status"])
+# One wire carries the whole asset: the bundle types the generator slots
+# consume. Named per kind so a scene cannot be wired into a character slot.
+CHARACTER_ASSET_TYPE = "MIE_CHARACTER_ASSET"
+SCENE_ASSET_TYPE = "MIE_SCENE_ASSET"
 
 
 class SaveCharacterAssetV2(object):
@@ -563,8 +232,8 @@ class SaveCharacterAssetV2(object):
             },
         }
 
-    RETURN_TYPES = ("STRING", "STRING", "STRING", "IMAGE", "STRING")
-    RETURN_NAMES = ("name", "description", "voice", "image", "status")
+    RETURN_TYPES = ("STRING", "STRING", "STRING", "IMAGE", "STRING", CHARACTER_ASSET_TYPE)
+    RETURN_NAMES = ("name", "description", "voice", "image", "status", "asset")
     FUNCTION = "save_character"
     OUTPUT_NODE = True
 
@@ -585,8 +254,18 @@ class SaveCharacterAssetV2(object):
                                         None if png is None else [png],
                                         None if wav is None else [wav])
         picture = png_bytes_list_to_image_tensor(result["png_bytes_list"][:1])
+        audio_out = (
+            voice_sample_bytes_to_audio(result["audio_bytes_list"][0],
+                                        result["audio_exts"][0])
+            if result["audio_bytes_list"] else None
+        )
+        bundle = {
+            "kind": "character", "name": result["name"],
+            "description": result["description"], "voice": result["voice"],
+            "image": picture, "audio": audio_out,
+        }
         return (result["name"], result["description"], result["voice"],
-                picture, result["status"])
+                picture, result["status"], bundle)
 
 
 class LoadCharacterAssetV2(object):
@@ -603,8 +282,8 @@ class LoadCharacterAssetV2(object):
             }
         }
 
-    RETURN_TYPES = ("STRING", "STRING", "STRING", "IMAGE", "AUDIO")
-    RETURN_NAMES = ("name", "description", "voice", "image", "audio")
+    RETURN_TYPES = ("STRING", "STRING", "STRING", "IMAGE", "AUDIO", CHARACTER_ASSET_TYPE)
+    RETURN_NAMES = ("name", "description", "voice", "image", "audio", "asset")
     FUNCTION = "load_character"
 
     @classmethod
@@ -629,7 +308,13 @@ class LoadCharacterAssetV2(object):
         audio = voice_sample_bytes_to_audio(
             loaded["audio_bytes_list"][0], loaded["audio_exts"][0]
         )
-        return (loaded["name"], loaded["description"], loaded["voice"], image, audio)
+        bundle = {
+            "kind": "character", "name": loaded["name"],
+            "description": loaded["description"], "voice": loaded["voice"],
+            "image": image, "audio": audio,
+        }
+        return (loaded["name"], loaded["description"], loaded["voice"],
+                image, audio, bundle)
 
 
 class SaveSceneAssetV2(object):
@@ -651,8 +336,8 @@ class SaveSceneAssetV2(object):
             },
         }
 
-    RETURN_TYPES = ("STRING", "STRING", "IMAGE", "STRING")
-    RETURN_NAMES = ("name", "description", "image", "status")
+    RETURN_TYPES = ("STRING", "STRING", "IMAGE", "STRING", SCENE_ASSET_TYPE)
+    RETURN_NAMES = ("name", "description", "image", "status", "asset")
     FUNCTION = "save_scene"
     OUTPUT_NODE = True
 
@@ -670,7 +355,12 @@ class SaveSceneAssetV2(object):
         result = library.save_scene("", name, description,
                                     None if png is None else [png])
         picture = png_bytes_list_to_image_tensor(result["png_bytes_list"][:1])
-        return (result["name"], result["description"], picture, result["status"])
+        bundle = {
+            "kind": "scene", "name": result["name"],
+            "description": result["description"], "image": picture,
+        }
+        return (result["name"], result["description"], picture,
+                result["status"], bundle)
 
 
 class LoadSceneAssetV2(object):
@@ -687,8 +377,8 @@ class LoadSceneAssetV2(object):
             }
         }
 
-    RETURN_TYPES = ("STRING", "STRING", "IMAGE")
-    RETURN_NAMES = ("name", "description", "image")
+    RETURN_TYPES = ("STRING", "STRING", "IMAGE", SCENE_ASSET_TYPE)
+    RETURN_NAMES = ("name", "description", "image", "asset")
     FUNCTION = "load_scene"
 
     @classmethod
@@ -709,4 +399,8 @@ class LoadSceneAssetV2(object):
                 % (loaded["name"], len(loaded["png_bytes_list"]), loaded["name"])
             )
         image = png_bytes_list_to_image_tensor(loaded["png_bytes_list"])
-        return (loaded["name"], loaded["description"], image)
+        bundle = {
+            "kind": "scene", "name": loaded["name"],
+            "description": loaded["description"], "image": image,
+        }
+        return (loaded["name"], loaded["description"], image, bundle)

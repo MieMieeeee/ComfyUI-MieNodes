@@ -664,53 +664,34 @@ def test_scene_entry_in_roster_reaches_the_shot_prompt(lg):
 # --------------------------------------------------------------------------- #
 # V2 node shell
 # --------------------------------------------------------------------------- #
-def test_v2_node_extends_v1_widgets_without_copying_them(lg):
+def test_v2_node_extends_v1_widgets_with_socket_slots(lp, lg):
     v1 = lg.MiniMaxH3LoopPromptGenerator.INPUT_TYPES()
     v2 = lg.MiniMaxH3LoopPromptGeneratorV2.INPUT_TYPES()
     assert set(v1) == set(v2)
     assert set(v1["required"]) == set(v2["required"])
     for key, spec in v1["optional"].items():
         assert v2["optional"][key] == spec, key
-    assert "asset_roster" in v2["optional"]
-    assert "scene_setting" not in v2["optional"]
-    assert v2["optional"]["asset_roster"][1]["multiline"] is True
+    opt = v2["optional"]
+    # Slot SOCKETS (no selection widgets left on the generator).
+    assert "asset_roster" not in opt
+    assert opt["character_1"][0] == "MIE_CHARACTER_ASSET"
+    assert opt["scene_1"][0] == "MIE_SCENE_ASSET"
+    assert "character_9" in opt and "scene_9" in opt
     # Outputs EXTEND V1's by one: plan_json/summary/board_kind keep their
     # slots (the Production Plan wiring is unchanged) and the appended
-    # `images` batch (dropdown route only) feeds the video chain.
+    # `images` batch feeds the video chain.
     assert (
         lg.MiniMaxH3LoopPromptGeneratorV2.RETURN_TYPES[:3]
         == lg.MiniMaxH3LoopPromptGenerator.RETURN_TYPES
     )
     assert lg.MiniMaxH3LoopPromptGeneratorV2.RETURN_TYPES[3] == "IMAGE"
     assert lg.MiniMaxH3LoopPromptGeneratorV2.RETURN_NAMES[3] == "images"
-    # The dropdown slot widgets exist and default to the none-marker.
-    opt = lg.MiniMaxH3LoopPromptGeneratorV2.INPUT_TYPES()["optional"]
-    assert opt["character_1"][0] == [lg.MiniMaxH3LoopPromptGeneratorV2.SLOT_NONE]
-    assert "character_9" in opt and "scene_9" in opt
 
-
-def test_v2_is_changed_tracks_the_roster(lg):
-    node = lg.MiniMaxH3LoopPromptGeneratorV2()
-    conn = FakeConnector()
-    base = dict(user_input="x", seed=1, reference_mode=REF2VA)
-    a = node.is_changed(conn, asset_roster=_roster([ALICE]), **base)
-    b = node.is_changed(conn, asset_roster=_roster([ALICE]), **base)
-    c = node.is_changed(
-        conn, asset_roster=_roster([dict(ALICE, voice="a different voice")]), **base
-    )
-    d = node.is_changed(conn, asset_roster="", **base)
-    assert a == b
-    assert a != c and a != d
 
 
 # --------------------------------------------------------------------------- #
 # Template regression: an empty roster renders the PRE-ROSTER template
 # --------------------------------------------------------------------------- #
-# The only shot-template change was: the blank line between {concept} and
-# the prefix became {asset_roster_block}. An empty roster block must
-# therefore reproduce the b1df1f6 template byte-for-byte — the blank line
-# is the empty substitution, not a removed line. Frozen here so a future
-# template edit cannot silently change V1's prompt shape.
 _B1DF1F6_SHOT_USER_TEMPLATE = """Concept (whole production):
 {concept}
 
@@ -870,8 +851,15 @@ def _slot_lib(tmp_path, monkeypatch):
     return asset_library
 
 
-def test_generator_dropdown_slots_full_path(lp, lg, tmp_path, monkeypatch):
-    _slot_lib(tmp_path, monkeypatch)
+def test_generator_socket_bundles_full_path(lp, lg, tmp_path, monkeypatch):
+    """Load nodes' asset outputs wire straight into the generator slots:
+    no library reads at generation time, no vision calls, slot order =
+    characters then scenes, and the images output carries the batch."""
+    lib = _slot_lib(tmp_path, monkeypatch)
+    from nodes.assets.nodes import LoadCharacterAssetV2, LoadSceneAssetV2
+
+    char_bundle = LoadCharacterAssetV2().load_character("", "Alice")[5]
+    scene_bundle = LoadSceneAssetV2().load_scene("", "Store")[3]
     conn = ScriptedConnector([
         EXTRACT_DIALOGUE_EMPTY,
         _storyboard(1),
@@ -884,52 +872,37 @@ def test_generator_dropdown_slots_full_path(lp, lg, tmp_path, monkeypatch):
         user_input="Alice waits in the store.",
         reference_mode=REF2VA,
         seed=1,
-        character_1="Alice",
-        scene_1="Store",
+        character_1=char_bundle,
+        scene_1=scene_bundle,
     )
-    assert _vision_call_count(conn) == 0  # library text replaced the captioner
+    assert _vision_call_count(conn) == 0  # bundles replaced the captioner
     assert images is not None and images.shape[0] == 2  # char then scene
     prompts = _shot_prompts(conn)
     assert prompts
     for blob in prompts:
         assert "A courier in a yellow jacket." in blob
         assert "A midnight convenience store." in blob
-    # Slot order = characters first, scenes after (that IS <Picture N>).
-    manifest_slot1 = "Picture 1"
-    assert manifest_slot1 in prompts[0]
+    assert "Picture 1" in prompts[0]
 
 
-def test_generator_dropdown_slot_rules(lp, lg, tmp_path, monkeypatch):
+def test_generator_socket_rules(lg, tmp_path, monkeypatch):
     lib = _slot_lib(tmp_path, monkeypatch)
+    from nodes.assets.nodes import LoadCharacterAssetV2, LoadSceneAssetV2
+
     node = lg.MiniMaxH3LoopPromptGeneratorV2()
+    bundle = LoadCharacterAssetV2().load_character("", "Alice")[5]
 
-    # Both mechanisms at once -> actionable error, no LLM call.
-    conn = ScriptedConnector([])
-    with pytest.raises(RuntimeError, match="both the character/scene dropdown slots"):
-        node.generate_v2(conn, user_input="x", reference_mode=REF2VA, seed=1,
-                         asset_roster='[{"name":"Alice","kind":"character","slot":1,'
-                                      '"appearance":"a","voice":"v"}]',
-                         character_1="Alice")
-    # Same name as both kinds -> error (real tiny PNG so the save lands).
-    from PIL import Image as _Img
-    _buf = __import__("io").BytesIO()
-    _Img.new("RGB", (64, 96), (10, 10, 10)).save(_buf, format="PNG")
-    lib.save_scene(str(tmp_path), "Alice", "dup", [_buf.getvalue()])
-    with pytest.raises(RuntimeError, match="both character and scene"):
-        node.generate_v2(ScriptedConnector([]), user_input="x", reference_mode=REF2VA,
-                         seed=1, character_1="Alice", scene_1="Alice")
-    # is_changed reacts to slot picks and library edits.
-    a = node.is_changed(ScriptedConnector([]) if False else _FakeConn(), user_input="x",
-                        seed=1, reference_mode=REF2VA, character_1="Alice")
-    b = node.is_changed(_FakeConn(), user_input="x", seed=1, reference_mode=REF2VA,
-                        character_1="Alice")
-    c = node.is_changed(_FakeConn(), user_input="x", seed=1, reference_mode=REF2VA,
-                        character_2="Alice")
-    assert a == b and a != c
-
-
-class _FakeConn:
-    model = "fake"
-
-    def get_state(self):
-        return "s"
+    # A non-bundle value (e.g. a plain string) is rejected with wiring help.
+    with pytest.raises(RuntimeError, match="not a character asset bundle"):
+        node.generate_v2(ScriptedConnector([]), user_input="x",
+                         reference_mode=REF2VA, seed=1, character_1="Alice")
+    # Same asset in two slots -> error.
+    with pytest.raises(RuntimeError, match="more than one slot"):
+        node.generate_v2(ScriptedConnector([]), user_input="x",
+                         reference_mode=REF2VA, seed=1,
+                         character_1=bundle, character_2=bundle)
+    # A scene bundle in a character slot -> kind mismatch error.
+    scene_bundle = LoadSceneAssetV2().load_scene("", "Store")[3]
+    with pytest.raises(RuntimeError, match="not a character asset bundle"):
+        node.generate_v2(ScriptedConnector([]), user_input="x",
+                         reference_mode=REF2VA, seed=1, character_1=scene_bundle)

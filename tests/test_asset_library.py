@@ -300,145 +300,85 @@ def _load_h3_prompts_module():
     return sys.modules["_mienodes_internal.nodes.llm.minimax_h3_loop_prompts"]
 
 
-def test_batch_first_image_counts_and_roster_shape(lib_dir, monkeypatch):
-    from nodes.assets.nodes import LoadAssetBatch
-
-    monkeypatch.setenv(library.LIBRARY_DIR_ENV, str(lib_dir))
-
-    png_a, png_b = make_png((1, 2, 3), 8, 6), make_png((4, 5, 6), 8, 6)
+def test_batch_first_image_counts(lib_dir):
     library.save_character(
         str(lib_dir), "Alice", "looks", "voice A",
-        [png_a, png_b], [make_wav(freq=1.0), make_wav(freq=2.0), make_wav(freq=3.0)],
+        [make_png((1, 2, 3), 8, 6), make_png((4, 5, 6), 8, 6)],
+        [make_wav(freq=1.0), make_wav(freq=2.0), make_wav(freq=3.0)],
     )
     library.save_scene(str(lib_dir), "夜市", "a market", [make_png((9, 9, 9), 8, 6)])
-
-    images, names, roster_json, status = LoadAssetBatch().load_asset_batch("", "Alice\n夜市")
-    assert images.shape == (2, 6, 8, 3)
-    assert names == "Alice\n夜市"
-    assert status == "loaded 1 character(s), 1 scene(s)"
-    roster = json.loads(roster_json)
-    assert roster[0]["name"] == "Alice"
-    assert roster[0]["kind"] == "character"
-    assert roster[0]["slot"] == 1
-    assert roster[0]["image_count"] == 2
-    assert roster[0]["audio_count"] == 3
-    assert roster[0]["appearance"] == "looks"  # mirror for the shipped parser
-    assert roster[0]["description"] == "looks"
-    assert roster[1]["kind"] == "scene"
-    assert roster[1]["image_count"] == 1
-    assert "audio_count" not in roster[1]
+    entries = library.load_character_batch(str(lib_dir), "Alice\n夜市")["assets"]
+    assert [e["name"] for e in entries] == ["Alice", "夜市"]
+    assert entries[0]["image_count"] == 2 and entries[0]["audio_count"] == 3
+    assert entries[0]["png_bytes"] == entries[0]["png_bytes_list"][0]
+    assert entries[1]["image_count"] == 1
+    assert "audio_count" not in entries[1]
 
 
-def test_roster_json_parses_with_shipped_h3_parser(lib_dir, monkeypatch):
+def test_roster_shape_parses_with_shipped_h3_parser(lib_dir):
     lp = _load_h3_prompts_module()
-    from nodes.assets.nodes import LoadAssetBatch
-
-    monkeypatch.setenv(library.LIBRARY_DIR_ENV, str(lib_dir))
-
-    library.save_character(
-        str(lib_dir), "Alice", "looks", "voice A", [make_png()], [make_wav()]
-    )
-    library.save_scene(str(lib_dir), "S", "a scene", [make_png()])
-    _, _, roster_json, _ = LoadAssetBatch().load_asset_batch("", "Alice\nS")
-    entries = lp.parse_asset_roster(roster_json)
+    entries = lp.parse_asset_roster(json.dumps([
+        {"name": "Alice", "kind": "character", "slot": 1,
+         "description": "looks", "appearance": "looks", "voice": "voice A",
+         "image_count": 1, "audio_count": 1},
+        {"name": "S", "kind": "scene", "slot": 2,
+         "description": "a scene", "image_count": 1},
+    ], ensure_ascii=False))
     assert [e["name"] for e in entries] == ["Alice", "S"]
     assert lp.roster_bindings(entries) == [("Alice", 1)]
     assert lp.roster_voices(entries) == {"Alice": "voice A"}
+    assert entries[0]["image_count"] == 1 and entries[1]["image_count"] == 1
 
 
-# --------------------------------------------------------------------------- #
-# Node layer: ExecutionBlocker audio outputs (acceptance 4)
-# --------------------------------------------------------------------------- #
-def test_load_character_node_audio_outputs_and_blockers(lib_dir, monkeypatch):
-    from nodes.assets.nodes import LoadCharacterAsset, ExecutionBlocker
 
-    monkeypatch.setenv(library.LIBRARY_DIR_ENV, str(lib_dir))
-    library.save_character(
-        str(lib_dir), "Two", "d", "v",
-        [make_png((1, 1, 1), 8, 6), make_png((2, 2, 2), 8, 6)],
-        [make_wav(freq=440.0), make_wav(freq=880.0)],
-    )
-    node = LoadCharacterAsset()
-    outs = node.load_character("", "Two")
-    assert len(outs) == 4 + library.MAX_AUDIO
-    assert outs[0] == "Two"
-    assert outs[1] == "d"
-    assert outs[2].shape == (2, 6, 8, 3)  # [N,H,W,3]
-    assert outs[3] == "v"
-    assert isinstance(outs[4], dict) and "waveform" in outs[4]
-    assert isinstance(outs[5], dict) and "waveform" in outs[5]
-    for i in range(6, 12):
-        blocker = outs[i]
-        assert isinstance(blocker, ExecutionBlocker)
-        assert "has 2 audio clip(s)" in blocker.message
-        assert "audio_%d" % (i - 3) in blocker.message
-
-
-def test_load_scene_node_images_output(lib_dir, monkeypatch):
-    from nodes.assets.nodes import LoadSceneAsset
+def test_save_node_ignores_library_dir_and_bundles(lib_dir, monkeypatch):
+    from nodes.assets.nodes import SaveCharacterAssetV2, NEW_NAME_SENTINEL
 
     monkeypatch.setenv(library.LIBRARY_DIR_ENV, str(lib_dir))
-    library.save_scene(
-        str(lib_dir), "Two", "d",
-        [make_png((1, 1, 1), 6, 6), make_png((2, 2, 2), 6, 6)],
-    )
-    name, description, images = LoadSceneAsset().load_scene("", "Two")
-    assert (name, description) == ("Two", "d")
-    assert images.shape == (2, 6, 6, 3)
-
-
-# --------------------------------------------------------------------------- #
-# Node layer: save inputs (acceptance 2/6), fixed library (acceptance 1)
-# --------------------------------------------------------------------------- #
-def test_save_node_ignores_library_dir_and_collects_audio(lib_dir, monkeypatch):
-    from nodes.assets.nodes import SaveCharacterAsset, NEW_NAME_SENTINEL
-
-    monkeypatch.setenv(library.LIBRARY_DIR_ENV, str(lib_dir))
-    node = SaveCharacterAsset()
-    audio_a = wav_bytes_to_audio(make_wav(freq=440.0))
-    audio_b = wav_bytes_to_audio(make_wav(freq=880.0))
-    images = png_bytes_list_to_image_tensor([make_png((5, 5, 5))])
-
-    out = node.save_character(
-        # An old workflow's stored dir must be IGNORED (plan V2 section 2).
+    node = SaveCharacterAssetV2()
+    name, description, voice, image, status, bundle = node.save_character(
+        # An old workflow's stored dir must be IGNORED (fixed library).
         library_dir="C:/definitely/not/a/real/library",
         name=NEW_NAME_SENTINEL, description="d", voice="v", new_name="Z",
-        images=images, audio_1=audio_a, audio_3=audio_b,  # sockets need not be contiguous
+        image=png_bytes_list_to_image_tensor([make_png((5, 5, 5))]),
+        audio=wav_bytes_to_audio(make_wav(freq=440.0)),
     )
-    assert out[0] == "Z" and out[4] == "created"
-    char_dir = lib_dir / "characters" / "Z"
-    assert sorted(p.name for p in (char_dir / "audio").iterdir()) == ["01.wav", "02.wav"]
+    assert (name, status) == ("Z", "created")
+    assert bundle["kind"] == "character" and bundle["name"] == "Z"
+    assert bundle["description"] == "d" and "waveform" in bundle["audio"]
 
-    node.save_character(name="Z", description="d2", voice="v2")
+    # Text-only overwrite via the node keeps disk media; bundle echoes it.
+    _, _, _, _, _, bundle2 = node.save_character(name="Z", description="d2", voice="v2")
     loaded = library.load_character("", "Z")
     assert loaded["description"] == "d2"
     assert len(loaded["png_bytes_list"]) == 1
-    assert len(loaded["audio_bytes_list"]) == 2
+    assert len(loaded["audio_bytes_list"]) == 1
+    assert bundle2["image"].shape[0] == 1
 
 
-def test_save_node_widget_order_and_optional_sockets():
-    from nodes.assets.nodes import SaveCharacterAsset, SaveSceneAsset
+def test_widget_order_and_output_shapes():
+    from nodes.assets.nodes import (
+        CHARACTER_ASSET_TYPE,
+        SCENE_ASSET_TYPE,
+        LoadCharacterAssetV2,
+        LoadSceneAssetV2,
+        SaveCharacterAssetV2,
+        SaveSceneAssetV2,
+    )
 
-    req = list(SaveCharacterAsset.INPUT_TYPES()["required"])
-    opt = SaveCharacterAsset.INPUT_TYPES()["optional"]
+    req = list(SaveCharacterAssetV2.INPUT_TYPES()["required"])
+    opt = SaveCharacterAssetV2.INPUT_TYPES()["optional"]
     assert req[0] == "library_dir"  # hidden, positional anchor for old workflows
     assert req[-1] == "new_name"
-    assert "images" in opt
-    for i in range(1, library.MAX_AUDIO + 1):
-        assert "audio_%d" % i in opt
-    req = list(SaveSceneAsset.INPUT_TYPES()["required"])
-    assert req[-1] == "new_name"
-    assert "images" in SaveSceneAsset.INPUT_TYPES()["optional"]
-
-
-def test_load_node_output_shapes():
-    from nodes.assets.nodes import LoadCharacterAsset, LoadSceneAsset
-
-    assert LoadCharacterAsset.RETURN_NAMES == (
-        ("name", "description", "images", "voice")
-        + tuple("audio_%d" % i for i in range(1, library.MAX_AUDIO + 1))
+    assert "image" in opt and "audio" in opt
+    assert LoadCharacterAssetV2.RETURN_TYPES[-1] == CHARACTER_ASSET_TYPE
+    assert LoadSceneAssetV2.RETURN_TYPES[-1] == SCENE_ASSET_TYPE
+    assert SaveCharacterAssetV2.RETURN_NAMES == (
+        "name", "description", "voice", "image", "status", "asset"
     )
-    assert LoadSceneAsset.RETURN_NAMES == ("name", "description", "images")
+    assert SaveSceneAssetV2.RETURN_NAMES == (
+        "name", "description", "image", "status", "asset"
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -598,19 +538,17 @@ def test_text_lengths_validated(lib_dir):
 
 def test_validate_inputs_exempts_combo_membership():
     from nodes.assets.nodes import (
-        LoadCharacterAsset,
-        LoadSceneAsset,
-        SaveCharacterAsset,
-        SaveSceneAsset,
+        LoadCharacterAssetV2,
+        LoadSceneAssetV2,
+        SaveCharacterAssetV2,
+        SaveSceneAssetV2,
     )
 
-    for cls in (LoadCharacterAsset, LoadSceneAsset, SaveCharacterAsset, SaveSceneAsset):
+    for cls in (LoadCharacterAssetV2, LoadSceneAssetV2,
+                SaveCharacterAssetV2, SaveSceneAssetV2):
         assert cls.VALIDATE_INPUTS("夏栀", new_name="") is True
 
 
-# --------------------------------------------------------------------------- #
-# Library dir guards (absolute / outside plugin)
-# --------------------------------------------------------------------------- #
 def test_library_dir_guards(tmp_path):
     plugin_root = tmp_path / "plugin"
     plugin_root.mkdir()
@@ -669,7 +607,7 @@ def test_v2_simple_character_node_roundtrip(lib_dir, monkeypatch):
         audio=wav_bytes_to_audio(make_wav(freq=440.0)),
     )
     assert out[0] == "Solo" and out[4] == "created"
-    name, description, voice, image, audio = LoadCharacterAssetV2().load_character("", "Solo")
+    name, description, voice, image, audio, bundle = LoadCharacterAssetV2().load_character("", "Solo")
     assert (name, description, voice) == ("Solo", "one look", "one voice")
     assert image.shape[0] == 1 and "waveform" in audio
 
@@ -714,6 +652,6 @@ def test_v2_simple_scene_node_roundtrip(lib_dir, monkeypatch):
         name="Alley", description="a rainy alley",
         image=png_bytes_list_to_image_tensor([make_png((3, 3, 3))]),
     )
-    name, description, image = LoadSceneAssetV2().load_scene("", "Alley")
+    name, description, image, bundle = LoadSceneAssetV2().load_scene("", "Alley")
     assert (name, description) == ("Alley", "a rainy alley")
     assert image.shape[0] == 1
