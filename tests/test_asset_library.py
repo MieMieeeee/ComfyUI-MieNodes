@@ -688,7 +688,7 @@ def test_asset_to_slots_pictures_and_audios_in_order():
 
     node = AssetToSlots()
     alice, grandpa, store = _bundle_char("Alice"), _bundle_char("Grandpa", (4, 5, 6)), _bundle_scene("Store")
-    outs = node.split(character_1=alice, character_2=grandpa, scene_1=store)
+    outs = node.split([alice, grandpa, store], pictures=3, audios=2)
     assert outs[0] == 3  # count = chars + scenes
     for i, bundle in enumerate([alice, grandpa, store], start=1):
         assert outs[i] is not None
@@ -703,29 +703,32 @@ def test_asset_to_slots_rules_and_padding():
     from nodes.assets.nodes import AssetToSlots
 
     node = AssetToSlots()
-    # Non-bundle value -> wiring help.
-    with pytest.raises(ValueError, match="not a character asset bundle"):
-        node.split(character_1="Alice")
-    # Same bundle twice -> error.
+    # Non-list input -> wiring help.
+    with pytest.raises(ValueError, match="MIE_ASSET_ROSTER"):
+        node.split("Alice", 3, 2)
+    # Non-bundle item -> wiring help.
+    with pytest.raises(ValueError, match="not an asset bundle"):
+        node.split(["Alice"], 3, 2)
+    # Duplicate names -> error.
     dup = _bundle_char("Alice")
-    with pytest.raises(ValueError, match="more than one slot"):
-        node.split(character_1=dup, character_2=dup)
-    # Scene bundle in a character slot -> kind mismatch.
-    with pytest.raises(ValueError, match="not a character asset bundle"):
-        node.split(character_1=_bundle_scene())
-    # Nothing wired -> all pictures/audios None, counts 0.
-    outs = node.split()
+    with pytest.raises(ValueError, match="duplicate asset"):
+        node.split([dup, _bundle_char("Alice")], 3, 2)
+    # None roster (no assets wired on the generator) -> all None, counts 0.
+    outs = node.split(None, 3, 2)
     assert outs[0] == 0 and outs[10] == 0
     assert all(o is None for o in outs[1:10]) and all(o is None for o in outs[11:])
-    # Character without audio -> that audio slot is None but numbering holds.
+    # Character without audio -> that slot None but numbering holds.
     silent = _bundle_char("Silent")
     silent["audio"] = None
-    outs = node.split(character_1=_bundle_char("A"), character_2=silent)
+    outs = node.split([_bundle_char("A"), silent], pictures=2, audios=2)
     assert outs[10] == 1 and outs[11] is not None and outs[12] is None
+    # audios=0 hides nothing at execution but yields no audio values.
+    outs = node.split([_bundle_char("A")], pictures=1, audios=0)
+    assert outs[10] == 0 and outs[11] is None
 
 
 def test_asset_to_slots_spec():
-    from nodes.assets.nodes import AssetToSlots
+    from nodes.assets.nodes import ASSET_ROSTER_TYPE, AssetToSlots
 
     assert AssetToSlots.RETURN_NAMES == (
         ("count",)
@@ -733,7 +736,7 @@ def test_asset_to_slots_spec():
         + ("audio_count",)
         + tuple("audio_%d" % i for i in range(1, 4))
     )
-    opt = AssetToSlots.INPUT_TYPES()["optional"]
-    assert opt["character_1"][0] == "MIE_CHARACTER_ASSET"
-    assert opt["scene_1"][0] == "MIE_SCENE_ASSET"
-    assert "character_9" in opt and "scene_9" in opt
+    req = AssetToSlots.INPUT_TYPES()["required"]
+    assert req["assets"][0] == ASSET_ROSTER_TYPE
+    assert req["pictures"][1]["max"] == 9
+    assert req["audios"][1]["max"] == 3 and req["audios"][1]["min"] == 0

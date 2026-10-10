@@ -51,27 +51,25 @@ MieNodes 的资产库把「跨镜头要重复用的角色和场景」存成磁�
 **Prompt Generator V2 的接法**：`character_1..9` / `scene_1..9` 是**插座**——把 Load 节点的 `asset` 输出一根线接过来；接上 `character_1` 才露出 `character_2`。节点上没有任何选择控件；生成器从线上的资产包组装 roster 与 manifest（零视觉调用），槽位顺序（角色在前、场景在后）就是 `<Picture N>`。第 4 个输出 `images` 是按槽位拼好的图片批次，直接接视频链。
 
 ```text
-Load Character Asset（孙女）──┬─asset──► V2.character_1
-                              └─asset──► Asset→Slots.character_1
-Load Character Asset（爷爷）──┬─asset──► V2.character_2
-                              └─asset──► Asset→Slots.character_2
-Load Scene Asset（客厅）──────┬─asset──► V2.scene_1
-                              └─asset──► Asset→Slots.scene_1
-V2.plan_json ─────────────────► MiniMaxH3ChainPlanModern.plan_json_input
-Asset→Slots ├──picture_1──► ref2v.ref_image_0   （孙女）
-            ├──picture_2──► ref2v.ref_image_1   （爷爷）
-            ├──picture_3──► ref2v.ref_image_2   （客厅）
-            ├──audio_1───► ref2v.ref_audio_0   （孙女）
-            └──audio_2───► ref2v.ref_audio_1   （爷爷）
+Load Character Asset（孙女）──asset──► V2.character_1
+Load Character Asset（爷爷）──asset──► V2.character_2
+Load Scene Asset（客厅）──────asset──► V2.scene_1
+
+V2.plan_json ──► MiniMaxH3ChainPlanModern.plan_json_input
+V2.assets ──► Asset → Slots ├──picture_1──► ref2v.ref_image_0   （孙女 = Picture 1）
+                            ├──picture_2──► ref2v.ref_image_1   （爷爷 = Picture 2）
+                            ├──picture_3──► ref2v.ref_image_2   （客厅 = Picture 3，环境）
+                            ├──audio_1───► ref2v.ref_audio_0   （孙女 = Audio 1）
+                            └──audio_2───► ref2v.ref_audio_1   （爷爷 = Audio 2）
 ```
 
-**顺序保障（Asset → Slots 节点）**：把和生成器**同一批 asset 包**接进它的角色/场景插座（插座自动增长，接上才露出下一个），它按同一槽位序（角色1..N → 场景1..M = `<Picture N>`）输出：
+**顺序保障（Asset → Slots 节点，从生成器接出）**：V2 的第 5 个输出 `assets` 是接进来的全部资产包按槽位序（角色1..N → 场景1..M = `<Picture N>`）的汇总。Asset → Slots 吃这一个输入，拆出**生成提示词所用的同一批图片和音频**：
 
-- `picture_1..9`（IMAGE）：第 i 张恒等于第 i 个资产——接 `ref_image_{i-1}`，**图片对齐由构造保证**；
-- `audio_1..3`（AUDIO）：**角色的音色样本按角色序**输出（场景无音频；H3 独立音频上限 3），接 `ref_audio_{i-1}` 后 `<Audio N>` 与 plan 里的角色顺序一致；
-- `count` / `audio_count`（INT）：实际数量。
+- `picture_1..9`（IMAGE）：第 i 张恒等于第 i 个资产——接 `ref_image_{i-1}`，图片对齐由构造保证；
+- `audio_1..3`（AUDIO）：角色的音色样本按角色序（场景无音频；H3 独立音频上限 3）——接 `ref_audio_{i-1}`，`<Audio N>` 与 plan 的角色顺序一致；
+- `count` / `audio_count`（INT）：各有几张、几条。
 
-可见输出随接线数量自动增减（接线了的不会被裁）；空槽输出 None，H3 跳过且**不占编号**。注意：`MiniMaxH3TaggedReferenceScene` 按 @tag 链重编号、只激活 prompt 引用的 tag——V2 的 plan 用原生 `<Picture N>` 无 @别名，直连 ref_image_N 才是对口路径。
+`pictures`（1–9）和 `audios`（0–3）两个控件控制可见输出数量（接线了的不会被裁）；空槽输出 None，H3 跳过且不占编号。注意：`MiniMaxH3TaggedReferenceScene` 按 @tag 链重编号、只激活 prompt 引用的 tag——V2 的 plan 用原生 `<Picture N>` 无 @别名，直连 ref_image_N 才是对口路径。
 
 ## 4. 接到 H3
 

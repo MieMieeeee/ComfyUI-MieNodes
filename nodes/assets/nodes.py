@@ -206,6 +206,9 @@ def voice_sample_bytes_to_audio(data, ext):
 # consume. Named per kind so a scene cannot be wired into a character slot.
 CHARACTER_ASSET_TYPE = "MIE_CHARACTER_ASSET"
 SCENE_ASSET_TYPE = "MIE_SCENE_ASSET"
+# The generator's aggregated output: every wired bundle in slot order
+# (characters then scenes) — what Asset → Slots splits back apart.
+ASSET_ROSTER_TYPE = "MIE_ASSET_ROSTER"
 
 
 class SaveCharacterAssetV2(object):
@@ -407,25 +410,21 @@ class LoadSceneAssetV2(object):
 
 
 class AssetToSlots(object):
-    """Split wired asset bundles into numbered picture AND audio slots.
+    """Split the generator's aggregated assets output into numbered slots.
 
-    Feed the SAME `asset` bundles you wire into the generator's
-    character_N / scene_N sockets into this node's identical sockets; it
-    emits, in slot order (characters then scenes — that order IS
-    <Picture N> in the plan):
+    Wire `MiniMaxH3LoopPromptGeneratorV2.assets` into the single input; out
+    come, in the SAME slot order the plan used (characters then scenes =
+    <Picture N>):
 
-    * ``picture_1..9`` (IMAGE) — picture_i is the i-th wired asset's image,
-      so picture_1 -> ref_image_0, picture_2 -> ref_image_1 ... by
-      construction;
-    * ``audio_1..3`` (AUDIO) — the wired CHARACTERS' voice samples in
-      character order (scenes carry no audio; H3 caps standalone audios
-      at 3). audio_i -> ref_audio_{i-1} keeps <Audio N> aligned with the
-      character order the plan generator used;
+    * ``picture_1..9`` (IMAGE) — picture_i is the i-th asset's image;
+      picture_1 -> ref_image_0 by construction;
+    * ``audio_1..3`` (AUDIO) — the CHARACTERS' voice samples in character
+      order (scenes carry none; H3 caps standalone audios at 3);
     * ``count`` / ``audio_count`` (INT) — how many are live.
 
-    JS trims the visible outputs to what is wired; execution pads missing
-    slots with None, which the H3 ref2v node skips WITHOUT occupying a
-    reference number.
+    The `pictures` / `audios` widgets control how many outputs are VISIBLE
+    (wired outputs are never cut); execution pads the rest with None, which
+    the H3 ref2v node skips WITHOUT occupying a reference number.
     """
 
     CATEGORY = ASSETS_CATEGORY
@@ -435,22 +434,34 @@ class AssetToSlots(object):
 
     @classmethod
     def INPUT_TYPES(cls):
-        optional = {}
-        for i in range(1, cls.MAX_SLOTS + 1):
-            optional["character_%d" % i] = (
-                CHARACTER_ASSET_TYPE,
-                {"tooltip": "角色槽位 %d：接 Load Character Asset 的 asset 输出（与生成器同序）。" % i},
-            )
-        for i in range(1, cls.MAX_SLOTS + 1):
-            optional["scene_%d" % i] = (
-                SCENE_ASSET_TYPE,
-                {"tooltip": "场景槽位 %d：接 Load Scene Asset 的 asset 输出（与生成器同序）。" % i},
-            )
-        return {"required": {}, "optional": optional}
+        return {
+            "required": {
+                "assets": (
+                    ASSET_ROSTER_TYPE,
+                    {"tooltip": "接 MiniMax H3 Loop Plan Generator V2 的 assets 输出。"},
+                ),
+                "pictures": (
+                    "INT",
+                    {
+                        "default": 3,
+                        "min": 1,
+                        "max": 9,
+                        "tooltip": "可见的 picture 输出数量（= 生成器上接的角色+场景数）。",
+                    },
+                ),
+                "audios": (
+                    "INT",
+                    {
+                        "default": 2,
+                        "min": 0,
+                        "max": 3,
+                        "tooltip": "可见的 audio 输出数量（= 生成器上接的角色数，上限 3）。",
+                    },
+                ),
+            }
+        }
 
-    RETURN_TYPES = (
-        ("INT",) + ("IMAGE",) * 9 + ("INT",) + ("AUDIO",) * 3
-    )
+    RETURN_TYPES = ("INT",) + ("IMAGE",) * 9 + ("INT",) + ("AUDIO",) * 3
     RETURN_NAMES = (
         ("count",)
         + tuple("picture_%d" % i for i in range(1, 10))
@@ -459,45 +470,57 @@ class AssetToSlots(object):
     )
     FUNCTION = "split"
 
-    @classmethod
-    def _wired(cls, kwargs, prefix, kind):
-        bundles = []
-        for i in range(1, cls.MAX_SLOTS + 1):
-            value = kwargs.get("%s_%d" % (prefix, i))
-            if value is None:
-                continue
-            if not isinstance(value, dict) or value.get("kind") != kind:
-                raise ValueError(
-                    "%s_%d is not a %s asset bundle; wire the 'asset' output "
-                    "of the matching Load node" % (prefix, i, kind)
-                )
-            bundles.append(value)
-        return bundles
-
-    def split(self, **kwargs):
-        characters = self._wired(kwargs, "character", "character")
-        scenes = self._wired(kwargs, "scene", "scene")
-        names = [b["name"] for b in characters + scenes]
+    def split(self, assets, pictures, audios):
+        if assets is None:
+            ordered = []
+        elif isinstance(assets, (list, tuple)):
+            ordered = list(assets)
+            for i, bundle in enumerate(ordered, 1):
+                if not isinstance(bundle, dict) or bundle.get("kind") not in (
+                    "character",
+                    "scene",
+                ):
+                    raise ValueError(
+                        "assets item %d is not an asset bundle (got %s); wire "
+                        "the 'assets' output of the generator"
+                        % (i, type(bundle).__name__)
+                    )
+        else:
+            raise ValueError(
+                "assets must be the generator's MIE_ASSET_ROSTER output, got %s"
+                % type(assets).__name__
+            )
+        names = [b["name"] for b in ordered]
         dupes = {n for n in names if names.count(n) > 1}
         if dupes:
             raise ValueError(
-                "asset wired into more than one slot: %s" % ", ".join(sorted(dupes))
+                "duplicate asset in the roster: %s" % ", ".join(sorted(dupes))
             )
-        ordered = characters + scenes
         if len(ordered) > self.MAX_SLOTS:
             raise ValueError(
-                "%d assets wired; at most %d pictures are supported"
+                "%d assets in the roster; at most %d pictures are supported"
                 % (len(ordered), self.MAX_SLOTS)
             )
 
+        want_pictures = max(1, min(int(pictures), self.MAX_SLOTS))
         outs = [len(ordered)]
         for i in range(1, self.MAX_SLOTS + 1):
-            outs.append(ordered[i - 1]["image"] if i <= len(ordered) else None)
+            outs.append(
+                ordered[i - 1]["image"]
+                if i <= len(ordered) and i <= want_pictures
+                else None
+            )
 
-        audios = []
+        characters = [b for b in ordered if b.get("kind") == "character"]
+        want_audios = max(0, min(int(audios), self.MAX_AUDIOS))
+        audios_out = []
         for bundle in characters[: self.MAX_AUDIOS]:
-            audios.append(bundle.get("audio"))
-        outs.append(sum(1 for a in audios if a is not None))
+            audios_out.append(bundle.get("audio"))
+        outs.append(sum(1 for a in audios_out[:want_audios] if a is not None))
         for i in range(self.MAX_AUDIOS):
-            outs.append(audios[i] if i < len(audios) else None)
+            outs.append(
+                audios_out[i]
+                if i < len(audios_out) and i < want_audios and audios_out[i] is not None
+                else None
+            )
         return tuple(outs)

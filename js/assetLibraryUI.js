@@ -33,8 +33,8 @@ const NODES = {
     "SaveSceneAssetV2|Mie": { kinds: ["scenes"], save: "scene" },
     // 生成器：角色/场景插座自动生长（无选择控件）。
     "MiniMaxH3LoopPromptGeneratorV2|Mie": { generatorSockets: true },
-    // 槽位展开节点：吃 asset 包插座（同生成器），输出按接线数收放。
-    "AssetToSlots|Mie": { assetSlots: true },
+    // 槽位展开节点：吃生成器的 assets 输出，两个 count 控件收放可见输出。
+    "AssetToSlots|Mie": { slotOutputs: true },
 };
 
 // ---- 取数 ------------------------------------------------------------------
@@ -109,85 +109,51 @@ app.registerExtension({
         const cfg = NODES[nodeData?.name];
         if (!cfg) return;
 
-        if (cfg.assetSlots) {
-            // 插座自动生长（同生成器），且可见输出跟随接线数量收放：
-            // picture_1..N（角色+场景序）、audio_1..min(角色数,3)。
-            const slotPrefixes = ["character", "scene"];
-            const socketIdx = (node, prefix) => {
-                const out = [];
-                (node.inputs || []).forEach((inp, i) => {
-                    if (inp && typeof inp.name === "string"
-                        && inp.name.startsWith(prefix + "_")
-                        && /^\d+$/.test(inp.name.slice(prefix.length + 1))) out.push(i);
-                });
-                return out;
-            };
-            const wiredCount = (node, prefix) => {
-                let n = 0;
-                socketIdx(node, prefix).forEach((i) => {
-                    if (node.inputs[i].link != null) n += 1;
-                });
-                return n;
-            };
+        if (cfg.slotOutputs) {
+            // 可见输出随 pictures/audios 控件收放（输出 0 是 count INT，
+            // 其后 picture_1..9、audio_count、audio_1..3）。接线了的输出
+            // 绝不会被裁；removeOutput 不可逆，调大时显式补回。
+            const named = (o, prefix) => o && o.name && o.name.startsWith(prefix + "_")
+                && /^\d+$/.test(o.name.slice(prefix.length + 1));
             const syncOutputs = (node) => {
-                const pics = wiredCount(node, "character") + wiredCount(node, "scene");
-                const auds = Math.min(wiredCount(node, "character"), 3);
-                for (const [prefix, want] of [["picture", Math.max(pics, 1)], ["audio", Math.max(auds, 1)]]) {
-                    const isNamed = (o) => o && o.name && o.name.startsWith(prefix + "_")
-                        && /^\d+$/.test(o.name.slice(prefix.length + 1));
+                const widgetVal = (name, dflt, max) => {
+                    const w = node.widgets?.find((x) => x.name === name);
+                    const v = parseInt(w?.value, 10);
+                    return Math.max(0, Math.min(max, Number.isNaN(v) ? dflt : v));
+                };
+                const wants = [["picture", widgetVal("pictures", 3, 9), "IMAGE"],
+                               ["audio", widgetVal("audios", 2, 3), "AUDIO"]];
+                for (const [prefix, want, type] of wants) {
                     let indices = [];
-                    (node.outputs || []).forEach((o, i) => { if (isNamed(o)) indices.push(i); });
-                    // 已接线的输出绝不裁掉。
-                    let keep = want;
+                    (node.outputs || []).forEach((o, i) => { if (named(o, prefix)) indices.push(i); });
                     indices.forEach((i, k) => {
                         const o = node.outputs[i];
-                        if (o.links != null && o.links.length) keep = Math.max(keep, k + 1);
+                        if (o.links != null && o.links.length) want = Math.max(want, k + 1);
                     });
-                    while (indices.length > keep) {
+                    while (indices.length > want) {
                         node.removeOutput(indices.pop());
                         indices = [];
-                        (node.outputs || []).forEach((o, i) => { if (isNamed(o)) indices.push(i); });
+                        (node.outputs || []).forEach((o, i) => { if (named(o, prefix)) indices.push(i); });
                     }
                     while (indices.length < want) {
-                        node.addOutput(prefix + "_" + (indices.length + 1),
-                                       prefix === "picture" ? "IMAGE" : "AUDIO");
+                        node.addOutput(prefix + "_" + (indices.length + 1), type);
                         indices = [];
-                        (node.outputs || []).forEach((o, i) => { if (isNamed(o)) indices.push(i); });
+                        (node.outputs || []).forEach((o, i) => { if (named(o, prefix)) indices.push(i); });
                     }
                 }
                 node.setDirtyCanvas?.(true, true);
             };
-            const syncSockets = (node) => {
-                for (const prefix of slotPrefixes) {
-                    const indices = socketIdx(node, prefix);
-                    let keep = 1;
-                    for (let k = 0; k < indices.length; k++) {
-                        if (node.inputs[indices[k]].link != null) keep = k + 2;
-                    }
-                    keep = Math.min(keep, 9);
-                    while (indices.length > keep) {
-                        node.removeInput(indices.pop());
-                    }
-                    let now = socketIdx(node, prefix);
-                    if (now.length < keep
-                        || (now.length < 9 && node.inputs[now[now.length - 1]].link != null)) {
-                        node.addInput(prefix + "_" + (now.length + 1),
-                                      prefix === "character" ? "MIE_CHARACTER_ASSET" : "MIE_SCENE_ASSET");
-                    }
-                }
-                syncOutputs(node);
-            };
-            const origConn = nodeType.prototype.onConnectionsChange;
-            nodeType.prototype.onConnectionsChange = function (type, index, connected, ...rest) {
-                origConn?.apply(this, [type, index, connected, ...rest]);
-                if (type === 1 /*INPUT*/) syncSockets(this);
-            };
             const origCreated2 = nodeType.prototype.onNodeCreated;
             nodeType.prototype.onNodeCreated = function () {
                 origCreated2?.apply(this, arguments);
-                for (const prefix of slotPrefixes) {
-                    const indices = socketIdx(this, prefix);
-                    while (indices.length > 1) this.removeInput(indices.pop());
+                for (const name of ["pictures", "audios"]) {
+                    const w = this.widgets?.find((x) => x.name === name);
+                    if (!w) continue;
+                    const origCb = w.callback;
+                    w.callback = (...args) => {
+                        origCb?.apply(w, args);
+                        syncOutputs(this);
+                    };
                 }
                 syncOutputs(this);
             };

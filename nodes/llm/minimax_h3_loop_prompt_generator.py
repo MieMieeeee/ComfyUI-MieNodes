@@ -4775,8 +4775,8 @@ class MiniMaxH3LoopPromptGeneratorV2(MiniMaxH3LoopPromptGenerator):
 
     CATEGORY = MY_CATEGORY
     FUNCTION = "generate_v2"
-    RETURN_TYPES = ("STRING", "STRING", "STRING", "IMAGE")
-    RETURN_NAMES = ("plan_json", "summary", "board_kind", "images")
+    RETURN_TYPES = ("STRING", "STRING", "STRING", "IMAGE", "MIE_ASSET_ROSTER")
+    RETURN_NAMES = ("plan_json", "summary", "board_kind", "images", "assets")
 
     MAX_SLOTS = 9  # per kind; execution enforces the H3 9-picture cap
 
@@ -4922,10 +4922,14 @@ class MiniMaxH3LoopPromptGeneratorV2(MiniMaxH3LoopPromptGenerator):
         roster_manifest = None
         images_out = None
         roster_arg = ""
+        assets_out = None
         if characters or scenes:
             roster_arg, roster_manifest, images_out = self._build_roster_from_bundles(
                 characters, scenes
             )
+            # The wired bundles, aggregated in slot order — what Asset →
+            # Slots splits back into picture/audio slots downstream.
+            assets_out = characters + scenes
             kwargs.pop("images", None)  # the images socket is not consulted
 
         enhancer = H3LoopPromptEnhancer(
@@ -4945,6 +4949,7 @@ class MiniMaxH3LoopPromptGeneratorV2(MiniMaxH3LoopPromptGenerator):
             out["summary"],
             out["board_kind"],
             images_out,
+            assets_out,
         )
 
     def is_changed(self, llm_service_connector, **kwargs):

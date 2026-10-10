@@ -867,7 +867,7 @@ def test_generator_socket_bundles_full_path(lp, lg, tmp_path, monkeypatch):
         _ref2va_environment_second_reply(),
     ])
     node = lg.MiniMaxH3LoopPromptGeneratorV2()
-    plan_json, summary, board_kind, images = node.generate_v2(
+    plan_json, summary, board_kind, images, assets = node.generate_v2(
         conn,
         user_input="Alice waits in the store.",
         reference_mode=REF2VA,
@@ -877,6 +877,7 @@ def test_generator_socket_bundles_full_path(lp, lg, tmp_path, monkeypatch):
     )
     assert _vision_call_count(conn) == 0  # bundles replaced the captioner
     assert images is not None and images.shape[0] == 2  # char then scene
+    assert [b["name"] for b in assets] == ["Alice", "Store"]  # slot order
     prompts = _shot_prompts(conn)
     assert prompts
     for blob in prompts:
