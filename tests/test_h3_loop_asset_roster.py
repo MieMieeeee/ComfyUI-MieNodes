@@ -990,3 +990,73 @@ def test_camera_discipline_widget_present(lg):
     assert spec["camera_discipline"][0][0].startswith("auto")
     v2 = lg.MiniMaxH3LoopPromptGeneratorV2.INPUT_TYPES()["optional"]
     assert "camera_discipline" in v2  # derived from V1
+
+
+def test_generator_mixed_picture_sizes_are_legal(lp, lg):
+    """H3 takes each reference on its OWN socket and resizes independently
+    (match/max), so mixed sizes across ASSETS must not fail the run — only
+    the convenience images batch steps aside with a clear note."""
+    import torch
+
+    alice = dict(ALICE)
+    alice["description"] = alice.get("description", alice["appearance"])
+    alice["image"] = torch.rand(1, 96, 48, 3)   # portrait
+    scene_bundle = {
+        "kind": "scene", "name": "Store",
+        "description": "A midnight convenience store.",
+        "image": torch.rand(1, 48, 96, 3),       # landscape
+    }
+    conn = ScriptedConnector([
+        EXTRACT_DIALOGUE_EMPTY,
+        _storyboard(1),
+        PREFIX_REPLY,
+        _ref2va_environment_second_reply(),
+    ])
+    node = lg.MiniMaxH3LoopPromptGeneratorV2()
+    plan_json, summary, board_kind, images, assets = node.generate_v2(
+        conn,
+        user_input="Alice waits in the store.",
+        reference_mode=REF2VA,
+        seed=1,
+        character_1=alice,
+        scene_1=scene_bundle,
+    )
+    assert images is None  # batch off — but the plan built fine
+    assert "picture sizes differ" in summary
+    assert "picture_1" in summary  # the note says how to wire
+    assert _vision_call_count(conn) == 0
+
+
+def test_asset_to_slots_carries_native_shapes():
+    """Asset → Slots never cats: each picture output keeps its asset's own
+    [1,H,W,3] — mixed-size rosters work there natively."""
+    import torch
+
+    from nodes.assets.nodes import AssetToSlots, png_bytes_list_to_image_tensor
+    from tests.test_asset_library import make_png
+
+    tall = png_bytes_list_to_image_tensor([make_png((1, 2, 3), 8, 16)])
+    wide = png_bytes_list_to_image_tensor([make_png((4, 5, 6), 16, 8)])
+    outs = AssetToSlots().split([
+        {"kind": "character", "name": "A", "description": "d", "voice": "v",
+         "image": tall, "audio": None},
+        {"kind": "scene", "name": "S", "description": "d", "image": wide},
+    ])
+    assert outs[1].shape == (1, 16, 8, 3)   # tall native
+    assert outs[2].shape == (1, 8, 16, 3)   # wide native
+
+
+def _wav_bytes():
+    import wave
+
+    import numpy as np
+
+    t = np.arange(800) / 16000
+    data = (np.sin(2 * np.pi * 440 * t) * 20000).astype("<i2")
+    buf = __import__("io").BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(16000)
+        w.writeframes(data.tobytes())
+    return buf.getvalue()

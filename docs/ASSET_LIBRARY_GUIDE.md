@@ -70,7 +70,7 @@ V2.assets ──► Asset → Slots ├──picture_1──► ref2v.ref_image_
 
 **顺序保障（Asset → Slots 节点，从生成器接出）**：V2 的第 5 个输出 `assets` 是接进来的全部资产包按槽位序（角色1..N → 场景1..M = `<Picture N>`）的汇总。Asset → Slots 吃这一个输入，拆出**生成提示词所用的同一批图片和音频**：
 
-- `picture_1..9`（IMAGE）：第 i 张恒等于第 i 个资产——接 `ref_image_{i-1}`，图片对齐由构造保证；
+- `picture_1..9`（IMAGE）：第 i 张恒等于第 i 个资产——接 `ref_image_{i-1}`，图片对齐由构造保证。**各资产分辨率可以不同**（竖幅三视图 + 横幅三视图混用没问题）：每个输出保持该资产的原生尺寸，H3 对每路参考独立缩放（match/max）；只有生成器自己的 `images` 批次输出在尺寸不一时会置空并在 summary 里说明——用 Slots 节点的 picture 输出即可；
 - `audio_1..3`（AUDIO）：角色的音色样本按角色序（场景无音频；H3 独立音频上限 3）——接 `ref_audio_{i-1}`，`<Audio N>` 与 plan 的角色顺序一致；
 - `count` / `audio_count`（INT）：各有几张、几条。
 

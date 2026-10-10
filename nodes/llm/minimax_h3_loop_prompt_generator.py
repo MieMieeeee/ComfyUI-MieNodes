@@ -4940,24 +4940,34 @@ class MiniMaxH3LoopPromptGeneratorV2(MiniMaxH3LoopPromptGenerator):
             })
             tensors.append(bundle["image"])
 
-        # One IMAGE batch needs one shape — name the offenders, never resize.
+        # The images BATCH needs one shape, but the H3 chain does not:
+        # MiniMaxH3ReferenceToVideo takes each picture on its OWN socket and
+        # resizes each independently ('match' to the generation's pixel area,
+        # 'max' to a 2048 short edge). So mixed sizes are legal — only the
+        # convenience batch output steps aside (None) and the plan tells the
+        # user to wire Asset → Slots' picture_i outputs, which carry each
+        # asset's native tensor without any cat.
         import torch
 
         shapes = {}
         for entry, tensor in zip(roster, tensors):
             shapes.setdefault(tuple(tensor.shape[1:]), []).append(entry["name"])
+        images = None
+        size_note = ""
         if len(shapes) > 1:
             detail = "; ".join(
                 "%dx%d: %s" % (w, h, ", ".join(ns))
                 for (h, w, _c), ns in sorted(shapes.items())
             )
-            raise RuntimeError(
-                "wired assets' pictures differ in size (%s). Export them at "
-                "one resolution — H3 resizes references to a 2048 short edge "
-                "anyway" % detail
+            size_note = (
+                "picture sizes differ (%s): the images batch output is off "
+                "for this run — wire Asset → Slots picture_1..N to "
+                "ref_image_0..N-1; H3 resizes each reference independently"
+                % detail
             )
-        images = torch.cat(tensors, dim=0) if tensors else None
-        return json.dumps(roster, ensure_ascii=False), manifest, images
+        elif tensors:
+            images = torch.cat(tensors, dim=0)
+        return json.dumps(roster, ensure_ascii=False), manifest, images, size_note
 
     def generate_v2(
         self,
@@ -4979,10 +4989,16 @@ class MiniMaxH3LoopPromptGeneratorV2(MiniMaxH3LoopPromptGenerator):
         images_out = None
         roster_arg = ""
         assets_out = None
+        size_note = ""
         if characters or scenes:
-            roster_arg, roster_manifest, images_out = self._build_roster_from_bundles(
-                characters, scenes
+            roster_arg, roster_manifest, images_out, size_note = (
+                self._build_roster_from_bundles(characters, scenes)
             )
+            if size_note:
+                # generate_v2 has no warnings list of its own — fold the
+                # note into the summary via the enhancer's warning path.
+                self._slot_size_note = size_note
+                log_pipeline("asset slots: " + size_note)
             # The wired bundles, aggregated in slot order — what Asset →
             # Slots splits back into picture/audio slots downstream.
             assets_out = characters + scenes
@@ -5001,6 +5017,10 @@ class MiniMaxH3LoopPromptGeneratorV2(MiniMaxH3LoopPromptGenerator):
             camera_discipline=kwargs.pop("camera_discipline", CAMERA_DISCIPLINES[0]),
             **kwargs,
         )
+        note = getattr(self, "_slot_size_note", "")
+        if note:
+            out["summary"] = out["summary"] + "\n- " + note
+            self._slot_size_note = ""
         return (
             out["plan_json"],
             out["summary"],

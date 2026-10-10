@@ -524,13 +524,25 @@ class AssetToSlots(object):
 
     @classmethod
     def INPUT_TYPES(cls):
+        optional = {}
+        for i in range(1, cls.MAX_SLOTS + 1):
+            optional["character_%d" % i] = (
+                CHARACTER_ASSET_TYPE,
+                {"tooltip": "（可选）直接接 Load Character Asset 的 asset 输出，按槽位序。与 assets 输入二选一。"},
+            )
+        for i in range(1, cls.MAX_SLOTS + 1):
+            optional["scene_%d" % i] = (
+                SCENE_ASSET_TYPE,
+                {"tooltip": "（可选）直接接 Load Scene Asset 的 asset 输出。与 assets 输入二选一。"},
+            )
         return {
             "required": {
                 "assets": (
                     ASSET_ROSTER_TYPE,
-                    {"tooltip": "接 MiniMax H3 Loop Plan Generator V2 的 assets 输出。"},
+                    {"tooltip": "接 MiniMax H3 Loop Plan Generator V2 的 assets 输出（或留空，改用下面的角色/场景插座）。"},
                 ),
-            }
+            },
+            "optional": optional,
         }
 
     RETURN_TYPES = ("INT",) + ("IMAGE",) * 9 + ("INT",) + ("AUDIO",) * 3
@@ -542,7 +554,23 @@ class AssetToSlots(object):
     )
     FUNCTION = "split"
 
-    def split(self, assets):
+    def split(self, assets=None, **slots):
+        # Also accept bundles wired straight into character_N / scene_N
+        # sockets (the pre-roster wiring some saved workflows carry).
+        if assets is None and slots:
+            ordered = []
+            for prefix, kind in (("character", "character"), ("scene", "scene")):
+                for i in range(1, self.MAX_SLOTS + 1):
+                    value = slots.get("%s_%d" % (prefix, i))
+                    if value is None:
+                        continue
+                    if not isinstance(value, dict) or value.get("kind") != kind:
+                        raise ValueError(
+                            "%s_%d is not a %s asset bundle; wire the matching "
+                            "Load node's asset output" % (prefix, i, kind)
+                        )
+                    ordered.append(value)
+            return self.split(ordered)
         if assets is None:
             ordered = []
         elif isinstance(assets, (list, tuple)):
