@@ -204,56 +204,60 @@ def voice_sample_bytes_to_audio(data, ext):
     raise ValueError("unsupported voice sample extension %r" % ext)
 
 
-# Upload-style pickers: files in ComfyUI's input directory (drag a file
-# onto ANY LoadImage box to land it there), offered as dropdowns so a save
-# never requires wiring sockets. ComfyUI is imported lazily and tests run
-# without it (empty option lists then).
+# Upload pickers built the LoadImage / LoadAudio way: the widget hints
+# below make the FRONTEND render its native upload button next to the combo
+# (image files land in the input dir, audio files in the input "audio"
+# category), and the combo lists what folder_paths already indexes. No
+# ComfyUI in the dev env -> empty option lists, guarded imports throughout.
 IMAGE_UPLOAD_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp")
-AUDIO_UPLOAD_EXTENSIONS = (".wav", ".mp3")
+AUDIO_UPLOAD_EXTENSIONS = (".wav", ".mp3", ".flac", ".ogg")
 
 
-def _input_dir():
+def _upload_image_options():
     try:
         import folder_paths
 
-        return Path(folder_paths.get_input_directory())
+        files = folder_paths.get_filename_list("input")
     except Exception:
-        return None
-
-
-def _upload_options(extensions):
-    root = _input_dir()
-    if root is None:
         return [""]
-    out = [""]
+    return [""] + [
+        f for f in files if Path(f).suffix.lower() in IMAGE_UPLOAD_EXTENSIONS
+    ]
+
+
+def _upload_audio_options():
     try:
-        for p in sorted(root.rglob("*")):
-            if p.is_file() and p.suffix.lower() in extensions:
-                out.append(str(p.relative_to(root)).replace("\\", "/"))
-    except OSError:
-        pass
-    return out
+        import folder_paths
+
+        files = folder_paths.get_filename_list("audio")
+    except Exception:
+        return [""]
+    return [""] + [
+        f for f in files if Path(f).suffix.lower() in AUDIO_UPLOAD_EXTENSIONS
+    ]
 
 
-def _read_upload_file(name):
-    root = _input_dir()
-    if root is None or not name:
-        raise ValueError(
-            "upload picker needs the ComfyUI input directory; wire the "
-            "image/audio socket instead"
-        )
-    path = root / name
-    if not path.is_file():
+def _read_upload_file(name, category="input"):
+    try:
+        import folder_paths
+
+        path = folder_paths.get_annotated_filepath(name)
+        if isinstance(path, tuple):
+            path = path[0]
+    except Exception:
+        path = None
+    if not path or not Path(path).is_file():
         raise FileNotFoundError(
-            "%r is not in the ComfyUI input directory (drop the file onto "
-            "any LoadImage box first, then refresh)" % name
+            "%r is not readable from the ComfyUI %s directory (drop the "
+            "file via the upload button or a LoadImage box, then press R to "
+            "refresh)" % (name, category)
         )
-    return path.read_bytes()
+    return Path(path).read_bytes()
 
 
 def upload_image_to_tensor(name):
     """A picked input-dir image -> IMAGE tensor [1,H,W,3]."""
-    blob = _read_upload_file(name)
+    blob = _read_upload_file(name, "input")
     img = Image.open(io.BytesIO(blob)).convert("RGB")
     arr = np.asarray(img, dtype=np.float32) / 255.0
     import torch as _torch
@@ -262,8 +266,8 @@ def upload_image_to_tensor(name):
 
 
 def upload_audio_to_audio(name):
-    """A picked input-dir audio clip -> ComfyUI AUDIO dict (wav or mp3)."""
-    blob = _read_upload_file(name)
+    """A picked audio clip -> ComfyUI AUDIO dict (wav or mp3)."""
+    blob = _read_upload_file(name, "audio")
     return voice_sample_bytes_to_audio(blob, Path(name).suffix.lower())
 
 
@@ -301,17 +305,25 @@ class SaveCharacterAssetV2(object):
                 # WIRED socket wins over a picked file; both empty on an
                 # overwrite = keep the disk media.
                 "image_upload": (
-                    _upload_options(IMAGE_UPLOAD_EXTENSIONS),
-                    {"default": "", "tooltip": (
-                        "从 ComfyUI input 目录选一张图（把文件拖到任意 "
-                        "LoadImage 框即可上传；按 R 刷新列表）。接了 image "
-                        "插座时以插座为准。")},
+                    _upload_image_options(),
+                    {
+                        "image_upload": True,  # native frontend upload button
+                        "tooltip": (
+                            "选择/上传一张图（LoadImage 同款：按钮上传、"
+                            "拖到 LoadImage 框、或直接选已有文件；按 R 刷新）。"
+                            "接了 image 插座时以插座为准。"
+                        ),
+                    },
                 ),
                 "audio_upload": (
-                    _upload_options(AUDIO_UPLOAD_EXTENSIONS),
-                    {"default": "", "tooltip": (
-                        "从 ComfyUI input 目录选一段音频（.wav/.mp3；按 R "
-                        "刷新列表）。接了 audio 插座时以插座为准。")},
+                    _upload_audio_options(),
+                    {
+                        "audio_upload": True,  # native frontend upload button
+                        "tooltip": (
+                            "选择/上传一段音频（LoadAudio 同款；按 R 刷新）。"
+                            "接了 audio 插座时以插座为准。"
+                        ),
+                    },
                 ),
             },
         }
@@ -423,11 +435,15 @@ class SaveSceneAssetV2(object):
             "optional": {
                 "image": ("IMAGE",),
                 "image_upload": (
-                    _upload_options(IMAGE_UPLOAD_EXTENSIONS),
-                    {"default": "", "tooltip": (
-                        "从 ComfyUI input 目录选一张图（把文件拖到任意 "
-                        "LoadImage 框即可上传；按 R 刷新列表）。接了 image "
-                        "插座时以插座为准。")},
+                    _upload_image_options(),
+                    {
+                        "image_upload": True,  # native frontend upload button
+                        "tooltip": (
+                            "选择/上传一张图（LoadImage 同款：按钮上传、"
+                            "拖到 LoadImage 框、或直接选已有文件；按 R 刷新）。"
+                            "接了 image 插座时以插座为准。"
+                        ),
+                    },
                 ),
             },
         }

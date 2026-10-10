@@ -741,26 +741,53 @@ def test_upload_helpers_fallback_without_comfyui(monkeypatch):
 
     # Force the no-ComfyUI branch: other suites may have injected a real
     # or mocked folder_paths into sys.modules by now.
-    monkeypatch.setattr(asset_nodes, '_input_dir', lambda: None)
-    options = asset_nodes._upload_options((".png",))
-    assert options == [""]
-    with pytest.raises(ValueError, match="input directory"):
-        asset_nodes._read_upload_file("x.png")
+    import builtins
+
+    real_import = builtins.__import__
+
+    def no_folder_paths(name, *a, **k):
+        if name == "folder_paths":
+            raise ImportError("blocked for test")
+        return real_import(name, *a, **k)
+
+    monkeypatch.setattr(builtins, "__import__", no_folder_paths)
+    assert asset_nodes._upload_image_options() == [""]
+    assert asset_nodes._upload_audio_options() == [""]
+    monkeypatch.undo()
+    # A missing/unreadable pick raises with refresh guidance.
+    with pytest.raises(FileNotFoundError, match="press R"):
+        asset_nodes._read_upload_file("nope.png", "input")
 
 
-def test_save_node_upload_pickers_used_when_sockets_empty(lib_dir, monkeypatch):
+def test_save_node_upload_pickers_used_when_sockets_empty(lib_dir, monkeypatch, tmp_path):
     from nodes.assets import nodes as asset_nodes
 
     monkeypatch.setenv(library.LIBRARY_DIR_ENV, str(lib_dir))
-    # Fake an input directory with one image + one mp3.
-    fake_root = lib_dir.parent / "comfyui_input"
-    (fake_root).mkdir(exist_ok=True)
-    (fake_root / "pic.png").write_bytes(make_png((7, 7, 7)))
-    # Real WAV bytes named .wav (the picker supports wav/mp3; wav keeps
-    # the test free of a real mp3 encoder).
-    (fake_root / "clip.wav").write_bytes(make_wav(freq=440.0))
-    monkeypatch.setattr(asset_nodes, "_input_dir", lambda: fake_root)
-    assert asset_nodes._upload_options((".png",)) == ["", "pic.png"]
+    # Fake the two folder_paths category dirs the pickers read from.
+    img_dir = tmp_path / "input"
+    aud_dir = tmp_path / "audio"
+    img_dir.mkdir(); aud_dir.mkdir()
+    (img_dir / "pic.png").write_bytes(make_png((7, 7, 7)))
+    (aud_dir / "clip.wav").write_bytes(make_wav(freq=440.0))
+
+    class _FP:
+        @staticmethod
+        def get_filename_list(category):
+            root = img_dir if category == "input" else aud_dir
+            return [p.name for p in sorted(root.iterdir()) if p.is_file()]
+
+        @staticmethod
+        def get_annotated_filepath(name):
+            for root in (img_dir, aud_dir):
+                p = root / name
+                if p.is_file():
+                    return str(p)
+            return str(img_dir / name)
+
+    import sys, types
+    monkeypatch.setitem(sys.modules, "folder_paths", _FP)
+    assert asset_nodes._upload_image_options() == ["", "pic.png"]
+    assert asset_nodes._upload_audio_options() == ["", "clip.wav"]
 
     node = asset_nodes.SaveCharacterAssetV2()
     out = node.save_character(
@@ -777,10 +804,21 @@ def test_save_node_socket_beats_upload_picker(lib_dir, monkeypatch, tmp_path):
     from nodes.assets import nodes as asset_nodes
 
     monkeypatch.setenv(library.LIBRARY_DIR_ENV, str(lib_dir))
-    fake_root = tmp_path / "input"
-    fake_root.mkdir()
-    (fake_root / "upload.png").write_bytes(make_png((1, 1, 1)))
-    monkeypatch.setattr(asset_nodes, "_input_dir", lambda: fake_root)
+    img_dir = tmp_path / "input"
+    img_dir.mkdir()
+    (img_dir / "upload.png").write_bytes(make_png((1, 1, 1)))
+
+    class _FP:
+        @staticmethod
+        def get_filename_list(category):
+            return ["upload.png"] if category == "input" else []
+
+        @staticmethod
+        def get_annotated_filepath(name):
+            return str(img_dir / name)
+
+    import sys
+    monkeypatch.setitem(sys.modules, "folder_paths", _FP)
     node = asset_nodes.SaveCharacterAssetV2()
     node.save_character(
         name="Wired", description="d", voice="v",
@@ -791,8 +829,10 @@ def test_save_node_socket_beats_upload_picker(lib_dir, monkeypatch, tmp_path):
     loaded = library.load_character("", "Wired")
     assert library._png_dimensions(loaded["png_bytes_list"][0]) == (6, 4)  # tensor path, not upload
 
-    # Scene save has the picker too.
-    spec = asset_nodes.SaveSceneAssetV2.INPUT_TYPES()["optional"]
-    assert "image_upload" in spec and "audio_upload" not in spec
+    # Native upload hints present; scene has image only.
     char_spec = asset_nodes.SaveCharacterAssetV2.INPUT_TYPES()["optional"]
-    assert "image_upload" in char_spec and "audio_upload" in char_spec
+    assert char_spec["image_upload"][1].get("image_upload") is True
+    assert char_spec["audio_upload"][1].get("audio_upload") is True
+    scene_spec = asset_nodes.SaveSceneAssetV2.INPUT_TYPES()["optional"]
+    assert scene_spec["image_upload"][1].get("image_upload") is True
+    assert "audio_upload" not in scene_spec
