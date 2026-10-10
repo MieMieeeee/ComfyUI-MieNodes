@@ -15,7 +15,7 @@ from _mienodes_internal.nodes.common import ShowAnythingMie, ShowAndSaveAnything
 from _mienodes_internal.nodes.files import BatchRenameFiles, BatchDeleteFiles, BatchEditTextFiles, BatchSyncImageCaptionFiles, \
     SummaryTextFiles, BatchConvertImageFiles, DedupImageFiles, ModelDownloader, HFRepoDownloader
 from _mienodes_internal.nodes.llm import TextTranslator, PromptGenerator, KontextPromptGenerator, AddUserKontextPreset, RemoveUserKontextPreset, \
-    FrameTransitionPromptGenerator, HunyuanVideoI2VPromptGenerator, HunyuanVideoT2VPromptGenerator, ZImagePromptGenerator, Flux2PromptGenerator, FluxKleinT2VPromptGenerator, LTX2PromptGenerator, BerniniPromptGenerator, Ideogram4PromptGenerator, CustomSystemPromptGenerator, AddCustomSystemPrompt, RemoveCustomSystemPrompt, Scail2PromptGenerator, Krea2PromptGenerator, MiniMaxH3PromptGenerator, LTX25PromptGenerator, MiniMaxH3StoryboardGenerator, MiniMaxH3LoopPromptGenerator, MiniMaxH3LoopPromptGeneratorV2, MiniMaxH3LoopUserInputEnhancer, QwenImage21PromptGenerator
+    FrameTransitionPromptGenerator, HunyuanVideoI2VPromptGenerator, HunyuanVideoT2VPromptGenerator, ZImagePromptGenerator, Flux2PromptGenerator, FluxKleinT2VPromptGenerator, LTX2PromptGenerator, BerniniPromptGenerator, Ideogram4PromptGenerator, CustomSystemPromptGenerator, AddCustomSystemPrompt, RemoveCustomSystemPrompt, Scail2PromptGenerator, Krea2PromptGenerator, MiniMaxH3PromptGenerator, LTX25PromptGenerator, MiniMaxH3StoryboardGenerator, MiniMaxH3LoopPromptGenerator, AssetAutoDescribe, MiniMaxH3LoopPromptGeneratorV2, MiniMaxH3LoopUserInputEnhancer, QwenImage21PromptGenerator
 from _mienodes_internal.services.llm import SetGeneralLLMServiceConnector, SetSiliconFlowLLMServiceConnector, \
     SetZhiPuLLMServiceConnector, SetZhiPuCodeLLMServiceConnector, SetKimiLLMServiceConnector, \
     SetDeepSeekLLMServiceConnector, SetGeminiLLMServiceConnector, SetBailianLLMServiceConnector, \
@@ -154,6 +154,7 @@ NODE_CLASS_MAPPINGS = {
     add_suffix("SaveSceneAssetV2"): SaveSceneAssetV2,
     add_suffix("LoadSceneAssetV2"): LoadSceneAssetV2,
     add_suffix("AssetToSlots"): AssetToSlots,
+    add_suffix("AssetAutoDescribe"): AssetAutoDescribe,
     add_suffix("MieLoopStart"): MieLoopStart,
     add_suffix("MieLoopResume"): MieLoopResume,
     add_suffix("MieLoopBodyIn"): MieLoopBodyIn,
@@ -300,6 +301,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     add_suffix("SaveSceneAssetV2"): add_emoji("Save Scene Asset"),
     add_suffix("LoadSceneAssetV2"): add_emoji("Load Scene Asset"),
     add_suffix("AssetToSlots"): add_emoji("Asset → Slots"),
+    add_suffix("AssetAutoDescribe"): add_emoji("Auto Describe Asset"),
     add_suffix("MieLoopStart"): add_emoji("Mie Loop Start"),
     add_suffix("MieLoopResume"): add_emoji("Mie Loop Resume"),
     add_suffix("MieLoopBodyIn"): add_emoji("Mie Loop Body In"),

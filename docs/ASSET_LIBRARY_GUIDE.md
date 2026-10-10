@@ -49,6 +49,8 @@ MieNodes 的资产库把「跨镜头要重复用的角色和场景」存成磁�
 - 保存节点：下拉只列本类型；选中已有名字会预览库里的内容（缩略图 + 描述 + 音色，**只展示、不做一致性判断**）；「✏️ 新名字…」新建。
 - **图和音频不用接线**：节点上有两个醒目的媒体卡片（🖼 定妆图、🎵 音色样本），每张卡片 = 一个文件下拉 + 一个渐变色**上传按钮**。支持：点按钮选文件、把文件**拖到卡片上**、聚焦卡片后 **Ctrl+V 粘贴**；上传成功自动选中新文件（不用刷新）。下拉列出 ComfyUI input 目录的已有文件（音频在 input/audio/）。**接了 `image`/`audio` 插座时插座优先**；两者都空且是覆盖 = 保留磁盘上的文件。
 
+**描述不想手写？—— Auto Describe Asset 节点**：接一个 `llm_service_connector` + Load 节点的 `asset` 包（或裸 `image`+`name`），LLM 自动起草 description（用的是 H3 生成器同一套 60–100 词英文身份描述 captioner）和 voice（从名字+外貌推断的音色描述——**模型听不到音频**，wav/mp3 对它毫无区别，样本从不被「听」；草稿仅供起点，听过样本后自己改）。输出 `name`/`description`/`voice`/`status` 四个 STRING，接进 Save 节点对应的 description/voice 输入（widget 转输入）或先用预览节点看一眼。节点从不写库。
+
 **镜头纪律**：生成器上的 `camera_discipline` 选 `locked - 固定机位` 可保证「镜头固定、构图全场不变」——分镜 LLM 默认有一条景别交替规则会主动切特写，概念里的中文相机语言只是软提示；locked 由代码强制执行（详见 `h3_loop_prompt_generator_node.md`）。
 
 **Prompt Generator V2 的接法**：`character_1..9` / `scene_1..9` 是**插座**——把 Load 节点的 `asset` 输出一根线接过来；接上 `character_1` 才露出 `character_2`。节点上没有任何选择控件；生成器从线上的资产包组装 roster 与 manifest（零视觉调用），槽位顺序（角色在前、场景在后）就是 `<Picture N>`。第 4 个输出 `images` 是按槽位拼好的图片批次，直接接视频链。
