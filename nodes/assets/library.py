@@ -286,22 +286,31 @@ def save_character(
 ):
     """Write one character (name + appearance + voice + portrait PNG + sample).
 
-    Fixed order (plan section 3): write all three temp files, replace
-    portrait.png, replace voice_sample.wav (removing a superseded hand-dropped
-    .mp3), then replace character.json as the commit point. A failure leaves
-    the documented partial state and raises — the save never reports
-    created/overwritten unless all three files landed.
+    ``png_bytes`` / ``voice_sample_wav`` may be ``None`` — that means "the
+    socket was left unconnected", and is only legal when OVERWRITING: the
+    file already on disk is kept byte-for-byte, so editing one sentence
+    never forces re-wiring a portrait and a voice sample. A new character
+    still requires both.
+
+    Fixed order (plan section 3): write the temp files for every payload
+    that changes, replace portrait.png, replace voice_sample.wav (removing
+    a superseded hand-dropped .mp3), then replace character.json as the
+    commit point. A failure leaves the documented partial state and raises
+    — the save never reports created/overwritten unless everything landed.
+    Kept files are not rewritten at all; their failure windows vanish.
     """
     root = validate_library_dir(library_dir, plugin_root)
     n = validate_name(name)
     a = validate_appearance(appearance)
     v = validate_voice(voice)
-    if not isinstance(png_bytes, (bytes, bytearray)):
-        raise ValueError("png_bytes must be bytes")
-    if not isinstance(voice_sample_wav, (bytes, bytearray)) or not voice_sample_wav:
-        raise ValueError("voice_sample_wav must be non-empty bytes")
-    png_bytes = bytes(png_bytes)
-    voice_sample_wav = bytes(voice_sample_wav)
+    # Payload TYPE validation before any mkdir, so a bad call leaves no
+    # half-created directories behind.
+    for field, payload in (("png_bytes", png_bytes), ("voice_sample_wav", voice_sample_wav)):
+        if payload is not None and not (isinstance(payload, (bytes, bytearray)) and payload):
+            raise ValueError(
+                "%s must be non-empty bytes or None (None = keep the file on "
+                "disk when overwriting)" % field
+            )
 
     characters_dir = root / CHARACTERS_DIRNAME
     characters_dir.mkdir(parents=True, exist_ok=True)
@@ -317,50 +326,100 @@ def save_character(
     else:
         target_dir = existing
         status = "overwritten"
-    target_dir.mkdir(parents=True, exist_ok=True)
 
-    json_payload = {"name": target_dir.name, "appearance": a, "voice": v}
+    # Resolve the media payloads BEFORE creating anything: a failed
+    # validation must not leave an empty asset directory behind (a later
+    # attempt would then look like an overwrite).
     portrait_path = target_dir / PORTRAIT_NAME
+    if png_bytes is None:
+        if status == "created":
+            raise ValueError(
+                "a NEW character needs a portrait: connect an image to save "
+                "%r for the first time (overwriting later without reconnecting "
+                "keeps the picture on disk)" % n
+            )
+        if not portrait_path.is_file():
+            raise FileNotFoundError(
+                "overwrite of %r without an image, but %s is missing; connect "
+                "a new portrait" % (n, portrait_path)
+            )
+    else:
+        png_bytes = bytes(png_bytes)
+
     sample_path = target_dir / VOICE_SAMPLE_NAMES[0]
+    existing_sample = None
+    if voice_sample_wav is None:
+        if status == "created":
+            raise ValueError(
+                "a NEW character needs a voice sample: connect AUDIO to save "
+                "%r for the first time (overwriting later without reconnecting "
+                "keeps the sample on disk)" % n
+            )
+        existing_sample = _find_voice_sample(target_dir)
+        if existing_sample is None:
+            raise FileNotFoundError(
+                "overwrite of %r without AUDIO, but no voice sample exists "
+                "under %s; connect a new sample" % (n, target_dir)
+            )
+    else:
+        voice_sample_wav = bytes(voice_sample_wav)
+
+    target_dir.mkdir(parents=True, exist_ok=True)
+    json_payload = {"name": target_dir.name, "appearance": a, "voice": v}
     json_path = target_dir / CHARACTER_JSON_NAME
 
     tmp_png = None
     tmp_sample = None
     tmp_json = None
+    tmp_png_was_written = False
+    tmp_sample_was_written = False
     try:
-        tmp_png = _write_temp_file(png_bytes, target_dir)
-        tmp_sample = _write_temp_file(voice_sample_wav, target_dir)
+        if png_bytes is not None:
+            tmp_png = _write_temp_file(png_bytes, target_dir)
+        if voice_sample_wav is not None:
+            tmp_sample = _write_temp_file(voice_sample_wav, target_dir)
         tmp_json = _write_temp_file(_json_bytes(json_payload), target_dir)
-        try:
-            os.replace(tmp_png, portrait_path)
-        except OSError as e:
-            raise OSError(
-                "failed to replace %s (%s); all target files are unchanged"
-                % (portrait_path, e)
-            ) from e
-        tmp_png = None
-        try:
-            os.replace(tmp_sample, sample_path)
-            stale_mp3 = target_dir / VOICE_SAMPLE_NAMES[1]
-            if stale_mp3.is_file():
-                # superseded by the freshly written .wav; keeping both would
-                # make every later load ambiguous
-                stale_mp3.unlink()
-        except OSError as e:
-            raise OSError(
-                "portrait.png was replaced with the new image, but updating the "
-                "voice sample failed (%s). character.json and the previous voice "
-                "sample are unchanged." % e
-            ) from e
-        tmp_sample = None
+        if tmp_png is not None:
+            try:
+                os.replace(tmp_png, portrait_path)
+            except OSError as e:
+                raise OSError(
+                    "failed to replace %s (%s); all target files are unchanged"
+                    % (portrait_path, e)
+                ) from e
+            tmp_png = None
+            tmp_png_was_written = True
+        if tmp_sample is not None:
+            try:
+                os.replace(tmp_sample, sample_path)
+                stale_mp3 = target_dir / VOICE_SAMPLE_NAMES[1]
+                if stale_mp3.is_file():
+                    # superseded by the freshly written .wav; keeping both
+                    # would make every later load ambiguous
+                    stale_mp3.unlink()
+            except OSError as e:
+                raise OSError(
+                    "portrait.png was replaced with the new image, but updating "
+                    "the voice sample failed (%s). character.json and the "
+                    "previous voice sample are unchanged." % e
+                ) from e
+            tmp_sample = None
+            tmp_sample_was_written = True
         try:
             os.replace(tmp_json, json_path)
         except OSError as e:
+            media_state = " and ".join(
+                part
+                for flag, part in (
+                    (tmp_png_was_written, "the NEW portrait"),
+                    (tmp_sample_was_written, "the NEW voice sample"),
+                )
+                if flag
+            ) or "the files on disk (nothing was rewritten)"
             raise OSError(
-                "portrait.png and voice_sample.wav were replaced, but replacing %s "
-                "failed (%s). The library now holds the NEW portrait and NEW voice "
-                "sample with the OLD voice line; saving %r again successfully will "
-                "rewrite all three." % (json_path, e, target_dir.name)
+                "character.json replacement failed (%s). The library now holds "
+                "%s beside the OLD texts; saving %r again successfully will "
+                "rewrite everything." % (e, media_state, target_dir.name)
             ) from e
         tmp_json = None
     finally:
@@ -371,14 +430,15 @@ def save_character(
         if tmp_json is not None:
             tmp_json.unlink(missing_ok=True)
 
+    kept_sample = existing_sample if existing_sample is not None else sample_path
     return {
         "name": target_dir.name,
         "appearance": a,
         "voice": v,
         "status": status,
         "png_bytes": portrait_path.read_bytes(),
-        "voice_sample_bytes": sample_path.read_bytes(),
-        "voice_sample_ext": sample_path.suffix,
+        "voice_sample_bytes": kept_sample.read_bytes(),
+        "voice_sample_ext": kept_sample.suffix,
     }
 
 
@@ -556,6 +616,48 @@ def read_picture(library_dir, name, kind, plugin_root=None):
     return path.read_bytes()
 
 
+def read_asset_meta(library_dir, name, kind, plugin_root=None):
+    """Return one asset's text + picture stamp for the save-node autofill.
+
+    The save dropdown loads this when an EXISTING name is picked, so the
+    widgets show what is actually about to be overwritten — never blanks,
+    never the previous character's text. The picture stamp (size, mtime_ns)
+    doubles as the thumbnail cache key: a URL carrying it goes stale exactly
+    when the picture changes.
+    """
+    root = validate_library_dir(library_dir, plugin_root=plugin_root)
+    n = validate_name(name)
+    if kind == "character":
+        target = _find_casefold_sibling(root / CHARACTERS_DIRNAME, n)
+        if target is None or not target.is_dir():
+            raise FileNotFoundError(
+                "character %r not found under %s" % (n, root / CHARACTERS_DIRNAME)
+            )
+        payload = _read_asset_json(target / CHARACTER_JSON_NAME, ("appearance", "voice"))
+        _require_appearance(payload, target / CHARACTER_JSON_NAME)
+        picture = target / PORTRAIT_NAME
+        meta = {"kind": "character", "name": target.name,
+                "appearance": payload["appearance"], "voice": payload["voice"]}
+    elif kind == "scene":
+        target = _find_casefold_sibling(root / SCENES_DIRNAME, n)
+        if target is None or not target.is_dir():
+            raise FileNotFoundError(
+                "scene %r not found under %s" % (n, root / SCENES_DIRNAME)
+            )
+        payload = _read_asset_json(target / SCENE_JSON_NAME, ("description",))
+        picture = target / SCENE_IMAGE_NAME
+        meta = {"kind": "scene", "name": target.name,
+                "description": payload["description"]}
+    else:
+        raise ValueError("kind must be 'character' or 'scene', got %r" % kind)
+    if not picture.is_file():
+        raise FileNotFoundError("missing picture for %r: %s" % (meta["name"], picture))
+    stat = picture.stat()
+    meta["picture_size"] = stat.st_size
+    meta["picture_mtime_ns"] = stat.st_mtime_ns
+    return meta
+
+
 def _character_entry_problem(entry):
     try:
         validate_name(entry.name)
@@ -587,18 +689,21 @@ def _character_entry_problem(entry):
 def save_scene(library_dir, name, description, png_bytes, plugin_root=None):
     """Write one scene (name + description + picture) into the library.
 
-    Same two-file commit shape as a character: both payloads land in temp
-    files, then scene.png is replaced, then scene.json as the commit point.
-    A failure between the two leaves a NEW picture beside the OLD
-    description and raises — the caller is told that exact state rather than
-    being handed a scene that silently mixes the two.
+    ``png_bytes`` may be ``None`` when OVERWRITING (socket left
+    unconnected): the picture on disk is kept, so editing the description
+    never forces re-wiring an image. A new scene still requires one.
+
+    Two-file commit shape as a character: the payloads that change land in
+    temp files, then scene.png, then scene.json as the commit point.
     """
     root = validate_library_dir(library_dir, plugin_root)
     n = validate_name(name)
     d = validate_description(description)
-    if not isinstance(png_bytes, (bytes, bytearray)):
-        raise ValueError("png_bytes must be bytes")
-    png_bytes = bytes(png_bytes)
+    if png_bytes is not None and not (isinstance(png_bytes, (bytes, bytearray)) and png_bytes):
+        raise ValueError(
+            "png_bytes must be non-empty bytes or None (None = keep the file "
+            "on disk when overwriting)"
+        )
 
     scenes_dir = root / SCENES_DIRNAME
     scenes_dir.mkdir(parents=True, exist_ok=True)
@@ -614,33 +719,51 @@ def save_scene(library_dir, name, description, png_bytes, plugin_root=None):
     else:
         target_dir = existing
         status = "overwritten"
-    target_dir.mkdir(parents=True, exist_ok=True)
 
-    json_payload = {"name": target_dir.name, "description": d}
+    # Media resolution BEFORE mkdir — same no-empty-dir guarantee as a
+    # character save.
     image_path = target_dir / SCENE_IMAGE_NAME
+    if png_bytes is None:
+        if status == "created":
+            raise ValueError(
+                "a NEW scene needs a picture: connect an image to save %r for "
+                "the first time (overwriting later without reconnecting keeps "
+                "the picture on disk)" % n
+            )
+        if not image_path.is_file():
+            raise FileNotFoundError(
+                "overwrite of %r without an image, but %s is missing; connect "
+                "a new picture" % (n, image_path)
+            )
+    else:
+        png_bytes = bytes(png_bytes)
+
+    target_dir.mkdir(parents=True, exist_ok=True)
+    json_payload = {"name": target_dir.name, "description": d}
     json_path = target_dir / SCENE_JSON_NAME
 
     tmp_png = None
     tmp_json = None
     try:
-        tmp_png = _write_temp_file(png_bytes, target_dir)
+        if png_bytes is not None:
+            tmp_png = _write_temp_file(png_bytes, target_dir)
         tmp_json = _write_temp_file(_json_bytes(json_payload), target_dir)
-        try:
-            os.replace(tmp_png, image_path)
-        except OSError as e:
-            raise OSError(
-                "failed to replace %s (%s); all target files are unchanged"
-                % (image_path, e)
-            ) from e
-        tmp_png = None
+        if tmp_png is not None:
+            try:
+                os.replace(tmp_png, image_path)
+            except OSError as e:
+                raise OSError(
+                    "failed to replace %s (%s); all target files are unchanged"
+                    % (image_path, e)
+                ) from e
+            tmp_png = None
         try:
             os.replace(tmp_json, json_path)
         except OSError as e:
             raise OSError(
-                "scene.png was replaced with the new picture, but replacing %s "
-                "failed (%s). The library now holds the NEW scene picture with "
-                "the OLD description; saving %r again successfully will "
-                "rewrite both." % (json_path, e, target_dir.name)
+                "scene.json replacement failed (%s); the picture on disk is "
+                "unchanged. Saving %r again successfully rewrites everything."
+                % (e, target_dir.name)
             ) from e
         tmp_json = None
     finally:

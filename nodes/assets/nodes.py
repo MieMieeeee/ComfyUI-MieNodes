@@ -31,7 +31,7 @@ ASSETS_CATEGORY = "🐑 MieNodes/🐑 Assets"
 # VALIDATE_INPUTS that lists the name inputs — execution.py:1019 skips the
 # combo check for inputs named in that signature, and the executor's own
 # not-found error is the message users actually need.
-NAME_PLACEHOLDER = ["（先填 library_dir，下拉自动出现）"]
+NAME_PLACEHOLDER = ["（下拉选择资产）"]
 NEW_NAME_SENTINEL = "（✏️ 新名字…）"
 
 
@@ -178,12 +178,18 @@ class SaveCharacterAsset(object):
                 "name": (list(NAME_PLACEHOLDER), {"default": NAME_PLACEHOLDER[0]}),
                 "appearance": ("STRING", {"default": "", "multiline": True}),
                 "voice": ("STRING", {"default": "", "multiline": True}),
-                "image": ("IMAGE",),
-                "voice_sample": ("AUDIO",),
                 # Appended LAST on purpose: older workflows' widgets_values
                 # arrays are one entry short and load positionally-safe.
                 "new_name": ("STRING", {"default": "", "placeholder": "新资产的名字"}),
-            }
+            },
+            # Sockets are OPTIONAL: unconnected on an overwrite means "keep
+            # the file on disk" — editing one sentence must not force
+            # re-wiring a portrait and a voice sample. New assets still
+            # require both (enforced in library.save_character).
+            "optional": {
+                "image": ("IMAGE",),
+                "voice_sample": ("AUDIO",),
+            },
         }
 
     RETURN_TYPES = ("STRING", "STRING", "IMAGE", "STRING", "STRING")
@@ -200,12 +206,12 @@ class SaveCharacterAsset(object):
         return _validate_exempt(name, new_name=new_name, **kwargs)
 
     def save_character(
-        self, library_dir, name, appearance, voice, image, voice_sample,
-        new_name="",
+        self, library_dir, name, appearance, voice, new_name="",
+        image=None, voice_sample=None,
     ):
         name = resolve_save_name(name, new_name)
-        png_bytes = image_tensor_to_png_bytes(image)
-        wav_bytes = audio_to_wav_bytes(voice_sample)
+        png_bytes = None if image is None else image_tensor_to_png_bytes(image)
+        wav_bytes = None if voice_sample is None else audio_to_wav_bytes(voice_sample)
         result = library.save_character(
             library_dir, name, appearance, voice, png_bytes, wav_bytes
         )
@@ -373,10 +379,12 @@ class SaveSceneAsset(object):
                 "library_dir": ("STRING", {"default": ""}),
                 "name": (list(NAME_PLACEHOLDER), {"default": NAME_PLACEHOLDER[0]}),
                 "description": ("STRING", {"default": "", "multiline": True}),
-                "image": ("IMAGE",),
                 # Appended LAST on purpose (see SaveCharacterAsset).
                 "new_name": ("STRING", {"default": "", "placeholder": "新资产的名字"}),
-            }
+            },
+            "optional": {
+                "image": ("IMAGE",),
+            },
         }
 
     RETURN_TYPES = ("STRING", "STRING", "IMAGE", "STRING")
@@ -392,9 +400,9 @@ class SaveSceneAsset(object):
     def VALIDATE_INPUTS(cls, name, new_name, **kwargs):
         return _validate_exempt(name, new_name=new_name, **kwargs)
 
-    def save_scene(self, library_dir, name, description, image, new_name=""):
+    def save_scene(self, library_dir, name, description, new_name="", image=None):
         name = resolve_save_name(name, new_name)
-        png_bytes = image_tensor_to_png_bytes(image)
+        png_bytes = None if image is None else image_tensor_to_png_bytes(image)
         result = library.save_scene(library_dir, name, description, png_bytes)
         picture = png_bytes_to_image_tensor(result["png_bytes"])
         return (result["name"], result["description"], picture, result["status"])

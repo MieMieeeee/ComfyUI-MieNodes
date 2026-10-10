@@ -256,7 +256,9 @@ def test_invalid_names_rejected(lib_dir, bad_name):
 
 
 def test_save_character_requires_voice_sample(lib_dir):
-    with pytest.raises(ValueError, match="voice_sample"):
+    # Empty bytes and non-bytes payloads die at the TYPE gate, before any
+    # directory is created; None is legal (keep-on-disk) and checked later.
+    with pytest.raises(ValueError, match="voice_sample_wav must be non-empty"):
         library.save_character(str(lib_dir), "x",APPEARANCE,  "v", make_png(), b"")
     assert not (lib_dir / "characters").exists()
 
@@ -407,7 +409,7 @@ def test_replace_failure_at_json_leaves_new_media_old_json(lib_dir, monkeypatch)
     new_wav = make_wav(freq=880.0)
 
     _patch_replace(monkeypatch, "character.json")
-    with pytest.raises(OSError, match="NEW portrait and NEW voice sample"):
+    with pytest.raises(OSError, match="NEW portrait and the NEW voice sample"):
         library.save_character(
             str(lib_dir), "虎斑",APPEARANCE,  "new voice", make_png((255, 0, 0)), new_wav
         )
@@ -886,14 +888,14 @@ def test_save_character_node_resolves_new_name(lib_dir):
     with pytest.raises(ValueError, match="new_name is empty"):
         node.save_character(
             str(lib_dir), NEW_NAME_SENTINEL, "looks", "voice",
-            png_bytes_to_image_tensor(make_png()),
-            wav_bytes_to_audio(make_wav()),
+            image=png_bytes_to_image_tensor(make_png()),
+            voice_sample=wav_bytes_to_audio(make_wav()),
             new_name="",
         )
     out = node.save_character(
         str(lib_dir), NEW_NAME_SENTINEL, "looks", "voice",
-        png_bytes_to_image_tensor(make_png()),
-        wav_bytes_to_audio(make_wav()),
+        image=png_bytes_to_image_tensor(make_png()),
+        voice_sample=wav_bytes_to_audio(make_wav()),
         new_name="虎斑",
     )
     assert out[0] == "虎斑" and out[3] == "created"
@@ -927,7 +929,7 @@ def test_name_widgets_are_combos_with_placeholder():
         asset_nodes.SaveSceneAsset,
     ):
         spec = cls.INPUT_TYPES()["required"]["name"]
-        assert isinstance(spec[0], list) and "library_dir" in spec[0][0]
+        assert isinstance(spec[0], list) and "下拉选择" in spec[0][0]
 
 
 def test_save_nodes_append_new_name_last():
@@ -971,3 +973,100 @@ def test_read_picture_rejects_traversal_and_bad_kind(lib_dir):
         library.read_picture(str(lib_dir), "Ghost", "character")
     with pytest.raises(FileNotFoundError):
         library.read_picture(str(lib_dir), "Alice", "scene")
+
+
+# --------------------------------------------------------------------------- #
+# Partial save (sockets optional) + save-node autofill metadata
+# --------------------------------------------------------------------------- #
+def test_partial_save_keeps_disk_media_and_json_texts(lib_dir):
+    """The review's acceptance #2: overwrite one sentence WITHOUT
+    reconnecting image/audio — PNG and sample bytes on disk unchanged, JSON
+    text changed."""
+    png_a, png_b = make_png((1, 1, 1)), make_png((9, 9, 9))
+    wav_a, wav_b = make_wav(freq=440.0), make_wav(freq=880.0)
+    library.save_character(str(lib_dir), "虎斑", "old look", "old voice", png_a, wav_a)
+
+    result = library.save_character(
+        str(lib_dir), "虎斑", "new look", "new voice", None, None
+    )
+    assert result["status"] == "overwritten"
+    assert result["png_bytes"] == png_a
+    assert result["voice_sample_bytes"] == wav_a
+    char_dir = lib_dir / "characters" / "虎斑"
+    assert (char_dir / "portrait.png").read_bytes() == png_a
+    assert (char_dir / "voice_sample.wav").read_bytes() == wav_a
+    assert read_json(char_dir / "character.json") == {
+        "name": "虎斑", "appearance": "new look", "voice": "new voice",
+    }
+    # Mixed: new image, keep sample.
+    library.save_character(str(lib_dir), "虎斑", "x look", "x voice", png_b, None)
+    assert (char_dir / "portrait.png").read_bytes() == png_b
+    assert (char_dir / "voice_sample.wav").read_bytes() == wav_a
+    assert png_b != png_a and wav_b != wav_a
+
+
+def test_partial_save_requires_existing_files(lib_dir):
+    # New asset with None media -> actionable errors, nothing created.
+    with pytest.raises(ValueError, match="NEW character needs a portrait"):
+        library.save_character(str(lib_dir), "鬼", "look", "voice", None, make_wav())
+    with pytest.raises(ValueError, match="NEW character needs a voice sample"):
+        library.save_character(str(lib_dir), "鬼", "look", "voice", make_png(), None)
+    assert not (lib_dir / "characters" / "鬼").exists()
+    # A character missing its sample on disk cannot be overwritten with None.
+    png, wav = make_png(), make_wav()
+    library.save_character(str(lib_dir), "残", "look", "voice", png, wav)
+    (lib_dir / "characters" / "残" / "voice_sample.wav").unlink()
+    with pytest.raises(FileNotFoundError, match="no voice sample exists"):
+        library.save_character(str(lib_dir), "残", "look2", "voice2", None, None)
+
+
+def test_partial_save_scene_keeps_picture(lib_dir):
+    png_a = make_png((5, 5, 5))
+    library.save_scene(str(lib_dir), "便利店", "old", png_a)
+    result = library.save_scene(str(lib_dir), "便利店", "new", None)
+    assert result["status"] == "overwritten"
+    assert result["png_bytes"] == png_a
+    assert (lib_dir / "scenes" / "便利店" / "scene.png").read_bytes() == png_a
+    assert read_json(lib_dir / "scenes" / "便利店" / "scene.json")["description"] == "new"
+    with pytest.raises(ValueError, match="NEW scene needs a picture"):
+        library.save_scene(str(lib_dir), "新地", "d", None)
+
+
+def test_read_asset_meta_feeds_the_autofill(lib_dir):
+    png, wav = make_png(), make_wav()
+    library.save_character(str(lib_dir), "Alice", "red hair", "voice A", png, wav)
+    library.save_scene(str(lib_dir), "便利店", "cold light", make_png((3, 3, 3)))
+
+    meta = library.read_asset_meta(str(lib_dir), "Alice", "character")
+    assert meta["kind"] == "character"
+    assert meta["appearance"] == "red hair"
+    assert meta["voice"] == "voice A"
+    assert meta["picture_size"] == len(png)
+    assert meta["picture_mtime_ns"] > 0
+
+    meta = library.read_asset_meta(str(lib_dir), "便利店", "scene")
+    assert meta["kind"] == "scene"
+    assert meta["description"] == "cold light"
+
+    with pytest.raises(ValueError, match="kind must be"):
+        library.read_asset_meta(str(lib_dir), "Alice", "prop")
+    with pytest.raises(FileNotFoundError):
+        library.read_asset_meta(str(lib_dir), "Ghost", "character")
+    with pytest.raises(ValueError):
+        library.read_asset_meta(str(lib_dir), "../Alice", "character")
+
+
+def test_save_node_optional_sockets_in_spec():
+    """Older workflows wired the sockets; they stay valid inputs. The spec
+    moves them to optional so an overwrite can leave them unconnected."""
+    from nodes.assets import nodes as asset_nodes
+
+    req = asset_nodes.SaveCharacterAsset.INPUT_TYPES()["required"]
+    opt = asset_nodes.SaveCharacterAsset.INPUT_TYPES().get("optional", {})
+    assert "image" not in req and "voice_sample" not in req
+    assert "image" in opt and "voice_sample" in opt
+    assert "new_name" == list(req)[-1]
+    req = asset_nodes.SaveSceneAsset.INPUT_TYPES()["required"]
+    opt = asset_nodes.SaveSceneAsset.INPUT_TYPES().get("optional", {})
+    assert "image" not in req and "image" in opt
+    assert "new_name" == list(req)[-1]

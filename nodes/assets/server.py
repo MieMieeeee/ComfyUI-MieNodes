@@ -52,11 +52,65 @@ def _register() -> None:
             )
         except (ValueError, FileNotFoundError) as e:
             return web.json_response({"error": str(e)}, status=404)
-        # Cache per URL: the URL pins dir+name+kind, and any edit changes
-        # the bytes under a DIFFERENT list refresh — short cache is safe and
-        # keeps the picker grid instant on reopen.
+        return web.Response(body=data, content_type="image/png")
+
+    @routes.get("/mie_nodes/assets/meta")
+    async def asset_meta(request):  # noqa: ANN001 - aiohttp handler
+        q = request.rel_url.query
+        try:
+            meta = library.read_asset_meta(
+                q.get("dir", ""), q.get("name", ""), q.get("kind", "")
+            )
+        except (ValueError, FileNotFoundError) as e:
+            return web.json_response({"ok": False, "error": str(e)}, status=404)
+        meta = dict(meta)
+        meta["ok"] = True
+        return web.json_response(meta)
+
+    # Thumbnails: the picker decodes dozens of portraits per open, so it
+    # must never decode originals. Keyed by (path, size, mtime_ns) — the
+    # same key travels in the URL, so a changed picture is a NEW URL and
+    # the browser cache can be long.
+    _thumb_cache: dict = {}
+
+    @routes.get("/mie_nodes/assets/thumb")
+    async def asset_thumb(request):  # noqa: ANN001 - aiohttp handler
+        q = request.rel_url.query
+        try:
+            meta = library.read_asset_meta(
+                q.get("dir", ""), q.get("name", ""), q.get("kind", "")
+            )
+            original = library.read_picture(
+                q.get("dir", ""), q.get("name", ""), q.get("kind", "")
+            )
+        except (ValueError, FileNotFoundError) as e:
+            return web.json_response({"error": str(e)}, status=404)
+        stamp = "%d-%d" % (meta["picture_size"], meta["picture_mtime_ns"])
+        if q.get("stamp") and q.get("stamp") != stamp:
+            # URL carries an outdated stamp: answer with the fresh thumb but
+            # a no-cache header so the caller re-keys.
+            cache_control = "no-cache"
+        else:
+            cache_control = "max-age=86400"
+        import io as _io
+
+        from PIL import Image
+
+        cache_key = (meta["name"], meta["kind"], stamp)
+        thumb = _thumb_cache.get(cache_key)
+        if thumb is None:
+            img = Image.open(_io.BytesIO(original)).convert("RGB")
+            img.thumbnail((256, 256))
+            buf = _io.BytesIO()
+            img.save(buf, format="JPEG", quality=82)
+            thumb = buf.getvalue()
+            if len(_thumb_cache) > 256:  # bound it; a save bumps stamps anyway
+                _thumb_cache.clear()
+            _thumb_cache[cache_key] = thumb
         return web.Response(
-            body=data, content_type="image/png", headers={"Cache-Control": "max-age=60"}
+            body=thumb,
+            content_type="image/jpeg",
+            headers={"Cache-Control": cache_control},
         )
 
 
