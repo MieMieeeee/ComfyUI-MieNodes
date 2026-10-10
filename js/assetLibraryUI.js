@@ -643,12 +643,15 @@ function kindName(kind) {
 }
 
 // 内容异步变化（图片加载、正文回填）后重排：画布重绘 + 节点外框只放大
-// 不缩小，避免最后一个 DOM 控件戳出节点边框。
+// 不缩小。宽度永远保持用户当前值——computeSize 返回的是最小宽度
+// （~240px），直接 setSize 会把节点压窄、挤坏卡片里的横排布局。
 function relayoutNode(node) {
     node.setDirtyCanvas?.(true, true);
     try {
         const need = node.computeSize?.();
-        if (need && need[1] > (node.size?.[1] || 0) + 1) node.setSize?.(need);
+        if (need && need[1] > (node.size?.[1] || 0) + 1) {
+            node.setSize?.([node.size[0], need[1]]);
+        }
     } catch (_) { /* computeSize 在部分节点上不可用，忽略 */ }
 }
 
