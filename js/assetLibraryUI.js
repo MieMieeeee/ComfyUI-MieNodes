@@ -1,28 +1,28 @@
 import { app } from "../../scripts/app.js";
 
 /**
- * 资产库前端辅助（docs/ASSET_LIBRARY_GUIDE.md；评审 REVIEW_ASSET_LIBRARY_UI）。
+ * 资产库前端辅助（docs/PLAN_ASSET_LIBRARY_V2.md）。
  *
  * 数据契约：
- * - 多行 `names` STRING widget（LoadAssetBatch）是唯一序列化真相；节点上的
- *   DOM 槽位条和图片选择器弹窗都是它的镜像。本文件添加的一切 widget 都带
- *   serialize:false 且永远追加在 node.widgets 末尾——litegraph 序列化与加载
- *   两侧只处理 serialize!==false 子集并按下标对齐，工作流 JSON 与加 UI 之前
- *   逐字节相同。
- * - 下拉选项按节点实例从 POST /mie_nodes/assets/list 取（类级 combo 拿不到
- *   另一个 widget 的值）；空 library_dir = 本机默认库，由服务端解析。
- * - 保存节点选中已有名字时，GET /mie_nodes/assets/meta 把磁盘上的正文回填
- *   进输入框——要覆盖的东西必须先被看见。
- * - 图片一律走 /thumb（256px JPEG，ETag=文件戳）：弹窗/槽位条/预览都绝不
- *   解码原图。
+ * - 库位置每台机器固定（$MIE_ASSET_LIBRARY → ~/mie_asset_library），节点上
+ *   无路径可编辑：library_dir widget 保留在输入里且永远隐藏（老工作流的
+ *   widgets_values 下标不错位），执行与扫描完全忽略它的值。
+ * - LoadAssetBatch 的隐藏 `names` STRING widget 是槽位顺序的唯一序列化
+ *   记录（用户不可打开）；DOM 槽位条和选择器弹窗是它的两张脸。
+ * - 本文件添加的一切 widget 都带 serialize:false 且永远追加在
+ *   node.widgets 末尾——工作流 JSON 与加 UI 之前逐字节相同。
+ * - 图片一律走 /thumb（256px JPEG）：弹窗/槽位条/预览绝不解码原图。
+ * - 弹窗卡片 3:4 竖幅、object-fit: contain——肖像从头到脚完整可见。
  */
 
 const LIST_ENDPOINT = "/mie_nodes/assets/list";
 const META_ENDPOINT = "/mie_nodes/assets/meta";
 const THUMB_ENDPOINT = "/mie_nodes/assets/thumb";
+const OPEN_ENDPOINT = "/mie_nodes/assets/open";
 const NEW_NAME = "（✏️ 新名字…）";
 const PLACEHOLDER = "（下拉选择资产）";
 const MAX_SLOTS = 9;
+const MAX_AUDIO = 8;
 const KIND_CHAR = "角色";
 const KIND_SCENE = "场景";
 
@@ -37,40 +37,36 @@ const NODES = {
     "LoadAssetBatch|Mie": { slots: true },
 };
 
-// ---- 取数：按目录缓存 + 去重 ---------------------------------------------
-const cache = new Map(); // library_dir(原始串) -> Promise<payload>
+// ---- 取数 ------------------------------------------------------------------
+const cache = new Map(); // "" -> Promise<payload>（库固定，键只有一个）
 
-function fetchAssets(libraryDir, { force = false } = {}) {
-    // 空串 = 本机默认库，交给服务端解析（第六次修订后的语义）。
-    const dir = (libraryDir || "").trim();
-    if (!force && cache.has(dir)) return cache.get(dir);
+function fetchAssets({ force = false } = {}) {
+    if (!force && cache.has("")) return cache.get("");
     const p = fetch(LIST_ENDPOINT, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ library_dir: dir }),
+        body: JSON.stringify({}), // 位置由服务端解析，客户端不传路径
     })
         .then((r) => (r.ok ? r.json() : Promise.reject(new Error("HTTP " + r.status))))
         .then((payload) => {
-            payload._ts = Date.now(); // 缩略图 URL 的新鲜度键（扫描时刻）
+            payload._ts = Date.now();
             return payload;
         })
         .catch((e) => ({ ok: false, characters: [], scenes: [], error: String(e), _ts: Date.now() }));
-    cache.set(dir, p);
+    cache.set("", p);
     return p;
 }
 
-function fetchMeta(dir, name, kind) {
-    const q = "dir=" + encodeURIComponent(dir) + "&name=" + encodeURIComponent(name) +
-        "&kind=" + encodeURIComponent(kind);
+function fetchMeta(name, kind) {
+    const q = "name=" + encodeURIComponent(name) + "&kind=" + encodeURIComponent(kind);
     return fetch(META_ENDPOINT + "?" + q)
         .then((r) => (r.ok ? r.json() : Promise.reject(new Error("HTTP " + r.status))))
         .catch((e) => ({ ok: false, error: String(e) }));
 }
 
-function thumbUrl(dir, name, kind, ts) {
+function thumbUrl(name, kind, ts) {
     return THUMB_ENDPOINT +
-        "?dir=" + encodeURIComponent(dir) +
-        "&name=" + encodeURIComponent(name) +
+        "?name=" + encodeURIComponent(name) +
         "&kind=" + encodeURIComponent(kind) +
         (ts ? "&v=" + ts : "");
 }
@@ -86,31 +82,37 @@ function reportScanError(payload) {
     }
 }
 
-// ---- 选项列表 --------------------------------------------------------------
+// ---- 选项与条目 ------------------------------------------------------------
+// payload.characters / payload.scenes 是 {name, image_count, audio_count?} 对象。
+function charEntries(payload) {
+    return payload?.ok ? payload.characters : [];
+}
+function sceneEntries(payload) {
+    return payload?.ok ? payload.scenes : [];
+}
 function bareEntries(payload, kinds) {
     const out = [];
-    if (!payload || !payload.ok) return out;
-    const wantChar = kinds.includes("characters");
-    const wantScene = kinds.includes("scenes");
-    if (wantChar) out.push(...payload.characters);
-    if (wantScene) out.push(...payload.scenes);
+    if (kinds.includes("characters")) for (const c of charEntries(payload)) out.push(c.name);
+    if (kinds.includes("scenes")) for (const s of sceneEntries(payload)) out.push(s.name);
     return out;
 }
-
 function kindOfName(payload, name) {
     if (!payload?.ok) return null;
-    if (payload.characters.includes(name)) return "character";
-    if (payload.scenes.includes(name)) return "scene";
+    if (charEntries(payload).some((c) => c.name === name)) return "character";
+    if (sceneEntries(payload).some((s) => s.name === name)) return "scene";
     return null;
 }
-
+function entryOf(payload, name) {
+    return charEntries(payload).find((c) => c.name === name)
+        || sceneEntries(payload).find((s) => s.name === name)
+        || null;
+}
 function setComboOptions(widget, values) {
     if (!widget) return;
     widget.options.values = values.slice();
-    // 老工作流手打的值不在列表里也保留显示——combo 只约束菜单。
 }
 
-// ---- 扩展注册 -------------------------------------------------------------
+// ---- 扩展注册 ---------------------------------------------------------------
 app.registerExtension({
     name: "MieNodes.AssetLibraryUI",
 
@@ -124,9 +126,6 @@ app.registerExtension({
             wireNode(this, cfg);
         };
 
-        // 工作流加载/粘贴：widget 值应用完之后，由值重建 UI 状态。
-        // onNodeCreated 时值还是默认（要等 configure 才应用），取数与
-        // 回填判断也要在这里再触发一次。
         const origConfigure = nodeType.prototype.onConfigure;
         nodeType.prototype.onConfigure = function () {
             origConfigure?.apply(this, arguments);
@@ -139,8 +138,8 @@ app.registerExtension({
     },
 });
 
-// 保存执行成功 -> 该目录的名字列表与缩略图全部作废，刷新画布上的资产节点。
-// （保存节点是 OUTPUT_NODE，会发 'executed' 事件。）
+// 保存执行成功 -> 名单/缩略图作废并刷新画布上的资产节点（保存节点是
+// OUTPUT_NODE，会发 'executed'）。
 app.api?.addEventListener?.("executed", (e) => {
     const nodeId = e.detail?.node;
     const nodes = app.graph?._nodes || [];
@@ -157,36 +156,28 @@ function wireNode(node, cfg) {
     if (!dirWidget) return;
     node.__mieAssets = { cfg, payload: null, syncing: false, timer: null };
 
-    // 库目录固定（第六次修订）：widget 默认隐藏（仍序列化、仍参与对齐）。
-    // 按钮常驻显示解析后的库位置——不再只活在一条会消失的 toast 里。
+    // 库位置固定：widget 永久隐藏（不再有翻出来编辑的入口）。
     dirWidget.hidden = true;
-    const dirBtn = node.addWidget("button", "📁 库…", null, () => {
-        dirWidget.hidden = !dirWidget.hidden;
-        const resolved = node.__mieAssets?.payload?.library_dir;
-        app.extensionManager?.toast?.add?.({
-            severity: "info",
-            summary: dirWidget.hidden ? "库目录（已隐藏）" : "库目录（可直接编辑）",
-            detail: resolved ? "当前生效: " + resolved
-                : "默认: $MIE_ASSET_LIBRARY 或 ~/mie_asset_library",
-            life: 5000,
-        });
-        node.setDirtyCanvas?.(true, true);
-    });
-    dirBtn.serialize = false;
+
+    // 「📂 打开文件夹」请求固定端点，打开解析出的那一个目录。
+    node.addWidget("button", "📂 打开文件夹", null, async () => {
+        try {
+            const r = await fetch(OPEN_ENDPOINT, { method: "POST" });
+            const j = await r.json();
+            if (!j.ok) throw new Error(j.error || "HTTP " + r.status);
+            app.extensionManager?.toast?.add?.({
+                severity: "success", summary: "已打开资产库", detail: j.library_dir, life: 4000,
+            });
+        } catch (err) {
+            app.extensionManager?.toast?.add?.({
+                severity: "error", summary: "打开失败", detail: String(err).slice(0, 160), life: 5000,
+            });
+        }
+    }).serialize = false;
 
     node.addWidget("button", "🔄 刷新资产列表", null, () => {
         applyLibrary(node, { force: true });
     }).serialize = false;
-
-    // library_dir 手输/粘贴 -> 每节点一个防抖定时器（共享定时器会让
-    // 节点 A 的输入吃掉节点 B 还没发出的刷新）。
-    const origDirCallback = dirWidget.callback;
-    dirWidget.callback = (...args) => {
-        origDirCallback?.apply(dirWidget, args);
-        const ui = node.__mieAssets;
-        clearTimeout(ui?.timer);
-        if (ui) ui.timer = setTimeout(() => applyLibrary(node), 500);
-    };
 
     if (cfg.save) {
         const nameWidget = node.widgets.find((w) => w.name === "name");
@@ -195,14 +186,13 @@ function wireNode(node, cfg) {
             nameWidget.callback = (...args) => {
                 origNameCallback?.apply(nameWidget, args);
                 syncNewNameVisibility(node);
-                // 用户主动选了已有名字：把磁盘上的正文回填——要覆盖的
-                // 东西必须先被看见。工作流加载（configure）不走这里。
                 refreshSavePreview(node, { autofill: true });
             };
         }
         syncNewNameVisibility(node);
         patchSaveTextListeners(node);
-        makePreviewWidget(node, cfg.save);
+        makePreviewWidget(node);
+        if (cfg.save === "character") patchAudioAutogrow(node);
     } else if (cfg.preview) {
         const nameWidget = node.widgets.find((w) => w.name === "name");
         const origNameCallback = nameWidget?.callback;
@@ -212,18 +202,14 @@ function wireNode(node, cfg) {
                 refreshLoadPreview(node);
             };
         }
-        makePreviewWidget(node, cfg.preview);
+        makePreviewWidget(node);
     }
 
     if (cfg.slots) {
         const namesWidget = node.widgets.find((w) => w.name === "names");
         if (namesWidget) {
-            // names 默认收起（仍是唯一序列化真相）；「✎ 名单」给手改逃生口。
+            // 名单不提供编辑入口（V2 第 1/2 条）：只作序列化记录，永久隐藏。
             namesWidget.hidden = true;
-            node.addWidget("button", "✎ 名单", null, () => {
-                namesWidget.hidden = !namesWidget.hidden;
-                node.setDirtyCanvas?.(true, true);
-            }).serialize = false;
             const origChanged = node.onWidgetChanged;
             node.onWidgetChanged = function (widgetName, ...rest) {
                 origChanged?.apply(this, [widgetName, ...rest]);
@@ -243,29 +229,13 @@ function wireNode(node, cfg) {
     applyLibrary(node);
 }
 
-function resolvedDir(node) {
-    return node.__mieAssets?.payload?.library_dir ||
-        (node.widgets.find((w) => w.name === "library_dir")?.value || "").trim();
-}
-
 function applyLibrary(node, { force = false } = {}) {
     const cfg = node.__mieAssets?.cfg;
     if (!cfg) return;
-    // 空串 = 本机默认库，由服务端解析（第六次修订后的语义）。
-    const dir = (node.widgets?.find((w) => w.name === "library_dir")?.value || "").trim();
-
-    fetchAssets(dir, { force }).then((payload) => {
+    fetchAssets({ force }).then((payload) => {
         if (!node.__mieAssets) return;
         node.__mieAssets.payload = payload;
         reportScanError(payload);
-
-        // 库按钮常驻显示解析后的位置（basename + 完整路径在 tooltip）。
-        const dirBtn = node.widgets.find((w) => w.name === "📁 库…");
-        if (dirBtn && payload?.library_dir) {
-            const full = String(payload.library_dir);
-            dirBtn.name = "📁 " + full.split(/[\\/]/).filter(Boolean).pop();
-            dirBtn.tooltip = full;
-        }
 
         if (cfg.slots) {
             syncStripFromNames(node);
@@ -281,7 +251,7 @@ function applyLibrary(node, { force = false } = {}) {
     });
 }
 
-// ---- Save 节点：new_name 显隐 + 选中回填 + 将覆盖标记 ----------------------
+// ---- 保存节点：new_name 显隐 + 回填 + 将覆盖 ---------------------------------
 function syncNewNameVisibility(node) {
     const nameWidget = node.widgets?.find((w) => w.name === "name");
     const newNameWidget = node.widgets?.find((w) => w.name === "new_name");
@@ -294,7 +264,7 @@ function syncNewNameVisibility(node) {
 function saveTextFields(node, kind) {
     if (kind === "character") {
         return {
-            appearance: node.widgets.find((w) => w.name === "appearance"),
+            description: node.widgets.find((w) => w.name === "description"),
             voice: node.widgets.find((w) => w.name === "voice"),
         };
     }
@@ -307,14 +277,12 @@ async function refreshSavePreview(node, { autofill }) {
     const kind = ui.cfg.save;
     const nameWidget = node.widgets.find((w) => w.name === "name");
     const name = (nameWidget?.value || "").trim();
-    const pane = ui.previewEl;
-    if (!pane) return;
     if (!name || name === PLACEHOLDER || name.includes(NEW_NAME)) {
         renderPreviewState(node, { mode: "empty-new" });
         return;
     }
-    const meta = await fetchMeta(resolvedDir(node), name, kind);
-    if (!node.__mieAssets || (nameWidget?.value || "").trim() !== name) return; // 已切走
+    const meta = await fetchMeta(name, kind);
+    if (!node.__mieAssets || (nameWidget?.value || "").trim() !== name) return;
     if (!meta.ok) {
         renderPreviewState(node, { mode: "missing", name, kind, error: meta.error });
         return;
@@ -338,7 +306,7 @@ async function refreshLoadPreview(node) {
         renderPreviewState(node, { mode: "empty-new" });
         return;
     }
-    const meta = await fetchMeta(resolvedDir(node), name, kind);
+    const meta = await fetchMeta(name, kind);
     if (!node.__mieAssets || (nameWidget?.value || "").trim() !== name) return;
     if (!meta.ok) {
         renderPreviewState(node, { mode: "missing", name, kind, error: meta.error });
@@ -347,19 +315,42 @@ async function refreshLoadPreview(node) {
     renderPreviewState(node, { mode: "existing", meta, kind, readonly: true });
 }
 
-// ---- 预览面板（Save / Load 共用的 DOM widget）-----------------------------
-function makePreviewWidget(node, kind) {
+// 文本改动刷新将覆盖标记：onWidgetChanged 包装 + 输入框 input 事件双保险。
+const patchedNodes = new WeakSet();
+function patchSaveTextListeners(node) {
+    if (patchedNodes.has(node)) return;
+    patchedNodes.add(node);
+    const wants = (name) => ["description", "voice"].includes(name);
+    const orig = node.onWidgetChanged;
+    node.onWidgetChanged = function (widgetName, ...rest) {
+        orig?.apply(this, [widgetName, ...rest]);
+        if (this.__mieAssets?.cfg?.save && wants(widgetName)) {
+            refreshSavePreview(this, { autofill: false });
+        }
+    };
+    for (const widget of node.widgets || []) {
+        if (!wants(widget.name) || !widget.inputEl) continue;
+        let timer = null;
+        widget.inputEl.addEventListener("input", () => {
+            widget.value = widget.inputEl.value;
+            clearTimeout(timer);
+            timer = setTimeout(() => refreshSavePreview(node, { autofill: false }), 300);
+        });
+    }
+}
+
+// ---- 预览面板 ----------------------------------------------------------------
+function makePreviewWidget(node) {
     if (typeof node.addDOMWidget !== "function") return;
     const wrap = document.createElement("div");
     wrap.className = "mie-preview";
     const widget = node.addDOMWidget("预览", "mie-asset-preview", wrap, {
         serialize: false,
         hideOnZoom: false,
-        getHeight: () => 86,
+        getHeight: () => 96,
     });
     widget.serialize = false;
     node.__mieAssets.previewEl = wrap;
-    wrap.dataset.kind = kind;
     renderPreviewState(node, { mode: "boot" });
 }
 
@@ -381,19 +372,21 @@ function renderPreviewState(node, state) {
     }
     const meta = state.meta;
     const img = document.createElement("img");
-    img.src = thumbUrl(resolvedDir(node), meta.name, kind, ts);
+    img.src = thumbUrl(meta.name, kind, ts);
     img.alt = meta.name;
     const body = document.createElement("div");
     body.className = "mie-pv-body";
     const title = document.createElement("div");
     title.className = "mie-pv-title";
-    title.textContent = (kind === "scene" ? "场景 " : "角色 ") + meta.name;
+    title.textContent = kindName(kind) + " " + meta.name +
+        "（" + meta.image_count + " 张" +
+        (meta.audio_count != null ? "，" + meta.audio_count + " 条音频" : "") + "）";
     body.append(title);
 
     if (state.readonly) {
         const line = document.createElement("div");
         line.className = "mie-pv-text";
-        line.textContent = (meta.description || meta.appearance || "").slice(0, 90);
+        line.textContent = (meta.description || "").slice(0, 90);
         body.append(line);
         if (meta.voice) {
             const v = document.createElement("div");
@@ -402,9 +395,8 @@ function renderPreviewState(node, state) {
             body.append(v);
         }
     } else {
-        // Save：逐字段比较节点文本与库文本——“将覆盖”必须被看见。
         const fields = kind === "character"
-            ? [["appearance", "人物"], ["voice", "音色"]]
+            ? [["description", "描述"], ["voice", "音色"]]
             : [["description", "描述"]];
         for (const [field, label] of fields) {
             const widget = saveTextFields(node, kind)[field];
@@ -432,37 +424,59 @@ function kindName(kind) {
     return kind === "scene" ? KIND_SCENE : KIND_CHAR;
 }
 
-// 文本框改动时刷新将覆盖标记。两条路都挂：onWidgetChanged 包装 + 直接
-// 监听输入框的 input 事件——这个前端的 multiline 打字不保证走前者。
-const origTextChangedPatched = new WeakSet();
-function patchSaveTextListeners(node) {
-    if (origTextChangedPatched.has(node)) return;
-    origTextChangedPatched.add(node);
-    const ui = node.__mieAssets;
-    const wants = (name) => ["appearance", "voice", "description"].includes(name);
-    const orig = node.onWidgetChanged;
-    node.onWidgetChanged = function (widgetName, ...rest) {
-        orig?.apply(this, [widgetName, ...rest]);
-        if (this.__mieAssets?.cfg?.save && wants(widgetName)) {
-            refreshSavePreview(this, { autofill: false });
+// ---- 保存角色：audio 插座自生长（stringFormat 同款）---------------------------
+const audioGrowPatched = new WeakSet();
+function patchAudioAutogrow(node) {
+    if (audioGrowPatched.has(node)) return;
+    audioGrowPatched.add(node);
+    const PREFIX = "audio_";
+    const socketIndices = () => {
+        const out = [];
+        (node.inputs || []).forEach((inp, i) => {
+            if (inp && typeof inp.name === "string" && inp.name.startsWith(PREFIX)) out.push(i);
+        });
+        return out;
+    };
+    const trimTrailingTo = (keep) => {
+        let indices = socketIndices();
+        while (indices.length > keep) {
+            const idx = indices.pop();
+            node.removeInput(idx);
+            indices = socketIndices();
+        }
+        node.setDirtyCanvas?.(true, true);
+    };
+    const appendNext = () => {
+        const indices = socketIndices();
+        if (indices.length >= MAX_AUDIO) return;
+        node.addInput(PREFIX + (indices.length + 1), "AUDIO");
+        node.setDirtyCanvas?.(true, true);
+    };
+    const sync = () => {
+        const indices = socketIndices();
+        let keep = 1; // 至少保留 audio_1
+        for (let k = 0; k < indices.length; k++) {
+            if (node.inputs[indices[k]].link != null) keep = k + 2;
+        }
+        keep = Math.min(keep, MAX_AUDIO);
+        trimTrailingTo(keep);
+        const now = socketIndices();
+        if (now.length < keep) appendNext();
+        else if (now.length < MAX_AUDIO
+                 && node.inputs[now[now.length - 1]].link != null) {
+            appendNext();
         }
     };
-    if (ui?.cfg?.save) {
-        for (const widget of node.widgets || []) {
-            if (!wants(widget.name) || !widget.inputEl) continue;
-            let timer = null;
-            widget.inputEl.addEventListener("input", () => {
-                widget.value = widget.inputEl.value;
-                clearTimeout(timer);
-                timer = setTimeout(
-                    () => refreshSavePreview(node, { autofill: false }), 300
-                );
-            });
-        }
-    }
+    const orig = node.onConnectionsChange;
+    node.onConnectionsChange = function (type, index, connected, ...rest) {
+        orig?.apply(this, [type, index, connected, ...rest]);
+        if (type === 1 /*INPUT*/) sync();
+    };
+    // 新节点只露出 audio_1；configure 会按已存工作流还原更多。
+    trimTrailingTo(1);
 }
 
-// ---- LoadAssetBatch 槽位条（DOM widget，替代槽位 combo）--------------------
+// ---- LoadAssetBatch 槽位条 ----------------------------------------------------
 function currentSlotNames(node) {
     const namesWidget = node.widgets.find((w) => w.name === "names");
     return (namesWidget?.value || "").split("\n").map((s) => s.trim()).filter(Boolean);
@@ -474,8 +488,6 @@ function writeSlotNames(node, names) {
     const ui = node.__mieAssets;
     if (ui) ui.syncing = true;
     try {
-        // 直接赋 .value 不会触发 onWidgetChanged（那是 setValue 的路径），
-        // 所以写完要显式重建槽位条。
         namesWidget.value = names.join("\n");
         namesWidget.callback?.(namesWidget.value);
     } finally {
@@ -516,13 +528,17 @@ function syncStripFromNames(node) {
         chip.draggable = true;
         chip.dataset.index = String(i);
         const img = document.createElement("img");
-        img.src = thumbUrl(resolvedDir(node), name, kind, ts);
+        img.src = thumbUrl(name, kind, ts);
         const label = document.createElement("span");
         label.className = "mie-slot-label";
         label.textContent = (i + 1) + ". " + name;
         const kindTag = document.createElement("span");
         kindTag.className = "mie-slot-kind";
         kindTag.textContent = kind === "scene" ? KIND_SCENE : KIND_CHAR;
+        const entry = entryOf(payload, name);
+        if (entry && entry.image_count > 1) {
+            kindTag.textContent += " " + entry.image_count + "张";
+        }
         const x = document.createElement("span");
         x.className = "mie-slot-x";
         x.textContent = "✕";
@@ -533,8 +549,6 @@ function syncStripFromNames(node) {
             writeSlotNames(node, cur);
         });
         chip.append(img, label, kindTag, x);
-
-        // 拖动排序：顺序就是 <Picture N>。
         chip.addEventListener("dragstart", (e) => {
             e.dataTransfer.setData("text/mie-slot", String(i));
             chip.classList.add("dragging");
@@ -554,7 +568,7 @@ function syncStripFromNames(node) {
     });
 }
 
-// ---- 图片选择器弹窗 --------------------------------------------------------
+// ---- 图片选择器弹窗 -------------------------------------------------------------
 let pickerStyleEl = null;
 
 function ensurePickerStyles() {
@@ -574,11 +588,13 @@ function ensurePickerStyles() {
         "text-overflow:ellipsis;white-space:nowrap}",
         ".mie-picker .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));",
         "gap:10px;padding:12px;overflow-y:auto}",
+        // 3:4 竖幅 + contain：肖像从头到脚完整可见（V2 第 7 条）。
         ".mie-card{border:1px solid var(--border-color,#444);border-radius:8px;overflow:hidden;",
         "cursor:pointer;background:rgba(255,255,255,.03);transition:border-color .12s}",
         ".mie-card:hover{border-color:#7f9cf5}",
         ".mie-card.disabled{opacity:.45;cursor:not-allowed}",
-        ".mie-card img{width:100%;height:104px;object-fit:cover;display:block;background:#111}",
+        ".mie-card img{width:100%;aspect-ratio:3/4;object-fit:contain;object-position:center;",
+        "display:block;background:#151515}",
         ".mie-card .cap{display:flex;align-items:center;gap:6px;padding:6px 8px}",
         ".mie-card .kind{font-size:10px;padding:1px 6px;border-radius:6px;background:#3b4a6b;",
         "color:#cdd8f8;flex-shrink:0}",
@@ -588,7 +604,8 @@ function ensurePickerStyles() {
         ".mie-picker footer{display:flex;flex-wrap:wrap;gap:6px;align-items:center;",
         "padding:10px 14px;border-top:1px solid var(--border-color,#444);min-height:40px}",
         ".mie-preview{display:flex;gap:8px;align-items:flex-start;padding:4px 2px}",
-        ".mie-preview img{width:76px;height:76px;object-fit:cover;border-radius:8px;background:#111}",
+        ".mie-preview img{width:72px;height:96px;object-fit:contain;background:#151515;",
+        "border-radius:8px}",
         ".mie-pv-body{flex:1;min-width:0}",
         ".mie-pv-title{font-weight:600;font-size:12px}",
         ".mie-pv-text{font-size:11px;opacity:.8;overflow:hidden;text-overflow:ellipsis;",
@@ -603,7 +620,8 @@ function ensurePickerStyles() {
         ".mie-slot{display:flex;align-items:center;gap:6px;border:1px solid var(--border-color,#555);",
         "border-radius:8px;padding:3px 8px 3px 4px;background:rgba(255,255,255,.03)}",
         ".mie-slot.dragging{opacity:.4}",
-        ".mie-slot img{width:38px;height:38px;object-fit:cover;border-radius:6px;background:#111}",
+        ".mie-slot img{width:38px;height:50px;object-fit:contain;background:#151515;",
+        "border-radius:6px}",
         ".mie-slot-label{font-size:12px;max-width:120px;overflow:hidden;text-overflow:ellipsis;",
         "white-space:nowrap}",
         ".mie-slot-kind{font-size:10px;padding:1px 6px;border-radius:6px;background:#3b4a6b;",
@@ -620,7 +638,6 @@ function openPicker(node) {
     const ui = node.__mieAssets;
     const payload = ui?.payload;
     const ts = payload?._ts;
-    const dir = resolvedDir(node);
 
     const backdrop = document.createElement("div");
     backdrop.className = "mie-picker-backdrop";
@@ -628,8 +645,8 @@ function openPicker(node) {
     panel.className = "mie-picker";
 
     const header = document.createElement("header");
-    header.innerHTML = '<span class="t">🖼 选择资产（点卡片加入下一个槽位，上限 ' + MAX_SLOTS + '；可拖动槽位条排序）</span><span class="d"></span>';
-    header.querySelector(".d").textContent = dir ? "库：" + dir : "库：默认（未扫描）";
+    header.innerHTML = '<span class="t">🖼 选择资产（点卡片加入下一个槽位，上限 ' + MAX_SLOTS + '；拖动槽位条排序）</span><span class="d"></span>';
+    header.querySelector(".d").textContent = payload?.library_dir ? "库：" + payload.library_dir : "库：（未扫描）";
     const refreshBtn = document.createElement("button");
     refreshBtn.textContent = "🔄";
     refreshBtn.title = "重新扫描";
@@ -647,22 +664,21 @@ function openPicker(node) {
 
     function render() {
         grid.innerHTML = "";
-        // 同名角色/场景是执行期错误（跨类同名报错），在这里就不可选。
         const conflict = new Set(
             payload?.ok
-                ? payload.characters.filter((n) => payload.scenes.includes(n))
+                ? charEntries(payload).map((c) => c.name).filter((n) => sceneEntries(payload).some((s) => s.name === n))
                 : []
         );
         const items = [];
         if (payload?.ok) {
-            for (const n of payload.characters) items.push({ name: n, kind: "character" });
-            for (const n of payload.scenes) items.push({ name: n, kind: "scene" });
+            for (const c of charEntries(payload)) items.push({ ...c, kind: "character" });
+            for (const s of sceneEntries(payload)) items.push({ ...s, kind: "scene" });
         }
         if (!items.length) {
             const empty = document.createElement("div");
             empty.className = "mie-empty";
             empty.textContent = payload?.ok === false
-                ? "库读取失败：" + (payload.error || "") + "（检查目录后点 🔄）"
+                ? "库读取失败：" + (payload.error || "") + "（点 🔄 重试）"
                 : "库里还没有可读资产，或尚未扫描——点右上 🔄。";
             grid.append(empty);
         }
@@ -678,7 +694,7 @@ function openPicker(node) {
                 : slot ? "已在槽位 " + slot : "点击加入下一个槽位";
             const img = document.createElement("img");
             img.loading = "lazy";
-            img.src = thumbUrl(dir || ".", it.name, it.kind, ts);
+            img.src = thumbUrl(it.name, it.kind, ts);
             img.alt = it.name;
             const cap = document.createElement("div");
             cap.className = "cap";
@@ -689,17 +705,16 @@ function openPicker(node) {
             nm.className = "nm";
             nm.textContent = it.name;
             cap.append(kindTag, nm);
-            if (isConflict) {
-                const warn = document.createElement("span");
-                warn.className = "in";
-                warn.textContent = "同名冲突";
-                cap.append(warn);
-            } else if (slot) {
-                const tag = document.createElement("span");
-                tag.className = "in";
-                tag.textContent = "槽位 " + slot;
-                cap.append(tag);
-            }
+            // 数量角标：卡片只用第一张图，其余以计数告知（V2 第 7 条）。
+            const counts = [];
+            if (it.image_count > 1) counts.push(it.image_count + " 张");
+            if (it.audio_count > 0) counts.push(it.audio_count + " 条音频");
+            const badge = document.createElement("span");
+            badge.className = "in";
+            if (isConflict) badge.textContent = "同名冲突";
+            else if (slot) badge.textContent = "槽位 " + slot;
+            else if (counts.length) badge.textContent = counts.join(" · ");
+            cap.append(badge);
             card.append(img, cap);
             card.addEventListener("click", () => {
                 if (isConflict) return;
@@ -735,8 +750,7 @@ function openPicker(node) {
 
     refreshBtn.addEventListener("click", async () => {
         refreshBtn.textContent = "⏳";
-        const dirWidget = node.widgets.find((w) => w.name === "library_dir");
-        const fresh = await fetchAssets(dirWidget?.value || "", { force: true });
+        const fresh = await fetchAssets({ force: true });
         if (node.__mieAssets) node.__mieAssets.payload = fresh;
         applyLibrary(node, { force: true });
         refreshBtn.textContent = "🔄";

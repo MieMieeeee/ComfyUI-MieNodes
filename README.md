@@ -161,7 +161,7 @@ A reusable on-disk library for the characters and scenes you want to repeat acro
 
 6. **Feeds the H3 prompt generator as data.** `MiniMaxH3LoopPromptGeneratorV2` takes `Load Asset Batch`'s `roster_json` as an `asset_roster` input. A rostered slot's authored text skips the vision-model caption call entirely — name / appearance / voice / where-the-story-happens all stop being inferred from prose. Scene slots anchor the environment (manifest role `environment`, never a `<Subject N>`). The output `plan_json` is byte-for-byte the same schema as V1.
 
-7. **Selectors, not typing.** `name` is a live dropdown; picking an existing name on a Save node AUTO-FILLS the stored texts and badges every field 与库一致/将覆盖, and the image/audio sockets are optional on overwrite (disk files kept byte-for-byte). `Load Asset Batch` has a thumbnail picker + an on-node draggable slot strip; picture slots decode 256px thumbnails, never originals. Hand-typed names in older workflows keep working.
+7. **Selectors, not typing; one fixed library per machine** ($MIE_ASSET_LIBRARY, else ~/mie_asset_library — no path widgets; an 📂 button opens the folder). Assets carry 1-8 same-size images and (characters) 0-8 audio clips, each clip on its own `audio_N` socket; Save nodes autofill + badge 将覆盖 on overwrite and keep disk media when sockets are unconnected; `Load Asset Batch` has a full-portrait (3:4, contain) picker and a draggable slot strip. Pre-V2 libraries migrate transparently.
 
 8. **One fixed library location per machine.** `library_dir` defaults to `$MIE_ASSET_LIBRARY`, then `~/mie_asset_library` — the widget is hidden; a 📁 button on each node shows/edits it.
 

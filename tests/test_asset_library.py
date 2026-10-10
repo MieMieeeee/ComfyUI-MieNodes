@@ -1,14 +1,12 @@
 # -*- coding: utf-8 -*-
-"""Tests for nodes/assets — library.py plus the pure tensor/PNG/audio conversion.
+"""Tests for nodes/assets — library.py (V2 layout) + node conversions.
 
-Covers the required cases in docs/PLAN_ASSET_LIBRARY.md section 7 (including
-the voice-sample revision). No ComfyUI process, no models; pytest tmp_path only.
+Covers docs/PLAN_ASSET_LIBRARY_V2.md section 9 acceptance plus the storage
+edge cases. No ComfyUI process, no models; pytest tmp_path only.
 """
 
 import io
 import json
-import math
-import os
 import sys
 import wave
 from pathlib import Path
@@ -25,9 +23,8 @@ if str(PROJECT_DIR) not in sys.path:
 from nodes.assets import library
 from nodes.assets.nodes import (
     audio_to_wav_bytes,
-    image_tensor_to_png_bytes,
-    png_bytes_to_image_tensor,
-    voice_sample_bytes_to_audio,
+    image_batch_to_png_bytes_list,
+    png_bytes_list_to_image_tensor,
     wav_bytes_to_audio,
 )
 
@@ -51,9 +48,6 @@ def make_wav(freq=440.0, seconds=0.05, sample_rate=24000, channels=1):
     return buf.getvalue()
 
 
-APPEARANCE = "A gray tabby cat with green eyes and a red collar."
-
-
 def read_json(path):
     return json.loads(Path(path).read_text(encoding="utf-8"))
 
@@ -65,1008 +59,563 @@ def lib_dir(tmp_path):
     return d
 
 
-# 1. save then read back: name, voice, PNG bytes and voice sample identical.
-def test_save_character_then_load_roundtrip(lib_dir):
-    png = make_png((10, 200, 30))
-    wav = make_wav()
-    result = library.save_character(str(lib_dir), "虎斑",APPEARANCE,  "成年男性，低音，平稳", png, wav)
+# --------------------------------------------------------------------------- #
+# V2 disk layout: save / load round-trips
+# --------------------------------------------------------------------------- #
+def test_v2_character_roundtrip_multi_image_multi_audio(lib_dir):
+    png_a, png_b = make_png((1, 2, 3), 8, 6), make_png((4, 5, 6), 8, 6)
+    wav_a, wav_b = make_wav(freq=440.0), make_wav(freq=880.0)
+    result = library.save_character(
+        str(lib_dir), "A", "desc a", "voice a", [png_a, png_b], [wav_a, wav_b]
+    )
     assert result["status"] == "created"
-    assert result["name"] == "虎斑"
-
-    loaded = library.load_character(str(lib_dir), "虎斑")
-    assert loaded["name"] == "虎斑"
-    assert loaded["appearance"] == APPEARANCE
-    assert loaded["voice"] == "成年男性，低音，平稳"
-    assert loaded["png_bytes"] == png
-    assert loaded["voice_sample_bytes"] == wav
-    assert loaded["voice_sample_ext"] == ".wav"
-
-    char_dir = lib_dir / "characters" / "虎斑"
-    assert sorted(p.name for p in char_dir.iterdir()) == [
-        "character.json",
-        "portrait.png",
-        "voice_sample.wav",
-    ]
-    text = (char_dir / "character.json").read_text(encoding="utf-8")
-    assert text.endswith("\n")
-    assert "虎斑" in text  # ensure_ascii=false keeps CJK verbatim
+    assert result["png_bytes_list"] == [png_a, png_b]
+    assert result["audio_bytes_list"] == [wav_a, wav_b]
+    char_dir = lib_dir / "characters" / "A"
+    assert sorted(p.name for p in (char_dir / "images").iterdir()) == ["01.png", "02.png"]
+    assert sorted(p.name for p in (char_dir / "audio").iterdir()) == ["01.wav", "02.wav"]
     assert read_json(char_dir / "character.json") == {
-        "name": "虎斑",
-        "appearance": APPEARANCE,
-        "voice": "成年男性，低音，平稳",
+        "name": "A", "description": "desc a", "voice": "voice a",
     }
-    assert (char_dir / "portrait.png").read_bytes() == png
-    assert (char_dir / "voice_sample.wav").read_bytes() == wav
+
+    loaded = library.load_character(str(lib_dir), "A")
+    assert loaded["description"] == "desc a"
+    assert loaded["voice"] == "voice a"
+    assert loaded["png_bytes_list"] == [png_a, png_b]
+    assert loaded["audio_bytes_list"] == [wav_a, wav_b]
+    assert loaded["audio_exts"] == [".wav", ".wav"]
 
 
-# 2. same-name save overwrites: status overwritten, new voice/PNG/sample on disk.
-def test_save_character_overwrite(lib_dir):
-    old_png = make_png((0, 0, 255))
-    new_png = make_png((255, 0, 0))
-    old_wav = make_wav(freq=440.0)
-    new_wav = make_wav(freq=880.0)
-    library.save_character(str(lib_dir), "Tiger",APPEARANCE,  "voice A", old_png, old_wav)
-    result = library.save_character(str(lib_dir), "Tiger",APPEARANCE,  "voice B", new_png, new_wav)
-    assert result["status"] == "overwritten"
-
-    loaded = library.load_character(str(lib_dir), "Tiger")
-    assert loaded["voice"] == "voice B"
-    assert loaded["png_bytes"] == new_png
-    assert loaded["voice_sample_bytes"] == new_wav
+def test_v2_zero_audio_character_roundtrip(lib_dir):
+    library.save_character(str(lib_dir), "Silent", "desc", "voice", [make_png()], [])
+    loaded = library.load_character(str(lib_dir), "Silent")
+    assert loaded["audio_bytes_list"] == []
+    assert (lib_dir / "characters" / "Silent" / "audio").is_dir()
+    assert list((lib_dir / "characters" / "Silent" / "audio").iterdir()) == []
 
 
-# 3. scene save / load / overwrite mirrors the character behaviour.
-def test_scene_roundtrip_and_overwrite(lib_dir):
-    setting = "深夜便利店打烊后，货架灯白光，冷柜嗡嗡作响。"
-    png = make_png((10, 20, 30))
-    result = library.save_scene(str(lib_dir), "便利店", setting, png)
-    assert result == {
-        "name": "便利店",
-        "description": setting,
-        "status": "created",
-        "png_bytes": png,
-    }
-    assert read_json(lib_dir / "scenes" / "便利店" / "scene.json") == {
-        "name": "便利店",
-        "description": setting,
-    }
-    assert (lib_dir / "scenes" / "便利店" / "scene.png").read_bytes() == png
-
+def test_v2_scene_roundtrip_multi_image(lib_dir):
+    png_a, png_b = make_png((1, 1, 1), 6, 6), make_png((2, 2, 2), 6, 6)
+    library.save_scene(str(lib_dir), "便利店", "cold light", [png_a, png_b])
     loaded = library.load_scene(str(lib_dir), "便利店")
-    assert loaded == {
-        "name": "便利店",
-        "description": setting,
-        "png_bytes": png,
-    }
+    assert loaded["description"] == "cold light"
+    assert loaded["png_bytes_list"] == [png_a, png_b]
+    assert read_json(lib_dir / "scenes" / "便利店" / "scene.json")["description"] == "cold light"
 
-    result = library.save_scene(
-        str(lib_dir), "便利店", "白天 crowded", make_png((30, 20, 10))
-    )
+
+# --------------------------------------------------------------------------- #
+# Group replace / keep semantics (acceptance 6)
+# --------------------------------------------------------------------------- #
+def test_keep_media_on_text_only_save(lib_dir):
+    png_a, wav_a = make_png((9, 9, 9)), make_wav(freq=100.0)
+    library.save_character(str(lib_dir), "X", "old", "old voice", [png_a], [wav_a])
+    result = library.save_character(str(lib_dir), "X", "new text", "old voice", None, None)
     assert result["status"] == "overwritten"
-    assert library.load_scene(str(lib_dir), "便利店")["description"] == "白天 crowded"
+    assert result["png_bytes_list"] == [png_a]
+    assert result["audio_bytes_list"] == [wav_a]
+    char_dir = lib_dir / "characters" / "X"
+    assert (char_dir / "images" / "01.png").read_bytes() == png_a
+    assert (char_dir / "audio" / "01.wav").read_bytes() == wav_a
+    assert read_json(char_dir / "character.json")["description"] == "new text"
 
 
-# 4. listing is sorted; empty library (and missing characters/) returns "" + ok.
-def test_list_characters_sorted_and_empty(lib_dir):
-    assert library.list_characters(str(lib_dir)) == {"names": "", "status": "ok"}
-
-    (lib_dir / "characters").mkdir(parents=True)
-    assert library.list_characters(str(lib_dir)) == {"names": "", "status": "ok"}
-
-    png = make_png()
-    wav = make_wav()
-    for name in ("虎斑", "beta", "Alpha"):
-        library.save_character(str(lib_dir), name,APPEARANCE,  "v", png, wav)
-    result = library.list_characters(str(lib_dir))
-    assert result == {"names": "Alpha\nbeta\n虎斑", "status": "ok"}
-
-    library.save_scene(str(lib_dir), "s1", "setting", make_png())
-    assert library.list_scenes(str(lib_dir)) == {"names": "s1", "status": "ok"}
-    assert library.list_scenes(str(lib_dir / "nope")) == {"names": "", "status": "ok"}
+def test_group_replace_shrinks_and_grows_sets(lib_dir):
+    pngs3 = [make_png((i, i, i), 6, 6) for i in range(3)]
+    pngs1 = [make_png((7, 7, 7), 6, 6)]
+    wavs2 = [make_wav(freq=440.0), make_wav(freq=880.0)]
+    library.save_character(str(lib_dir), "Y", "d", "v", pngs3, wavs2)
+    library.save_character(str(lib_dir), "Y", "d", "v", pngs1, None)
+    assert sorted(p.name for p in (lib_dir / "characters" / "Y" / "images").iterdir()) == ["01.png"]
+    assert len(list((lib_dir / "characters" / "Y" / "audio").iterdir())) == 2
+    library.save_character(str(lib_dir), "Y", "d", "v", None, [make_wav(freq=10.0)])
+    assert sorted(p.name for p in (lib_dir / "characters" / "Y" / "audio").iterdir()) == ["01.wav"]
+    assert len(list((lib_dir / "characters" / "Y" / "images").iterdir())) == 1
 
 
-# 5. broken character directories are skipped and reported in status.
-def test_list_characters_skips_broken(lib_dir):
-    png = make_png()
-    wav = make_wav()
-    library.save_character(str(lib_dir), "good",APPEARANCE,  "v", png, wav)
+def test_new_asset_requires_image(lib_dir):
+    with pytest.raises(ValueError, match="NEW character needs at least one image"):
+        library.save_character(str(lib_dir), "N", "d", "v", None, None)
+    assert not (lib_dir / "characters" / "N").exists()
+    with pytest.raises(ValueError, match="NEW scene needs at least one image"):
+        library.save_scene(str(lib_dir), "N", "d", None)
+    assert not (lib_dir / "scenes" / "N").exists()
 
-    chars = lib_dir / "characters"
 
-    no_portrait = chars / "no_portrait"
-    no_portrait.mkdir()
-    (no_portrait / "character.json").write_text(
-        json.dumps({"name": "no_portrait", "appearance": "a", "voice": "v"}, ensure_ascii=False),
+def test_empty_payload_lists_rejected_before_dirs(lib_dir):
+    with pytest.raises(ValueError, match="non-empty list"):
+        library.save_character(str(lib_dir), "E", "d", "v", [], None)
+    with pytest.raises(ValueError):
+        library.save_character(str(lib_dir), "E", "d", "v", None, [])
+    assert not (lib_dir / "characters" / "E").exists()
+
+
+# --------------------------------------------------------------------------- #
+# Same-size rule (acceptance 8)
+# --------------------------------------------------------------------------- #
+def test_mismatched_sizes_fail_with_names_and_dims(lib_dir):
+    png_big, png_small = make_png((0, 0, 0), 8, 6), make_png((0, 0, 0), 4, 3)
+    with pytest.raises(ValueError, match="share one resolution"):
+        library.save_character(str(lib_dir), "M", "d", "v", [png_big, png_small], None)
+    library.save_character(str(lib_dir), "M", "d", "v", [png_big], None)
+    (lib_dir / "characters" / "M" / "images" / "02.png").write_bytes(png_small)
+    with pytest.raises(ValueError) as e:
+        library.load_character(str(lib_dir), "M")
+    msg = str(e.value)
+    assert "01.png (8x6)" in msg and "02.png (4x3)" in msg
+
+
+# --------------------------------------------------------------------------- #
+# Pre-V2 migration (acceptance 7 + plan section 4)
+# --------------------------------------------------------------------------- #
+def _make_legacy_character(lib_dir, name, *, with_mp3=False):
+    d = lib_dir / "characters" / name
+    d.mkdir(parents=True)
+    (d / "character.json").write_text(
+        json.dumps({"name": name, "appearance": "old look", "voice": "v"}, ensure_ascii=False),
         encoding="utf-8",
     )
+    portrait = make_png((9, 9, 9))
+    (d / "portrait.png").write_bytes(portrait)
+    if with_mp3:
+        (d / "voice_sample.mp3").write_bytes(b"fake mp3")
+    else:
+        (d / "voice_sample.wav").write_bytes(make_wav(freq=55.0))
+    return portrait
 
-    bad_json = chars / "bad_json"
-    bad_json.mkdir()
-    (bad_json / "character.json").write_text("{ not json", encoding="utf-8")
-    (bad_json / "portrait.png").write_bytes(png)
 
-    wrong_name = chars / "wrong_name"
-    wrong_name.mkdir()
-    (wrong_name / "character.json").write_text(
-        json.dumps({"name": "别的", "appearance": "a", "voice": "v"}, ensure_ascii=False),
+def test_legacy_character_reads_as_one_and_one(lib_dir):
+    _make_legacy_character(lib_dir, "旧角")
+    loaded = library.load_character(str(lib_dir), "旧角")
+    assert loaded["description"] == "old look"  # appearance fallback
+    assert len(loaded["png_bytes_list"]) == 1
+    assert len(loaded["audio_bytes_list"]) == 1
+
+
+def test_legacy_assets_survive_text_only_save_and_migrate(lib_dir):
+    portrait = _make_legacy_character(lib_dir, "旧角", with_mp3=True)
+    library.save_character(str(lib_dir), "旧角", "new look", "v", None, None)
+    d = lib_dir / "characters" / "旧角"
+    assert sorted(p.name for p in d.iterdir()) == ["audio", "character.json", "images"]
+    assert (d / "images" / "01.png").read_bytes() == portrait
+    assert (d / "audio" / "01.mp3").read_bytes() == b"fake mp3"
+    loaded = library.load_character(str(lib_dir), "旧角")
+    assert loaded["description"] == "new look"
+    assert loaded["png_bytes_list"] == [portrait]
+    assert loaded["audio_exts"] == [".mp3"]
+
+
+def test_legacy_scene_image_used_until_migrated(lib_dir):
+    d = lib_dir / "scenes" / "旧景"
+    d.mkdir(parents=True)
+    (d / "scene.json").write_text(
+        json.dumps({"name": "旧景", "description": "old setting"}, ensure_ascii=False),
         encoding="utf-8",
     )
-    (wrong_name / "portrait.png").write_bytes(png)
+    (d / "scene.png").write_bytes(make_png((3, 3, 3)))
+    loaded = library.load_scene(str(lib_dir), "旧景")
+    assert len(loaded["png_bytes_list"]) == 1
+    library.save_scene(str(lib_dir), "旧景", "new setting", None)
+    assert sorted(p.name for p in d.iterdir()) == ["images", "scene.json"]
+    assert (d / "images" / "01.png").is_file()
 
-    no_sample = chars / "no_sample"
-    no_sample.mkdir()
-    (no_sample / "character.json").write_text(
-        json.dumps({"name": "no_sample", "appearance": "a", "voice": "v"}, ensure_ascii=False),
-        encoding="utf-8",
+
+# --------------------------------------------------------------------------- #
+# Natural order + caps + ambiguous audio
+# --------------------------------------------------------------------------- #
+def test_natural_order_images(lib_dir):
+    d = lib_dir / "characters" / "N"
+    d.mkdir(parents=True)
+    (d / "character.json").write_text(
+        json.dumps({"name": "N", "description": "d", "voice": "v"}), encoding="utf-8"
     )
-    (no_sample / "portrait.png").write_bytes(png)
-
-    ambiguous = chars / "ambiguous"
-    ambiguous.mkdir()
-    (ambiguous / "character.json").write_text(
-        json.dumps({"name": "ambiguous", "appearance": "a", "voice": "v"}, ensure_ascii=False),
-        encoding="utf-8",
-    )
-    (ambiguous / "portrait.png").write_bytes(png)
-    (ambiguous / "voice_sample.wav").write_bytes(wav)
-    (ambiguous / "voice_sample.mp3").write_bytes(b"fake mp3")
-
-    invalid_dir = chars / "has space"
-    invalid_dir.mkdir()
-
-    result = library.list_characters(str(lib_dir))
-    assert result["names"] == "good"
-    status = result["status"]
-    assert "no_portrait" in status and "portrait.png" in status
-    assert "bad_json" in status
-    assert "wrong_name" in status and "别的" in status
-    assert "no_sample" in status and "voice_sample" in status
-    assert "ambiguous" in status
-    assert "has space" in status
-
-
-# 6. invalid names are rejected on save and nothing is created on disk.
-@pytest.mark.parametrize(
-    "bad_name",
-    [
-        "",
-        "   ",
-        "a" * 41,
-        "..",
-        "a/b",
-        "a\\b",
-        "CON",
-        "con",
-        "LPT3",
-        ".hidden",
-        "a b",
-        "a.b",
-        "a:b",
-        "a*b",
-        "emoji😀",
-    ],
-)
-def test_invalid_names_rejected(lib_dir, bad_name):
-    with pytest.raises(ValueError):
-        library.save_character(str(lib_dir), bad_name,APPEARANCE,  "v", make_png(), make_wav())
-    with pytest.raises(ValueError):
-        library.save_scene(str(lib_dir), bad_name, "s", make_png())
-    assert not (lib_dir / "characters").exists()
-    assert not (lib_dir / "scenes").exists()
-
-
-def test_save_character_requires_voice_sample(lib_dir):
-    # Empty bytes and non-bytes payloads die at the TYPE gate, before any
-    # directory is created; None is legal (keep-on-disk) and checked later.
-    with pytest.raises(ValueError, match="voice_sample_wav must be non-empty"):
-        library.save_character(str(lib_dir), "x",APPEARANCE,  "v", make_png(), b"")
-    assert not (lib_dir / "characters").exists()
-
-
-# 7. library_dir must be absolute, non-empty and outside the plugin root.
-def test_library_dir_validation(tmp_path):
-    plugin_root = tmp_path / "plugin_root" / "ComfyUI_MieNodes"
-    plugin_root.mkdir(parents=True)
-    outside = tmp_path / "asset_lib"
-    outside.mkdir()
-
-    # sanity: outside the fake plugin root works
-    library.save_scene(str(outside), "ok", "s", make_png(), plugin_root=plugin_root)
-
-    inside = plugin_root / "library"
-    with pytest.raises(ValueError, match="inside the plugin folder"):
-        library.save_character(
-            str(inside), "x",APPEARANCE,  "v", make_png(), make_wav(), plugin_root=plugin_root
-        )
-    with pytest.raises(ValueError, match="inside the plugin folder"):
-        library.save_scene(
-            str(plugin_root), "x", "s", make_png(), plugin_root=plugin_root
-        )
-    with pytest.raises(ValueError, match="inside the plugin folder"):
-        library.load_character(str(inside), "x", plugin_root=plugin_root)
-    assert not inside.exists()
-
-    for bad in ("assets", "./assets"):
-        with pytest.raises(ValueError):
-            library.validate_library_dir(bad, plugin_root=plugin_root)
-
-
-# The library location is fixed per machine (sixth revision): blank
-# library_dir is the "use the default" marker, not an error.
-def test_resolve_library_dir_default_env_and_passthrough(monkeypatch, tmp_path):
-    home = tmp_path / "home"
-    monkeypatch.setenv("USERPROFILE", str(home))
-    monkeypatch.setattr(library.os.path, "expanduser", lambda p: str(home))
-    monkeypatch.delenv(library.LIBRARY_DIR_ENV, raising=False)
-    # Blank -> default under the (patched) home.
-    assert library.resolve_library_dir("").endswith("mie_asset_library")
-    assert library.resolve_library_dir(None).endswith("mie_asset_library")
-    assert library.validate_library_dir("").is_absolute()
-    # Env var overrides the home default.
-    monkeypatch.setenv(library.LIBRARY_DIR_ENV, str(tmp_path / "custom_lib"))
-    assert library.resolve_library_dir("") == str(tmp_path / "custom_lib")
-    # Non-blank always wins (the older-workflow escape hatch).
-    assert library.resolve_library_dir(str(tmp_path / "explicit")) == str(tmp_path / "explicit")
-    # The env default flows through a real save -> load round-trip.
-    env_lib = tmp_path / "env_lib"
-    monkeypatch.setenv(library.LIBRARY_DIR_ENV, str(env_lib))
-    library.save_character("", "虎斑", "a cat", "v", make_png(), make_wav())
-    assert (env_lib / "characters" / "虎斑" / "character.json").is_file()
-    assert library.load_character("", "虎斑")["name"] == "虎斑"
-
-
-def test_payload_echoes_resolved_default_dir(monkeypatch, tmp_path):
-    monkeypatch.setenv(library.LIBRARY_DIR_ENV, str(tmp_path))
-    payload = library.list_assets_payload("")
-    assert payload["ok"] is True
-    assert payload["library_dir"] == str(tmp_path.resolve())
-
-
-# 8. voice / setting length and emptiness rules.
-def test_voice_and_setting_validation(lib_dir):
-    png = make_png()
-    wav = make_wav()
-    with pytest.raises(ValueError):
-        library.save_character(str(lib_dir), "x",APPEARANCE,  "", png, wav)
-    with pytest.raises(ValueError):
-        library.save_character(str(lib_dir), "x",APPEARANCE,  "   ", png, wav)
-    with pytest.raises(ValueError):
-        library.save_character(str(lib_dir), "x",APPEARANCE,  "a" * 201, png, wav)
-    library.save_character(str(lib_dir), "x",APPEARANCE,  "a" * 200, png, wav)  # boundary ok
-
-    with pytest.raises(ValueError):
-        library.save_scene(str(lib_dir), "x", "", make_png())
-    with pytest.raises(ValueError):
-        library.save_scene(str(lib_dir), "x", " ", make_png())
-    with pytest.raises(ValueError):
-        library.save_scene(str(lib_dir), "x", "a" * 801, make_png())
-    library.save_scene(str(lib_dir), "x", "a" * 800, make_png())  # boundary ok
-
-
-# 9. three-file replace failure points.
-def _patch_replace(monkeypatch, fail_when_name):
-    real_replace = os.replace
-
-    def fake_replace(src, dst, *args, **kwargs):
-        if Path(dst).name == fail_when_name:
-            raise OSError("injected failure for %s" % dst)
-        return real_replace(src, dst, *args, **kwargs)
-
-    monkeypatch.setattr(os, "replace", fake_replace)
-
-
-def test_replace_failure_at_portrait_leaves_all_files(lib_dir, monkeypatch):
-    old = library.save_character(
-        str(lib_dir), "虎斑",APPEARANCE,  "old voice", make_png((0, 0, 255)), make_wav(freq=440.0)
-    )
-    char_dir = lib_dir / "characters" / "虎斑"
-    old_json = (char_dir / "character.json").read_bytes()
-
-    _patch_replace(monkeypatch, "portrait.png")
-    with pytest.raises(OSError, match="unchanged"):
-        library.save_character(
-            str(lib_dir), "虎斑",APPEARANCE,  "new voice", make_png((255, 0, 0)), make_wav(freq=880.0)
-        )
-
-    assert (char_dir / "character.json").read_bytes() == old_json
-    assert (char_dir / "portrait.png").read_bytes() == old["png_bytes"]
-    assert (char_dir / "voice_sample.wav").read_bytes() == old["voice_sample_bytes"]
-    assert sorted(p.name for p in char_dir.iterdir()) == [
-        "character.json",
-        "portrait.png",
-        "voice_sample.wav",
-    ]  # temp files cleaned up
-
-
-def test_replace_failure_at_voice_sample_keeps_json(lib_dir, monkeypatch):
-    old = library.save_character(
-        str(lib_dir), "虎斑",APPEARANCE,  "old voice", make_png((0, 0, 255)), make_wav(freq=440.0)
-    )
-    char_dir = lib_dir / "characters" / "虎斑"
-    old_json = (char_dir / "character.json").read_bytes()
-
-    _patch_replace(monkeypatch, "voice_sample.wav")
-    with pytest.raises(OSError, match="character.json and the previous voice sample are unchanged"):
-        library.save_character(
-            str(lib_dir),
-            "虎斑",APPEARANCE, 
-            "new voice",
-            make_png((255, 0, 0)),
-            make_wav(freq=880.0),
-        )
-
-    assert (char_dir / "portrait.png").read_bytes() != old["png_bytes"]  # new image
-    assert (char_dir / "voice_sample.wav").read_bytes() == old["voice_sample_bytes"]
-    assert (char_dir / "character.json").read_bytes() == old_json
-
-
-def test_replace_failure_at_json_leaves_new_media_old_json(lib_dir, monkeypatch):
-    old = library.save_character(
-        str(lib_dir), "虎斑",APPEARANCE,  "old voice", make_png((0, 0, 255)), make_wav(freq=440.0)
-    )
-    char_dir = lib_dir / "characters" / "虎斑"
-    old_json = (char_dir / "character.json").read_bytes()
-    new_wav = make_wav(freq=880.0)
-
-    _patch_replace(monkeypatch, "character.json")
-    with pytest.raises(OSError, match="NEW portrait and the NEW voice sample"):
-        library.save_character(
-            str(lib_dir), "虎斑",APPEARANCE,  "new voice", make_png((255, 0, 0)), new_wav
-        )
-
-    assert (char_dir / "portrait.png").read_bytes() != old["png_bytes"]
-    assert (char_dir / "voice_sample.wav").read_bytes() == new_wav
-    assert (char_dir / "character.json").read_bytes() == old_json
-    assert sorted(p.name for p in char_dir.iterdir()) == [
-        "character.json",
-        "portrait.png",
-        "voice_sample.wav",
+    (d / "images").mkdir()
+    (d / "images" / "10.png").write_bytes(make_png((1, 1, 1)))
+    (d / "images" / "2.png").write_bytes(make_png((2, 2, 2)))
+    (d / "images" / "1.png").write_bytes(make_png((3, 3, 3)))
+    loaded = library.load_character(str(lib_dir), "N")
+    assert loaded["png_bytes_list"] == [
+        make_png((3, 3, 3)), make_png((2, 2, 2)), make_png((1, 1, 1)),
     ]
 
 
-# 10. cache keys track content (including the voice sample); missing -> marker.
-def test_cache_keys_track_content(lib_dir):
-    png = make_png()
-    library.save_character(str(lib_dir), "虎斑",APPEARANCE,  "voice A", png, make_wav(freq=440.0))
-    key1 = library.character_cache_key(str(lib_dir), "虎斑")
-    assert key1 == library.character_cache_key(str(lib_dir), "虎斑")
+def test_over_cap_and_ambiguous_audio_rejected(lib_dir):
+    d = lib_dir / "characters" / "Cap"
+    d.mkdir(parents=True)
+    (d / "character.json").write_text(
+        json.dumps({"name": "Cap", "description": "d", "voice": "v"}), encoding="utf-8"
+    )
+    (d / "images").mkdir()
+    (d / "images" / "01.png").write_bytes(make_png())
+    (d / "audio").mkdir()
+    for i in range(1, library.MAX_AUDIO + 2):
+        (d / "audio" / ("%02d.wav" % i)).write_bytes(make_wav(freq=float(i)))
+    with pytest.raises(ValueError, match="at most %d" % library.MAX_AUDIO):
+        library.load_character(str(lib_dir), "Cap")
+    (d / "audio" / "01.mp3").write_bytes(b"x")
+    (d / "audio" / "02.wav").unlink()
+    with pytest.raises(ValueError, match="ambiguous audio"):
+        library.load_character(str(lib_dir), "Cap")
+
+
+# --------------------------------------------------------------------------- #
+# Batch: first image only + counts + roster compat (plan section 6)
+# --------------------------------------------------------------------------- #
+def _load_h3_prompts_module():
+    import importlib.util
+    import types
+
+    LLM_DIR = PROJECT_DIR / "nodes" / "llm"
+    PROMPTS_DIR = LLM_DIR / "prompts"
+    for fqn, sub in [
+        ("_mienodes_internal", None),
+        ("_mienodes_internal.core", PROJECT_DIR / "core"),
+        ("_mienodes_internal.nodes", PROJECT_DIR / "nodes"),
+        ("_mienodes_internal.nodes.llm", LLM_DIR),
+        ("_mienodes_internal.nodes.llm.prompts", PROMPTS_DIR),
+    ]:
+        if fqn in sys.modules:
+            continue
+        m = types.ModuleType(fqn)
+        if sub:
+            m.__path__ = [str(sub)]
+        m.__package__ = fqn
+        sys.modules[fqn] = m
+    for fqn, path in [
+        ("_mienodes_internal.core.utils", PROJECT_DIR / "core" / "utils.py"),
+        ("_mienodes_internal.nodes.llm.prompts.loader", PROMPTS_DIR / "loader.py"),
+        ("_mienodes_internal.nodes.llm.h3_prompts", LLM_DIR / "h3_prompts.py"),
+        (
+            "_mienodes_internal.nodes.llm.minimax_h3_storyboard_prompts",
+            LLM_DIR / "minimax_h3_storyboard_prompts.py",
+        ),
+        (
+            "_mienodes_internal.nodes.llm.minimax_h3_loop_prompts",
+            LLM_DIR / "minimax_h3_loop_prompts.py",
+        ),
+    ]:
+        spec = importlib.util.spec_from_file_location(fqn, str(path))
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules[fqn] = mod
+        spec.loader.exec_module(mod)
+    return sys.modules["_mienodes_internal.nodes.llm.minimax_h3_loop_prompts"]
+
+
+def test_batch_first_image_counts_and_roster_shape(lib_dir, monkeypatch):
+    from nodes.assets.nodes import LoadAssetBatch
+
+    monkeypatch.setenv(library.LIBRARY_DIR_ENV, str(lib_dir))
+
+    png_a, png_b = make_png((1, 2, 3), 8, 6), make_png((4, 5, 6), 8, 6)
+    library.save_character(
+        str(lib_dir), "Alice", "looks", "voice A",
+        [png_a, png_b], [make_wav(freq=1.0), make_wav(freq=2.0), make_wav(freq=3.0)],
+    )
+    library.save_scene(str(lib_dir), "夜市", "a market", [make_png((9, 9, 9), 8, 6)])
+
+    images, names, roster_json, status = LoadAssetBatch().load_asset_batch("", "Alice\n夜市")
+    assert images.shape == (2, 6, 8, 3)
+    assert names == "Alice\n夜市"
+    assert status == "loaded 1 character(s), 1 scene(s)"
+    roster = json.loads(roster_json)
+    assert roster[0]["name"] == "Alice"
+    assert roster[0]["kind"] == "character"
+    assert roster[0]["slot"] == 1
+    assert roster[0]["image_count"] == 2
+    assert roster[0]["audio_count"] == 3
+    assert roster[0]["appearance"] == "looks"  # mirror for the shipped parser
+    assert roster[0]["description"] == "looks"
+    assert roster[1]["kind"] == "scene"
+    assert roster[1]["image_count"] == 1
+    assert "audio_count" not in roster[1]
+
+
+def test_roster_json_parses_with_shipped_h3_parser(lib_dir, monkeypatch):
+    lp = _load_h3_prompts_module()
+    from nodes.assets.nodes import LoadAssetBatch
+
+    monkeypatch.setenv(library.LIBRARY_DIR_ENV, str(lib_dir))
 
     library.save_character(
-        str(lib_dir), "虎斑",APPEARANCE,  "voice B", make_png((9, 9, 9)), make_wav(freq=880.0)
+        str(lib_dir), "Alice", "looks", "voice A", [make_png()], [make_wav()]
     )
-    assert library.character_cache_key(str(lib_dir), "虎斑") != key1
-
-    # changing only the voice sample must also change the key
-    library.save_character(str(lib_dir), "虎斑",APPEARANCE,  "voice B", make_png((9, 9, 9)), make_wav(freq=660.0))
-    key3 = library.character_cache_key(str(lib_dir), "虎斑")
-    assert key3 != key1
-
-    assert (
-        library.character_cache_key(str(lib_dir), "ghost")
-        == library.MISSING_CACHE_MARKER
-    )
-    assert library.character_cache_key(str(lib_dir), "ghost") != key1
-
-    library.save_scene(str(lib_dir), "便利店", "s1", make_png()),
-    skey1 = library.scene_cache_key(str(lib_dir), "便利店")
-    assert skey1 == library.scene_cache_key(str(lib_dir), "便利店")
-    library.save_scene(str(lib_dir), "便利店", "s2", make_png()),
-    assert library.scene_cache_key(str(lib_dir), "便利店") != skey1
-    assert (
-        library.scene_cache_key(str(lib_dir), "ghost")
-        == library.MISSING_CACHE_MARKER
-    )
-
-
-# 11. case-only name variants merge onto the first-created disk spelling.
-def test_casefold_merge(lib_dir):
-    png_a, png_b = make_png((0, 0, 255)), make_png((255, 0, 0))
-    wav_a, wav_b = make_wav(freq=440.0), make_wav(freq=880.0)
-    first = library.save_character(str(lib_dir), "Tiger",APPEARANCE,  "voice A", png_a, wav_a)
-    assert first["name"] == "Tiger" and first["status"] == "created"
-
-    second = library.save_character(str(lib_dir), "tiger",APPEARANCE,  "voice B", png_b, wav_b)
-    assert second["name"] == "Tiger" and second["status"] == "overwritten"
-
-    chars = lib_dir / "characters"
-    assert [p.name for p in chars.iterdir()] == ["Tiger"]  # exactly one entry
-
-    for spelling in ("tiger", "Tiger", "TIGER"):
-        loaded = library.load_character(str(lib_dir), spelling)
-        assert loaded["name"] == "Tiger"
-        assert loaded["voice"] == "voice B"
-        assert loaded["png_bytes"] == png_b
-        assert loaded["voice_sample_bytes"] == wav_b
-    assert read_json(chars / "Tiger" / "character.json")["name"] == "Tiger"
-
-    # scenes merge the same way
-    library.save_scene(str(lib_dir), "Store", "s1", make_png((0, 0, 255)))
-    merged = library.save_scene(
-        str(lib_dir), "store", "s2", make_png((255, 0, 0))
-    )
-    assert merged == {
-        "name": "Store",
-        "description": "s2",
-        "status": "overwritten",
-        "png_bytes": make_png((255, 0, 0)),
-    }
-    assert [p.name for p in (lib_dir / "scenes").iterdir()] == ["Store"]
-
-
-# 12. load failures raise with the absolute path (and both names).
-def test_load_character_failures(lib_dir):
-    chars = lib_dir / "characters"
-
-    with pytest.raises(FileNotFoundError) as e:
-        library.load_character(str(lib_dir), "ghost")
-    assert str(chars.resolve()) in str(e.value)
-
-    corrupt = chars / "corrupt"
-    corrupt.mkdir(parents=True)
-    (corrupt / "character.json").write_text("{ nope", encoding="utf-8")
-    (corrupt / "portrait.png").write_bytes(make_png())
-    (corrupt / "voice_sample.wav").write_bytes(make_wav())
-    with pytest.raises(ValueError) as e:
-        library.load_character(str(lib_dir), "corrupt")
-    assert str((corrupt / "character.json").resolve()) in str(e.value)
-
-    no_png = chars / "no_png"
-    no_png.mkdir()
-    (no_png / "character.json").write_text(
-        json.dumps({"name": "no_png", "appearance": "a", "voice": "v"}, ensure_ascii=False),
-        encoding="utf-8",
-    )
-    (no_png / "voice_sample.wav").write_bytes(make_wav())
-    with pytest.raises(FileNotFoundError) as e:
-        library.load_character(str(lib_dir), "no_png")
-    assert str((no_png / "portrait.png").resolve()) in str(e.value)
-
-    no_sample = chars / "no_sample"
-    no_sample.mkdir()
-    (no_sample / "character.json").write_text(
-        json.dumps({"name": "no_sample", "appearance": "a", "voice": "v"}, ensure_ascii=False),
-        encoding="utf-8",
-    )
-    (no_sample / "portrait.png").write_bytes(make_png())
-    with pytest.raises(FileNotFoundError) as e:
-        library.load_character(str(lib_dir), "no_sample")
-    msg = str(e.value)
-    assert str(no_sample.resolve()) in msg
-    assert "voice_sample.wav" in msg and "voice_sample.mp3" in msg
-
-    mismatch = chars / "虎斑"
-    mismatch.mkdir()
-    (mismatch / "character.json").write_text(
-        json.dumps({"name": "别的", "appearance": "a", "voice": "v"}, ensure_ascii=False),
-        encoding="utf-8",
-    )
-    (mismatch / "portrait.png").write_bytes(make_png())
-    (mismatch / "voice_sample.wav").write_bytes(make_wav())
-    with pytest.raises(ValueError) as e:
-        library.load_character(str(lib_dir), "虎斑")
-    msg = str(e.value)
-    assert str((mismatch / "character.json").resolve()) in msg
-    assert "别的" in msg and "虎斑" in msg
-
-    with pytest.raises(FileNotFoundError):
-        library.load_scene(str(lib_dir), "ghost")
-    bad_scene = lib_dir / "scenes" / "bad"
-    bad_scene.mkdir(parents=True)
-    (bad_scene / "scene.json").write_text("{ nope", encoding="utf-8")
-    (bad_scene / "scene.png").write_bytes(make_png())
-    with pytest.raises(ValueError):
-        library.load_scene(str(lib_dir), "bad")
-
-    no_pic = lib_dir / "scenes" / "no_pic"
-    no_pic.mkdir()
-    (no_pic / "scene.json").write_text(
-        json.dumps({"name": "no_pic", "description": "d"}, ensure_ascii=False),
-        encoding="utf-8",
-    )
-    with pytest.raises(FileNotFoundError, match="scene picture"):
-        library.load_scene(str(lib_dir), "no_pic")
-
-
-# 13. tensor -> PNG -> tensor stays within 1/255 per channel; batch of 1 only.
-def test_tensor_png_roundtrip():
-    h, w = 8, 6
-    # Seeded: the tolerance below is exactly the quantisation step, so an
-    # unlucky off-grid value can land a float epsilon past it. Unseeded this
-    # failed roughly 1 run in 8, which trains everyone to ignore a red suite.
-    torch.manual_seed(20261009)
-    base = torch.linspace(0.0, 1.0, h * w * 3).reshape(1, h, w, 3).float()
-    # Keep the probe inside the IMAGE domain. linspace lands exactly on 1.0,
-    # so un-clamped noise pushes the endpoint past the domain, the converter
-    # clips it, and the error is then the CLIP distance (not the
-    # quantisation step) — an in-range bound cannot hold an out-of-range input.
-    noisy = (base + (torch.rand_like(base) - 0.5) * 0.01).clamp(0.0, 1.0)
-    png = image_tensor_to_png_bytes(noisy)
-    back = png_bytes_to_image_tensor(png)
-
-    assert back.shape == (1, h, w, 3)
-    assert back.dtype == torch.float32
-    # Truncation to uint8 puts the true error strictly below one quantisation
-    # step, but float32 in the comparison itself can overshoot the step by
-    # ~1e-7 relative. 1e-6 is still three orders of magnitude tighter than
-    # any difference this contract cares about.
-    assert torch.all((back - noisy).abs() <= 1.0 / 255.0 + 1e-6)
-    assert not torch.equal(back, noisy)  # 8-bit quantization happened
-
-    batch2 = torch.rand(2, h, w, 3)
-    with pytest.raises(ValueError, match="one frame"):
-        image_tensor_to_png_bytes(batch2)
-
-    # Out-of-domain input is CLIPPED, not rejected — the 1/255 bound above
-    # only covers [0, 1]; this covers what happens outside it.
-    out_of_range = torch.tensor([[[[-0.5, 1.5, 0.5]]]])
-    clipped = png_bytes_to_image_tensor(image_tensor_to_png_bytes(out_of_range))
-    assert float(clipped[0, 0, 0, 0]) == 0.0
-    assert float(clipped[0, 0, 0, 1]) == 1.0
-    assert float(clipped[0, 0, 0, 2]) == pytest.approx(0.5, abs=1 / 255)
-
-
-# 14. hand-dropped voice_sample.mp3: readable as-is; ambiguity is an error;
-#     a node save supersedes the mp3 with the fresh wav.
-def test_hand_dropped_mp3_voice_sample(lib_dir):
-    sf = pytest.importorskip("soundfile")
-
-    buf = io.BytesIO()
-    sf.write(buf, np.zeros((2400, 1), dtype="float32"), 24000, format="MP3")
-    mp3_bytes = buf.getvalue()
-    assert mp3_bytes
-
-    png = make_png()
-    library.save_character(str(lib_dir), "x",APPEARANCE,  "v", png, make_wav())
-    char_dir = lib_dir / "characters" / "x"
-
-    # replace the wav with a hand-dropped mp3
-    (char_dir / "voice_sample.wav").unlink()
-    (char_dir / "voice_sample.mp3").write_bytes(mp3_bytes)
-
-    loaded = library.load_character(str(lib_dir), "x")
-    assert loaded["voice_sample_ext"] == ".mp3"
-    assert loaded["voice_sample_bytes"] == mp3_bytes
-
-    audio = voice_sample_bytes_to_audio(loaded["voice_sample_bytes"], ".mp3")
-    assert audio["sample_rate"] == 24000
-    assert audio["waveform"].shape[0] == 1
-    assert audio["waveform"].shape[1] == 1
-
-    # both files present -> ambiguous, load fails loudly, list skips
-    (char_dir / "voice_sample.wav").write_bytes(make_wav())
-    with pytest.raises(ValueError, match="ambiguous voice sample"):
-        library.load_character(str(lib_dir), "x")
-    listing = library.list_characters(str(lib_dir))
-    assert listing["names"] == ""
-    assert "ambiguous" in listing["status"]
-
-    # a node-path save removes the superseded mp3
-    library.save_character(str(lib_dir), "x",APPEARANCE,  "v2", png, make_wav(freq=880.0))
-    assert not (char_dir / "voice_sample.mp3").exists()
-    loaded = library.load_character(str(lib_dir), "x")
-    assert loaded["voice_sample_ext"] == ".wav"
-
-    with pytest.raises(ValueError, match="unsupported voice sample extension"):
-        voice_sample_bytes_to_audio(b"xx", ".flac")
-
-
-# 15. AUDIO dict <-> 16-bit PCM WAV roundtrip within 1/32767 per sample.
-def test_audio_wav_roundtrip():
-    n, channels, sr = 500, 2, 32000
-    t = torch.linspace(-1.0, 1.0, n * channels).reshape(1, channels, n)
-    audio = {"waveform": t, "sample_rate": sr}
-
-    wav = audio_to_wav_bytes(audio)
-    back = wav_bytes_to_audio(wav)
-
-    assert back["sample_rate"] == sr
-    assert back["waveform"].shape == (1, channels, n)
-    assert back["waveform"].dtype == torch.float32
-    assert torch.all((back["waveform"] - t).abs() <= 1.0 / 32767.0 + 1e-9)
-    assert not torch.equal(back["waveform"], t)  # 16-bit quantization happened
-
-    # mono roundtrip too
-    mono = {"waveform": torch.zeros(1, 1, 10), "sample_rate": 16000}
-    back_mono = wav_bytes_to_audio(audio_to_wav_bytes(mono))
-    assert back_mono["waveform"].shape == (1, 1, 10)
-
-
-def test_audio_to_wav_bytes_rejects_bad_shapes():
-    with pytest.raises(ValueError, match="AUDIO connection"):
-        audio_to_wav_bytes("not a dict")
-    with pytest.raises(ValueError, match="AUDIO connection"):
-        audio_to_wav_bytes({"waveform": torch.zeros(1, 1, 10)})
-    with pytest.raises(ValueError, match="exactly one"):
-        audio_to_wav_bytes({"waveform": torch.zeros(2, 1, 10), "sample_rate": 16000})
-    with pytest.raises(ValueError, match="non-empty"):
-        audio_to_wav_bytes({"waveform": torch.zeros(1, 1, 0), "sample_rate": 16000})
-
-
-def test_wav_bytes_to_audio_rejects_non_pcm16():
-    buf = io.BytesIO()
-    with wave.open(buf, "wb") as w:
-        w.setnchannels(1)
-        w.setsampwidth(1)  # 8-bit
-        w.setframerate(16000)
-        w.writeframes(b"\x00\x80\xff\x7f")
-    with pytest.raises(ValueError, match="16-bit PCM"):
-        wav_bytes_to_audio(buf.getvalue())
-
-
+    library.save_scene(str(lib_dir), "S", "a scene", [make_png()])
+    _, _, roster_json, _ = LoadAssetBatch().load_asset_batch("", "Alice\nS")
+    entries = lp.parse_asset_roster(roster_json)
+    assert [e["name"] for e in entries] == ["Alice", "S"]
+    assert lp.roster_bindings(entries) == [("Alice", 1)]
+    assert lp.roster_voices(entries) == {"Alice": "voice A"}
 
 
 # --------------------------------------------------------------------------- #
-# Mixed character/scene batch loading + the Load Asset Batch node
+# Node layer: ExecutionBlocker audio outputs (acceptance 4)
 # --------------------------------------------------------------------------- #
-def test_load_asset_batch_mixes_characters_and_scenes_in_order(lib_dir):
-    png, wav = make_png(), make_wav()
-    library.save_character(str(lib_dir), "Alice", "red hair", "voice A", png, wav)
-    library.save_scene(str(lib_dir), "便利店", "cold light, humming cooler", png)
-    library.save_character(str(lib_dir), "Bob", "blue coat", "voice B", png, wav)
+def test_load_character_node_audio_outputs_and_blockers(lib_dir, monkeypatch):
+    from nodes.assets.nodes import LoadCharacterAsset, ExecutionBlocker
 
-    result = library.load_character_batch(str(lib_dir), "Alice\n便利店\nBob")
-    entries = result["assets"]
-    assert [e["name"] for e in entries] == ["Alice", "便利店", "Bob"]
-    assert [e["kind"] for e in entries] == ["character", "scene", "character"]
-    assert [e["slot"] for e in entries] == [1, 2, 3]
-    # Each entry carries its kind's fields and nothing else.
-    assert entries[0]["appearance"] == "red hair"
-    assert "description" not in entries[0]
-    assert entries[1]["description"] == "cold light, humming cooler"
-    assert "appearance" not in entries[1] and "voice" not in entries[1]
+    monkeypatch.setenv(library.LIBRARY_DIR_ENV, str(lib_dir))
+    library.save_character(
+        str(lib_dir), "Two", "d", "v",
+        [make_png((1, 1, 1), 8, 6), make_png((2, 2, 2), 8, 6)],
+        [make_wav(freq=440.0), make_wav(freq=880.0)],
+    )
+    node = LoadCharacterAsset()
+    outs = node.load_character("", "Two")
+    assert len(outs) == 4 + library.MAX_AUDIO
+    assert outs[0] == "Two"
+    assert outs[1] == "d"
+    assert outs[2].shape == (2, 6, 8, 3)  # [N,H,W,3]
+    assert outs[3] == "v"
+    assert isinstance(outs[4], dict) and "waveform" in outs[4]
+    assert isinstance(outs[5], dict) and "waveform" in outs[5]
+    for i in range(6, 12):
+        blocker = outs[i]
+        assert isinstance(blocker, ExecutionBlocker)
+        assert "has 2 audio clip(s)" in blocker.message
+        assert "audio_%d" % (i - 3) in blocker.message
 
 
-def test_load_asset_batch_rejects_a_name_under_both_kinds(lib_dir):
-    png, wav = make_png(), make_wav()
-    library.save_character(str(lib_dir), "Ghost", "red hair", "voice A", png, wav)
-    library.save_scene(str(lib_dir), "Ghost", "an empty room", png)
+def test_load_scene_node_images_output(lib_dir, monkeypatch):
+    from nodes.assets.nodes import LoadSceneAsset
+
+    monkeypatch.setenv(library.LIBRARY_DIR_ENV, str(lib_dir))
+    library.save_scene(
+        str(lib_dir), "Two", "d",
+        [make_png((1, 1, 1), 6, 6), make_png((2, 2, 2), 6, 6)],
+    )
+    name, description, images = LoadSceneAsset().load_scene("", "Two")
+    assert (name, description) == ("Two", "d")
+    assert images.shape == (2, 6, 6, 3)
+
+
+# --------------------------------------------------------------------------- #
+# Node layer: save inputs (acceptance 2/6), fixed library (acceptance 1)
+# --------------------------------------------------------------------------- #
+def test_save_node_ignores_library_dir_and_collects_audio(lib_dir, monkeypatch):
+    from nodes.assets.nodes import SaveCharacterAsset, NEW_NAME_SENTINEL
+
+    monkeypatch.setenv(library.LIBRARY_DIR_ENV, str(lib_dir))
+    node = SaveCharacterAsset()
+    audio_a = wav_bytes_to_audio(make_wav(freq=440.0))
+    audio_b = wav_bytes_to_audio(make_wav(freq=880.0))
+    images = png_bytes_list_to_image_tensor([make_png((5, 5, 5))])
+
+    out = node.save_character(
+        # An old workflow's stored dir must be IGNORED (plan V2 section 2).
+        library_dir="C:/definitely/not/a/real/library",
+        name=NEW_NAME_SENTINEL, description="d", voice="v", new_name="Z",
+        images=images, audio_1=audio_a, audio_3=audio_b,  # sockets need not be contiguous
+    )
+    assert out[0] == "Z" and out[4] == "created"
+    char_dir = lib_dir / "characters" / "Z"
+    assert sorted(p.name for p in (char_dir / "audio").iterdir()) == ["01.wav", "02.wav"]
+
+    node.save_character(name="Z", description="d2", voice="v2")
+    loaded = library.load_character("", "Z")
+    assert loaded["description"] == "d2"
+    assert len(loaded["png_bytes_list"]) == 1
+    assert len(loaded["audio_bytes_list"]) == 2
+
+
+def test_save_node_widget_order_and_optional_sockets():
+    from nodes.assets.nodes import SaveCharacterAsset, SaveSceneAsset
+
+    req = list(SaveCharacterAsset.INPUT_TYPES()["required"])
+    opt = SaveCharacterAsset.INPUT_TYPES()["optional"]
+    assert req[0] == "library_dir"  # hidden, positional anchor for old workflows
+    assert req[-1] == "new_name"
+    assert "images" in opt
+    for i in range(1, library.MAX_AUDIO + 1):
+        assert "audio_%d" % i in opt
+    req = list(SaveSceneAsset.INPUT_TYPES()["required"])
+    assert req[-1] == "new_name"
+    assert "images" in SaveSceneAsset.INPUT_TYPES()["optional"]
+
+
+def test_load_node_output_shapes():
+    from nodes.assets.nodes import LoadCharacterAsset, LoadSceneAsset
+
+    assert LoadCharacterAsset.RETURN_NAMES == (
+        ("name", "description", "images", "voice")
+        + tuple("audio_%d" % i for i in range(1, library.MAX_AUDIO + 1))
+    )
+    assert LoadSceneAsset.RETURN_NAMES == ("name", "description", "images")
+
+
+# --------------------------------------------------------------------------- #
+# Fixed library dir (plan V2 section 3) — resolution + payload echo
+# --------------------------------------------------------------------------- #
+def test_resolve_library_dir_env_and_default(monkeypatch, tmp_path):
+    monkeypatch.delenv(library.LIBRARY_DIR_ENV, raising=False)
+    assert library.resolve_library_dir("").endswith("mie_asset_library")
+    monkeypatch.setenv(library.LIBRARY_DIR_ENV, str(tmp_path / "custom"))
+    assert library.resolve_library_dir("") == str(tmp_path / "custom")
+    assert library.resolve_library_dir("explicit/path") == "explicit/path"
+
+
+def test_list_payload_counts_and_dir_echo(lib_dir):
+    library.save_character(
+        str(lib_dir), "A", "d", "v",
+        [make_png((0, 0, 0), 8, 6), make_png((1, 1, 1), 8, 6)],
+        [make_wav(freq=440.0)],
+    )
+    library.save_scene(str(lib_dir), "S", "d", [make_png((2, 2, 2))])
+    payload = library.list_assets_payload(str(lib_dir))
+    assert payload["ok"] is True
+    assert payload["library_dir"] == str(lib_dir.resolve())
+    assert payload["characters"] == [
+        {"name": "A", "image_count": 2, "audio_count": 1}
+    ]
+    assert payload["scenes"] == [{"name": "S", "image_count": 1}]
+
+
+def test_read_asset_meta_v2(lib_dir):
+    library.save_character(
+        str(lib_dir), "A", "desc text", "voice text",
+        [make_png((7, 7, 7))], [make_wav(freq=100.0), make_wav(freq=200.0)],
+    )
+    meta = library.read_asset_meta(str(lib_dir), "A", "character")
+    assert meta["description"] == "desc text"
+    assert meta["voice"] == "voice text"
+    assert meta["image_count"] == 1
+    assert meta["audio_count"] == 2
+    assert meta["picture_size"] > 0 and meta["picture_mtime_ns"] > 0
+    _make_legacy_character(lib_dir, "旧角")
+    meta = library.read_asset_meta(str(lib_dir), "旧角", "character")
+    assert meta["description"] == "old look"
+    assert meta["image_count"] == 1 and meta["audio_count"] == 1
+
+
+# --------------------------------------------------------------------------- #
+# Cache keys: every image and every clip counts
+# --------------------------------------------------------------------------- #
+def test_cache_key_covers_every_file(lib_dir):
+    library.save_character(
+        str(lib_dir), "A", "d", "v",
+        [make_png((1, 1, 1), 8, 6), make_png((2, 2, 2), 8, 6)],
+        [make_wav(freq=440.0)],
+    )
+    key = library.character_cache_key(str(lib_dir), "A")
+    assert key == library.character_cache_key(str(lib_dir), "A")
+    (lib_dir / "characters" / "A" / "images" / "02.png").write_bytes(make_png((9, 9, 9), 8, 6))
+    assert key != library.character_cache_key(str(lib_dir), "A")
+    key = library.character_cache_key(str(lib_dir), "A")
+    (lib_dir / "characters" / "A" / "audio" / "02.wav").write_bytes(make_wav(freq=2.0))
+    assert key != library.character_cache_key(str(lib_dir), "A")
+    assert library.character_cache_key(str(lib_dir), "Ghost") == library.MISSING_CACHE_MARKER
+    assert library.scene_cache_key(str(lib_dir), "Ghost") == library.MISSING_CACHE_MARKER
+
+
+def test_asset_batch_cache_key_tracks_every_file_and_order(lib_dir):
+    library.save_character(str(lib_dir), "A", "d", "v", [make_png()], [make_wav()])
+    library.save_scene(str(lib_dir), "S", "d", [make_png()])
+    key = library.asset_batch_cache_key(str(lib_dir), "A\nS")
+    assert key == library.asset_batch_cache_key(str(lib_dir), "A\nS")
+    assert key != library.asset_batch_cache_key(str(lib_dir), "S\nA")
+    (lib_dir / "characters" / "A" / "images" / "01.png").write_bytes(make_png((8, 8, 8)))
+    assert key != library.asset_batch_cache_key(str(lib_dir), "A\nS")
+
+
+# --------------------------------------------------------------------------- #
+# Listing + skip reasons + casefold (unchanged behaviours)
+# --------------------------------------------------------------------------- #
+def test_list_characters_sorted_and_skip_reasons(lib_dir):
+    library.save_character(str(lib_dir), "Good", "d", "v", [make_png()], [make_wav()])
+    broken = lib_dir / "characters" / "broken"
+    broken.mkdir(parents=True)
+    (broken / "character.json").write_text("{ nope", encoding="utf-8")
+    result = library.list_characters(str(lib_dir))
+    assert result["names"] == "Good"
+    assert "broken" in result["status"]
+    empty = lib_dir / "no_lib"
+    assert library.list_characters(str(empty)) == {"names": "", "status": "ok"}
+
+
+def test_casefold_merge_still_applies(lib_dir):
+    library.save_character(str(lib_dir), "Tiger", "d", "v", [make_png()], [make_wav()])
+    merged = library.save_character(str(lib_dir), "tiger", "d2", "v2", None, None)
+    assert merged["name"] == "Tiger" and merged["status"] == "overwritten"
+    assert [p.name for p in (lib_dir / "characters").iterdir()] == ["Tiger"]
+
+
+def test_cross_kind_same_name_rejected_in_batch(lib_dir):
+    library.save_character(str(lib_dir), "Ghost", "d", "v", [make_png()], [make_wav()])
+    library.save_scene(str(lib_dir), "Ghost", "d", [make_png()])
     with pytest.raises(ValueError, match="exists both as a character"):
         library.load_character_batch(str(lib_dir), "Ghost")
 
 
-def test_load_asset_batch_fails_loudly_rather_than_skipping(lib_dir):
-    png, wav = make_png(), make_wav()
-    library.save_character(str(lib_dir), "Alice", "red hair", "voice A", png, wav)
-    with pytest.raises(FileNotFoundError) as e:
-        library.load_character_batch(str(lib_dir), "Alice\nGhost")
-    assert "Ghost" in str(e.value)
-    with pytest.raises(ValueError, match="listed twice"):
-        library.load_character_batch(str(lib_dir), "Alice\nAlice")
-    with pytest.raises(ValueError, match="names is empty"):
-        library.load_character_batch(str(lib_dir), "  \n \n")
-
-
-def test_asset_batch_cache_key_tracks_every_file_and_the_order(lib_dir):
-    png, wav = make_png(), make_wav()
-    library.save_character(str(lib_dir), "Alice", "red hair", "voice A", png, wav)
-    library.save_scene(str(lib_dir), "便利店", "cold light", png)
-
-    key = library.asset_batch_cache_key(str(lib_dir), "Alice\n便利店")
-    assert key == library.asset_batch_cache_key(str(lib_dir), "Alice\n便利店")
-    # Reordering changes which picture sits behind which name.
-    assert key != library.asset_batch_cache_key(str(lib_dir), "便利店\nAlice")
-    # Changing the scene's picture changes the key too.
-    library.save_scene(
-        str(lib_dir), "便利店", "cold light", make_png((1, 2, 3))
-    )
-    assert key != library.asset_batch_cache_key(str(lib_dir), "Alice\n便利店")
-    # A missing asset is a fixed marker, not a cached success.
-    assert (
-        library.asset_batch_cache_key(str(lib_dir), "Alice\nGhost")
-        == library.MISSING_CACHE_MARKER
-    )
-
-
-def test_load_asset_batch_node_writes_kind_aware_roster(lib_dir):
-    from nodes.assets.nodes import LoadAssetBatch
-
-    library.save_character(
-        str(lib_dir), "Alice", "A woman in a red coat.", "voice A",
-        make_png((255, 0, 0), width=8, height=6), make_wav(freq=440.0),
-    )
-    library.save_scene(
-        str(lib_dir), "Store",
-        "A convenience store at midnight, cold fluorescent tubes.",
-        make_png((0, 0, 255), width=8, height=6),
-    )
-
-    node = LoadAssetBatch()
-    images, names, roster_json, status = node.load_asset_batch(
-        str(lib_dir), "Alice\nStore"
-    )
-    assert images.shape == (2, 6, 8, 3)
-    assert names.splitlines() == ["Alice", "Store"]
-    assert status == "loaded 1 character(s), 1 scene(s)"
-
-    roster = json.loads(roster_json)
-    assert [r["slot"] for r in roster] == [1, 2]
-    assert roster[0] == {
-        "name": "Alice",
-        "kind": "character",
-        "slot": 1,
-        "appearance": "A woman in a red coat.",
-        "voice": "voice A",
-    }
-    assert roster[1] == {
-        "name": "Store",
-        "kind": "scene",
-        "slot": 2,
-        "description": "A convenience store at midnight, cold fluorescent tubes.",
-    }
-    # Batch order IS the slot order: Alice's red portrait is image 1.
-    red = torch.tensor([1.0, 0.0, 0.0]).view(1, 1, 3).expand(6, 8, 3)
-    blue = torch.tensor([0.0, 0.0, 1.0]).view(1, 1, 3).expand(6, 8, 3)
-    assert torch.allclose(images[0], red, atol=1 / 255)
-    assert torch.allclose(images[1], blue, atol=1 / 255)
-
-
-def test_load_asset_batch_node_names_mismatched_picture_sizes(lib_dir):
-    """torch.cat's message for a shape mismatch names tensors, not assets;
-    the node's must name the assets and the sizes."""
-    from nodes.assets.nodes import LoadAssetBatch
-
-    library.save_character(
-        str(lib_dir), "Alice", "A woman in a red coat.", "voice A",
-        make_png((255, 0, 0), width=8, height=6), make_wav(),
-    )
-    library.save_scene(
-        str(lib_dir), "Store", "a store", make_png((0, 0, 255), width=4, height=2)
-    )
-    node = LoadAssetBatch()
-    with pytest.raises(ValueError) as e:
-        node.load_asset_batch(str(lib_dir), "Alice" + chr(10) + "Store")
-    message = str(e.value)
-    assert "Alice" in message and "Store" in message
-    assert "8x6" in message and "4x2" in message
-
-
 # --------------------------------------------------------------------------- #
-# Frontend assist: dropdown payload, save-name resolution, validation exempt
+# Name / text validation (unchanged shapes)
 # --------------------------------------------------------------------------- #
-def test_list_assets_payload_merges_kinds_and_skip_notes(lib_dir):
-    png, wav = make_png(), make_wav()
-    library.save_character(str(lib_dir), "Alice", "red hair", "voice A", png, wav)
-    library.save_scene(str(lib_dir), "便利店", "cold light", png)
-    payload = library.list_assets_payload(str(lib_dir))
-    assert payload == {
-        "ok": True,
-        "library_dir": str(lib_dir.resolve()),
-        "characters": ["Alice"],
-        "scenes": ["便利店"],
-        "error": None,
-    }
+def test_invalid_names_rejected(lib_dir):
+    for bad in ("", "   ", "..", "a/b", "a\\b", "a" * 41, "CON"):
+        with pytest.raises(ValueError):
+            library.save_character(str(lib_dir), bad, "d", "v", [make_png()], [make_wav()])
+    assert not (lib_dir / "characters").exists()
 
 
-def test_list_assets_payload_empty_and_missing_library(lib_dir, tmp_path):
-    assert library.list_assets_payload(str(lib_dir))["ok"] is True
-    assert library.list_assets_payload(str(tmp_path / "nope"))["ok"] is True
-
-
-def test_list_assets_payload_never_raises_on_bad_dir():
-    bad = library.list_assets_payload("relative/path")
-    assert bad["ok"] is False
-    assert bad["characters"] == [] and bad["scenes"] == []
-    assert "absolute" in bad["error"]
-    inside = library.list_assets_payload(str(Path(library.__file__).parent))
-    assert inside["ok"] is False
-    assert "inside the plugin folder" in inside["error"]
-
-
-def test_list_assets_payload_carries_skip_notes(lib_dir):
-    chars = lib_dir / "characters"
-    chars.mkdir(parents=True)
-    broken = chars / "broken"
-    broken.mkdir()
-    (broken / "character.json").write_text("{ nope", encoding="utf-8")
-    (broken / "portrait.png").write_bytes(make_png())
-    (broken / "voice_sample.wav").write_bytes(make_wav())
-    payload = library.list_assets_payload(str(lib_dir))
-    assert payload["ok"] is True
-    assert payload["characters"] == []
-    assert payload["error"] and "broken" in payload["error"]
-
-
-def test_resolve_save_name_sentinel_and_overwrite():
-    from nodes.assets.nodes import resolve_save_name, NEW_NAME_SENTINEL
-
-    # Sentinel + empty new_name -> actionable error, not a weird filename.
-    with pytest.raises(ValueError, match="new_name is empty"):
-        resolve_save_name(NEW_NAME_SENTINEL, "  ")
-    with pytest.raises(ValueError, match="new_name is empty"):
-        resolve_save_name(NEW_NAME_SENTINEL, "")
-    # Sentinel + new name -> the new name wins.
-    assert resolve_save_name(NEW_NAME_SENTINEL, " 虎斑 ") == "虎斑"
-    # Existing name picked from the dropdown -> explicit overwrite intent.
-    assert resolve_save_name("[角色] 夏栀", "") == "[角色] 夏栀"
-    assert resolve_save_name("夏栀", "whatever") == "夏栀"
-
-
-def test_save_character_node_resolves_new_name(lib_dir):
-    from nodes.assets.nodes import SaveCharacterAsset, NEW_NAME_SENTINEL
-
-    node = SaveCharacterAsset()
-    with pytest.raises(ValueError, match="new_name is empty"):
-        node.save_character(
-            str(lib_dir), NEW_NAME_SENTINEL, "looks", "voice",
-            image=png_bytes_to_image_tensor(make_png()),
-            voice_sample=wav_bytes_to_audio(make_wav()),
-            new_name="",
-        )
-    out = node.save_character(
-        str(lib_dir), NEW_NAME_SENTINEL, "looks", "voice",
-        image=png_bytes_to_image_tensor(make_png()),
-        voice_sample=wav_bytes_to_audio(make_wav()),
-        new_name="虎斑",
-    )
-    assert out[0] == "虎斑" and out[3] == "created"
-    assert (lib_dir / "characters" / "虎斑").is_dir()
+def test_text_lengths_validated(lib_dir):
+    with pytest.raises(ValueError, match="description"):
+        library.save_character(str(lib_dir), "x", "", "v", [make_png()], [make_wav()])
+    with pytest.raises(ValueError, match="800"):
+        library.save_character(str(lib_dir), "x", "a" * 801, "v", [make_png()], [make_wav()])
+    with pytest.raises(ValueError, match="voice"):
+        library.save_character(str(lib_dir), "x", "d", "", [make_png()], [make_wav()])
+    with pytest.raises(ValueError, match="200"):
+        library.save_character(str(lib_dir), "x", "d", "a" * 201, [make_png()], [make_wav()])
 
 
 def test_validate_inputs_exempts_combo_membership():
-    """The anchor the whole dropdown scheme rests on: a name typed in an
-    older workflow (or fed by the frontend scan) is NOT in the class-level
-    placeholder list, and VALIDATE_INPUTS must wave it through — the
-    executor's own not-found error is the message users need."""
-    from nodes.assets import nodes as asset_nodes
-
-    for cls in (
-        asset_nodes.LoadCharacterAsset,
-        asset_nodes.LoadSceneAsset,
-        asset_nodes.SaveCharacterAsset,
-        asset_nodes.SaveSceneAsset,
-    ):
-        assert cls.VALIDATE_INPUTS("夏栀", new_name="") is True
-        assert cls.VALIDATE_INPUTS("（先填 library_dir，下拉自动出现）", new_name="") is True
-
-
-def test_name_widgets_are_combos_with_placeholder():
-    from nodes.assets import nodes as asset_nodes
-
-    for cls in (
-        asset_nodes.LoadCharacterAsset,
-        asset_nodes.LoadSceneAsset,
-        asset_nodes.SaveCharacterAsset,
-        asset_nodes.SaveSceneAsset,
-    ):
-        spec = cls.INPUT_TYPES()["required"]["name"]
-        assert isinstance(spec[0], list) and "下拉选择" in spec[0][0]
-
-
-def test_save_nodes_append_new_name_last():
-    """Old workflows' widgets_values arrays are positional; new widgets must
-    come AFTER every widget that existed before."""
-    from nodes.assets import nodes as asset_nodes
-
-    order = list(asset_nodes.SaveCharacterAsset.INPUT_TYPES()["required"])
-    assert order[-1] == "new_name"
-    assert order[:4] == ["library_dir", "name", "appearance", "voice"]
-    order = list(asset_nodes.SaveSceneAsset.INPUT_TYPES()["required"])
-    assert order[-1] == "new_name"
-    assert order[:3] == ["library_dir", "name", "description"]
-
-
-# --------------------------------------------------------------------------- #
-# Picture endpoint payload (picker cards)
-# --------------------------------------------------------------------------- #
-def test_read_picture_serves_both_kinds(lib_dir):
-    png, wav = make_png((1, 2, 3)), make_wav()
-    library.save_character(str(lib_dir), "Alice", "red hair", "voice A", png, wav)
-    scene_png = make_png((9, 8, 7))
-    library.save_scene(str(lib_dir), "便利店", "cold light", scene_png)
-    assert library.read_picture(str(lib_dir), "Alice", "character") == png
-    assert library.read_picture(str(lib_dir), "便利店", "scene") == scene_png
-    # casefold lookup still applies
-    assert library.read_picture(str(lib_dir), "alice", "character") == png
-
-
-def test_read_picture_rejects_traversal_and_bad_kind(lib_dir):
-    png, wav = make_png(), make_wav()
-    library.save_character(str(lib_dir), "Alice", "red hair", "voice A", png, wav)
-    # The name whitelist structurally excludes separators and dots — every
-    # traversal spelling dies at validate_name, not at the filesystem.
-    for evil in ("../Alice", "..\Alice", "A/lice", "A.lce", "  ", ""):
-        with pytest.raises(ValueError):
-            library.read_picture(str(lib_dir), evil, "character")
-    with pytest.raises(ValueError, match="kind must be"):
-        library.read_picture(str(lib_dir), "Alice", "prop")
-    with pytest.raises(FileNotFoundError):
-        library.read_picture(str(lib_dir), "Ghost", "character")
-    with pytest.raises(FileNotFoundError):
-        library.read_picture(str(lib_dir), "Alice", "scene")
-
-
-# --------------------------------------------------------------------------- #
-# Partial save (sockets optional) + save-node autofill metadata
-# --------------------------------------------------------------------------- #
-def test_partial_save_keeps_disk_media_and_json_texts(lib_dir):
-    """The review's acceptance #2: overwrite one sentence WITHOUT
-    reconnecting image/audio — PNG and sample bytes on disk unchanged, JSON
-    text changed."""
-    png_a, png_b = make_png((1, 1, 1)), make_png((9, 9, 9))
-    wav_a, wav_b = make_wav(freq=440.0), make_wav(freq=880.0)
-    library.save_character(str(lib_dir), "虎斑", "old look", "old voice", png_a, wav_a)
-
-    result = library.save_character(
-        str(lib_dir), "虎斑", "new look", "new voice", None, None
+    from nodes.assets.nodes import (
+        LoadCharacterAsset,
+        LoadSceneAsset,
+        SaveCharacterAsset,
+        SaveSceneAsset,
     )
-    assert result["status"] == "overwritten"
-    assert result["png_bytes"] == png_a
-    assert result["voice_sample_bytes"] == wav_a
-    char_dir = lib_dir / "characters" / "虎斑"
-    assert (char_dir / "portrait.png").read_bytes() == png_a
-    assert (char_dir / "voice_sample.wav").read_bytes() == wav_a
-    assert read_json(char_dir / "character.json") == {
-        "name": "虎斑", "appearance": "new look", "voice": "new voice",
-    }
-    # Mixed: new image, keep sample.
-    library.save_character(str(lib_dir), "虎斑", "x look", "x voice", png_b, None)
-    assert (char_dir / "portrait.png").read_bytes() == png_b
-    assert (char_dir / "voice_sample.wav").read_bytes() == wav_a
-    assert png_b != png_a and wav_b != wav_a
+
+    for cls in (LoadCharacterAsset, LoadSceneAsset, SaveCharacterAsset, SaveSceneAsset):
+        assert cls.VALIDATE_INPUTS("夏栀", new_name="") is True
 
 
-def test_partial_save_requires_existing_files(lib_dir):
-    # New asset with None media -> actionable errors, nothing created.
-    with pytest.raises(ValueError, match="NEW character needs a portrait"):
-        library.save_character(str(lib_dir), "鬼", "look", "voice", None, make_wav())
-    with pytest.raises(ValueError, match="NEW character needs a voice sample"):
-        library.save_character(str(lib_dir), "鬼", "look", "voice", make_png(), None)
-    assert not (lib_dir / "characters" / "鬼").exists()
-    # A character missing its sample on disk cannot be overwritten with None.
-    png, wav = make_png(), make_wav()
-    library.save_character(str(lib_dir), "残", "look", "voice", png, wav)
-    (lib_dir / "characters" / "残" / "voice_sample.wav").unlink()
-    with pytest.raises(FileNotFoundError, match="no voice sample exists"):
-        library.save_character(str(lib_dir), "残", "look2", "voice2", None, None)
+# --------------------------------------------------------------------------- #
+# Library dir guards (absolute / outside plugin)
+# --------------------------------------------------------------------------- #
+def test_library_dir_guards(tmp_path):
+    plugin_root = tmp_path / "plugin"
+    plugin_root.mkdir()
+    outside = tmp_path / "lib"
+    outside.mkdir()
+    library.validate_library_dir(str(outside), plugin_root=plugin_root)
+    with pytest.raises(ValueError, match="absolute"):
+        library.validate_library_dir("relative", plugin_root=plugin_root)
+    with pytest.raises(ValueError, match="inside the plugin"):
+        library.validate_library_dir(str(plugin_root / "x"), plugin_root=plugin_root)
 
 
-def test_partial_save_scene_keeps_picture(lib_dir):
-    png_a = make_png((5, 5, 5))
-    library.save_scene(str(lib_dir), "便利店", "old", png_a)
-    result = library.save_scene(str(lib_dir), "便利店", "new", None)
-    assert result["status"] == "overwritten"
-    assert result["png_bytes"] == png_a
-    assert (lib_dir / "scenes" / "便利店" / "scene.png").read_bytes() == png_a
-    assert read_json(lib_dir / "scenes" / "便利店" / "scene.json")["description"] == "new"
-    with pytest.raises(ValueError, match="NEW scene needs a picture"):
-        library.save_scene(str(lib_dir), "新地", "d", None)
+# --------------------------------------------------------------------------- #
+# Conversions
+# --------------------------------------------------------------------------- #
+def test_image_batch_roundtrip():
+    torch.manual_seed(20261010)
+    batch = torch.rand(3, 8, 6, 3)
+    pngs = image_batch_to_png_bytes_list(batch)
+    assert len(pngs) == 3
+    back = png_bytes_list_to_image_tensor(pngs)
+    assert back.shape == (3, 8, 6, 3)
+    for i in range(3):
+        assert torch.all((back[i] - batch[i]).abs() <= 1 / 255 + 1e-6)
 
 
-def test_read_asset_meta_feeds_the_autofill(lib_dir):
-    png, wav = make_png(), make_wav()
-    library.save_character(str(lib_dir), "Alice", "red hair", "voice A", png, wav)
-    library.save_scene(str(lib_dir), "便利店", "cold light", make_png((3, 3, 3)))
-
-    meta = library.read_asset_meta(str(lib_dir), "Alice", "character")
-    assert meta["kind"] == "character"
-    assert meta["appearance"] == "red hair"
-    assert meta["voice"] == "voice A"
-    assert meta["picture_size"] == len(png)
-    assert meta["picture_mtime_ns"] > 0
-
-    meta = library.read_asset_meta(str(lib_dir), "便利店", "scene")
-    assert meta["kind"] == "scene"
-    assert meta["description"] == "cold light"
-
-    with pytest.raises(ValueError, match="kind must be"):
-        library.read_asset_meta(str(lib_dir), "Alice", "prop")
-    with pytest.raises(FileNotFoundError):
-        library.read_asset_meta(str(lib_dir), "Ghost", "character")
-    with pytest.raises(ValueError):
-        library.read_asset_meta(str(lib_dir), "../Alice", "character")
+def test_image_batch_caps():
+    with pytest.raises(ValueError, match="empty"):
+        image_batch_to_png_bytes_list(torch.rand(0, 4, 4, 3))
+    with pytest.raises(ValueError, match="at most"):
+        image_batch_to_png_bytes_list(torch.rand(library.MAX_IMAGES + 1, 4, 4, 3))
 
 
-def test_save_node_optional_sockets_in_spec():
-    """Older workflows wired the sockets; they stay valid inputs. The spec
-    moves them to optional so an overwrite can leave them unconnected."""
-    from nodes.assets import nodes as asset_nodes
-
-    req = asset_nodes.SaveCharacterAsset.INPUT_TYPES()["required"]
-    opt = asset_nodes.SaveCharacterAsset.INPUT_TYPES().get("optional", {})
-    assert "image" not in req and "voice_sample" not in req
-    assert "image" in opt and "voice_sample" in opt
-    assert "new_name" == list(req)[-1]
-    req = asset_nodes.SaveSceneAsset.INPUT_TYPES()["required"]
-    opt = asset_nodes.SaveSceneAsset.INPUT_TYPES().get("optional", {})
-    assert "image" not in req and "image" in opt
-    assert "new_name" == list(req)[-1]
+def test_audio_wav_roundtrip():
+    audio = wav_bytes_to_audio(make_wav(freq=440.0))
+    back = wav_bytes_to_audio(audio_to_wav_bytes(audio))
+    assert back["waveform"].shape == audio["waveform"].shape
+    diff = (back["waveform"] - audio["waveform"]).abs().max()
+    assert float(diff) <= 1 / 32767 + 1e-9

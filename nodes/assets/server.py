@@ -1,12 +1,19 @@
 # -*- coding: utf-8 -*-
-"""One HTTP endpoint feeding the asset dropdowns (frontend assist).
+"""HTTP endpoints for the asset UI (docs/PLAN_ASSET_LIBRARY_V2.md section 3/7/8).
 
-POST /mie_nodes/assets/list   {"library_dir": "..."} ->
-    {"ok": true, "characters": [...], "scenes": [...], "error": null|str}
+POST /mie_nodes/assets/list     -> names + per-asset counts of the FIXED library
+GET  /mie_nodes/assets/meta     -> one asset's texts + counts + first-image stamp
+GET  /mie_nodes/assets/picture  -> first image PNG bytes
+GET  /mie_nodes/assets/thumb    -> 256px JPEG thumbnail of the first image
+POST /mie_nodes/assets/open     -> open the library folder in the OS file manager
 
-The whole scan lives in library.list_assets_payload (pure stdlib, tested);
-this module only wraps it in aiohttp. Imported from the plugin root inside
-a try/except because the dev/pytest environment has no ComfyUI server.
+The library location is FIXED per machine ($MIE_ASSET_LIBRARY, then
+~/mie_asset_library) — none of these endpoints honor a client-supplied
+path, and /open specifically opens ONLY the resolved folder (created when
+missing). The whole scan/thumb logic lives in nodes/assets/library.py
+(pure stdlib, unit-tested); this module only wraps aiohttp + Pillow.
+Imported from the plugin root inside a try/except because the dev/pytest
+environment has no ComfyUI server.
 """
 
 from __future__ import annotations
@@ -23,6 +30,23 @@ except ImportError:  # dev / pytest: no ComfyUI process
     PromptServer = None
 
 
+def _open_folder_in_file_manager(path):
+    """Open `path` in the OS file manager. Windows-first (os.startfile is
+    the plan's prescribed mechanism); the fallbacks cover the LAN box if it
+    ever runs something else."""
+    import os
+    import subprocess
+    import sys
+
+    path.mkdir(parents=True, exist_ok=True)
+    if sys.platform.startswith("win"):
+        os.startfile(str(path))  # noqa: S606 - the documented Windows route
+        return True
+    opener = "open" if sys.platform == "darwin" else "xdg-open"
+    subprocess.Popen([opener, str(path)])  # noqa: S603,S607
+    return True
+
+
 def _register() -> None:
     if PromptServer is None:
         return
@@ -30,26 +54,27 @@ def _register() -> None:
 
     @routes.post("/mie_nodes/assets/list")
     async def list_assets(request):  # noqa: ANN001 - aiohttp handler
-        try:
-            body = await request.json()
-        except Exception:
-            return web.json_response(
-                {"ok": False, "characters": [], "scenes": [],
-                 "error": "request body must be JSON"}, status=400
-            )
-        library_dir = ""
-        if isinstance(body, dict):
-            library_dir = str(body.get("library_dir") or "")
-        payload = library.list_assets_payload(library_dir)
+        # The location is fixed per machine; the body is ignored entirely.
+        payload = library.list_assets_payload("")
         return web.json_response(payload)
+
+    @routes.post("/mie_nodes/assets/open")
+    async def open_library(request):  # noqa: ANN001 - aiohttp handler
+        import traceback
+
+        try:
+            root = library.validate_library_dir("")
+            _open_folder_in_file_manager(root)
+            return web.json_response({"ok": True, "library_dir": str(root)})
+        except Exception as e:  # noqa: BLE001 - surfaced to the UI verbatim
+            traceback.print_exc()
+            return web.json_response({"ok": False, "error": str(e)}, status=400)
 
     @routes.get("/mie_nodes/assets/picture")
     async def asset_picture(request):  # noqa: ANN001 - aiohttp handler
         q = request.rel_url.query
         try:
-            data = library.read_picture(
-                q.get("dir", ""), q.get("name", ""), q.get("kind", "")
-            )
+            data = library.read_picture("", q.get("name", ""), q.get("kind", ""))
         except (ValueError, FileNotFoundError) as e:
             return web.json_response({"error": str(e)}, status=404)
         return web.Response(body=data, content_type="image/png")
@@ -58,9 +83,7 @@ def _register() -> None:
     async def asset_meta(request):  # noqa: ANN001 - aiohttp handler
         q = request.rel_url.query
         try:
-            meta = library.read_asset_meta(
-                q.get("dir", ""), q.get("name", ""), q.get("kind", "")
-            )
+            meta = library.read_asset_meta("", q.get("name", ""), q.get("kind", ""))
         except (ValueError, FileNotFoundError) as e:
             return web.json_response({"ok": False, "error": str(e)}, status=404)
         meta = dict(meta)
@@ -77,12 +100,8 @@ def _register() -> None:
     async def asset_thumb(request):  # noqa: ANN001 - aiohttp handler
         q = request.rel_url.query
         try:
-            meta = library.read_asset_meta(
-                q.get("dir", ""), q.get("name", ""), q.get("kind", "")
-            )
-            original = library.read_picture(
-                q.get("dir", ""), q.get("name", ""), q.get("kind", "")
-            )
+            meta = library.read_asset_meta("", q.get("name", ""), q.get("kind", ""))
+            original = library.read_picture("", q.get("name", ""), q.get("kind", ""))
         except (ValueError, FileNotFoundError) as e:
             return web.json_response({"error": str(e)}, status=404)
         stamp = "%d-%d" % (meta["picture_size"], meta["picture_mtime_ns"])
