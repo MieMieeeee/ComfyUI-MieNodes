@@ -536,8 +536,13 @@ function syncStripFromNames(node) {
         kindTag.className = "mie-slot-kind";
         kindTag.textContent = kind === "scene" ? KIND_SCENE : KIND_CHAR;
         const entry = entryOf(payload, name);
-        if (entry && entry.image_count > 1) {
-            kindTag.textContent += " " + entry.image_count + "张";
+        if (entry) {
+            // 数量常驻：扫描回来后每个 chip 都标 N张（角色再加 N条音频）。
+            let info = entry.image_count + "张";
+            if (kind === "character" && entry.audio_count != null) {
+                info += entry.audio_count + "音";
+            }
+            kindTag.textContent += " " + info;
         }
         const x = document.createElement("span");
         x.className = "mie-slot-x";
@@ -705,15 +710,21 @@ function openPicker(node) {
             nm.className = "nm";
             nm.textContent = it.name;
             cap.append(kindTag, nm);
-            // 数量角标：卡片只用第一张图，其余以计数告知（V2 第 7 条）。
-            const counts = [];
-            if (it.image_count > 1) counts.push(it.image_count + " 张");
-            if (it.audio_count > 0) counts.push(it.audio_count + " 条音频");
+            // 数量角标无条件常驻（用户要求"很清楚地显示有多少图多少语音"）：
+            // 1 张也显示、0 条音频也显示；卡片图只用第一张，其余以计数告知。
+            const counts = [it.image_count + " 张"];
+            if (it.kind === "character") counts.push(it.audio_count + " 条音频");
             const badge = document.createElement("span");
             badge.className = "in";
-            if (isConflict) badge.textContent = "同名冲突";
-            else if (slot) badge.textContent = "槽位 " + slot;
-            else if (counts.length) badge.textContent = counts.join(" · ");
+            if (isConflict) {
+                badge.textContent = "同名冲突";
+            } else {
+                // 槽位与数量并列常驻：进了槽位也看得见有几张图几条音频。
+                const parts = [];
+                if (slot) parts.push("槽位 " + slot);
+                parts.push(...counts);
+                badge.textContent = parts.join(" · ");
+            }
             cap.append(badge);
             card.append(img, cap);
             card.addEventListener("click", () => {
