@@ -35,7 +35,19 @@ MieNodes 的资产库把「跨镜头要重复用的角色和场景」存成磁�
 
 2026-10-09 之前的库（`portrait.png` / `voice_sample.wav|mp3` / `scene.png`、JSON 字段 `appearance`）**直接可读**：按 1 图 + 1 音频对待，`appearance` 当作 `description`。对旧资产做任何一次成功保存都会写成新布局，并把旧文件**晋升**（原字节搬进 `images/01.png` / `audio/01.<原扩展名>`）后清理——只读永远不删。
 
-## 3. 七个节点
+## 3. 节点：两代并存（2026-10-10 起）
+
+菜单里老节点带 **(V1)** 标志（多图/多音频模型，行为不变）；新节点无标志，是**简化模型**：
+
+| 简化模型 | 内容 |
+|---|---|
+| 角色 | **一张图**（可以是三视图/角色设定图）+ 一句图片描述 + **一段音频** + 一句声音描述 |
+| 场景 | **一张图** + 一句图片描述 |
+
+- `Save/Load Character Asset`（无标志）：单图单音频；磁盘上仍是 `images/01.png` + `audio/01.*`，库里的多图/多音频资产在这些节点上会报错并指向 (V1) 节点。
+- `Save/Load Scene Asset`（无标志）：单图。
+- **Prompt Generator V2 的正确接法（新）**：节点上直接有 `character_1 / character_2 / …`（选了才出现下一个）和 `scene_1 / …` 下拉槽。选好后**什么都不用接**——图片、描述、音色在执行时从固定库读取；顺序（角色在前、场景在后）就是 `<Picture N>`。新增第 4 个输出 `images` 是按槽位拼好的图片批次，直接接视频链。旧接法（`LoadAssetBatch.roster_json → asset_roster` + `images` 批次）继续可用，但与下拉槽**互斥**。
+
 
 ### Load Character Asset
 

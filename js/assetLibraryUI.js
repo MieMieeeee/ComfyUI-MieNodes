@@ -35,6 +35,13 @@ const NODES = {
     "ListCharacterAssets|Mie": {},
     "ListSceneAssets|Mie": {},
     "LoadAssetBatch|Mie": { slots: true },
+    // 2026-10-10 simple model: same single-image/single-audio wiring as V1.
+    "SaveCharacterAssetV2|Mie": { kinds: ["characters"], save: "character" },
+    "LoadCharacterAssetV2|Mie": { kinds: ["characters"], preview: "character" },
+    "SaveSceneAssetV2|Mie": { kinds: ["scenes"], save: "scene" },
+    "LoadSceneAssetV2|Mie": { kinds: ["scenes"], preview: "scene" },
+    // The generator itself: character_N / scene_N dropdown slots.
+    "MiniMaxH3LoopPromptGeneratorV2|Mie": { generatorSlots: true },
 };
 
 // ---- 取数 ------------------------------------------------------------------
@@ -152,6 +159,15 @@ app.api?.addEventListener?.("executed", (e) => {
 });
 
 function wireNode(node, cfg) {
+    if (cfg.generatorSlots) {
+        node.__mieAssets = { cfg, payload: null, syncing: false };
+        patchGeneratorSlots(node);
+        node.addWidget("button", "🔄 刷新资产列表", null, () => {
+            applyLibrary(node, { force: true });
+        }).serialize = false;
+        applyLibrary(node);
+        return;
+    }
     const dirWidget = node.widgets?.find((w) => w.name === "library_dir");
     if (!dirWidget) return;
     node.__mieAssets = { cfg, payload: null, syncing: false, timer: null };
@@ -237,6 +253,10 @@ function applyLibrary(node, { force = false } = {}) {
         node.__mieAssets.payload = payload;
         reportScanError(payload);
 
+        if (cfg.generatorSlots) {
+            fillGeneratorSlots(node, payload);
+            return;
+        }
         if (cfg.slots) {
             syncStripFromNames(node);
             return;
@@ -474,6 +494,58 @@ function patchAudioAutogrow(node) {
     };
     // 新节点只露出 audio_1；configure 会按已存工作流还原更多。
     trimTrailingTo(1);
+}
+
+// ---- 生成器 V2 的角色/场景下拉槽 ------------------------------------------
+const SLOT_NONE = "（无）";
+const generatorSlotsPatched = new WeakSet();
+
+function slotWidgets(node, prefix) {
+    return (node.widgets || []).filter((w) =>
+        typeof w.name === "string" && w.name.startsWith(prefix + "_")
+            && /^\d+$/.test(w.name.slice(prefix.length + 1))
+    );
+}
+
+function fillGeneratorSlots(node, payload) {
+    const chars = [SLOT_NONE].concat(bareEntries(payload, ["characters"]));
+    const scenes = [SLOT_NONE].concat(bareEntries(payload, ["scenes"]));
+    for (const w of slotWidgets(node, "character")) {
+        setComboOptions(w, chars);
+    }
+    for (const w of slotWidgets(node, "scene")) {
+        setComboOptions(w, scenes);
+    }
+    trimGeneratorSlots(node);
+    node.setDirtyCanvas?.(true, true);
+}
+
+function trimGeneratorSlots(node) {
+    // 角色input自动增加：填了最后一个才露出下一个；「（无）」收起后面的。
+    for (const prefix of ["character", "scene"]) {
+        const widgets = slotWidgets(node, prefix);
+        let keep = 1;
+        for (let i = 0; i < widgets.length; i++) {
+            const v = (widgets[i].value || "").trim();
+            if (v && v !== SLOT_NONE) keep = i + 2;
+        }
+        keep = Math.min(keep, widgets.length);
+        widgets.forEach((w, i) => { w.hidden = i >= keep; });
+    }
+}
+
+function patchGeneratorSlots(node) {
+    if (generatorSlotsPatched.has(node)) return;
+    generatorSlotsPatched.add(node);
+    for (const w of [...node.widgets]) {
+        if ((w.name || "").startsWith("character_") || (w.name || "").startsWith("scene_")) {
+            const orig = w.callback;
+            w.callback = (...args) => {
+                orig?.apply(w, args);
+                trimGeneratorSlots(node);
+            };
+        }
+    }
 }
 
 // ---- LoadAssetBatch 槽位条 ----------------------------------------------------

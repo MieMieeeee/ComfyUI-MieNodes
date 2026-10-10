@@ -674,15 +674,19 @@ def test_v2_node_extends_v1_widgets_without_copying_them(lg):
     assert "asset_roster" in v2["optional"]
     assert "scene_setting" not in v2["optional"]
     assert v2["optional"]["asset_roster"][1]["multiline"] is True
-    # Outputs are the same schema, so the downstream Plan node is unchanged.
+    # Outputs EXTEND V1's by one: plan_json/summary/board_kind keep their
+    # slots (the Production Plan wiring is unchanged) and the appended
+    # `images` batch (dropdown route only) feeds the video chain.
     assert (
-        lg.MiniMaxH3LoopPromptGeneratorV2.RETURN_TYPES
+        lg.MiniMaxH3LoopPromptGeneratorV2.RETURN_TYPES[:3]
         == lg.MiniMaxH3LoopPromptGenerator.RETURN_TYPES
     )
-    assert (
-        lg.MiniMaxH3LoopPromptGeneratorV2.RETURN_NAMES
-        == lg.MiniMaxH3LoopPromptGenerator.RETURN_NAMES
-    )
+    assert lg.MiniMaxH3LoopPromptGeneratorV2.RETURN_TYPES[3] == "IMAGE"
+    assert lg.MiniMaxH3LoopPromptGeneratorV2.RETURN_NAMES[3] == "images"
+    # The dropdown slot widgets exist and default to the none-marker.
+    opt = lg.MiniMaxH3LoopPromptGeneratorV2.INPUT_TYPES()["optional"]
+    assert opt["character_1"][0] == [lg.MiniMaxH3LoopPromptGeneratorV2.SLOT_NONE]
+    assert "character_9" in opt and "scene_9" in opt
 
 
 def test_v2_is_changed_tracks_the_roster(lg):
@@ -823,3 +827,109 @@ def test_v2_consumes_batch_roster_with_v2_counts(lp, lg):
     for blob in prompts:
         assert "A courier in a yellow jacket." in blob
         assert "A midnight convenience store." in blob
+
+
+# --------------------------------------------------------------------------- #
+# Generator dropdown slots (2026-10-10 scheme): character_1 / scene_1 read the
+# fixed library themselves — no images socket, no roster JSON, no vision call.
+# --------------------------------------------------------------------------- #
+def _slot_lib(tmp_path, monkeypatch):
+    """One simple character (1 img / 1 audio) + one scene in a tmp fixed lib."""
+    import wave as _wave
+
+    import numpy as np
+    from PIL import Image
+
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from nodes.assets import library as asset_library
+
+    monkeypatch.setenv(asset_library.LIBRARY_DIR_ENV, str(tmp_path))
+
+    def _png(color):
+        buf = __import__("io").BytesIO()
+        Image.new("RGB", (64, 96), color).save(buf, format="PNG")
+        return buf.getvalue()
+
+    def _wav(freq):
+        t = np.arange(1600) / 16000
+        data = (np.sin(2 * np.pi * freq * t) * 20000).astype("<i2")
+        buf = __import__("io").BytesIO()
+        with _wave.open(buf, "wb") as w:
+            w.setnchannels(1); w.setsampwidth(2); w.setframerate(16000)
+            w.writeframes(data.tobytes())
+        return buf.getvalue()
+
+    asset_library.save_character(
+        str(tmp_path), "Alice", "A courier in a yellow jacket.", "adult female, clear",
+        [_png((200, 40, 40))], [_wav(440.0)],
+    )
+    asset_library.save_scene(
+        str(tmp_path), "Store", "A midnight convenience store.", [_png((40, 40, 200))]
+    )
+    return asset_library
+
+
+def test_generator_dropdown_slots_full_path(lp, lg, tmp_path, monkeypatch):
+    _slot_lib(tmp_path, monkeypatch)
+    conn = ScriptedConnector([
+        EXTRACT_DIALOGUE_EMPTY,
+        _storyboard(1),
+        PREFIX_REPLY,
+        _ref2va_environment_second_reply(),
+    ])
+    node = lg.MiniMaxH3LoopPromptGeneratorV2()
+    plan_json, summary, board_kind, images = node.generate_v2(
+        conn,
+        user_input="Alice waits in the store.",
+        reference_mode=REF2VA,
+        seed=1,
+        character_1="Alice",
+        scene_1="Store",
+    )
+    assert _vision_call_count(conn) == 0  # library text replaced the captioner
+    assert images is not None and images.shape[0] == 2  # char then scene
+    prompts = _shot_prompts(conn)
+    assert prompts
+    for blob in prompts:
+        assert "A courier in a yellow jacket." in blob
+        assert "A midnight convenience store." in blob
+    # Slot order = characters first, scenes after (that IS <Picture N>).
+    manifest_slot1 = "Picture 1"
+    assert manifest_slot1 in prompts[0]
+
+
+def test_generator_dropdown_slot_rules(lp, lg, tmp_path, monkeypatch):
+    lib = _slot_lib(tmp_path, monkeypatch)
+    node = lg.MiniMaxH3LoopPromptGeneratorV2()
+
+    # Both mechanisms at once -> actionable error, no LLM call.
+    conn = ScriptedConnector([])
+    with pytest.raises(RuntimeError, match="both the character/scene dropdown slots"):
+        node.generate_v2(conn, user_input="x", reference_mode=REF2VA, seed=1,
+                         asset_roster='[{"name":"Alice","kind":"character","slot":1,'
+                                      '"appearance":"a","voice":"v"}]',
+                         character_1="Alice")
+    # Same name as both kinds -> error (real tiny PNG so the save lands).
+    from PIL import Image as _Img
+    _buf = __import__("io").BytesIO()
+    _Img.new("RGB", (64, 96), (10, 10, 10)).save(_buf, format="PNG")
+    lib.save_scene(str(tmp_path), "Alice", "dup", [_buf.getvalue()])
+    with pytest.raises(RuntimeError, match="both character and scene"):
+        node.generate_v2(ScriptedConnector([]), user_input="x", reference_mode=REF2VA,
+                         seed=1, character_1="Alice", scene_1="Alice")
+    # is_changed reacts to slot picks and library edits.
+    a = node.is_changed(ScriptedConnector([]) if False else _FakeConn(), user_input="x",
+                        seed=1, reference_mode=REF2VA, character_1="Alice")
+    b = node.is_changed(_FakeConn(), user_input="x", seed=1, reference_mode=REF2VA,
+                        character_1="Alice")
+    c = node.is_changed(_FakeConn(), user_input="x", seed=1, reference_mode=REF2VA,
+                        character_2="Alice")
+    assert a == b and a != c
+
+
+class _FakeConn:
+    model = "fake"
+
+    def get_state(self):
+        return "s"

@@ -653,3 +653,67 @@ def test_audio_wav_roundtrip():
     assert back["waveform"].shape == audio["waveform"].shape
     diff = (back["waveform"] - audio["waveform"]).abs().max()
     assert float(diff) <= 1 / 32767 + 1e-9
+
+
+# --------------------------------------------------------------------------- #
+# V2-simple nodes (2026-10-10 ruling): ONE image, ONE audio, texts.
+# --------------------------------------------------------------------------- #
+def test_v2_simple_character_node_roundtrip(lib_dir, monkeypatch):
+    from nodes.assets.nodes import LoadCharacterAssetV2, SaveCharacterAssetV2
+
+    monkeypatch.setenv(library.LIBRARY_DIR_ENV, str(lib_dir))
+    save = SaveCharacterAssetV2()
+    out = save.save_character(
+        name="Solo", description="one look", voice="one voice",
+        image=png_bytes_list_to_image_tensor([make_png((6, 6, 6))]),
+        audio=wav_bytes_to_audio(make_wav(freq=440.0)),
+    )
+    assert out[0] == "Solo" and out[4] == "created"
+    name, description, voice, image, audio = LoadCharacterAssetV2().load_character("", "Solo")
+    assert (name, description, voice) == ("Solo", "one look", "one voice")
+    assert image.shape[0] == 1 and "waveform" in audio
+
+
+def test_v2_simple_nodes_reject_multi_assets(lib_dir, monkeypatch):
+    from nodes.assets.nodes import (
+        LoadCharacterAssetV2,
+        LoadSceneAssetV2,
+        SaveCharacterAssetV2,
+    )
+
+    monkeypatch.setenv(library.LIBRARY_DIR_ENV, str(lib_dir))
+    library.save_character(
+        str(lib_dir), "Multi", "d", "v",
+        [make_png((1, 1, 1), 8, 6), make_png((2, 2, 2), 8, 6)],
+        [make_wav(freq=440.0), make_wav(freq=880.0)],
+    )
+    with pytest.raises(ValueError, match="does not fit the simple model.*2 image.*2 audio"):
+        LoadCharacterAssetV2().load_character("", "Multi")
+    library.save_scene(
+        str(lib_dir), "ManyScene", "d",
+        [make_png((1, 1, 1), 6, 6), make_png((2, 2, 2), 6, 6)],
+    )
+    with pytest.raises(ValueError, match="does not fit the simple model.*2 image"):
+        LoadSceneAssetV2().load_scene("", "ManyScene")
+    # A multi-frame batch on the simple SAVE node dies at the one-frame gate.
+    with pytest.raises(ValueError, match="exactly one frame"):
+        SaveCharacterAssetV2().save_character(
+            name="Bad", description="d", voice="v",
+            image=png_bytes_list_to_image_tensor(
+                [make_png((1, 1, 1)), make_png((2, 2, 2))]
+            ),
+            audio=wav_bytes_to_audio(make_wav()),
+        )
+
+
+def test_v2_simple_scene_node_roundtrip(lib_dir, monkeypatch):
+    from nodes.assets.nodes import LoadSceneAssetV2, SaveSceneAssetV2
+
+    monkeypatch.setenv(library.LIBRARY_DIR_ENV, str(lib_dir))
+    SaveSceneAssetV2().save_scene(
+        name="Alley", description="a rainy alley",
+        image=png_bytes_list_to_image_tensor([make_png((3, 3, 3))]),
+    )
+    name, description, image = LoadSceneAssetV2().load_scene("", "Alley")
+    assert (name, description) == ("Alley", "a rainy alley")
+    assert image.shape[0] == 1

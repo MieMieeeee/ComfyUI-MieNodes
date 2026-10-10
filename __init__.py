@@ -37,7 +37,8 @@ from _mienodes_internal.nodes.loop import MieLoopStart, MieLoopResume, MieLoopBo
     MieLoopCollectText, MieLoopFinalizeTextList, MieLoopCleanupText, MieLoopCollectJSON, MieLoopFinalizeJSONList, MieLoopCleanupJSON, \
     MieLoopCollectAudio, MieLoopFinalizeAudio, MieLoopCleanupAudio
 from _mienodes_internal.nodes.assets import SaveCharacterAsset, LoadCharacterAsset, LoadAssetBatch, ListCharacterAssets, \
-    SaveSceneAsset, LoadSceneAsset, ListSceneAssets
+    SaveSceneAsset, LoadSceneAsset, ListSceneAssets, \
+    SaveCharacterAssetV2, LoadCharacterAssetV2, SaveSceneAssetV2, LoadSceneAssetV2
 from _mienodes_internal.core.utils import add_suffix, add_emoji
 
 WEB_DIRECTORY = "./js"
@@ -155,6 +156,10 @@ NODE_CLASS_MAPPINGS = {
     add_suffix("SaveSceneAsset"): SaveSceneAsset,
     add_suffix("LoadSceneAsset"): LoadSceneAsset,
     add_suffix("ListSceneAssets"): ListSceneAssets,
+    add_suffix("SaveCharacterAssetV2"): SaveCharacterAssetV2,
+    add_suffix("LoadCharacterAssetV2"): LoadCharacterAssetV2,
+    add_suffix("SaveSceneAssetV2"): SaveSceneAssetV2,
+    add_suffix("LoadSceneAssetV2"): LoadSceneAssetV2,
     add_suffix("MieLoopStart"): MieLoopStart,
     add_suffix("MieLoopResume"): MieLoopResume,
     add_suffix("MieLoopBodyIn"): MieLoopBodyIn,
@@ -296,13 +301,17 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     add_suffix('RichTextNode'): add_emoji('Rich Text'),
     add_suffix('AboutAuthorNode'): add_emoji('About Author'),
     add_suffix('AboutAuthorNodeEn'): add_emoji('About Author EN'),
-    add_suffix("SaveCharacterAsset"): add_emoji("Save Character Asset"),
-    add_suffix("LoadCharacterAsset"): add_emoji("Load Character Asset"),
-    add_suffix("LoadAssetBatch"): add_emoji("Load Asset Batch"),
-    add_suffix("ListCharacterAssets"): add_emoji("List Character Assets"),
-    add_suffix("SaveSceneAsset"): add_emoji("Save Scene Asset"),
-    add_suffix("LoadSceneAsset"): add_emoji("Load Scene Asset"),
-    add_suffix("ListSceneAssets"): add_emoji("List Scene Assets"),
+    add_suffix("SaveCharacterAsset"): add_emoji("Save Character Asset (V1)"),
+    add_suffix("LoadCharacterAsset"): add_emoji("Load Character Asset (V1)"),
+    add_suffix("LoadAssetBatch"): add_emoji("Load Asset Batch (V1)"),
+    add_suffix("ListCharacterAssets"): add_emoji("List Character Assets (V1)"),
+    add_suffix("SaveSceneAsset"): add_emoji("Save Scene Asset (V1)"),
+    add_suffix("LoadSceneAsset"): add_emoji("Load Scene Asset (V1)"),
+    add_suffix("ListSceneAssets"): add_emoji("List Scene Assets (V1)"),
+    add_suffix("SaveCharacterAssetV2"): add_emoji("Save Character Asset"),
+    add_suffix("LoadCharacterAssetV2"): add_emoji("Load Character Asset"),
+    add_suffix("SaveSceneAssetV2"): add_emoji("Save Scene Asset"),
+    add_suffix("LoadSceneAssetV2"): add_emoji("Load Scene Asset"),
     add_suffix("MieLoopStart"): add_emoji("Mie Loop Start"),
     add_suffix("MieLoopResume"): add_emoji("Mie Loop Resume"),
     add_suffix("MieLoopBodyIn"): add_emoji("Mie Loop Body In"),

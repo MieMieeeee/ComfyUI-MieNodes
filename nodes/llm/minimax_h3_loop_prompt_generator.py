@@ -3244,6 +3244,7 @@ class H3LoopPromptEnhancer:
         caption_cache_scope: str = "memory_disk",
         enhance_user_input: bool = False,
         asset_roster: str = "",
+        roster_manifest=None,
     ) -> dict:
         warnings: list[str] = []
         self._shot_fallback_notes = []
@@ -3351,7 +3352,12 @@ class H3LoopPromptEnhancer:
                 "use per_shot mode"
             )
 
-        if ref_code != "t2va" and not has_images and not (references_text or "").strip():
+        if (
+            ref_code != "t2va"
+            and not has_images
+            and roster_manifest is None
+            and not (references_text or "").strip()
+        ):
             if roster_entries:
                 raise RuntimeError(
                     "asset_roster was provided but the images socket is empty; "
@@ -3382,7 +3388,17 @@ class H3LoopPromptEnhancer:
                     + " validation: "
                     + "; ".join(manifest_errors)
                 )
-        if has_images:
+        if roster_manifest is not None:
+            # Generator dropdown slots: the manifest was assembled from the
+            # fixed library by the caller (about = authored description,
+            # role = identity/environment) — there is nothing to caption and
+            # no images socket needed.
+            manifest = [dict(entry) for entry in roster_manifest]
+            log_pipeline(
+                f"stage0.6 manifest preset from the asset slots "
+                f"({len(manifest)} picture(s)); vision caption not consulted"
+            )
+        elif has_images:
             try:
                 captioned_manifest, caption_warnings = self._caption_images(
                     images=images,
@@ -4740,26 +4756,33 @@ class MiniMaxH3LoopPromptGenerator:
 
 
 class MiniMaxH3LoopPromptGeneratorV2(MiniMaxH3LoopPromptGenerator):
-    """The same generator, with the asset library wired in as DATA.
+    """The same generator, with the assets wired in as EXPLICIT SLOTS.
 
-    The single contract that separates this from V1:
+    Two ways to attach the fixed library (2026-10-10 scheme first):
 
-    * ``asset_roster`` carries each asset's name, kind (character / scene),
-      authored text and picture slot as JSON. Those are facts, so the
-      pipeline stops inferring them: no vision caption for a roster slot, no
-      CAST line invented from a name, no timbre guessed from a gender
-      keyword — and a scene slot anchors WHERE the story happens as an
-      environment reference (never a ``<Subject N>``).
+    * ``character_1 .. character_9`` / ``scene_1 .. scene_9`` combo slots —
+      pick assets by name; a new character slot appears once the previous
+      one is filled. Pictures are read from the fixed library at execution
+      (no images socket, no roster JSON, no vision caption); the assembled
+      first-image batch also comes OUT on ``images`` for the video chain.
+      Slot order is character_1..N then scene_1..M — that order IS
+      ``<Picture N>``.
+    * ``asset_roster`` (the pre-2026-10-10 route): connect
+      ``roster_json`` from Load Asset Batch (V1) plus the ``images`` batch.
 
-    ``user_input`` is therefore STORY ONLY — who is where, what happens,
-    what is said. Where the story takes place comes from the scene assets in
-    the roster, or from the prose when no scene asset is wired. Outputs are
-    byte-for-byte the same ``plan_json`` schema, so the downstream
-    Production Plan node is wired exactly as it is for V1.
+    ``user_input`` is STORY ONLY. Outputs: the same ``plan_json`` schema as
+    V1 (Production Plan wiring unchanged) plus the assembled ``images``.
     """
 
     CATEGORY = MY_CATEGORY
     FUNCTION = "generate_v2"
+    RETURN_TYPES = ("STRING", "STRING", "STRING", "IMAGE")
+    RETURN_NAMES = ("plan_json", "summary", "board_kind", "images")
+
+    # Simple-model slot marker ("none"); real options are filled per node
+    # INSTANCE by js/assetLibraryUI.js from the fixed library.
+    SLOT_NONE = "（无）"
+    MAX_SLOT_WIDGETS = 9  # per kind; execution enforces the H3 9-picture cap
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -4774,21 +4797,151 @@ class MiniMaxH3LoopPromptGeneratorV2(MiniMaxH3LoopPromptGenerator):
                 "default": "",
                 "multiline": True,
                 "tooltip": (
-                    "Authored asset roster (JSON). Connect roster_json from "
-                    "Load Asset Batch, or paste it by hand. Format: "
-                    '[{"name": ..., "kind": "character"|"scene", "slot": N}] '
-                    "plus the kind's text — characters carry appearance and "
-                    "voice, scenes carry description. slot N is that asset's "
-                    "picture position in the images batch. Roster slots skip "
-                    "the vision caption entirely (authored text reaches the "
-                    "prompt verbatim); a character's voice line outranks "
-                    "anything the model would guess, and a scene slot is an "
-                    "environment reference where the story happens."
+                    "Legacy route: authored asset roster (JSON) from Load "
+                    "Asset Batch (V1) plus its images batch. Prefer the "
+                    "character_N / scene_N dropdown slots above — they read "
+                    "the fixed library themselves and need no wiring."
                 ),
             },
         )
+        for i in range(1, cls.MAX_SLOT_WIDGETS + 1):
+            optional["character_%d" % i] = (
+                [cls.SLOT_NONE],
+                {
+                    "default": cls.SLOT_NONE,
+                    "tooltip": (
+                        "角色槽位 %d：下拉选择库里的角色。填了本槽才会出现下一"
+                        "槽。槽位顺序（角色在前、场景在后）就是 <Picture N>。图"
+                        "片由节点从固定库读取，描述与音色逐字进入提示词。"
+                        % i
+                    ),
+                },
+            )
+        for i in range(1, cls.MAX_SLOT_WIDGETS + 1):
+            optional["scene_%d" % i] = (
+                [cls.SLOT_NONE],
+                {
+                    "default": cls.SLOT_NONE,
+                    "tooltip": (
+                        "场景槽位 %d：下拉选择库里的场景（环境参考，不占 "
+                        "<Subject N>）。%d"
+                        % (i, i)
+                    ).replace(" %d" % i, ""),
+                },
+            )
         spec["optional"] = optional
         return spec
+
+    @classmethod
+    def VALIDATE_INPUTS(cls, *args, **kwargs):
+        # The slot combos are fed per instance from the library; membership
+        # in the class-level ["（无）"] list is meaningless. Wrong names are
+        # reported by execution with the asset kind and path.
+        return True
+
+    # ---- slot extraction ------------------------------------------------
+    @classmethod
+    def _slot_names(cls, kwargs, prefix):
+        picked = []
+        for i in range(1, cls.MAX_SLOT_WIDGETS + 1):
+            value = str(kwargs.get("%s_%d" % (prefix, i), "") or "").strip()
+            if value and value != cls.SLOT_NONE:
+                picked.append(value)
+        return picked
+
+    @classmethod
+    def _build_slot_roster(cls, characters, scenes):
+        """Read the picked assets from the FIXED library and assemble
+        everything the enhancer needs: roster JSON (same shape as the batch
+        node) + preset manifest + the first-image tensors for the output."""
+        import torch
+
+        try:
+            from _mienodes_internal.nodes.assets import library as asset_library
+            from _mienodes_internal.nodes.assets.nodes import (
+                png_bytes_to_image_tensor,
+            )
+        except ImportError:
+            from ..assets import library as asset_library
+            from ..assets.nodes import png_bytes_to_image_tensor
+
+        if len(characters) + len(scenes) > 9:
+            raise RuntimeError(
+                "slot selection gives %d pictures (characters + scenes); the "
+                "H3 manifest supports at most 9" % (len(characters) + len(scenes))
+            )
+        dupes = {n for n in characters if characters.count(n) > 1}
+        if dupes:
+            raise RuntimeError(
+                "character slot repeated: %s; one asset occupies one slot"
+                % ", ".join(sorted(dupes))
+            )
+        overlap = [n for n in characters if n in scenes]
+        if overlap:
+            raise RuntimeError(
+                "name(s) picked as both character and scene: %s" % ", ".join(overlap)
+            )
+
+        roster = []
+        manifest = []
+        tensors = []
+        slot = 0
+        for name in characters:
+            loaded = asset_library.load_character("", name)
+            if len(loaded["png_bytes_list"]) != 1 or len(loaded["audio_bytes_list"]) != 1:
+                raise RuntimeError(
+                    "character %r does not fit the simple model (one image + "
+                    "one audio): found %d image(s), %d clip(s). Trim the "
+                    "asset or use the (V1) route." % (name, len(loaded["png_bytes_list"]),
+                                                      len(loaded["audio_bytes_list"]))
+                )
+            slot += 1
+            roster.append({
+                "name": loaded["name"], "kind": "character", "slot": slot,
+                "description": loaded["description"],
+                "appearance": loaded["description"],
+                "voice": loaded["voice"],
+            })
+            manifest.append({
+                "slot": "Picture %d" % slot, "about": loaded["description"],
+                "role": "identity", "source": "asset",
+            })
+            tensors.append(png_bytes_to_image_tensor(loaded["png_bytes_list"][0]))
+        for name in scenes:
+            loaded = asset_library.load_scene("", name)
+            if len(loaded["png_bytes_list"]) != 1:
+                raise RuntimeError(
+                    "scene %r does not fit the simple model (one image): "
+                    "found %d image(s). Trim the asset or use the (V1) route."
+                    % (name, len(loaded["png_bytes_list"]))
+                )
+            slot += 1
+            roster.append({
+                "name": loaded["name"], "kind": "scene", "slot": slot,
+                "description": loaded["description"],
+            })
+            manifest.append({
+                "slot": "Picture %d" % slot, "about": loaded["description"],
+                "role": "environment", "source": "asset",
+            })
+            tensors.append(png_bytes_to_image_tensor(loaded["png_bytes_list"][0]))
+
+        # One IMAGE batch needs one shape — name the offenders, never resize.
+        shapes = {}
+        for entry, tensor in zip(roster, tensors):
+            shapes.setdefault(tuple(tensor.shape[1:]), []).append(entry["name"])
+        if len(shapes) > 1:
+            detail = "; ".join(
+                "%dx%d: %s" % (w, h, ", ".join(names))
+                for (h, w, _c), names in sorted(shapes.items())
+            )
+            raise RuntimeError(
+                "selected assets' pictures differ in size (%s). Export them "
+                "at one resolution — H3 resizes references to a 2048 short "
+                "edge anyway" % detail
+            )
+        images = torch.cat(tensors, dim=0) if tensors else None
+        return json.dumps(roster, ensure_ascii=False), manifest, images
 
     def generate_v2(
         self,
@@ -4801,6 +4954,27 @@ class MiniMaxH3LoopPromptGeneratorV2(MiniMaxH3LoopPromptGenerator):
         timeout=_DEFAULT_TIMEOUT,
         **kwargs,
     ):
+        characters = self._slot_names(kwargs, "character")
+        scenes = self._slot_names(kwargs, "scene")
+        # The slot widgets are consumed HERE; they must not leak into the
+        # enhancer's keyword contract.
+        for key in [k for k in list(kwargs) if k.startswith(("character_", "scene_"))]:
+            kwargs.pop(key)
+        roster_manifest = None
+        images_out = None
+        roster_arg = asset_roster or ""
+        if characters or scenes:
+            if roster_arg.strip():
+                raise RuntimeError(
+                    "both the character/scene dropdown slots and asset_roster "
+                    "are set; use one mechanism (the slots read the fixed "
+                    "library themselves and need no wiring)"
+                )
+            roster_arg, roster_manifest, images_out = self._build_slot_roster(
+                characters, scenes
+            )
+            kwargs.pop("images", None)  # the images socket is not consulted
+
         enhancer = H3LoopPromptEnhancer(
             llm_service_connector,
             temperature=temperature,
@@ -4808,7 +4982,8 @@ class MiniMaxH3LoopPromptGeneratorV2(MiniMaxH3LoopPromptGenerator):
             timeout=timeout,
         )
         out = enhancer(
-            asset_roster=asset_roster or "",
+            asset_roster=roster_arg,
+            roster_manifest=roster_manifest,
             enhance_user_input=parse_enhance_user_input(enhance_user_input),
             **kwargs,
         )
@@ -4816,11 +4991,32 @@ class MiniMaxH3LoopPromptGeneratorV2(MiniMaxH3LoopPromptGenerator):
             out["plan_json"],
             out["summary"],
             out["board_kind"],
+            images_out,
         )
 
     def is_changed(self, llm_service_connector, **kwargs):
         roster = str(kwargs.pop("asset_roster", "") or "")
+        # Hash the slot widgets by NAME and value (character_2=Alice differs
+        # from character_1=Alice — the slot IS <Picture N>), plus the content
+        # hash of every picked asset so a library edit re-runs the node.
+        slot_keys = sorted(
+            k for k in kwargs if k.startswith(("character_", "scene_"))
+        )
+        slot_blob = "|".join(
+            "%s=%s" % (k, str(kwargs.get(k, "") or "")) for k in slot_keys
+        )
+        picked = self._slot_names(kwargs, "character") + self._slot_names(kwargs, "scene")
+        for key in slot_keys:
+            kwargs.pop(key)
         base = super().is_changed(llm_service_connector, **kwargs)
         h = hashlib.md5(base.encode("utf-8"), usedforsecurity=False)
         h.update(roster.encode("utf-8"))
+        h.update(slot_blob.encode("utf-8"))
+        try:
+            from _mienodes_internal.nodes.assets import library as asset_library
+        except ImportError:
+            from ..assets import library as asset_library
+        for name in picked:
+            h.update((asset_library.character_cache_key("", name) +
+                      asset_library.scene_cache_key("", name)).encode("utf-8"))
         return h.hexdigest()

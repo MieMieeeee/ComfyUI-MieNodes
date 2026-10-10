@@ -4,6 +4,7 @@
 > 这份计划替换 `docs/PLAN_ASSET_LIBRARY.md` 里和下面五条冲突的部分。旧文件留下，作为已经评审过的上一版，不再当作实现依据。
 > 本版只改资产的存储、读取和节点界面。不改 H3 提示词，不改 `MiniMaxH3LoopPromptGenerator`。
 >
+> **2026-10-10 第二次修订（用户裁定，简化）：**原有 7 个资产节点显示名加 **(V1)** 标志、行为不变。新增 4 个无标志的简化节点（Save/Load × Character/Scene），模型收窄为：**角色 = 一张图（可以是三视图）+ 一句图片描述 + 一段音频 + 一句声音描述；场景 = 一张图 + 一句图片描述**——不满足（多图/多音频）的资产在简化节点上明确报错并指向 (V1) 节点。`MiniMaxH3LoopPromptGeneratorV2` 新增 `character_1..9` / `scene_1..9` 下拉槽（角色槽自动增加；顺序 = 角色1..N 然后 场景1..M，即 `<Picture N>`），执行时自行从固定库读图读文，**不再需要 asset_roster 排线与 images 批次**；新增第 4 个输出 `images`（按槽位拼好的首图批次，直供视频链）。旧 asset_roster + LoadAssetBatch 路线继续可用（与下拉槽互斥，同时填会报错）。
 > **2026-10-10 修订（用户裁定）：**第 3 节的库位置改为**插件目录内的 `asset_library/` 子文件夹**——撤销旧计划「必须在插件包根之外」的规则（同步脚本对该目录既不复制也不镜像删除，`.gitignore` 忽略它）。`$MIE_ASSET_LIBRARY` 仍为最高优先；旧的 `~/mie_asset_library` 首次使用时自动整体搬入。第 6 节的 `roster_json` 补充：`image_count` / `audio_count` / 角色 `description` 由生成器端的花名册解析原样保留，供下游直接消费。
 
 ## 1. 要做成的五件事

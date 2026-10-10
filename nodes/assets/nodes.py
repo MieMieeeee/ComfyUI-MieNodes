@@ -537,3 +537,176 @@ class ListSceneAssets(object):
     def list_scenes(self, library_dir=""):
         result = library.list_scenes("")
         return (result["names"], result["status"])
+
+
+class SaveCharacterAssetV2(object):
+    """Simple model: ONE image (may be a three-view sheet), ONE description,
+    ONE audio clip, ONE voice line (2026-10-10 ruling)."""
+
+    CATEGORY = ASSETS_CATEGORY
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "library_dir": ("STRING", {"default": ""}),
+                "name": (list(NAME_PLACEHOLDER), {"default": NAME_PLACEHOLDER[0]}),
+                "description": ("STRING", {"default": "", "multiline": True}),
+                "voice": ("STRING", {"default": "", "multiline": True}),
+                "new_name": ("STRING", {"default": "", "placeholder": "新资产的名字"}),
+            },
+            "optional": {
+                # Exactly one frame / one clip. Multi-image and multi-audio
+                # stay on the (V1) nodes.
+                "image": ("IMAGE",),
+                "audio": ("AUDIO",),
+            },
+        }
+
+    RETURN_TYPES = ("STRING", "STRING", "STRING", "IMAGE", "STRING")
+    RETURN_NAMES = ("name", "description", "voice", "image", "status")
+    FUNCTION = "save_character"
+    OUTPUT_NODE = True
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return float("nan")
+
+    @classmethod
+    def VALIDATE_INPUTS(cls, name, new_name="", **kwargs):
+        return _validate_exempt(name, new_name=new_name, **kwargs)
+
+    def save_character(self, library_dir="", name="", description="", voice="",
+                       new_name="", image=None, audio=None):
+        name = resolve_save_name(name, new_name)
+        png = None if image is None else image_tensor_to_png_bytes(image)
+        wav = None if audio is None else audio_to_wav_bytes(audio)
+        result = library.save_character("", name, description, voice,
+                                        None if png is None else [png],
+                                        None if wav is None else [wav])
+        picture = png_bytes_list_to_image_tensor(result["png_bytes_list"][:1])
+        return (result["name"], result["description"], result["voice"],
+                picture, result["status"])
+
+
+class LoadCharacterAssetV2(object):
+    """Simple model read: name, description, ONE image, ONE audio, voice."""
+
+    CATEGORY = ASSETS_CATEGORY
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "library_dir": ("STRING", {"default": ""}),
+                "name": (list(NAME_PLACEHOLDER), {"default": NAME_PLACEHOLDER[0]}),
+            }
+        }
+
+    RETURN_TYPES = ("STRING", "STRING", "STRING", "IMAGE", "AUDIO")
+    RETURN_NAMES = ("name", "description", "voice", "image", "audio")
+    FUNCTION = "load_character"
+
+    @classmethod
+    def IS_CHANGED(cls, library_dir, name):
+        return library.character_cache_key("", name)
+
+    @classmethod
+    def VALIDATE_INPUTS(cls, name, **kwargs):
+        return _validate_exempt(name, **kwargs)
+
+    def load_character(self, library_dir="", name=""):
+        loaded = library.load_character("", name)
+        if len(loaded["png_bytes_list"]) != 1 or len(loaded["audio_bytes_list"]) != 1:
+            raise ValueError(
+                "character %r does not fit the simple model (one image + one "
+                "audio): found %d image(s) and %d audio clip(s). Use the (V1) "
+                "Load Character Asset node, or trim the asset under "
+                "characters/%s." % (loaded["name"], len(loaded["png_bytes_list"]),
+                                    len(loaded["audio_bytes_list"]), loaded["name"])
+            )
+        image = png_bytes_list_to_image_tensor(loaded["png_bytes_list"])
+        audio = voice_sample_bytes_to_audio(
+            loaded["audio_bytes_list"][0], loaded["audio_exts"][0]
+        )
+        return (loaded["name"], loaded["description"], loaded["voice"], image, audio)
+
+
+class SaveSceneAssetV2(object):
+    """Simple model: ONE image + ONE description."""
+
+    CATEGORY = ASSETS_CATEGORY
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "library_dir": ("STRING", {"default": ""}),
+                "name": (list(NAME_PLACEHOLDER), {"default": NAME_PLACEHOLDER[0]}),
+                "description": ("STRING", {"default": "", "multiline": True}),
+                "new_name": ("STRING", {"default": "", "placeholder": "新资产的名字"}),
+            },
+            "optional": {
+                "image": ("IMAGE",),
+            },
+        }
+
+    RETURN_TYPES = ("STRING", "STRING", "IMAGE", "STRING")
+    RETURN_NAMES = ("name", "description", "image", "status")
+    FUNCTION = "save_scene"
+    OUTPUT_NODE = True
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return float("nan")
+
+    @classmethod
+    def VALIDATE_INPUTS(cls, name, new_name="", **kwargs):
+        return _validate_exempt(name, new_name=new_name, **kwargs)
+
+    def save_scene(self, library_dir="", name="", description="", new_name="", image=None):
+        name = resolve_save_name(name, new_name)
+        png = None if image is None else image_tensor_to_png_bytes(image)
+        result = library.save_scene("", name, description,
+                                    None if png is None else [png])
+        picture = png_bytes_list_to_image_tensor(result["png_bytes_list"][:1])
+        return (result["name"], result["description"], picture, result["status"])
+
+
+class LoadSceneAssetV2(object):
+    """Simple model read: name, description, ONE image."""
+
+    CATEGORY = ASSETS_CATEGORY
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "library_dir": ("STRING", {"default": ""}),
+                "name": (list(NAME_PLACEHOLDER), {"default": NAME_PLACEHOLDER[0]}),
+            }
+        }
+
+    RETURN_TYPES = ("STRING", "STRING", "IMAGE")
+    RETURN_NAMES = ("name", "description", "image")
+    FUNCTION = "load_scene"
+
+    @classmethod
+    def IS_CHANGED(cls, library_dir, name):
+        return library.scene_cache_key("", name)
+
+    @classmethod
+    def VALIDATE_INPUTS(cls, name, **kwargs):
+        return _validate_exempt(name, **kwargs)
+
+    def load_scene(self, library_dir="", name=""):
+        loaded = library.load_scene("", name)
+        if len(loaded["png_bytes_list"]) != 1:
+            raise ValueError(
+                "scene %r does not fit the simple model (one image): found %d "
+                "image(s). Use the (V1) Load Scene Asset node, or trim the "
+                "asset under scenes/%s."
+                % (loaded["name"], len(loaded["png_bytes_list"]), loaded["name"])
+            )
+        image = png_bytes_list_to_image_tensor(loaded["png_bytes_list"])
+        return (loaded["name"], loaded["description"], image)
