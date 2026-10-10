@@ -33,6 +33,8 @@ const NODES = {
     "SaveSceneAssetV2|Mie": { kinds: ["scenes"], save: "scene" },
     // 生成器：角色/场景插座自动生长（无选择控件）。
     "MiniMaxH3LoopPromptGeneratorV2|Mie": { generatorSockets: true },
+    // 槽位展开节点：count widget 控制可见输出数量（输出 0 是 count INT）。
+    "AssetPicturesToSlots|Mie": { slotOutputs: true },
 };
 
 // ---- 取数 ------------------------------------------------------------------
@@ -106,6 +108,64 @@ app.registerExtension({
     async beforeRegisterNodeDef(nodeType, nodeData) {
         const cfg = NODES[nodeData?.name];
         if (!cfg) return;
+
+        if (cfg.slotOutputs) {
+            // 可见输出随 count 收放：输出 0 = count INT，其后 picture_1..9。
+            // 已接线的输出绝不会被裁掉（接线优先于 count）。
+            const trimOutputs = (node) => {
+                const count = Math.max(1, Math.min(
+                    9, parseInt(node.widgets?.find((w) => w.name === "count")?.value, 10) || 3));
+                let keep = count + 1;
+                (node.outputs || []).forEach((o, i) => {
+                    if (o && o.name && /^picture_\d+$/.test(o.name) && o.links != null && o.links.length) {
+                        keep = Math.max(keep, i + 1);
+                    }
+                });
+                let indices = [];
+                (node.outputs || []).forEach((o, i) => {
+                    if (o && o.name && /^picture_\d+$/.test(o.name)) indices.push(i);
+                });
+                while (indices.length > keep - 1) {
+                    node.removeOutput(indices.pop());
+                    indices = [];
+                    (node.outputs || []).forEach((o, i) => {
+                        if (o && o.name && /^picture_\d+$/.test(o.name)) indices.push(i);
+                    });
+                }
+                // count 调大时补回被裁掉的输出（removeOutput 是不可逆的）。
+                indices = [];
+                (node.outputs || []).forEach((o, i) => {
+                    if (o && o.name && /^picture_\d+$/.test(o.name)) indices.push(i);
+                });
+                while (indices.length < count) {
+                    node.addOutput("picture_" + (indices.length + 1), "IMAGE");
+                    indices = [];
+                    (node.outputs || []).forEach((o, i) => {
+                        if (o && o.name && /^picture_\d+$/.test(o.name)) indices.push(i);
+                    });
+                }
+                node.setDirtyCanvas?.(true, true);
+            };
+            const origCreated2 = nodeType.prototype.onNodeCreated;
+            nodeType.prototype.onNodeCreated = function () {
+                origCreated2?.apply(this, arguments);
+                const countWidget = this.widgets?.find((w) => w.name === "count");
+                const origCb = countWidget?.callback;
+                if (countWidget) {
+                    countWidget.callback = (...args) => {
+                        origCb?.apply(countWidget, args);
+                        trimOutputs(this);
+                    };
+                }
+                trimOutputs(this);
+            };
+            const origConfigure2 = nodeType.prototype.onConfigure;
+            nodeType.prototype.onConfigure = function () {
+                origConfigure2?.apply(this, arguments);
+                trimOutputs(this);
+            };
+            return;
+        }
 
         const origCreated = nodeType.prototype.onNodeCreated;
         nodeType.prototype.onNodeCreated = function () {

@@ -55,8 +55,12 @@ Load Character Asset ──asset──► V2.character_1
 Load Character Asset ──asset──► V2.character_2
 Load Scene Asset     ──asset──► V2.scene_1
 V2.plan_json ─────────────────► MiniMaxH3ChainPlanModern.plan_json_input
-V2.images   ─────────────────► 视频链参考图
+V2.images ──► Asset Pictures → Slots ──picture_1──► ref2v.ref_image_0
+                                  ├──picture_2──► ref2v.ref_image_1
+                                  └──picture_3──► ref2v.ref_image_2
 ```
+
+**顺序保障（Asset Pictures → Slots 节点）**：V2 的 `images` 输出本来就是槽位序（角色1..N → 场景1..M = `<Picture N>`）。这个节点把它按帧拆成 `picture_1..picture_9` 根明确编号的输出线——`picture_i` 恒等于批次第 i 张，接 `ref_image_{i-1}` 即可，**顺序由构造保证**，不再依赖两条链各自手工对齐。`count` 插件控制可见输出数量（接线了的输出不会被裁）；超出批次的槽输出 None，H3 跳过且**不占图片编号**。`count` 输出（INT）告诉你实际有几张。注意：`MiniMaxH3TaggedReferenceScene` 那条路按 @tag 链重编号、只激活 prompt 引用的 tag——V2 的 plan 用原生 `<Picture N>` 无 @别名，直连 ref_image_N 才是对口路径。
 
 ## 4. 接到 H3
 

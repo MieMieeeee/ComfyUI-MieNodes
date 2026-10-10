@@ -655,3 +655,47 @@ def test_v2_simple_scene_node_roundtrip(lib_dir, monkeypatch):
     name, description, image, bundle = LoadSceneAssetV2().load_scene("", "Alley")
     assert (name, description) == ("Alley", "a rainy alley")
     assert image.shape[0] == 1
+
+
+# --------------------------------------------------------------------------- #
+# AssetPicturesToSlots: the ordering bridge between V2.images and ref_image_N
+# --------------------------------------------------------------------------- #
+def test_asset_pictures_to_slots_split_and_none_pad():
+    import torch
+
+    from nodes.assets.nodes import AssetPicturesToSlots
+
+    node = AssetPicturesToSlots()
+    batch = torch.rand(3, 8, 6, 3)
+    outs = node.split(batch, 3)
+    assert outs[0] == 3
+    for i in (1, 2, 3):
+        assert outs[i] is not None and outs[i].shape == (1, 8, 6, 3)
+        assert torch.allclose(outs[i][0], batch[i - 1])
+    for i in range(4, 10):
+        assert outs[i] is None  # beyond the batch: H3 skips None without numbering
+
+
+def test_asset_pictures_to_slots_count_bounds():
+    import torch
+
+    from nodes.assets.nodes import AssetPicturesToSlots
+
+    node = AssetPicturesToSlots()
+    batch = torch.rand(5, 4, 4, 3)
+    outs = node.split(batch, 2)  # count < batch: extra frames unused
+    assert outs[0] == 2 and outs[3] is None
+    outs = node.split(batch, 9)  # count > batch: padded with None
+    assert outs[0] == 5 and outs[6] is None and outs[5] is not None
+    outs = node.split(None, 3)  # unwired images: all picture outputs None
+    assert outs[0] == 0 and all(o is None for o in outs[1:])
+
+
+def test_asset_pictures_to_slots_spec():
+    from nodes.assets.nodes import AssetPicturesToSlots
+
+    assert AssetPicturesToSlots.RETURN_NAMES == (
+        ("count",) + tuple("picture_%d" % i for i in range(1, 10))
+    )
+    spec = AssetPicturesToSlots.INPUT_TYPES()["required"]
+    assert spec["count"][1]["max"] == 9

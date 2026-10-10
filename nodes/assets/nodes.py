@@ -404,3 +404,63 @@ class LoadSceneAssetV2(object):
             "description": loaded["description"], "image": image,
         }
         return (loaded["name"], loaded["description"], image, bundle)
+
+
+class AssetPicturesToSlots(object):
+    """Split the generator's slot-ordered images batch into named slots.
+
+    `MiniMaxH3LoopPromptGeneratorV2.images` is ordered character_1..N then
+    scene_1..M — that order IS <Picture N> in the plan. Wiring the batch
+    straight into MiniMaxH3ReferenceToVideo's ref_image_N sockets keeps the
+    two chains consistent ONLY if the hand wiring follows the same order;
+    this node makes the order explicit: picture_i is batch frame i, so
+    picture_1 -> ref_image_0, picture_2 -> ref_image_1, ... by construction.
+
+    `count` controls how many slot outputs are live (and, via JS, how many
+    are visible). Slots beyond the batch carry None — the H3 ref2v node
+    skips None inputs WITHOUT occupying a picture number, so an oversized
+    count is harmless.
+    """
+
+    CATEGORY = ASSETS_CATEGORY
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "images": ("IMAGE",),
+                "count": (
+                    "INT",
+                    {
+                        "default": 3,
+                        "min": 1,
+                        "max": 9,
+                        "tooltip": (
+                            "槽位输出数量（= 你在生成器上接的角色+场景数）。"
+                            "picture_i = 批次第 i 张 = <Picture i>；超出批次"
+                            "的槽输出 None，H3 会跳过且不占编号。",
+                        ),
+                    },
+                ),
+            }
+        }
+
+    RETURN_TYPES = ("INT",) + ("IMAGE",) * 9
+    RETURN_NAMES = ("count",) + tuple(
+        "picture_%d" % i for i in range(1, 10)
+    )
+    FUNCTION = "split"
+
+    def split(self, images, count):
+        import torch as _torch
+
+        tensor = _torch.as_tensor(images) if images is not None else None
+        batch = int(tensor.shape[0]) if tensor is not None and tensor.ndim == 4 else 0
+        effective = max(1, min(int(count), 9))
+        outs = [min(batch, effective)]
+        for i in range(1, 10):
+            if tensor is not None and i <= batch and i <= effective:
+                outs.append(tensor[i - 1 : i])
+            else:
+                outs.append(None)
+        return tuple(outs)
