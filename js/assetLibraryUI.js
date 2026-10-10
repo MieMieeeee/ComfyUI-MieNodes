@@ -33,8 +33,6 @@ const NODES = {
     "SaveSceneAssetV2|Mie": { kinds: ["scenes"], save: "scene" },
     // 生成器：角色/场景插座自动生长（无选择控件）。
     "MiniMaxH3LoopPromptGeneratorV2|Mie": { generatorSockets: true },
-    // 槽位展开节点：吃生成器的 assets 输出，两个 count 控件收放可见输出。
-    "AssetToSlots|Mie": { slotOutputs: true },
 };
 
 // ---- 取数 ------------------------------------------------------------------
@@ -109,62 +107,6 @@ app.registerExtension({
         const cfg = NODES[nodeData?.name];
         if (!cfg) return;
 
-        if (cfg.slotOutputs) {
-            // 可见输出随 pictures/audios 控件收放（输出 0 是 count INT，
-            // 其后 picture_1..9、audio_count、audio_1..3）。接线了的输出
-            // 绝不会被裁；removeOutput 不可逆，调大时显式补回。
-            const named = (o, prefix) => o && o.name && o.name.startsWith(prefix + "_")
-                && /^\d+$/.test(o.name.slice(prefix.length + 1));
-            const syncOutputs = (node) => {
-                const widgetVal = (name, dflt, max) => {
-                    const w = node.widgets?.find((x) => x.name === name);
-                    const v = parseInt(w?.value, 10);
-                    return Math.max(0, Math.min(max, Number.isNaN(v) ? dflt : v));
-                };
-                const wants = [["picture", widgetVal("pictures", 3, 9), "IMAGE"],
-                               ["audio", widgetVal("audios", 2, 3), "AUDIO"]];
-                for (const [prefix, want, type] of wants) {
-                    let indices = [];
-                    (node.outputs || []).forEach((o, i) => { if (named(o, prefix)) indices.push(i); });
-                    indices.forEach((i, k) => {
-                        const o = node.outputs[i];
-                        if (o.links != null && o.links.length) want = Math.max(want, k + 1);
-                    });
-                    while (indices.length > want) {
-                        node.removeOutput(indices.pop());
-                        indices = [];
-                        (node.outputs || []).forEach((o, i) => { if (named(o, prefix)) indices.push(i); });
-                    }
-                    while (indices.length < want) {
-                        node.addOutput(prefix + "_" + (indices.length + 1), type);
-                        indices = [];
-                        (node.outputs || []).forEach((o, i) => { if (named(o, prefix)) indices.push(i); });
-                    }
-                }
-                node.setDirtyCanvas?.(true, true);
-            };
-            const origCreated2 = nodeType.prototype.onNodeCreated;
-            nodeType.prototype.onNodeCreated = function () {
-                origCreated2?.apply(this, arguments);
-                for (const name of ["pictures", "audios"]) {
-                    const w = this.widgets?.find((x) => x.name === name);
-                    if (!w) continue;
-                    const origCb = w.callback;
-                    w.callback = (...args) => {
-                        origCb?.apply(w, args);
-                        syncOutputs(this);
-                    };
-                }
-                syncOutputs(this);
-            };
-            const origConfigure2 = nodeType.prototype.onConfigure;
-            nodeType.prototype.onConfigure = function () {
-                origConfigure2?.apply(this, arguments);
-                syncOutputs(this);
-            };
-            return;
-        }
-
         const origCreated = nodeType.prototype.onNodeCreated;
         nodeType.prototype.onNodeCreated = function () {
             origCreated?.apply(this, arguments);
@@ -191,6 +133,10 @@ app.registerExtension({
             applyLibrary(this);
             if (cfg.save) refreshSavePreview(this, { autofill: false });
             if (cfg.preview) refreshLoadPreview(this);
+            // 生成器：恢复已存接线后刷新统计标签（socketGrow 的 sync 也会做）。
+            if (cfg.generatorSockets && this.__mieAssets?.syncSlots) {
+                this.__mieAssets.syncSlots();
+            }
         };
     },
 });
@@ -517,7 +463,27 @@ function patchGeneratorSocketGrow(node) {
         if (indices.length >= MAX) return;
         node.addInput(prefix + "_" + (indices.length + 1), TYPES[prefix]);
     };
+    const updateCountLabel = () => {
+        // 实时统计：接了几个角色/场景 = 多少 picture / 多少 audio。
+        let chars = 0, scenes = 0;
+        for (const prefix of ["character", "scene"]) {
+            for (const i of socketIndices(node, prefix)) {
+                if (node.inputs[i].link != null) {
+                    if (prefix === "character") chars += 1; else scenes += 1;
+                }
+            }
+        }
+        if (!node.__mieCountLabel) {
+            node.__mieCountLabel = node.addWidget(
+                "button", "📊 0 图 · 0 音", null, () => {}
+            );
+            node.__mieCountLabel.serialize = false;
+        }
+        node.__mieCountLabel.name =
+            "📊 " + (chars + scenes) + " 图 · " + chars + " 音" + (scenes ? "（含场景 " + scenes + "）" : "");
+    };
     const sync = () => {
+        updateCountLabel();
         for (const prefix of ["character", "scene"]) {
             const indices = socketIndices(node, prefix);
             let keep = 1; // 至少保留 character_1 / scene_1
@@ -539,4 +505,5 @@ function patchGeneratorSocketGrow(node) {
     // 新节点只露出 character_1 / scene_1；configure 会按已存工作流还原。
     trimTo("character", 1);
     trimTo("scene", 1);
+    updateCountLabel();
 }

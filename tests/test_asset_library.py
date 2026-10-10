@@ -688,11 +688,12 @@ def test_asset_to_slots_pictures_and_audios_in_order():
 
     node = AssetToSlots()
     alice, grandpa, store = _bundle_char("Alice"), _bundle_char("Grandpa", (4, 5, 6)), _bundle_scene("Store")
-    outs = node.split([alice, grandpa, store], pictures=3, audios=2)
+    outs = node.split([alice, grandpa, store])
     assert outs[0] == 3  # count = chars + scenes
     for i, bundle in enumerate([alice, grandpa, store], start=1):
         assert outs[i] is not None
         assert torch.allclose(outs[i][0], bundle["image"][0])
+    assert outs[4] is None  # slots beyond the roster stay None (never IMAGE)
     assert outs[10] == 2  # audio_count: two characters with audio
     assert outs[11] is not None
     assert torch.allclose(outs[11]["waveform"], alice["audio"]["waveform"])
@@ -703,28 +704,19 @@ def test_asset_to_slots_rules_and_padding():
     from nodes.assets.nodes import AssetToSlots
 
     node = AssetToSlots()
-    # Non-list input -> wiring help.
     with pytest.raises(ValueError, match="MIE_ASSET_ROSTER"):
-        node.split("Alice", 3, 2)
-    # Non-bundle item -> wiring help.
+        node.split("Alice")
     with pytest.raises(ValueError, match="not an asset bundle"):
-        node.split(["Alice"], 3, 2)
-    # Duplicate names -> error.
-    dup = _bundle_char("Alice")
+        node.split(["Alice"])
     with pytest.raises(ValueError, match="duplicate asset"):
-        node.split([dup, _bundle_char("Alice")], 3, 2)
-    # None roster (no assets wired on the generator) -> all None, counts 0.
-    outs = node.split(None, 3, 2)
+        node.split([_bundle_char("Alice"), _bundle_char("Alice")])
+    outs = node.split(None)  # no assets wired on the generator
     assert outs[0] == 0 and outs[10] == 0
     assert all(o is None for o in outs[1:10]) and all(o is None for o in outs[11:])
-    # Character without audio -> that slot None but numbering holds.
     silent = _bundle_char("Silent")
     silent["audio"] = None
-    outs = node.split([_bundle_char("A"), silent], pictures=2, audios=2)
+    outs = node.split([_bundle_char("A"), silent])
     assert outs[10] == 1 and outs[11] is not None and outs[12] is None
-    # audios=0 hides nothing at execution but yields no audio values.
-    outs = node.split([_bundle_char("A")], pictures=1, audios=0)
-    assert outs[10] == 0 and outs[11] is None
 
 
 def test_asset_to_slots_spec():
@@ -737,6 +729,5 @@ def test_asset_to_slots_spec():
         + tuple("audio_%d" % i for i in range(1, 4))
     )
     req = AssetToSlots.INPUT_TYPES()["required"]
+    assert list(req) == ["assets"]  # widgets removed: output list is STATIC
     assert req["assets"][0] == ASSET_ROSTER_TYPE
-    assert req["pictures"][1]["max"] == 9
-    assert req["audios"][1]["max"] == 3 and req["audios"][1]["min"] == 0

@@ -414,7 +414,7 @@ class AssetToSlots(object):
 
     Wire `MiniMaxH3LoopPromptGeneratorV2.assets` into the single input; out
     come, in the SAME slot order the plan used (characters then scenes =
-    <Picture N>):
+    <Picture N>), ALL declared slots at once:
 
     * ``picture_1..9`` (IMAGE) — picture_i is the i-th asset's image;
       picture_1 -> ref_image_0 by construction;
@@ -422,9 +422,12 @@ class AssetToSlots(object):
       order (scenes carry none; H3 caps standalone audios at 3);
     * ``count`` / ``audio_count`` (INT) — how many are live.
 
-    The `pictures` / `audios` widgets control how many outputs are VISIBLE
-    (wired outputs are never cut); execution pads the rest with None, which
-    the H3 ref2v node skips WITHOUT occupying a reference number.
+    Slots beyond the roster carry None, which the H3 ref2v node skips
+    WITHOUT occupying a reference number — wire any subset, leave the
+    rest unconnected. The slot list is deliberately STATIC: JS trimming
+    of outputs shifts link indices and silently retypes existing wires
+    (live-caught as ref_audio receiving IMAGE), so extra outputs stay
+    visible instead.
     """
 
     CATEGORY = ASSETS_CATEGORY
@@ -440,24 +443,6 @@ class AssetToSlots(object):
                     ASSET_ROSTER_TYPE,
                     {"tooltip": "接 MiniMax H3 Loop Plan Generator V2 的 assets 输出。"},
                 ),
-                "pictures": (
-                    "INT",
-                    {
-                        "default": 3,
-                        "min": 1,
-                        "max": 9,
-                        "tooltip": "可见的 picture 输出数量（= 生成器上接的角色+场景数）。",
-                    },
-                ),
-                "audios": (
-                    "INT",
-                    {
-                        "default": 2,
-                        "min": 0,
-                        "max": 3,
-                        "tooltip": "可见的 audio 输出数量（= 生成器上接的角色数，上限 3）。",
-                    },
-                ),
             }
         }
 
@@ -470,7 +455,7 @@ class AssetToSlots(object):
     )
     FUNCTION = "split"
 
-    def split(self, assets, pictures, audios):
+    def split(self, assets):
         if assets is None:
             ordered = []
         elif isinstance(assets, (list, tuple)):
@@ -502,25 +487,13 @@ class AssetToSlots(object):
                 % (len(ordered), self.MAX_SLOTS)
             )
 
-        want_pictures = max(1, min(int(pictures), self.MAX_SLOTS))
         outs = [len(ordered)]
         for i in range(1, self.MAX_SLOTS + 1):
-            outs.append(
-                ordered[i - 1]["image"]
-                if i <= len(ordered) and i <= want_pictures
-                else None
-            )
+            outs.append(ordered[i - 1]["image"] if i <= len(ordered) else None)
 
         characters = [b for b in ordered if b.get("kind") == "character"]
-        want_audios = max(0, min(int(audios), self.MAX_AUDIOS))
-        audios_out = []
-        for bundle in characters[: self.MAX_AUDIOS]:
-            audios_out.append(bundle.get("audio"))
-        outs.append(sum(1 for a in audios_out[:want_audios] if a is not None))
+        audios_out = [b.get("audio") for b in characters[: self.MAX_AUDIOS]]
+        outs.append(sum(1 for a in audios_out if a is not None))
         for i in range(self.MAX_AUDIOS):
-            outs.append(
-                audios_out[i]
-                if i < len(audios_out) and i < want_audios and audios_out[i] is not None
-                else None
-            )
+            outs.append(audios_out[i] if i < len(audios_out) else None)
         return tuple(outs)

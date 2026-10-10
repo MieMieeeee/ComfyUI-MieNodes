@@ -69,7 +69,7 @@ V2.assets ──► Asset → Slots ├──picture_1──► ref2v.ref_image_
 - `audio_1..3`（AUDIO）：角色的音色样本按角色序（场景无音频；H3 独立音频上限 3）——接 `ref_audio_{i-1}`，`<Audio N>` 与 plan 的角色顺序一致；
 - `count` / `audio_count`（INT）：各有几张、几条。
 
-`pictures`（1–9）和 `audios`（0–3）两个控件控制可见输出数量（接线了的不会被裁）；空槽输出 None，H3 跳过且不占编号。注意：`MiniMaxH3TaggedReferenceScene` 按 @tag 链重编号、只激活 prompt 引用的 tag——V2 的 plan 用原生 `<Picture N>` 无 @别名，直连 ref_image_N 才是对口路径。
+输出列表是**静态的 14 个**（count + picture_1..9 + audio_count + audio_1..3）：用几根接几根，空槽输出 None，H3 跳过且不占编号。刻意不做输出裁剪——裁剪会平移连线槽位下标、把已存的音频线错挂到图片输出上（真机踩过：ref_audio 收到 IMAGE）。**数量显示在生成器节点上**：接角色/场景时实时刷新「📊 N 图 · M 音（含场景 M）」标签；Slots 节点的 `count` / `audio_count` INT 输出在执行后给出确切数值。注意：`MiniMaxH3TaggedReferenceScene` 按 @tag 链重编号、只激活 prompt 引用的 tag——V2 的 plan 用原生 `<Picture N>` 无 @别名，直连 ref_image_N 才是对口路径。
 
 ## 4. 接到 H3
 
