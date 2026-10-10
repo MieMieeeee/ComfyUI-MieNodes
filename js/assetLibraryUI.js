@@ -357,14 +357,8 @@ function makeMediaPicker(node, stateName, kind, accept, endpoint, field, icon, l
     placeholder.value = "";
     placeholder.textContent = "（选择文件或点右侧上传）";
     select.append(placeholder);
-    const thumb = kind === "image" ? document.createElement("img") : null;
-    if (thumb) {
-        thumb.className = "mie-media-thumb";
-        thumb.alt = "";
-        thumb.style.display = "none";
-        // 缩略图异步加载完成会撑高卡片；通知画布重排，避免压住下一个 widget。
-        thumb.addEventListener("load", () => relayoutNode(node));
-    }
+    // 卡片里不放图片预览（2026-10-10 用户裁决）：选中/上传的图片由节点
+    // 底部的预览面板显示，卡片只负责选文件和上传。
 
     const btn = document.createElement("button");
     btn.type = "button";
@@ -378,24 +372,6 @@ function makeMediaPicker(node, stateName, kind, accept, endpoint, field, icon, l
     input.style.display = "none";
     row.append(select, btn, input);
     wrap.append(head, row);
-    if (thumb) wrap.append(thumb);
-
-    // 选中即预览：输入目录里的图片走核心 /view 端点，上传/换选立刻看到
-    // 自己选的那张（库预览面板反映的是已保存状态，两者角色不同）。
-    const showThumb = (name) => {
-        if (!thumb) return;
-        if (!name) {
-            thumb.style.display = "none";
-            thumb.removeAttribute("src");
-            return;
-        }
-        const slash = name.lastIndexOf("/");
-        const q = "filename=" + encodeURIComponent(slash >= 0 ? name.slice(slash + 1) : name)
-            + "&type=input&subfolder=" + encodeURIComponent(slash >= 0 ? name.slice(0, slash) : "")
-            + "&t=" + Date.now();
-        thumb.src = "/view?" + q;
-        thumb.style.display = "block";
-    };
 
     const setSelection = (name) => {
         if (!name) {
@@ -411,7 +387,6 @@ function makeMediaPicker(node, stateName, kind, accept, endpoint, field, icon, l
         }
         stateWidget.value = name || "";
         stateWidget.callback?.(stateWidget.value);
-        showThumb(name || "");
         node.setDirtyCanvas?.(true, true);
     };
     select.addEventListener("change", () => setSelection(select.value));
@@ -472,7 +447,6 @@ function makeMediaPicker(node, stateName, kind, accept, endpoint, field, icon, l
             select.append(opt);
         }
         if (stateWidget.value) setSelection(stateWidget.value);
-        else showThumb("");
     });
 
     const widget = node.addDOMWidget(label, "mie-media-picker", wrap, {
@@ -575,8 +549,6 @@ function ensureStyles() {
         ".mie-media-btn:hover{filter:brightness(1.15)}",
         ".mie-media-btn:active{transform:translateY(1px)}",
         ".mie-media-btn.busy{filter:saturate(.4) brightness(.9);cursor:wait}",
-        ".mie-media-thumb{display:block;margin:6px 8px 4px;max-height:96px;",
-        "width:100%;object-fit:contain;background:#151515;border-radius:8px}",
         ".mie-save-apply{padding:2px 0}",
         ".mie-save-apply .mie-save-btn{width:100%;padding:7px 14px;font-size:13px;", 
         "background:linear-gradient(135deg,#2f9e6e,#4f7cff)}",
