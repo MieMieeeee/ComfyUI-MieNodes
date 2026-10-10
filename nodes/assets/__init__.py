@@ -3,5 +3,5 @@ from .nodes import (
     LoadCharacterAssetV2,
     SaveSceneAssetV2,
     LoadSceneAssetV2,
-    AssetPicturesToSlots,
+    AssetToSlots,
 )

@@ -658,44 +658,82 @@ def test_v2_simple_scene_node_roundtrip(lib_dir, monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# AssetPicturesToSlots: the ordering bridge between V2.images and ref_image_N
+# AssetToSlots: the ordering bridge carrying pictures AND audio
 # --------------------------------------------------------------------------- #
-def test_asset_pictures_to_slots_split_and_none_pad():
+def _bundle_char(name="Alice", color=(1, 2, 3)):
+    from nodes.assets.nodes import png_bytes_list_to_image_tensor
+
+    return {
+        "kind": "character", "name": name,
+        "description": "d-" + name, "voice": "v-" + name,
+        "image": png_bytes_list_to_image_tensor([make_png(color, 8, 6)]),
+        "audio": wav_bytes_to_audio(make_wav(freq=440.0)),
+    }
+
+
+def _bundle_scene(name="Store", color=(9, 9, 9)):
+    from nodes.assets.nodes import png_bytes_list_to_image_tensor
+
+    return {
+        "kind": "scene", "name": name,
+        "description": "d-" + name,
+        "image": png_bytes_list_to_image_tensor([make_png(color, 8, 6)]),
+    }
+
+
+def test_asset_to_slots_pictures_and_audios_in_order():
     import torch
 
-    from nodes.assets.nodes import AssetPicturesToSlots
+    from nodes.assets.nodes import AssetToSlots
 
-    node = AssetPicturesToSlots()
-    batch = torch.rand(3, 8, 6, 3)
-    outs = node.split(batch, 3)
-    assert outs[0] == 3
-    for i in (1, 2, 3):
-        assert outs[i] is not None and outs[i].shape == (1, 8, 6, 3)
-        assert torch.allclose(outs[i][0], batch[i - 1])
-    for i in range(4, 10):
-        assert outs[i] is None  # beyond the batch: H3 skips None without numbering
-
-
-def test_asset_pictures_to_slots_count_bounds():
-    import torch
-
-    from nodes.assets.nodes import AssetPicturesToSlots
-
-    node = AssetPicturesToSlots()
-    batch = torch.rand(5, 4, 4, 3)
-    outs = node.split(batch, 2)  # count < batch: extra frames unused
-    assert outs[0] == 2 and outs[3] is None
-    outs = node.split(batch, 9)  # count > batch: padded with None
-    assert outs[0] == 5 and outs[6] is None and outs[5] is not None
-    outs = node.split(None, 3)  # unwired images: all picture outputs None
-    assert outs[0] == 0 and all(o is None for o in outs[1:])
+    node = AssetToSlots()
+    alice, grandpa, store = _bundle_char("Alice"), _bundle_char("Grandpa", (4, 5, 6)), _bundle_scene("Store")
+    outs = node.split(character_1=alice, character_2=grandpa, scene_1=store)
+    assert outs[0] == 3  # count = chars + scenes
+    for i, bundle in enumerate([alice, grandpa, store], start=1):
+        assert outs[i] is not None
+        assert torch.allclose(outs[i][0], bundle["image"][0])
+    assert outs[10] == 2  # audio_count: two characters with audio
+    assert outs[11] is not None
+    assert torch.allclose(outs[11]["waveform"], alice["audio"]["waveform"])
+    assert outs[12] is not None and outs[13] is None  # only 2 audios
 
 
-def test_asset_pictures_to_slots_spec():
-    from nodes.assets.nodes import AssetPicturesToSlots
+def test_asset_to_slots_rules_and_padding():
+    from nodes.assets.nodes import AssetToSlots
 
-    assert AssetPicturesToSlots.RETURN_NAMES == (
-        ("count",) + tuple("picture_%d" % i for i in range(1, 10))
+    node = AssetToSlots()
+    # Non-bundle value -> wiring help.
+    with pytest.raises(ValueError, match="not a character asset bundle"):
+        node.split(character_1="Alice")
+    # Same bundle twice -> error.
+    dup = _bundle_char("Alice")
+    with pytest.raises(ValueError, match="more than one slot"):
+        node.split(character_1=dup, character_2=dup)
+    # Scene bundle in a character slot -> kind mismatch.
+    with pytest.raises(ValueError, match="not a character asset bundle"):
+        node.split(character_1=_bundle_scene())
+    # Nothing wired -> all pictures/audios None, counts 0.
+    outs = node.split()
+    assert outs[0] == 0 and outs[10] == 0
+    assert all(o is None for o in outs[1:10]) and all(o is None for o in outs[11:])
+    # Character without audio -> that audio slot is None but numbering holds.
+    silent = _bundle_char("Silent")
+    silent["audio"] = None
+    outs = node.split(character_1=_bundle_char("A"), character_2=silent)
+    assert outs[10] == 1 and outs[11] is not None and outs[12] is None
+
+
+def test_asset_to_slots_spec():
+    from nodes.assets.nodes import AssetToSlots
+
+    assert AssetToSlots.RETURN_NAMES == (
+        ("count",)
+        + tuple("picture_%d" % i for i in range(1, 10))
+        + ("audio_count",)
+        + tuple("audio_%d" % i for i in range(1, 4))
     )
-    spec = AssetPicturesToSlots.INPUT_TYPES()["required"]
-    assert spec["count"][1]["max"] == 9
+    opt = AssetToSlots.INPUT_TYPES()["optional"]
+    assert opt["character_1"][0] == "MIE_CHARACTER_ASSET"
+    assert opt["scene_1"][0] == "MIE_SCENE_ASSET"
+    assert "character_9" in opt and "scene_9" in opt

@@ -406,61 +406,98 @@ class LoadSceneAssetV2(object):
         return (loaded["name"], loaded["description"], image, bundle)
 
 
-class AssetPicturesToSlots(object):
-    """Split the generator's slot-ordered images batch into named slots.
+class AssetToSlots(object):
+    """Split wired asset bundles into numbered picture AND audio slots.
 
-    `MiniMaxH3LoopPromptGeneratorV2.images` is ordered character_1..N then
-    scene_1..M — that order IS <Picture N> in the plan. Wiring the batch
-    straight into MiniMaxH3ReferenceToVideo's ref_image_N sockets keeps the
-    two chains consistent ONLY if the hand wiring follows the same order;
-    this node makes the order explicit: picture_i is batch frame i, so
-    picture_1 -> ref_image_0, picture_2 -> ref_image_1, ... by construction.
+    Feed the SAME `asset` bundles you wire into the generator's
+    character_N / scene_N sockets into this node's identical sockets; it
+    emits, in slot order (characters then scenes — that order IS
+    <Picture N> in the plan):
 
-    `count` controls how many slot outputs are live (and, via JS, how many
-    are visible). Slots beyond the batch carry None — the H3 ref2v node
-    skips None inputs WITHOUT occupying a picture number, so an oversized
-    count is harmless.
+    * ``picture_1..9`` (IMAGE) — picture_i is the i-th wired asset's image,
+      so picture_1 -> ref_image_0, picture_2 -> ref_image_1 ... by
+      construction;
+    * ``audio_1..3`` (AUDIO) — the wired CHARACTERS' voice samples in
+      character order (scenes carry no audio; H3 caps standalone audios
+      at 3). audio_i -> ref_audio_{i-1} keeps <Audio N> aligned with the
+      character order the plan generator used;
+    * ``count`` / ``audio_count`` (INT) — how many are live.
+
+    JS trims the visible outputs to what is wired; execution pads missing
+    slots with None, which the H3 ref2v node skips WITHOUT occupying a
+    reference number.
     """
 
     CATEGORY = ASSETS_CATEGORY
 
+    MAX_SLOTS = 9
+    MAX_AUDIOS = 3  # H3 standalone ref_audios cap
+
     @classmethod
     def INPUT_TYPES(cls):
-        return {
-            "required": {
-                "images": ("IMAGE",),
-                "count": (
-                    "INT",
-                    {
-                        "default": 3,
-                        "min": 1,
-                        "max": 9,
-                        "tooltip": (
-                            "槽位输出数量（= 你在生成器上接的角色+场景数）。"
-                            "picture_i = 批次第 i 张 = <Picture i>；超出批次"
-                            "的槽输出 None，H3 会跳过且不占编号。",
-                        ),
-                    },
-                ),
-            }
-        }
+        optional = {}
+        for i in range(1, cls.MAX_SLOTS + 1):
+            optional["character_%d" % i] = (
+                CHARACTER_ASSET_TYPE,
+                {"tooltip": "角色槽位 %d：接 Load Character Asset 的 asset 输出（与生成器同序）。" % i},
+            )
+        for i in range(1, cls.MAX_SLOTS + 1):
+            optional["scene_%d" % i] = (
+                SCENE_ASSET_TYPE,
+                {"tooltip": "场景槽位 %d：接 Load Scene Asset 的 asset 输出（与生成器同序）。" % i},
+            )
+        return {"required": {}, "optional": optional}
 
-    RETURN_TYPES = ("INT",) + ("IMAGE",) * 9
-    RETURN_NAMES = ("count",) + tuple(
-        "picture_%d" % i for i in range(1, 10)
+    RETURN_TYPES = (
+        ("INT",) + ("IMAGE",) * 9 + ("INT",) + ("AUDIO",) * 3
+    )
+    RETURN_NAMES = (
+        ("count",)
+        + tuple("picture_%d" % i for i in range(1, 10))
+        + ("audio_count",)
+        + tuple("audio_%d" % i for i in range(1, 4))
     )
     FUNCTION = "split"
 
-    def split(self, images, count):
-        import torch as _torch
+    @classmethod
+    def _wired(cls, kwargs, prefix, kind):
+        bundles = []
+        for i in range(1, cls.MAX_SLOTS + 1):
+            value = kwargs.get("%s_%d" % (prefix, i))
+            if value is None:
+                continue
+            if not isinstance(value, dict) or value.get("kind") != kind:
+                raise ValueError(
+                    "%s_%d is not a %s asset bundle; wire the 'asset' output "
+                    "of the matching Load node" % (prefix, i, kind)
+                )
+            bundles.append(value)
+        return bundles
 
-        tensor = _torch.as_tensor(images) if images is not None else None
-        batch = int(tensor.shape[0]) if tensor is not None and tensor.ndim == 4 else 0
-        effective = max(1, min(int(count), 9))
-        outs = [min(batch, effective)]
-        for i in range(1, 10):
-            if tensor is not None and i <= batch and i <= effective:
-                outs.append(tensor[i - 1 : i])
-            else:
-                outs.append(None)
+    def split(self, **kwargs):
+        characters = self._wired(kwargs, "character", "character")
+        scenes = self._wired(kwargs, "scene", "scene")
+        names = [b["name"] for b in characters + scenes]
+        dupes = {n for n in names if names.count(n) > 1}
+        if dupes:
+            raise ValueError(
+                "asset wired into more than one slot: %s" % ", ".join(sorted(dupes))
+            )
+        ordered = characters + scenes
+        if len(ordered) > self.MAX_SLOTS:
+            raise ValueError(
+                "%d assets wired; at most %d pictures are supported"
+                % (len(ordered), self.MAX_SLOTS)
+            )
+
+        outs = [len(ordered)]
+        for i in range(1, self.MAX_SLOTS + 1):
+            outs.append(ordered[i - 1]["image"] if i <= len(ordered) else None)
+
+        audios = []
+        for bundle in characters[: self.MAX_AUDIOS]:
+            audios.append(bundle.get("audio"))
+        outs.append(sum(1 for a in audios if a is not None))
+        for i in range(self.MAX_AUDIOS):
+            outs.append(audios[i] if i < len(audios) else None)
         return tuple(outs)
