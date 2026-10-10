@@ -198,6 +198,18 @@ function wireNode(node, cfg) {
             };
         }
         syncNewNameVisibility(node);
+        makeUploadWidget(
+            node, "image_upload",
+            ".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp",
+            "/upload/image", "image", "📤 上传图片"
+        );
+        if (cfg.save === "character") {
+            makeUploadWidget(
+                node, "audio_upload",
+                ".wav,.mp3,audio/wav,audio/mpeg",
+                "/mie_nodes/assets/upload_audio", "audio", "🎵 上传音频"
+            );
+        }
         makePreviewWidget(node);
     } else if (cfg.preview) {
         const nameWidget = node.widgets.find((w) => w.name === "name");
@@ -229,6 +241,94 @@ function applyLibrary(node, { force = false } = {}) {
         if (cfg.save) syncNewNameVisibility(node);
         node.setDirtyCanvas?.(true, true);
     });
+}
+
+// ---- 上传控件：选择文件 / 拖放 / 粘贴，全走我们自己的 DOM --------------------
+// 前端 1.32 的 canvas combo 不渲染 image_upload 按钮（那个机制只服务于新式
+// IMAGEUPLOAD 组件，需要 imageInputName 增强，核心 Python 不产出它），核心
+// 也没有 /upload/audio。所以这里自建：一个真实 <input type=file> 渲染成按钮，
+// 支持拖放和粘贴；图片走核心 /upload/image，音频走我们自己的端点。
+const uploadWidgetNodes = new WeakSet();
+
+function makeUploadWidget(node, comboName, accept, endpoint, field, label) {
+    if (typeof node.addDOMWidget !== "function") return;
+    if (uploadWidgetNodes.has(node)) {
+        // one pair per node: second call only registers the combo mapping
+    }
+    uploadWidgetNodes.add(node);
+    if (!node.__mieUploads) node.__mieUploads = {};
+    const wrap = document.createElement("div");
+    wrap.className = "mie-upload";
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = accept;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.textContent = label;
+    btn.title = "点击选择文件；也可以把文件拖到这里，或在聚焦此区域时 Ctrl+V 粘贴";
+    btn.addEventListener("click", () => input.click());
+    wrap.append(btn, input);
+    input.style.display = "none";
+
+    const comboWidget = () => node.widgets.find((w) => w.name === comboName);
+    const selectInCombo = (name) => {
+        const w = comboWidget();
+        if (!w) return;
+        const values = (w.options.values = w.options.values || []);
+        if (!values.includes(name)) values.push(name);
+        w.value = name;
+        w.callback?.(name);
+        node.setDirtyCanvas?.(true, true);
+    };
+    const upload = async (file) => {
+        btn.disabled = true;
+        const old = btn.textContent;
+        btn.textContent = "⏳ 上传中…";
+        try {
+            const form = new FormData();
+            form.append(field, file, file.name);
+            const r = await fetch(endpoint, { method: "POST", body: form });
+            const j = await r.json();
+            const name = j && (j.name || (j.data && j.data.name));
+            if (!r.ok || !name) throw new Error((j && j.error) || ("HTTP " + r.status));
+            const sub = j.subfolder ? j.subfolder + "/" + name : name;
+            selectInCombo(sub);
+            app.extensionManager?.toast?.add?.({
+                severity: "success", summary: "已上传", detail: sub, life: 2500,
+            });
+        } catch (err) {
+            app.extensionManager?.toast?.add?.({
+                severity: "error", summary: "上传失败",
+                detail: String(err).slice(0, 160), life: 5000,
+            });
+        } finally {
+            btn.disabled = false;
+            btn.textContent = old;
+        }
+    };
+    input.addEventListener("change", () => {
+        if (input.files && input.files[0]) upload(input.files[0]);
+        input.value = "";
+    });
+    wrap.addEventListener("dragover", (e) => { e.preventDefault(); wrap.classList.add("drag"); });
+    wrap.addEventListener("dragleave", () => wrap.classList.remove("drag"));
+    wrap.addEventListener("drop", (e) => {
+        e.preventDefault();
+        wrap.classList.remove("drag");
+        const f = e.dataTransfer?.files?.[0];
+        if (f) upload(f);
+    });
+    wrap.tabIndex = 0;
+    wrap.addEventListener("paste", (e) => {
+        const f = e.clipboardData?.files?.[0];
+        if (f) { e.preventDefault(); upload(f); }
+    });
+
+    const widget = node.addDOMWidget(label, "mie-upload", wrap, {
+        serialize: false, hideOnZoom: false, getHeight: () => 34,
+    });
+    widget.serialize = false;
+    node.__mieUploads[comboName] = widget;
 }
 
 // ---- 保存节点：new_name 显隐 + 回填 + 将覆盖 ---------------------------------
@@ -306,6 +406,11 @@ function ensureStyles() {
         ".mie-badge.ok{background:#2e4d34;color:#b7e4c0}",
         ".badge.diff{background:#5a3535;color:#f3b6b6}",
         ".mie-pv-hint{font-size:11px;opacity:.55;padding:8px 2px}",
+        ".mie-upload{display:flex;align-items:center;padding:2px 0}",
+        ".mie-upload button{cursor:pointer;font-size:12px;padding:3px 10px;",
+        "border:1px solid var(--border-color,#555);border-radius:6px;",
+        "background:rgba(255,255,255,.05);color:inherit}",
+        ".mie-upload.drag button{border-color:#7f9cf5}",
     ].join("");
     document.head.appendChild(pickerStyleEl);
 }

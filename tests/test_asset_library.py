@@ -836,3 +836,86 @@ def test_save_node_socket_beats_upload_picker(lib_dir, monkeypatch, tmp_path):
     scene_spec = asset_nodes.SaveSceneAssetV2.INPUT_TYPES()["optional"]
     assert scene_spec["image_upload"][1].get("image_upload") is True
     assert "audio_upload" not in scene_spec
+
+
+# --------------------------------------------------------------------------- #
+# Own audio upload endpoint handler (multipart field 'audio' -> input/audio)
+# --------------------------------------------------------------------------- #
+def test_upload_audio_endpoint_saves_into_audio_category(tmp_path, monkeypatch):
+    import sys as _sys
+    import types as _types
+
+    from nodes.assets import server as asset_server
+
+    input_root = tmp_path / "input"
+    input_root.mkdir()
+
+    class _FP:
+        @staticmethod
+        def get_input_directory():
+            return str(input_root)
+
+        filename_list_cache = {}
+
+    monkeypatch.setitem(_sys.modules, "folder_paths", _FP)
+
+    class _Upload:
+        filename = "voice clip.wav"
+
+        class _F:
+            def read(self):
+                return make_wav(freq=440.0)
+
+        file = _F()
+
+    class _Post:
+        async def post(self):
+            return {"audio": _Upload()}
+
+    class _Req:
+        async def post(self):
+            return {"audio": _Upload()}
+
+    import asyncio
+
+    handler = None
+    for name, obj in vars(asset_server).items():
+        pass
+    # The handler lives in the closure of _register; exercise via the module
+    # by faking the routes registration once more.
+    captured = {}
+
+    class _Routes:
+        def get(self, path):
+            def deco(fn):
+                return fn
+            return deco
+
+        def post(self, path):
+            def deco(fn):
+                captured[path] = fn
+                return fn
+            return deco
+
+    ps_instance = _types.SimpleNamespace(routes=_Routes())
+
+    class _PS:
+        instance = ps_instance
+
+    real_prompt_server = asset_server.PromptServer
+    asset_server.PromptServer = _PS
+    try:
+        asset_server._register()
+    finally:
+        asset_server.PromptServer = real_prompt_server
+
+    fn = captured.get("/mie_nodes/assets/upload_audio")
+    assert fn is not None, "endpoint not registered"
+    out = asyncio.run(fn(_Req()))
+    saved = input_root / "audio" / "voice clip.wav"
+    assert saved.is_file()
+    assert saved.read_bytes()[:4] == b"RIFF"  # real WAV landed
+    import json as _json
+
+    body = _json.loads(out.body)
+    assert body["ok"] is True and body["name"] == "voice clip.wav"

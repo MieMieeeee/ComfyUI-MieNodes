@@ -58,6 +58,54 @@ def _register() -> None:
         payload = library.list_assets_payload("")
         return web.json_response(payload)
 
+    @routes.post("/mie_nodes/assets/upload_audio")
+    async def upload_audio(request):  # noqa: ANN001 - aiohttp handler
+        """Upload one audio clip into the folder_paths 'audio' category
+        (input/audio) — the directory our audio_upload picker lists and
+        where uploaded clips are expected to land. Core has /upload/image
+        only; audio has no core endpoint, so it lives here."""
+        import os
+        import tempfile
+        from pathlib import Path as _P
+
+        try:
+            import folder_paths
+        except Exception as e:  # pragma: no cover - outside ComfyUI
+            return web.json_response({"ok": False, "error": str(e)}, status=500)
+        try:
+            post = await request.post()
+            upload = post.get("audio")
+            if upload is None or not getattr(upload, "filename", ""):
+                return web.json_response(
+                    {"ok": False, "error": "multipart field 'audio' is required"},
+                    status=400,
+                )
+            name = os.path.basename(upload.filename)
+            if not name or name.startswith("."):
+                return web.json_response(
+                    {"ok": False, "error": "invalid file name"}, status=400
+                )
+            root = _P(folder_paths.get_input_directory()) / "audio"
+            root.mkdir(parents=True, exist_ok=True)
+            data = upload.file.read()
+            if not data:
+                return web.json_response(
+                    {"ok": False, "error": "empty upload"}, status=400
+                )
+            fd, tmp = tempfile.mkstemp(prefix=".mie_audio_", dir=str(root))
+            tmp_path = _P(tmp)
+            try:
+                with os.fdopen(fd, "wb") as f:
+                    f.write(data)
+                os.replace(tmp_path, root / name)
+            except BaseException:
+                tmp_path.unlink(missing_ok=True)
+                raise
+            folder_paths.filename_list_cache.pop("audio", None)
+            return web.json_response({"ok": True, "name": name})
+        except Exception as e:  # noqa: BLE001 - surfaced verbatim
+            return web.json_response({"ok": False, "error": str(e)}, status=500)
+
     @routes.post("/mie_nodes/assets/open")
     async def open_library(request):  # noqa: ANN001 - aiohttp handler
         import traceback
