@@ -3,6 +3,8 @@
 > 日期：2026-10-09
 > 这份计划替换 `docs/PLAN_ASSET_LIBRARY.md` 里和下面五条冲突的部分。旧文件留下，作为已经评审过的上一版，不再当作实现依据。
 > 本版只改资产的存储、读取和节点界面。不改 H3 提示词，不改 `MiniMaxH3LoopPromptGenerator`。
+>
+> **2026-10-10 修订（用户裁定）：**第 3 节的库位置改为**插件目录内的 `asset_library/` 子文件夹**——撤销旧计划「必须在插件包根之外」的规则（同步脚本对该目录既不复制也不镜像删除，`.gitignore` 忽略它）。`$MIE_ASSET_LIBRARY` 仍为最高优先；旧的 `~/mie_asset_library` 首次使用时自动整体搬入。第 6 节的 `roster_json` 补充：`image_count` / `audio_count` / 角色 `description` 由生成器端的花名册解析原样保留，供下游直接消费。
 
 ## 1. 要做成的五件事
 

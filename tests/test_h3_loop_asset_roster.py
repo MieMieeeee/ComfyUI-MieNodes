@@ -777,3 +777,49 @@ def test_empty_roster_template_is_byte_identical_to_pre_roster(lp, monkeypatch):
         "the shot template changed beyond the single roster hook; V1's "
         "prompt shape for roster-less runs is no longer byte-identical"
     )
+
+
+def test_v2_consumes_batch_roster_with_v2_counts(lp, lg):
+    """LoadAssetBatch's V2 roster_json (image_count / audio_count /
+    character description mirror) feeds the generator UNCHANGED: counts are
+    preserved on the parsed entries, the run still makes zero vision calls,
+    and nothing about the extra fields disturbs the label policy."""
+    roster = json.dumps(
+        [
+            {"name": "Alice", "kind": "character", "slot": 1,
+             "appearance": "A courier in a yellow jacket.", "voice": "adult female, clear",
+             "description": "A courier in a yellow jacket.",
+             "image_count": 3, "audio_count": 2},
+            {"name": "Store", "kind": "scene", "slot": 2,
+             "description": "A midnight convenience store.", "image_count": 2},
+        ],
+        ensure_ascii=False,
+    )
+    entries = lp.parse_asset_roster(roster)
+    assert entries[0]["image_count"] == 3 and entries[0]["audio_count"] == 2
+    assert entries[1]["image_count"] == 2 and "audio_count" not in entries[1]
+    assert entries[0]["description"] == "A courier in a yellow jacket."
+
+    conn = ScriptedConnector([
+        EXTRACT_DIALOGUE_EMPTY,
+        _storyboard(1),
+        PREFIX_REPLY,
+        _ref2va_environment_second_reply(),
+    ])
+    alice = dict(ALICE)
+    alice["appearance"] = "A courier in a yellow jacket."
+    out = _run(
+        lg, conn,
+        user_input="Alice waits in the store.",
+        reference_mode=REF2VA,
+        images=_fake_images(2),
+        caption_mode=NO_CACHE,
+        asset_roster=roster,
+        seed=1,
+    )
+    assert _vision_call_count(conn) == 0
+    prompts = _shot_prompts(conn)
+    assert prompts
+    for blob in prompts:
+        assert "A courier in a yellow jacket." in blob
+        assert "A midnight convenience store." in blob

@@ -41,6 +41,10 @@ TARGETS = {
 
 # Directory names skipped entirely during copy (and never mirror-deleted).
 IGNORE_DIRS = {
+    # The fixed per-machine asset library (plan V2 + 2026-10-10 ruling):
+    # machine-local user data living inside the plugin folder — never
+    # copied to a target and never mirror-deleted.
+    "asset_library",
     ".git",
     ".venv",
     "__pycache__",

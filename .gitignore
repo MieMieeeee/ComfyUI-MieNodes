@@ -26,3 +26,6 @@ review_task.md
 task_plan.md
 tests/test_h3_loop_docs.py
 notes/
+
+# per-machine asset library (user data, never committed)
+asset_library/

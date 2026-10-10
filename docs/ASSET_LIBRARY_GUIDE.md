@@ -8,7 +8,9 @@ MieNodes 的资产库把「跨镜头要重复用的角色和场景」存成磁�
 
 ## 1. 库在哪：每台机器一个，不可选
 
-- 环境变量 `MIE_ASSET_LIBRARY` 非空时用它；否则 `~/mie_asset_library`。
+- **库就在插件目录里的 `asset_library/` 子文件夹**（2026-10-10 裁定）。环境变量 `MIE_ASSET_LIBRARY` 非空时优先用它（开发机把库指到部署副本之外时用）。
+- 旧的 `~/mie_asset_library` 会在**第一次使用时自动整体搬进**新位置（搬移不是拷贝，只发生一次）。
+- 同步脚本对这个目录**既不复制也不镜像删除**（和 `mie_llm_keys.json` 同类的机器本地数据）；`.gitignore` 同样忽略它——每台机器、每份插件副本各有一份自己的库。
 - **节点上没有路径可填**。`library_dir` widget 还在输入表里但永远隐藏（老工作流的下标不错位），执行、扫描、缓存键全部忽略它的值——工作流里存过的旧路径不再生效。
 - 唯一的目录动作是「📂 打开文件夹」按钮：打开解析出的那一个目录（不存在则先创建），在文件管理器里做删除/改名。
 - 节点上的预览/选择器头部显示解析后的完整路径，只供核对。
@@ -86,7 +88,7 @@ roster 走 V2 生成器：槽位跳过视觉打标、场景槽位 role=`environm
 | `holds N images; an asset supports at most 8` | 拆分或删减 |
 | `audio_3 does not exist … has 2 audio clip(s)` | 该角色只有 2 条音频；接 audio_1/2，或往 `audio/` 补文件 |
 | `exists both as a character and as a scene` | 文件管理器里给其中一个改名 |
-| 旧工作流里的 `library_dir` | 被忽略是**设计**：设 `MIE_ASSET_LIBRARY` 或用 `~/mie_asset_library` |
+| 旧工作流里的 `library_dir` | 被忽略是**设计**：库固定在插件目录的 `asset_library/`，或设 `MIE_ASSET_LIBRARY` |
 
 ## 6. 边界
 

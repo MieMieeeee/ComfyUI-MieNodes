@@ -444,11 +444,42 @@ def test_load_node_output_shapes():
 # --------------------------------------------------------------------------- #
 # Fixed library dir (plan V2 section 3) — resolution + payload echo
 # --------------------------------------------------------------------------- #
-def test_resolve_library_dir_env_and_default(monkeypatch, tmp_path):
+def test_resolve_library_dir_default_is_plugin_subfolder(monkeypatch, tmp_path):
+    # Patch BOTH escape hatches so a dev machine's real library (or legacy
+    # home dir) can never be touched by this test.
     monkeypatch.delenv(library.LIBRARY_DIR_ENV, raising=False)
-    assert library.resolve_library_dir("").endswith("mie_asset_library")
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setattr(library.os.path, "expanduser", lambda p: str(home))
+    resolved = library.resolve_library_dir("", plugin_root=tmp_path / "plugin")
+    assert resolved == str(tmp_path / "plugin" / "asset_library")
+
+
+def test_legacy_home_library_migrates_once(monkeypatch, tmp_path):
+    monkeypatch.delenv(library.LIBRARY_DIR_ENV, raising=False)
+    home = tmp_path / "home"
+    legacy = home / "mie_asset_library" / "characters" / "夏栀"
+    legacy.mkdir(parents=True)
+    (legacy / "character.json").write_text(
+        json.dumps({"name": "夏栀", "description": "d", "voice": "v"}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(library.os.path, "expanduser", lambda p: str(home))
+    plugin_root = tmp_path / "plugin"
+    plugin_root.mkdir()
+    resolved = library.validate_library_dir("", plugin_root=plugin_root)
+    assert resolved == (plugin_root / "asset_library").resolve()
+    assert (plugin_root / "asset_library" / "characters" / "夏栀").is_dir()
+    assert not (home / "mie_asset_library").exists()  # moved, not copied
+    # Second resolution does not need (and must not disturb) the legacy dir.
+    (home / "mie_asset_library").mkdir()
+    assert library.validate_library_dir("", plugin_root=plugin_root) == resolved
+    assert (home / "mie_asset_library").is_dir()  # untouched once target exists
+
+
+def test_env_override_beats_plugin_subfolder(monkeypatch, tmp_path):
     monkeypatch.setenv(library.LIBRARY_DIR_ENV, str(tmp_path / "custom"))
-    assert library.resolve_library_dir("") == str(tmp_path / "custom")
+    assert library.resolve_library_dir("", plugin_root=tmp_path / "plugin") == str(tmp_path / "custom")
     assert library.resolve_library_dir("explicit/path") == "explicit/path"
 
 
@@ -588,8 +619,11 @@ def test_library_dir_guards(tmp_path):
     library.validate_library_dir(str(outside), plugin_root=plugin_root)
     with pytest.raises(ValueError, match="absolute"):
         library.validate_library_dir("relative", plugin_root=plugin_root)
-    with pytest.raises(ValueError, match="inside the plugin"):
-        library.validate_library_dir(str(plugin_root / "x"), plugin_root=plugin_root)
+    # Since the 2026-10-10 ruling the library LIVES inside the plugin
+    # folder — an explicit inside-plugin path is no longer rejected (the
+    # mirror-sync script ignores asset_library/ instead).
+    inside = plugin_root / "asset_library"
+    library.validate_library_dir(str(inside), plugin_root=plugin_root)
 
 
 # --------------------------------------------------------------------------- #

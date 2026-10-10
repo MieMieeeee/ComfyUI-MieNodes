@@ -73,57 +73,85 @@ _WINDOWS_DEVICE_NAMES = (
 # every other character the plan rejects.
 _NAME_PATTERN = re.compile("[A-Za-z0-9_\\-\\u3400-\\u4DBF\\u4E00-\\u9FFF\\uF900-\\uFAFF]+")
 
-# The library location is FIXED per machine, not hand-typed per node (sixth
-# revision): blank library_dir resolves to $MIE_ASSET_LIBRARY when set, else
-# ~/mie_asset_library. A non-blank value still wins — it is the escape hatch
-# older workflows already depend on.
+# The library location is FIXED per machine, not hand-typed per node (V2
+# plan §3 + the 2026-10-10 ruling): the fixed root is the ``asset_library``
+# SUBFOLDER OF THE PLUGIN itself (<plugin>/asset_library), overridable with
+# $MIE_ASSET_LIBRARY. The pre-2026-10-10 default ~/mie_asset_library is
+# migrated into the new location automatically, exactly once. The old
+# "must live outside the plugin folder" rule is RETIRED: the mirror-sync
+# script ignores this directory (never copied, never mirror-deleted), so
+# library data inside the plugin is machine-local and safe.
 LIBRARY_DIR_ENV = "MIE_ASSET_LIBRARY"
+LIBRARY_DIRNAME = "asset_library"
+LEGACY_HOME_DIRNAME = "mie_asset_library"
 
 
-def resolve_library_dir(library_dir=""):
-    """Return the effective library dir string: the given one when non-blank,
-    else the machine's fixed default ($MIE_ASSET_LIBRARY, then
-    ``~/mie_asset_library``). Pure string resolution — validation happens
-    in validate_library_dir as before."""
+def fixed_library_root(plugin_root=None):
+    """The machine's fixed library root: <plugin>/asset_library."""
+    root = Path(plugin_root).resolve() if plugin_root is not None else PLUGIN_ROOT
+    return root / LIBRARY_DIRNAME
+
+
+def _migrate_legacy_home_library_once(target, plugin_root):
+    """Move a pre-2026-10-10 ~/mie_asset_library into the plugin folder.
+
+    Runs only when the new location does not exist yet and the legacy home
+    library does. Any failure is swallowed — the fallback is a fresh empty
+    library at the new location (assets are never destroyed by this move:
+    shutil.move relocates, it does not merge or delete).
+    """
+    if target.exists():
+        return
+    legacy = Path(os.path.expanduser("~")) / LEGACY_HOME_DIRNAME
+    if not legacy.is_dir():
+        return
+    if (Path(plugin_root).resolve() if plugin_root is not None else PLUGIN_ROOT) in legacy.parents:
+        return  # paranoia: legacy somehow inside the plugin — impossible, skip
+    try:
+        import shutil
+
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(legacy), str(target))
+    except Exception:
+        pass
+
+
+def resolve_library_dir(library_dir="", plugin_root=None):
+    """Return the effective library dir string: the given one when non-blank
+    (the API/tests escape hatch), else $MIE_ASSET_LIBRARY when set, else
+    <plugin>/asset_library — migrating a legacy ~/mie_asset_library into
+    place on first use. Pure string resolution — validation happens in
+    validate_library_dir."""
     raw = "" if library_dir is None else str(library_dir).strip()
     if raw:
         return raw
     env = os.environ.get(LIBRARY_DIR_ENV, "").strip()
     if env:
         return env
-    return os.path.join(os.path.expanduser("~"), "mie_asset_library")
+    target = fixed_library_root(plugin_root)
+    _migrate_legacy_home_library_once(target, plugin_root)
+    return str(target)
 
 
 def validate_library_dir(library_dir, plugin_root=None):
-    """Return the resolved library root, or raise for empty/relative/inside-plugin paths.
+    """Return the resolved library root, or raise for relative paths.
 
     Accepts ``str`` or ``os.PathLike`` so an already-resolved ``Path`` can be
     re-validated (the batch loader validates once and then loops). A BLANK
     value is the "use the machine default" marker and resolves through
-    resolve_library_dir first.
+    resolve_library_dir first (inside the plugin folder, by design).
     """
     if isinstance(library_dir, os.PathLike):
         library_dir = os.fspath(library_dir)
     if not isinstance(library_dir, str) or not library_dir.strip():
-        library_dir = resolve_library_dir(library_dir)
+        library_dir = resolve_library_dir(library_dir, plugin_root)
     raw = library_dir.strip()
     candidate = Path(raw)
     if not candidate.is_absolute():
         raise ValueError(
             "library_dir must be an absolute path, got relative %r" % raw
         )
-    resolved = candidate.resolve()
-    root = Path(plugin_root).resolve() if plugin_root is not None else PLUGIN_ROOT
-    resolved_str = os.path.normcase(str(resolved))
-    root_str = os.path.normcase(str(root))
-    if resolved_str == root_str or resolved_str.startswith(root_str + os.sep):
-        raise ValueError(
-            "library_dir %s is inside the plugin folder %s; the plugin folder is "
-            "mirror-synced by scripts/sync_to_comfyui.py and library files inside "
-            "it would be deleted on the next sync — put the library outside the "
-            "plugin folder" % (resolved, root)
-        )
-    return resolved
+    return candidate.resolve()
 
 
 def validate_name(name):

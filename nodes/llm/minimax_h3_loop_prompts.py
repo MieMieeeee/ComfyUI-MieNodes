@@ -549,8 +549,7 @@ def parse_asset_roster(raw: str) -> list[dict]:
         for field in fields:
             value = item.get(field)
             if not isinstance(value, str) or not value.strip():
-                raise ValueError(
-                    "asset_roster entry %d (%r, %s) has no non-empty %r; the "
+                raise ValueError(                    "asset_roster entry %d (%r, %s) has no non-empty %r; the "
                     "text fields are authored English inserted verbatim into "
                     "the prompt" % (index, name, kind, field)
                 )
@@ -577,9 +576,22 @@ def parse_asset_roster(raw: str) -> list[dict]:
                 "asset_roster gives slot %d to both %r and %r"
                 % (slot, seen_slots[slot], name)
             )
+        if kind == 'character':
+            mirror = item.get('description')
+            if isinstance(mirror, str) and mirror.strip():
+                entry['description'] = mirror.strip()
         seen_names.add(name)
         seen_slots[slot] = name
-        entry["slot"] = slot
+        entry['slot'] = slot
+        # Optional counters the asset batch attaches (plan V2 section 6):
+        # preserved verbatim for downstream consumers. They describe the
+        # LIBRARY (a character with 3 images / 2 clips), while the images
+        # socket of the batch carries only each asset's FIRST picture —
+        # the generator must never invent slots for the rest.
+        for count_field in ("image_count", "audio_count"):
+            value = item.get(count_field)
+            if isinstance(value, int) and not isinstance(value, bool):
+                entry[count_field] = value
         entries.append(entry)
     entries.sort(key=lambda e: e["slot"])
     return entries
