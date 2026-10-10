@@ -149,8 +149,17 @@ app.api?.addEventListener?.("executed", (e) => {
     const node = nodes.find((n) => String(n.id) === String(nodeId));
     if (!node || !node.__mieAssets?.cfg?.save) return;
     cache.clear();
+    app.extensionManager?.toast?.add?.({
+        severity: "success", summary: "资产已保存",
+        detail: "资产库写入完成；画布上的资产节点已刷新", life: 3500,
+    });
     for (const other of nodes) {
-        if (other.__mieAssets) applyLibrary(other, { force: true });
+        if (!other.__mieAssets) continue;
+        applyLibrary(other, { force: true });
+        // 刷新预览缩略图：保存改了库内容后，Load/Save 节点上的旧图必须
+        // 消失（下拉选项由 applyLibrary 刷新；缩略图在这里补刷）。
+        if (other.__mieAssets.cfg?.preview) refreshLoadPreview(other);
+        if (other.__mieAssets.cfg?.save) refreshSavePreview(other, { autofill: false });
     }
 });
 
@@ -188,6 +197,44 @@ function wireNode(node, cfg) {
     }).serialize = false;
 
     if (cfg.save) {
+        // 保存是 OUTPUT_NODE：点「执行/Queue」才真正落盘。这个按钮就是
+        // 那一步——排队当前图（等价按 Queue），保存节点会随队列执行。
+        if (typeof node.addDOMWidget === "function") {
+            const wrap = document.createElement("div");
+            wrap.className = "mie-save-apply";
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = "mie-media-btn mie-save-btn";
+            btn.innerHTML = "<span class='mie-media-btn-icon'>💾</span> 应用保存（执行）";
+            btn.title = "把当前 widget/上传选择排入 ComfyUI 队列执行——保存节点是输出节点，队列跑完即写入资产库（等价于点 Queue）";
+            btn.addEventListener("click", () => {
+                btn.disabled = true;
+                btn.classList.add("busy");
+                try {
+                    app.queuePrompt();
+                    app.extensionManager?.toast?.add?.({
+                        severity: "info", summary: "已加入队列",
+                        detail: "保存节点将在本次执行中写入资产库",
+                        life: 3000,
+                    });
+                } catch (err) {
+                    app.extensionManager?.toast?.add?.({
+                        severity: "error", summary: "排队失败",
+                        detail: String(err).slice(0, 160), life: 5000,
+                    });
+                } finally {
+                    setTimeout(() => {
+                        btn.disabled = false;
+                        btn.classList.remove("busy");
+                    }, 600);
+                }
+            });
+            wrap.append(btn);
+            const w = node.addDOMWidget("应用保存", "mie-save-apply", wrap, {
+                serialize: false, hideOnZoom: false, getHeight: () => 40,
+            });
+            w.serialize = false;
+        }
         const nameWidget = node.widgets.find((w) => w.name === "name");
         const origNameCallback = nameWidget?.callback;
         if (nameWidget) {
@@ -468,6 +515,9 @@ function ensureStyles() {
         ".mie-media-btn:hover{filter:brightness(1.15)}",
         ".mie-media-btn:active{transform:translateY(1px)}",
         ".mie-media-btn.busy{filter:saturate(.4) brightness(.9);cursor:wait}",
+        ".mie-save-apply{padding:2px 0}",
+        ".mie-save-apply .mie-save-btn{width:100%;padding:7px 14px;font-size:13px;", 
+        "background:linear-gradient(135deg,#2f9e6e,#4f7cff)}",
     ].join("");
     document.head.appendChild(pickerStyleEl);
 }
