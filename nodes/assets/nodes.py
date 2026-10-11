@@ -607,7 +607,11 @@ class LoadSceneAssetV2(LoadAssetV2):
 
 
 class _DeleteAssetBase(object):
-    """Shared delete-node plumbing: the confirm gate + status text."""
+    """Shared delete-node plumbing: the status text.
+
+    2026-10-11 ruling: no confirm OPTION — queueing an explicit Delete
+    node IS the confirmation. The interactive path (the 🗑 button on the
+    node) keeps its own two-click confirm."""
 
     CATEGORY = ASSETS_CATEGORY
 
@@ -621,14 +625,8 @@ class _DeleteAssetBase(object):
 
     _KIND = "character"
 
-    def _delete(self, name, confirm, delete_fn, kind=None):
+    def _delete(self, name, delete_fn, kind=None):
         kind = kind or self._KIND
-        if not confirm:
-            raise RuntimeError(
-                "%s delete was DISARMED: 「confirm 确认删除」is off on this "
-                "node — flip it back to True, then queue again. Nothing was "
-                "deleted." % kind
-            )
         result = delete_fn("", name)
         status = (
             "deleted %s %r (%d file(s) under %s) — Load nodes referencing it "
@@ -643,8 +641,9 @@ class DeleteAsset(_DeleteAssetBase):
     """Unified delete node: kind dropdown picks character or scene.
 
     The name dropdown lists only the chosen kind; the preview panel shows
-    what is about to be deleted; confirm must be flipped to True
-    (deliberate two-step for a destructive action)."""
+    what is about to be deleted. Queuing this node is the confirmation —
+    it deletes immediately when the queue runs (the interactive 🗑 button
+    keeps its own two-click confirm)."""
 
     CATEGORY = ASSETS_CATEGORY
 
@@ -656,18 +655,8 @@ class DeleteAsset(_DeleteAssetBase):
                 "library_dir": ("STRING", {"default": ""}),
                 "name": (list(NAME_PLACEHOLDER), {
                     "default": NAME_PLACEHOLDER[0],
-                    "tooltip": "要删除的资产：下拉只列所选类型里已有的资产。\n"
-                               "Asset to delete: the dropdown lists existing assets of the chosen kind only.",
-                }),
-                "confirm": ("BOOLEAN", {
-                    "default": True,
-                    "tooltip": "删除是破坏性操作：默认开启——选好名字排队执行即"
-                               "删除；若翻成 False 再排队，只会报错提醒、什么都不"
-                               "删（防误触的反向闸）。\n"
-                               "Destructive: ON by default — queueing with a picked "
-                               "name deletes it. Flip to False and the queue only "
-                               "raises a loud reminder, deleting nothing (the "
-                               "reverse safety gate).",
+                    "tooltip": "要删除的资产：下拉只列所选类型里已有的资产。排队执行即删除（无确认开关）。\n"
+                               "Asset to delete: lists existing assets of the chosen kind only. Queueing deletes it (no confirm toggle).",
                 }),
             },
         }
@@ -677,10 +666,10 @@ class DeleteAsset(_DeleteAssetBase):
     FUNCTION = "delete"
     OUTPUT_NODE = True
 
-    def delete(self, kind="character", library_dir="", name="", confirm=False):
+    def delete(self, kind="character", library_dir="", name=""):
         delete_fn = (library.delete_scene if kind == "scene"
                      else library.delete_character)
-        return self._delete(name, confirm, delete_fn, kind)
+        return self._delete(name, delete_fn, kind)
 
 
 class DeleteCharacterAsset(DeleteAsset):
@@ -696,9 +685,8 @@ class DeleteCharacterAsset(DeleteAsset):
 
     FUNCTION = "delete_character"
 
-    def delete_character(self, library_dir="", name="", confirm=False):
-        return self.delete("character", library_dir=library_dir,
-                           name=name, confirm=confirm)
+    def delete_character(self, library_dir="", name=""):
+        return self.delete("character", library_dir=library_dir, name=name)
 
 
 class DeleteSceneAsset(DeleteAsset):
@@ -714,9 +702,8 @@ class DeleteSceneAsset(DeleteAsset):
 
     FUNCTION = "delete_scene"
 
-    def delete_scene(self, library_dir="", name="", confirm=False):
-        return self.delete("scene", library_dir=library_dir,
-                           name=name, confirm=confirm)
+    def delete_scene(self, library_dir="", name=""):
+        return self.delete("scene", library_dir=library_dir, name=name)
 
 
 class AssetToSlots(object):

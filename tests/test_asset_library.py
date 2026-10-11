@@ -1014,21 +1014,20 @@ def test_delete_casefold_matches_disk_spelling(lib_dir):
     assert not (Path(lib_dir) / "characters" / "MiXeD").exists()
 
 
-def test_delete_node_confirm_gate_and_run(lib_dir, monkeypatch, tmp_path):
+def test_delete_node_deletes_on_queue(lib_dir, monkeypatch, tmp_path):
     from nodes.assets import nodes as asset_nodes
 
     monkeypatch.setenv(library.LIBRARY_DIR_ENV, str(lib_dir))
     library.save_character(str(lib_dir), "NodeDel", "d", "v", [make_png()], [])
     node = asset_nodes.DeleteCharacterAsset()
-    with pytest.raises(RuntimeError, match="confirm"):
-        node.delete_character(name="NodeDel", confirm=False)
-    assert (Path(lib_dir) / "characters" / "NodeDel").exists()  # untouched
-    out_name, status = node.delete_character(name="NodeDel", confirm=True)
+    # 2026-10-11 ruling: no confirm option — queueing IS the confirmation.
+    assert "confirm" not in asset_nodes.DeleteAsset.INPUT_TYPES()["required"]
+    out_name, status = node.delete_character(name="NodeDel")
     assert out_name == "NodeDel" and "deleted character" in status
     assert "NodeDel" not in library.list_characters(str(lib_dir))
     # scene twin
     library.save_scene(str(lib_dir), "Sdel", "d", [make_png()])
-    _, sstatus = asset_nodes.DeleteSceneAsset().delete_scene(name="Sdel", confirm=True)
+    _, sstatus = asset_nodes.DeleteSceneAsset().delete_scene(name="Sdel")
     assert "deleted scene" in sstatus
     # combo exemption inherited
     assert asset_nodes.DeleteCharacterAsset.VALIDATE_INPUTS("任意手打名字") is True
@@ -1146,7 +1145,7 @@ def test_unified_load_both_kinds(lib_dir, monkeypatch):
     assert s[5]["kind"] == "scene"
 
 
-def test_unified_delete_confirm_gate_and_kinds(lib_dir, monkeypatch):
+def test_unified_delete_kinds(lib_dir, monkeypatch):
     from nodes.assets.nodes import DeleteAsset, SaveAssetV2
 
     monkeypatch.setenv(library.LIBRARY_DIR_ENV, str(lib_dir))
@@ -1160,9 +1159,9 @@ def test_unified_delete_confirm_gate_and_kinds(lib_dir, monkeypatch):
         image=png_bytes_list_to_image_tensor([make_png((4, 4, 4))]),
     )
     node = DeleteAsset()
-    with pytest.raises(RuntimeError, match="confirm"):
-        node.delete(kind="scene", name="S1", confirm=False)
-    name, status = node.delete(kind="scene", name="S1", confirm=True)
+    # no confirm option anywhere (2026-10-11 ruling); queueing deletes
+    assert "confirm" not in node.INPUT_TYPES()["required"]
+    name, status = node.delete(kind="scene", name="S1")
     assert name == "S1" and "deleted scene" in status
     assert not (lib_dir / "scenes" / "S1").exists()
     assert (lib_dir / "characters" / "C1").exists()  # other kind untouched
@@ -1210,12 +1209,3 @@ def test_assets_to_roster_collects_and_validates():
     assert "character_9" in AssetsToRoster.INPUT_TYPES()["optional"]
 
 
-def test_delete_confirm_defaults_on():
-    """2026-10-11 ruling: confirm ships ON — picking a name and queueing
-    deletes; flipping it off is the opt-out safety gate."""
-    from nodes.assets import nodes as A
-
-    spec = A.DeleteAsset.INPUT_TYPES()["required"]["confirm"][1]
-    assert spec["default"] is True
-    for cls in (A.DeleteCharacterAsset, A.DeleteSceneAsset):
-        assert cls.INPUT_TYPES()["required"]["confirm"][1]["default"] is True
