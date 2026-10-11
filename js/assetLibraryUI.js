@@ -137,6 +137,7 @@ app.registerExtension({
         nodeType.prototype.onConfigure = function () {
             origConfigure?.apply(this, arguments);
             if (cfg.save) syncNewNameVisibility(this);
+            syncAllFields(this);  // 工作流加载后把隐藏值刷进自有控件
             applyLibrary(this);
             if (cfg.save) refreshSavePreview(this, { autofill: false });
             if (cfg.preview) refreshLoadPreview(this);
@@ -418,7 +419,41 @@ function wireNode(node, cfg) {
                 refreshSavePreview(node, { autofill: true });
             };
         }
-        makeNewNameField(node);
+        makeAssetNameSelector(node, cfg);
+        const isScene = cfg.save === "scene";
+        makeTextField(
+            node, "description",
+            isScene
+                ? "description · 场景描述 Scene description（EN 60–100 词 words）"
+                : "description · 角色外观描述 Character appearance（EN 60–100 词 words）",
+            isScene
+                ? "例 e.g.: A cozy family living room at night, beige sofa against the left wall, warm floor lamp…"
+                : "例 e.g.: A kind elderly Chinese grandfather, 68 years old, short silver-white hair…",
+            isScene
+                ? "空间/陈设/光线/氛围，写清什么在什么位置。\nSpace, furniture, lighting, atmosphere; state what stands where."
+                : "只写长相事实（年龄/发型/脸型/着装/体型），H3 用它当身份参考。\nLooks only (age/hair/face/wardrobe/build); the H3 chain uses it as the identity reference."
+        );
+        if (!isScene) {
+            makeTextField(
+                node, "voice",
+                "voice · 音色描述 Voice timbre（EN 一行 one line，≤200 字符 chars）",
+                "例 e.g.: adult male, low thick steady voice, warm cheerful undertone, unhurried pace",
+                "年龄/性别/音域/语速/质感的一行英文描述。\nOne-line English descriptor: age/gender/register/pace/texture."
+            );
+        }
+        // Auto 变体的两个提示词框（widget 不存在时自动跳过）。
+        makeTextField(
+            node, "image_prompt",
+            "image_prompt · 图像描述提示词 Image hint（可选 optional）",
+            "给描述 LLM 的先验：气质/着装/必须写进的事实，任意语言 · author prior for the description call",
+            "留空 = 纯看图起草；填了作为 Author notes 附进描述调用。\nEmpty = draft from the picture alone; filled = appended as Author notes."
+        );
+        makeTextField(
+            node, "voice_prompt",
+            "voice_prompt · 音色提示词 Voice hint（可选 optional）",
+            "真实音色只能在这里告诉它（它听不到音频）· ground-truth timbre goes here",
+            "留空 = 从名字+外观推断；填了覆盖纯推断。\nEmpty = inferred from name+looks; filled = followed over the inference."
+        );
         makeMediaPicker(
             node, "image_upload", "image",
             ".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp",
@@ -441,6 +476,7 @@ function wireNode(node, cfg) {
                 refreshLoadPreview(node);
             };
         }
+        makeAssetNameSelector(node, cfg);
         makePreviewWidget(node);
     }
 
@@ -470,7 +506,9 @@ function applyLibrary(node, { force = false } = {}) {
         if (!nameWidget) return;
         const values = bareEntries(payload, cfg.kinds);
         if (cfg.save) values.unshift(NEW_NAME);
-        setComboOptions(nameWidget, values);
+        const filler = node.__mieAssets?.fillNames;
+        if (filler) filler(values);
+        else setComboOptions(nameWidget, values);
         if (cfg.save) syncNewNameVisibility(node);
         node.setDirtyCanvas?.(true, true);
     });
@@ -616,43 +654,111 @@ function makeMediaPicker(node, stateName, kind, accept, endpoint, field, icon, l
     widget.serialize = false;
 }
 
-// ---- 保存节点：new_name 输入框（紧跟 name 下拉） -----------------------------
-// Python 声明的 new_name widget 永久隐藏——它仍是序列化载体，且可序列化
-// widget 的位置参与 widgets_values 的顺序映射，不能挪。可见 UI 换成一个
-// serialize:false 的 DOM 输入框，插在 name 正下方：选「（✏️ 新名字…）」
-// 才出现，值与隐藏 widget 双向同步（位置自由已按 1.53/1.55 核实）。
-function makeNewNameField(node) {
+
+// ---- 资产名选择器：已有资产下拉 + 新建输入（两个独立控件） -------------------
+// Python 声明的 name（combo）/new_name（STRING）widget 永久隐藏，仍是唯一
+// 序列化载体（可序列化 widget 的位置参与 widgets_values 映射，不能动）。
+// 可见 UI：已有资产下拉（选 = 覆盖）+ 新建输入（输入即新建，保存节点才有），
+// 两者互斥联动：填新建清空选择，选已有清空新建。
+function makeAssetNameSelector(node, cfg) {
     const nameWidget = node.widgets?.find((w) => w.name === "name");
-    const hidden = node.widgets?.find((w) => w.name === "new_name");
-    if (!nameWidget || !hidden) return;
+    if (!nameWidget) return;
     if (typeof node.addDOMWidget !== "function") {
-        // 退化路径：直接显隐原生 widget（无 DOM 控件环境）。
-        node.__mieAssets.syncNewName = () => {
-            hidden.hidden = !(nameWidget.value || "").includes(NEW_NAME);
-            node.setDirtyCanvas?.(true, true);
-        };
-        node.__mieAssets.syncNewName();
+        // 退化路径：保留原生 combo（由 applyLibrary 直接填充）。
+        node.__mieAssets.fillNames = (values) => setComboOptions(nameWidget, values);
         return;
     }
-    hidden.hidden = true;
+    const newNameWidget = node.widgets?.find((w) => w.name === "new_name");
+    nameWidget.hidden = true;
+    if (newNameWidget) newNameWidget.hidden = true;
 
     const wrap = document.createElement("div");
-    wrap.className = "mie-newname";
-    const label = document.createElement("span");
-    label.className = "mie-newname-label";
-    label.textContent = "新名字 New name";
-    const input = document.createElement("input");
-    input.type = "text";
-    input.className = "mie-newname-input";
-    input.placeholder = "输入新资产的名字 · type the new name";
-    input.addEventListener("input", () => {
-        hidden.value = input.value;
-    });
-    wrap.append(label, input);
+    wrap.className = "mie-namesel";
 
-    const w = node.addDOMWidget("新名字", "mie-new-name", wrap, {
+    const mkLabel = (text, tip) => {
+        const s = document.createElement("span");
+        s.className = "mie-field-label";
+        s.textContent = text;
+        if (tip) s.title = tip;
+        return s;
+    };
+
+    // -- 已有资产 ---------------------------------------------------------
+    const exBlock = document.createElement("div");
+    exBlock.className = "mie-field";
+    exBlock.append(mkLabel(
+        "已有资产 · Existing asset",
+        "下拉选择库里已有的资产：保存节点 = 覆盖它；Load/Delete = 读取/删除它。\nPick an existing library asset: save nodes overwrite it, Load/Delete read/delete it."
+    ));
+    const sel = document.createElement("select");
+    sel.className = "mie-field-input";
+    const exPh = document.createElement("option");
+    exPh.value = "";
+    exPh.textContent = "（选择已有资产 · pick an existing asset）";
+    sel.append(exPh);
+    exBlock.append(sel);
+
+    // -- 新建资产（保存节点） ----------------------------------------------
+    let newInput = null;
+    if (cfg.save && newNameWidget) {
+        const newBlock = document.createElement("div");
+        newBlock.className = "mie-field";
+        newBlock.append(mkLabel(
+            "新建资产 · New asset",
+            "在这里输入名字 = 新建资产（与上面的下拉互斥：输入会清空选择）。\nTyping here means CREATE a new asset (mutually exclusive with the dropdown)."
+        ));
+        newInput = document.createElement("input");
+        newInput.type = "text";
+        newInput.className = "mie-field-input";
+        newInput.placeholder = "输入新名字即新建 · type a name to create";
+        newBlock.append(newInput);
+        wrap.append(exBlock, newBlock);
+    } else {
+        wrap.append(exBlock);
+    }
+
+    const syncFromHidden = () => {
+        const v = nameWidget.value || "";
+        const isNew = v.includes(NEW_NAME);
+        if (isNew) {
+            sel.value = "";
+            if (newInput && document.activeElement !== newInput) {
+                newInput.value = newNameWidget.value || "";
+            }
+        } else {
+            if (newInput && document.activeElement !== newInput) newInput.value = "";
+            if (v && v !== PLACEHOLDER &&
+                ![...sel.options].some((o) => o.value === v)) {
+                // 老工作流/暂未扫描到的名字：保留为选项，不吞值。
+                const opt = document.createElement("option");
+                opt.value = v;
+                opt.textContent = v;
+                sel.append(opt);
+            }
+            sel.value = (v && v !== PLACEHOLDER) ? v : "";
+        }
+    };
+
+    sel.addEventListener("change", () => {
+        nameWidget.value = sel.value || PLACEHOLDER;
+        if (sel.value && newNameWidget) newNameWidget.value = "";
+        if (newInput) newInput.value = "";
+        nameWidget.callback?.(nameWidget.value);
+        node.setDirtyCanvas?.(true, true);
+    });
+    if (newInput) {
+        newInput.addEventListener("input", () => {
+            newNameWidget.value = newInput.value;
+            nameWidget.value = newInput.value ? NEW_NAME : PLACEHOLDER;
+            if (newInput.value) sel.value = "";
+            nameWidget.callback?.(nameWidget.value);
+            node.setDirtyCanvas?.(true, true);
+        });
+    }
+
+    const w = node.addDOMWidget("资产名 Name", "mie-name-select", wrap, {
         serialize: false, hideOnZoom: false,
-        getHeight: () => Math.max(28, wrap.offsetHeight + 4),
+        getHeight: () => Math.max(48, wrap.offsetHeight + 6),
     });
     w.serialize = false;
     const at = node.widgets.indexOf(nameWidget);
@@ -662,15 +768,75 @@ function makeNewNameField(node) {
         node.widgets.splice(at + 1, 0, w);
     }
 
-    node.__mieAssets.syncNewName = () => {
-        const show = (nameWidget.value || "").includes(NEW_NAME);
-        w.hidden = !show;
-        if (show && document.activeElement !== input) {
-            input.value = hidden.value || "";
+    node.__mieAssets.fillNames = (values) => {
+        const keep = sel.value;
+        sel.innerHTML = "";
+        sel.append(exPh.cloneNode(true));
+        for (const v of values) {
+            if (v === NEW_NAME || v === PLACEHOLDER) continue;
+            const opt = document.createElement("option");
+            opt.value = v;
+            opt.textContent = v;
+            sel.append(opt);
         }
-        node.setDirtyCanvas?.(true, true);
+        if (keep && ![...sel.options].some((o) => o.value === keep)) {
+            const opt = document.createElement("option");
+            opt.value = keep;
+            opt.textContent = keep;
+            sel.append(opt);
+        }
+        sel.value = keep;
+        syncFromHidden();
     };
-    node.__mieAssets.syncNewName();
+    (node.__mieAssets.fieldSync ||= {}).__namesel = syncFromHidden;
+    syncFromHidden();
+}
+
+// ---- 自有文本框：label + placeholder 示例，原生 widget 隐藏作序列化载体 ------
+function makeTextField(node, widgetName, label, placeholder, tooltip) {
+    const w = node.widgets?.find((x) => x.name === widgetName);
+    if (!w || typeof node.addDOMWidget !== "function") return;
+    w.hidden = true;
+
+    const wrap = document.createElement("div");
+    wrap.className = "mie-field mie-textfield";
+    const lab = document.createElement("span");
+    lab.className = "mie-field-label";
+    lab.textContent = label;
+    if (tooltip) lab.title = tooltip;
+    const ta = document.createElement("textarea");
+    ta.className = "mie-field-area";
+    ta.placeholder = placeholder;
+    if (tooltip) ta.title = tooltip;
+    ta.value = w.value || "";
+    ta.addEventListener("input", () => {
+        w.value = ta.value;
+    });
+    ta.addEventListener("blur", () => relayoutNode(node));
+    wrap.append(lab, ta);
+
+    const dw = node.addDOMWidget(widgetName + " 字段", "mie-text-field", wrap, {
+        serialize: false, hideOnZoom: false,
+        getHeight: () => Math.max(52, wrap.offsetHeight + 6),
+    });
+    dw.serialize = false;
+    const at = node.widgets.indexOf(w);
+    const cur = node.widgets.indexOf(dw);
+    if (at >= 0 && cur !== at + 1) {
+        node.widgets.splice(cur, 1);
+        node.widgets.splice(at + 1, 0, dw);
+    }
+    (node.__mieAssets.fieldSync ||= {})[widgetName] = () => {
+        if (document.activeElement !== ta) ta.value = w.value || "";
+    };
+}
+
+// 外部改了隐藏 widget 的值（configure 回填、选名字 autofill）后，把自有
+// 控件刷成一致。
+function syncAllFields(node) {
+    const syncs = node.__mieAssets?.fieldSync;
+    if (!syncs) return;
+    for (const fn of Object.values(syncs)) fn();
 }
 
 function syncNewNameVisibility(node) {
@@ -699,6 +865,7 @@ async function refreshSavePreview(node, { autofill }) {
             const widget = node.widgets.find((w) => w.name === field);
             if (widget) widget.value = meta[field] || "";
         }
+        syncAllFields(node);  // 把回填刷进自有文本框
         node.setDirtyCanvas?.(true, true);
     }
     renderPreviewState(node, { mode: "existing", meta, kind });
@@ -743,7 +910,8 @@ function ensureStyles() {
         ".badge.diff{background:#5a3535;color:#f3b6b6}",
         ".mie-pv-hint{font-size:11px;opacity:.55;padding:8px 2px}",
         ".mie-media{padding:2px 0 4px;border:1px solid var(--border-color,#444);",
-        "border-radius:10px;background:rgba(127,156,245,.06)}",
+        "border-radius:10px;background:rgba(127,156,245,.06);",
+        "width:100%;box-sizing:border-box;overflow:hidden}",
         ".mie-media.drag{border-color:#7f9cf5;background:rgba(127,156,245,.14)}",
         ".mie-media-head{display:flex;align-items:center;gap:6px;padding:4px 10px 0;",
         "font-size:12px;font-weight:600;color:var(--descrip-text,#c9d4e8)}",
@@ -759,6 +927,16 @@ function ensureStyles() {
         ".mie-media-btn:hover{filter:brightness(1.15)}",
         ".mie-media-btn:active{transform:translateY(1px)}",
         ".mie-media-btn.busy{filter:saturate(.4) brightness(.9);cursor:wait}",
+        ".mie-namesel{display:flex;flex-direction:column;gap:6px;padding:2px 0}",
+        ".mie-field{display:flex;flex-direction:column;gap:3px;width:100%;",
+        "box-sizing:border-box}",
+        ".mie-field-label{font-size:11px;font-weight:600;opacity:.85;",
+        "white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
+        ".mie-field-input,.mie-field-area{width:100%;box-sizing:border-box;",
+        "font-size:12px;font-family:inherit;padding:4px 8px;",
+        "border:1px solid var(--border-color,#555);border-radius:8px;",
+        "background:var(--comfy-input-bg,#1e1e1e);color:var(--input-text,#ddd)}",
+        ".mie-field-area{min-height:52px;resize:vertical;line-height:1.45}",
         ".mie-newname{display:flex;gap:6px;align-items:center;padding:2px 0}",
         ".mie-newname-label{font-size:12px;white-space:nowrap;opacity:.85}",
         ".mie-newname-input{flex:1;min-width:0;font-size:12px;padding:4px 8px;",
