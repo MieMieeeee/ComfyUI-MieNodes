@@ -821,7 +821,15 @@ class AssetsToRoster(object):
     like the generator's — and the single ``assets`` output feeds Asset
     -> Slots. Slot order matches the generator's rule: characters (index
     order) first, then scenes (index order) = ``<Picture N>``, so the
-    plan-side contract carries over unchanged."""
+    plan-side contract carries over unchanged.
+
+    Order GUARANTEE when the prompt came from the generator V2 (or any
+    saved plan): wire the plan's ``plan_json`` into the optional input
+    and collect() cross-checks every slot against the plan's authored
+    roster block (``<Picture N> is 名字: 描述`` lines the generator
+    writes into prompt_prefix) — a hand-maintained wiring order that
+    disagrees with the plan is a LOUD error naming both sides, never a
+    silent wrong-face video."""
 
     CATEGORY = ASSETS_CATEGORY
 
@@ -840,13 +848,106 @@ class AssetsToRoster(object):
                 SCENE_ASSET_TYPE,
                 {"tooltip": "接 Load Asset（场景）的 asset 输出；排在全部角色之后。\nWire a scene Load Asset's asset output; scenes come after all characters."},
             )
+        optional["plan_json"] = (
+            "STRING",
+            {
+                "default": "",
+                "multiline": True,
+                "placeholder": "（可选）接 Prompt Generator V2 的 plan_json 校验顺序 · optional plan_json order check",
+                "tooltip": "接上后逐槽校验：<Picture N> 名单与本节点插座顺序必须一致，不一致会明确报错（而不是悄悄换脸）。\n"
+                           "接 V2 生成器时更推荐直接用它的 assets 输出（构造即对齐）；本输入面向「提示词已生成、资产另行接线」的场景。\n"
+                           "When wired, every slot is cross-checked against the plan's authored roster; a mismatch is a loud error, never a silent wrong-face video. With the generator still in the graph, prefer wiring its assets output directly.",
+            },
+        )
         return {"required": {}, "optional": optional}
 
     RETURN_TYPES = (ASSET_ROSTER_TYPE,)
     RETURN_NAMES = ("assets",)
     FUNCTION = "collect"
 
+    @staticmethod
+    def plan_roster_expectations(plan_json):
+        """Parse the authored-roster lines out of a plan_json string.
+
+        The generator V2 writes blocks like::
+
+            Authored character roster (binding — ground truth, not a guess):
+              <Picture 1> is 孙女: <appearance>
+            Authored scene roster ...:
+              <Picture 3> is 客厅 (scene): <appearance>
+
+        into ``prompt_prefix``. Returns the ordered list of
+        ``{slot, name, kind}`` (kind from the ``(scene)`` marker), or []
+        when the plan carries no roster block at all.
+        """
+        import json as _json
+        import re as _re
+
+        try:
+            plan = _json.loads(plan_json)
+        except Exception:
+            raise ValueError(
+                "plan_json 不是合法 JSON · plan_json is not valid JSON"
+            )
+        prefix = plan.get("prompt_prefix") if isinstance(plan, dict) else None
+        if not prefix:
+            return []
+        rx = _re.compile(
+            r"<Picture\s+(\d+)>\s+is\s+(.+?)(?:\s+\(scene\))?\s*:\s*(.*)$"
+        )
+        out = []
+        for line in prefix if isinstance(prefix, list) else [prefix]:
+            m = rx.search(str(line))
+            if m:
+                out.append({
+                    "slot": int(m.group(1)),
+                    "name": m.group(2).strip(),
+                    "kind": "scene" if "(scene)" in str(line) else "character",
+                })
+        out.sort(key=lambda e: e["slot"])
+        return out
+
+    def _check_against_plan(self, ordered, plan_json):
+        expected = self.plan_roster_expectations(plan_json)
+        if not expected:
+            raise ValueError(
+                "plan_json 里没有找到资产名单块（<Picture N> is 名字: …）——"
+                "这份计划可能不是「接了资产插座」生成的。要么换成带名单的 plan_json，"
+                "要么断开本输入（不校验）。\n"
+                "plan_json carries no authored roster block (<Picture N> is ... "
+                "lines) — the plan was likely generated WITHOUT wired asset "
+                "sockets. Wire a plan that has one, or disconnect this input "
+                "(no check)."
+            )
+        plan_side = " -> ".join(
+            "Picture %d=%s(%s)" % (e["slot"], e["name"], e["kind"])
+            for e in expected
+        )
+        wired_side = " -> ".join(
+            "Picture %d=%s(%s)" % (i + 1, b["name"], b.get("kind"))
+            for i, b in enumerate(ordered)
+        )
+        if len(expected) != len(ordered):
+            raise ValueError(
+                "插座顺序与计划不一致 · roster/plan order mismatch: plan has "
+                "%d picture(s) [%s], but %d asset(s) wired [%s]"
+                % (len(expected), plan_side, len(ordered), wired_side)
+            )
+        for i, exp in enumerate(expected):
+            got = ordered[i]
+            if exp["slot"] != i + 1 or exp["name"] != got["name"] \
+                    or exp["kind"] != got.get("kind"):
+                raise ValueError(
+                    "插座顺序与计划不一致 · roster/plan order mismatch at "
+                    "Picture %d: plan says %s (%s), wired %s (%s). Fix the "
+                    "character_N/scene_N wiring order (characters first, then "
+                    "scenes, by index). 按计划顺序重接插座。\nplan: [%s]\nwired: [%s]"
+                    % (i + 1, exp["name"], exp["kind"], got["name"],
+                       got.get("kind"), plan_side, wired_side)
+                )
+
     def collect(self, **slots):
+        plan_json = slots.pop("plan_json", "") or ""
         ordered = []
         for prefix, kind in (("character", "character"), ("scene", "scene")):
             for i in range(1, self.MAX_SLOTS + 1):
@@ -870,4 +971,6 @@ class AssetsToRoster(object):
                 "%d assets wired; at most %d pictures are supported"
                 % (len(ordered), self.MAX_SLOTS)
             )
+        if (plan_json or "").strip():
+            self._check_against_plan(ordered, plan_json)
         return (ordered,)
