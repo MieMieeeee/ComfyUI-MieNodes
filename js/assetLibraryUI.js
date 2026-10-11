@@ -277,7 +277,8 @@ function wireNode(node, cfg) {
     // 库位置固定：widget 永久隐藏（不再有翻出来编辑的入口）。
     dirWidget.hidden = true;
 
-    // 统一节点：kind 下拉一变，整个节点换一种资产形态（见 adaptKind）。
+    // 统一节点：kind 一变，整个节点换一种资产形态（见 adaptKind）。原生
+    // combo 隐藏作序列化载体，可见 UI 换成中英双语的分段按钮开关。
     if (cfg.kindWidget) {
         const kindW = node.widgets?.find((w) => w.name === "kind");
         if (kindW) {
@@ -287,6 +288,7 @@ function wireNode(node, cfg) {
                 adaptKind(node);
             };
         }
+        makeKindToggle(node);
     }
 
     // 「📂 打开文件夹」请求固定端点，打开解析出的那一个目录。
@@ -479,11 +481,11 @@ function wireNode(node, cfg) {
         // 旧单类型节点维持按类型条件创建。
         const isScene = cfg.save === "scene";
         const descWord = (scene) => scene ? {
-            label: "description · 场景描述 Scene description（EN 60–100 词 words）",
+            label: "场景描述 · Scene description（英文 EN 60–100 词 words）",
             ph: "例 e.g.: A cozy family living room at night, beige sofa against the left wall, warm floor lamp…",
             tip: "空间/陈设/光线/氛围，写清什么在什么位置。\nSpace, furniture, lighting, atmosphere; state what stands where.",
         } : {
-            label: "description · 角色外观描述 Character appearance（EN 60–100 词 words）",
+            label: "角色外观描述 · Character appearance（英文 EN 60–100 词 words）",
             ph: "例 e.g.: A kind elderly Chinese grandfather, 68 years old, short silver-white hair…",
             tip: "只写长相事实（年龄/发型/脸型/着装/体型），H3 用它当身份参考。\nLooks only (age/hair/face/wardrobe/build); the H3 chain uses it as the identity reference.",
         };
@@ -494,33 +496,33 @@ function wireNode(node, cfg) {
         const wantVoice = cfg.kindWidget || !isScene;
         const voiceField = wantVoice ? makeTextField(
             node, "voice",
-            "voice · 音色描述 Voice timbre（EN 一行 one line，≤200 字符 chars，仅角色 · character only）",
+            "音色描述 · Voice timbre（英文一行 EN one line，≤200 字符 chars，仅角色 · character only）",
             "例 e.g.: adult male, low thick steady voice, warm cheerful undertone, unhurried pace",
             "年龄/性别/音域/语速/质感的一行英文描述；场景类型忽略本字段。\nOne-line English descriptor: age/gender/register/pace/texture; ignored for scenes."
         ) : null;
         // Auto 变体的两个提示词框（widget 不存在时自动跳过）。
         makeTextField(
             node, "image_prompt",
-            "image_prompt · 描述提示词 Image hint（可选 optional）",
+            "描述提示词（可选） · Image hint (optional)",
             "给描述 LLM 的先验：气质/着装/必须写进的事实，任意语言 · author prior for the description call",
             "留空 = 纯看图起草；填了作为 Author notes 附进描述调用。\nEmpty = draft from the picture alone; filled = appended as Author notes."
         );
         const voicePromptField = wantVoice ? makeTextField(
             node, "voice_prompt",
-            "voice_prompt · 音色提示词 Voice hint（可选 optional，仅角色 · character only）",
+            "音色提示词（可选，仅角色） · Voice hint (optional, character only)",
             "真实音色只能在这里告诉它（它听不到音频）· ground-truth timbre goes here",
             "留空 = 从名字+外观推断；填了覆盖纯推断；场景类型忽略本字段。\nEmpty = inferred from name+looks; filled = followed over the inference; ignored for scenes."
         ) : null;
         makeMediaPicker(
             node, "image_upload", "image",
             ".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp",
-            "/upload/image", "image", "🖼", "定妆图 Portrait"
+            "/upload/image", "image", "🖼", "定妆图 · Portrait"
         );
         const audioCard = (cfg.kindWidget || cfg.save === "character")
             ? makeMediaPicker(
                 node, "audio_upload", "audio",
                 ".wav,.mp3,audio/wav,audio/mpeg",
-                "/mie_nodes/assets/upload_audio", "audio", "🎵", "音色样本 Voice Sample"
+                "/mie_nodes/assets/upload_audio", "audio", "🎵", "音色样本 · Voice Sample"
             )
             : null;
         makePreviewWidget(node);
@@ -570,7 +572,59 @@ function wireNode(node, cfg) {
     if (cfg.kindWidget) adaptKind(node);
 }
 
-// ---- 统一节点：kind 下拉联动 --------------------------------------------------
+// ---- 统一节点：kind 类型开关（自有控件，中文在前 · 英文在后） ------------------
+// Python 的 kind combo 隐藏作序列化载体（值仍是 "character"/"scene"）；
+// 可见 UI 与资产名的模式开关同一造型家族的分段按钮，二选一高亮。
+function makeKindToggle(node) {
+    const kindW = node.widgets?.find((w) => w.name === "kind");
+    if (!kindW || typeof node.addDOMWidget !== "function") return;
+    kindW.hidden = true;
+
+    const wrap = document.createElement("div");
+    wrap.className = "mie-mode-row mie-kindrow";
+    const mk = (value, text, tip) => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "mie-mode-btn";
+        b.textContent = text;
+        b.title = tip;
+        b.addEventListener("click", () => {
+            if (kindW.value !== value) {
+                kindW.value = value;
+                kindW.callback?.(value);
+            }
+        });
+        return b;
+    };
+    wrap.append(
+        mk("character", "👤 角色 · Character",
+           "角色资产：有 voice 音色描述 + 音频样本。\nCharacter asset: voice descriptor + audio sample."),
+        mk("scene", "🏞 场景 · Scene",
+           "场景资产：只有描述 + 定妆图（音色/音频被忽略）。\nScene asset: description + image only (voice/audio ignored).")
+    );
+    const btns = [...wrap.querySelectorAll(".mie-mode-btn")];
+    const sync = () => {
+        const scene = (kindW.value || "character") === "scene";
+        btns[0].classList.toggle("active", !scene);
+        btns[1].classList.toggle("active", scene);
+    };
+    node.__mieAssets.syncKindToggle = sync;
+
+    const w = node.addDOMWidget("类型 · Kind", "mie-kind-toggle", wrap, {
+        serialize: false, hideOnZoom: false,
+    });
+    w.serialize = false;
+    fitDomWidget(w, wrap);
+    const at = node.widgets.indexOf(kindW);
+    const cur = node.widgets.indexOf(w);
+    if (at >= 0 && cur !== at + 1) {
+        node.widgets.splice(cur, 1);
+        node.widgets.splice(at + 1, 0, w);
+    }
+    sync();
+}
+
+// ---- 统一节点：kind 联动 --------------------------------------------------
 // cfg 的 save/preview/kinds 对旧节点是静态常量；统一节点（kindWidget）按
 // kind 值实时改写：折叠角色专属控件（voice / 音频卡片 / voice_prompt）、
 // 切 description 文案、按类型重过滤下拉名单、按类型刷预览。
@@ -583,6 +637,7 @@ function adaptKind(node) {
     if (cfg.save) cfg.save = scene ? "scene" : "character";
     if (cfg.preview) cfg.preview = scene ? "scene" : "character";
     cfg.kinds = [scene ? "scenes" : "characters"];
+    ui.syncKindToggle?.();
     ui.setKindVisibility?.(scene);
     ui.refreshKindTexts?.(scene);
     relayoutNode(node);
@@ -812,11 +867,11 @@ function makeAssetNameSelector(node, cfg) {
             return b;
         };
         btnEx = mkMode(
-            "📋 已有资产 Existing",
+            "📋 已有资产 · Existing",
             "从库里选一个已有资产：保存 = 覆盖它。\nPick an existing library asset: saving overwrites it."
         );
         btnNew = mkMode(
-            "✏️ 新建 New",
+            "✏️ 新建 · New",
             "输入名字新建资产（与「已有资产」互斥，二选一）；没填名字就执行会明确报错。\nType a name to CREATE a new asset (mutually exclusive with the picker); queueing without a name is a loud error."
         );
         modeRow.append(btnEx, btnNew);
@@ -902,7 +957,7 @@ function makeAssetNameSelector(node, cfg) {
         });
     }
 
-    const w = node.addDOMWidget("资产名 Name", "mie-name-select", wrap, {
+    const w = node.addDOMWidget("资产名 · Name", "mie-name-select", wrap, {
         serialize: false, hideOnZoom: false,
     });
     w.serialize = false;
@@ -1121,6 +1176,8 @@ function ensureStyles() {
         "background:rgba(128,150,180,.12);color:var(--input-text,#c8c8c8)}",
         ".mie-mode-btn.active{background:linear-gradient(135deg,#4f7cff,#7f5cff);",
         "color:#fff;border-color:transparent}",
+        // kind 开关（角色/场景）用青色系，与资产名开关（靛蓝）区分。
+        ".mie-kindrow .mie-mode-btn.active{background:linear-gradient(135deg,#2a7f8f,#3d5a80)}",
     ].join("");
     document.head.appendChild(pickerStyleEl);
 }

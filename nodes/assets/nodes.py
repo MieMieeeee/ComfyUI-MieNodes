@@ -324,7 +324,7 @@ class SaveAssetV2(object):
         "Asset name: 📋 Existing mode picks an asset to overwrite; ✏️ New mode types a name to create — the two are mutually exclusive."
     )
     _DESC_PLACEHOLDER = (
-        "description · 资产描述 Asset description（英文 EN 60–100 词 words）\n"
+        "资产描述 · Asset description（英文 EN 60–100 词 words）\n"
         "角色例 character e.g.: A kind elderly Chinese grandfather, 68 years old, short silver-white hair…\n"
         "场景例 scene e.g.: A cozy family living room at night, beige sofa against the left wall, warm floor lamp…"
     )
@@ -333,7 +333,7 @@ class SaveAssetV2(object):
         "English description (60-100 words). Character = looks only; scene = space, furniture, lighting, atmosphere."
     )
     _VOICE_PLACEHOLDER = (
-        "voice · 音色描述 Voice timbre（英文一行 EN one line，≤200 字符 chars，仅角色 · character only）\n"
+        "音色描述 · Voice timbre（英文一行 EN one line，≤200 字符 chars，仅角色 · character only）\n"
         "例 e.g.: adult male, low thick steady voice, warm cheerful undertone, unhurried pace"
     )
     _VOICE_TIP = (
@@ -363,7 +363,7 @@ class SaveAssetV2(object):
                     "placeholder": cls._VOICE_PLACEHOLDER,
                     "tooltip": cls._VOICE_TIP,
                 }),
-                "new_name": ("STRING", {"default": "", "placeholder": "新资产的名字 new asset name"}),
+                "new_name": ("STRING", {"default": "", "placeholder": "新资产的名字 · new asset name"}),
             },
             "optional": {
                 "image": ("IMAGE",),

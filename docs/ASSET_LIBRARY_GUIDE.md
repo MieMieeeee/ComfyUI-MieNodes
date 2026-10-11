@@ -42,7 +42,7 @@ MieNodes 的资产库把「跨镜头要重复用的角色和场景」存成磁�
 | 角色 | **一张图**（可以是三视图/角色设定图）+ 一句图片描述 + **一段音频** + 一句声音描述 |
 | 场景 | **一张图** + 一句图片描述 |
 
-（2026-10-11 合并裁定：**每个操作一个节点**——`Save Asset` / `Load Asset` / `Delete Asset` / `Save Asset (Auto)`，开头的 **kind 下拉**选 `character`/`scene`。切 kind 时整个节点跟着变形：角色专属的 voice 字段、音色样本卡片、voice_prompt（Auto）在 scene 下自动收起，description 的标签和示例切成场景措辞，资产名下拉只列所选类型的名字。输出侧两个类型各有一根**带类型的资产线**——`character_asset`（MIE_CHARACTER_ASSET）和 `scene_asset`（MIE_SCENE_ASSET），当前类型的那根有值、另一根为 None，直接接进生成器的 character_N / scene_N，类型安全不降级。）
+（2026-10-11 合并裁定：**每个操作一个节点**——`Save Asset` / `Load Asset` / `Delete Asset` / `Save Asset (Auto)`，开头的 **类型开关**（「👤 角色 · Character」/「🏞 场景 · Scene」分段按钮，二选一高亮；与资产名开关同一造型家族、青色系区分）选中资产类型。切换时整个节点跟着变形：角色专属的 voice 字段、音色样本卡片、voice_prompt（Auto）在 scene 下自动收起，description 的标签和示例切成场景措辞，资产名下拉只列所选类型的名字。输出侧两个类型各有一根**带类型的资产线**——`character_asset`（MIE_CHARACTER_ASSET）和 `scene_asset`（MIE_SCENE_ASSET），当前类型的那根有值、另一根为 None，直接接进生成器的 character_N / scene_N，类型安全不降级。）
 
 （旧的单类型 V2 节点——Save/Load Character/Scene Asset 及其 Auto 版——**没有删除**：它们从节点菜单里隐藏（CATEGORY=hidden），但旧工作流照常加载、行为不变；新工作流请用统一节点。2026-10-10 更早的裁定：V1 多图/多音频节点已整体移除，旧工作流里的 V1 节点会显示为缺失。）
 
@@ -52,7 +52,7 @@ MieNodes 的资产库把「跨镜头要重复用的角色和场景」存成磁�
 
 **保存怎么生效**：Save 节点是**输出节点**——改完 widget（名字、描述、上传选择）后需要**执行一次**（点 ComfyUI 的 Queue/执行按钮）才真正写入磁盘。节点底部有一个绿色大按钮「**💾 应用保存 · Save (Queue)**」（排在媒体卡片和预览面板之后），点了直接把当前图排入队列（等价 Queue），执行完弹「资产已保存」提示，同时**画布上所有资产节点的下拉和预览缩略图自动刷新**——保存后 Load 节点上看到旧图的情况不再出现（同一队列里 Load 若已用旧数据跑过，再执行一次即拿到新内容：Load 的缓存键是库文件的内容哈希，文件一变缓存必失效）。
 
-**描述不想手写？—— Save Asset (Auto) 节点**：它就是 Save Asset 节点（同样的 kind 下拉、名字开关、媒体卡片、应用保存按钮、覆盖语义），只多接一个 `llm_service_connector`。**留空的 description/voice 由 LLM 在同一次执行里起草并直接保存**；你填了的字段逐字保存，LLM 绝不重写。描述用 H3 生成器同一套 60–100 词英文身份描述 captioner（scene kind 用场景描述提示词）；音色从名字+外貌推断——**模型听不到音频**，wav/mp3 对它毫无区别；status 输出会标注哪些字段是 LLM 起草的（`LLM drafted description and voice`），听过样本后改字段再保存一次即可。
+**描述不想手写？—— Save Asset (Auto) 节点**：它就是 Save Asset 节点（同样的类型开关、名字开关、媒体卡片、应用保存按钮、覆盖语义），只多接一个 `llm_service_connector`。**留空的 description/voice 由 LLM 在同一次执行里起草并直接保存**；你填了的字段逐字保存，LLM 绝不重写。描述用 H3 生成器同一套 60–100 词英文身份描述 captioner（scene kind 用场景描述提示词）；音色从名字+外貌推断——**模型听不到音频**，wav/mp3 对它毫无区别；status 输出会标注哪些字段是 LLM 起草的（`LLM drafted description and voice`），听过样本后改字段再保存一次即可。
 两个可选提示词让 LLM 起草得更准：**描述提示词**（image_prompt，给描述调用的作者先验——气质/着装细节、必须写进的事实，任意语言）和**音色提示词**（voice_prompt，仅角色；音色 LLM 听不到音频，真实音色只能在这里告诉它，如「老年男声，沙哑，语速慢」）。提示词原样附在各自调用的 user 消息里作为 Author notes，系统提示词的风格契约（60–100 词英文、一行式音色描述）不变；留空则行为与不带提示词完全一致。scene kind 不做音色起草，voice_prompt 被忽略（UI 也收起）。
 注意：起草需要图。description 留空且既没接线也没选上传图时，节点会明确报错（接图或自己填描述二选一）。
 

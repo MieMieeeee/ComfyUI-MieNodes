@@ -193,7 +193,7 @@ class SaveAssetAutoV2(SaveAssetV2):
             {
                 "default": "",
                 "multiline": True,
-                "placeholder": "描述提示词（可选）· description prompt (optional)",
+                "placeholder": "描述提示词（可选） · Description prompt (optional)",
                 "tooltip": "给描述 LLM 的作者先验（可选）：角色 = 气质/着装/必须写进"
                     "的事实；场景 = 地点/时段/氛围/陈设事实；任意语言。空 = 纯看图"
                     "起草。\nAuthor prior for the description call (optional): "
@@ -206,7 +206,7 @@ class SaveAssetAutoV2(SaveAssetV2):
             {
                 "default": "",
                 "multiline": True,
-                "placeholder": "音色提示词（可选，仅角色 · character only）· voice prompt (optional)",
+                "placeholder": "音色提示词（可选，仅角色） · Voice prompt (optional, character only)",
                 "tooltip": "给音色 LLM 的作者先验（可选，仅角色类型）：它听不到音频，"
                     "真实音色只能在这里告诉它，如「老年男声，沙哑，语速慢」。空 = 从"
                     "名字+外观推断；场景类型忽略本字段。\nAuthor prior for the voice "
