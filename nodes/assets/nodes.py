@@ -48,20 +48,22 @@ def _validate_exempt(name, **_kwargs):
 
 
 def resolve_save_name(name, new_name):
-    """The save dropdown lists existing names plus a new-name sentinel.
+    """The save node's visible UI is a mode toggle (Existing / New).
 
-    Picking the sentinel means "I am creating a new asset" — the real name
-    comes from the new_name text field the frontend reveals for that
-    choice. Picking an existing name is an explicit overwrite intent.
+    The hidden name combo carries a new-name sentinel while "New" mode is
+    active — the real name comes from the new_name input. An existing name
+    (Existing mode) is an explicit overwrite intent.
     """
     name = (name or "").strip()
     new_name = (new_name or "").strip()
     if name == NEW_NAME_SENTINEL or (NEW_NAME_SENTINEL in (name or "")):
         if not new_name:
             raise ValueError(
-                "name is %r but new_name is empty: pick an existing name from "
-                "the dropdown to overwrite, or type the new asset's name in "
-                "new_name" % NEW_NAME_SENTINEL
+                "「✏️ 新建 New」模式已选中，但还没有输入新资产的名字：请在 ✏️ 新建 "
+                "New 的输入框里填名字，或切回 📋 已有资产 Existing 选择要覆盖的资产"
+                "。(New-asset mode is on but new_name is empty: type the new "
+                "asset's name in the ✏️ 新建 New input, or switch back to 📋 已有"
+                "资产 Existing and pick the asset to overwrite.)"
             )
         return new_name
     return name
@@ -306,8 +308,8 @@ class SaveCharacterAssetV2(object):
                 "library_dir": ("STRING", {"default": ""}),
                 "name": (list(NAME_PLACEHOLDER), {
                     "default": NAME_PLACEHOLDER[0],
-                    "tooltip": "资产名：下拉选已有名字 = 覆盖该资产；选「（✏️ 新名字…）」并在 new_name 里输入 = 新建。\n"
-                               "Asset name: pick an existing name to overwrite it, or pick the 新名字 sentinel and type new_name to create.",
+                    "tooltip": "资产名：📋 已有资产 Existing 模式下拉选名字 = 覆盖该资产；✏️ 新建 New 模式输入名字 = 新建（两者互斥二选一）。\n"
+                               "Asset name: 📋 Existing mode picks an asset to overwrite; ✏️ New mode types a name to create — the two are mutually exclusive.",
                 }),
                 "description": ("STRING", {
                     "default": "",
@@ -451,8 +453,8 @@ class SaveSceneAssetV2(object):
                 "library_dir": ("STRING", {"default": ""}),
                 "name": (list(NAME_PLACEHOLDER), {
                     "default": NAME_PLACEHOLDER[0],
-                    "tooltip": "资产名：下拉选已有名字 = 覆盖该资产；选「（✏️ 新名字…）」并在 new_name 里输入 = 新建。\n"
-                               "Asset name: pick an existing name to overwrite it, or pick the 新名字 sentinel and type new_name to create.",
+                    "tooltip": "资产名：📋 已有资产 Existing 模式下拉选名字 = 覆盖该资产；✏️ 新建 New 模式输入名字 = 新建（两者互斥二选一）。\n"
+                               "Asset name: 📋 Existing mode picks an asset to overwrite; ✏️ New mode types a name to create — the two are mutually exclusive.",
                 }),
                 "description": ("STRING", {
                     "default": "",

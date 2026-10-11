@@ -680,11 +680,16 @@ function makeMediaPicker(node, stateName, kind, accept, endpoint, field, icon, l
 }
 
 
-// ---- 资产名选择器：已有资产下拉 + 新建输入（两个独立控件） -------------------
+// ---- 资产名选择器：模式开关（已有资产 / 新建）+ 单控件 ----------------------
 // Python 声明的 name（combo）/new_name（STRING）widget 永久隐藏，仍是唯一
 // 序列化载体（可序列化 widget 的位置参与 widgets_values 映射，不能动）。
-// 可见 UI：已有资产下拉（选 = 覆盖）+ 新建输入（输入即新建，保存节点才有），
-// 两者互斥联动：填新建清空选择，选已有清空新建。
+// 可见 UI（2026-10-11 用户裁决：两者互斥，不能同时摆两个框）：保存节点用
+// 分段开关二选一，同一位置只显示当前模式的控件——
+//   [📋 已有资产 Existing] [✏️ 新建 New]   ← 模式开关（点谁显示谁）
+//   [ 下拉 或 输入框 ]                      ← 只有一个
+// 模式即互斥：切到「新建」name 立即变为 ✏️ 哨兵值（此时队列执行走 new_name，
+// 没填名字 Python 会明确报错）；切回「已有」name 变回所选名字。Load/Delete
+// 节点没有新建一说，仍是单下拉。
 function makeAssetNameSelector(node, cfg) {
     const nameWidget = node.widgets?.find((w) => w.name === "name");
     if (!nameWidget) return;
@@ -700,21 +705,17 @@ function makeAssetNameSelector(node, cfg) {
     const wrap = document.createElement("div");
     wrap.className = "mie-namesel";
 
-    const mkLabel = (text, tip) => {
-        const s = document.createElement("span");
-        s.className = "mie-field-label";
-        s.textContent = text;
-        if (tip) s.title = tip;
-        return s;
-    };
-
-    // -- 已有资产 ---------------------------------------------------------
+    // -- 已有资产控件 -------------------------------------------------------
     const exBlock = document.createElement("div");
     exBlock.className = "mie-field";
-    exBlock.append(mkLabel(
-        "已有资产 · Existing asset",
-        "下拉选择库里已有的资产：保存节点 = 覆盖它；Load/Delete = 读取/删除它。\nPick an existing library asset: save nodes overwrite it, Load/Delete read/delete it."
-    ));
+    if (!(cfg.save && newNameWidget)) {
+        // Load/Delete：没有模式开关，标签就是说明。
+        const lab = document.createElement("span");
+        lab.className = "mie-field-label";
+        lab.textContent = "已有资产 · Existing asset";
+        lab.title = "下拉选择库里已有的资产：Load/Delete = 读取/删除它。\nPick an existing library asset: Load/Delete read/delete it.";
+        exBlock.append(lab);
+    }
     const sel = document.createElement("select");
     sel.className = "mie-field-input";
     const exPh = document.createElement("option");
@@ -723,28 +724,76 @@ function makeAssetNameSelector(node, cfg) {
     sel.append(exPh);
     exBlock.append(sel);
 
-    // -- 新建资产（保存节点） ----------------------------------------------
+    // -- 新建控件 + 模式开关（保存节点） --------------------------------------
+    let newBlock = null;
     let newInput = null;
+    let btnEx = null;
+    let btnNew = null;
     if (cfg.save && newNameWidget) {
-        const newBlock = document.createElement("div");
+        const modeRow = document.createElement("div");
+        modeRow.className = "mie-mode-row";
+        const mkMode = (text, tip) => {
+            const b = document.createElement("button");
+            b.type = "button";
+            b.className = "mie-mode-btn";
+            b.textContent = text;
+            b.title = tip;
+            return b;
+        };
+        btnEx = mkMode(
+            "📋 已有资产 Existing",
+            "从库里选一个已有资产：保存 = 覆盖它。\nPick an existing library asset: saving overwrites it."
+        );
+        btnNew = mkMode(
+            "✏️ 新建 New",
+            "输入名字新建资产（与「已有资产」互斥，二选一）；没填名字就执行会明确报错。\nType a name to CREATE a new asset (mutually exclusive with the picker); queueing without a name is a loud error."
+        );
+        modeRow.append(btnEx, btnNew);
+
+        newBlock = document.createElement("div");
         newBlock.className = "mie-field";
-        newBlock.append(mkLabel(
-            "新建资产 · New asset",
-            "在这里输入名字 = 新建资产（与上面的下拉互斥：输入会清空选择）。\nTyping here means CREATE a new asset (mutually exclusive with the dropdown)."
-        ));
         newInput = document.createElement("input");
         newInput.type = "text";
         newInput.className = "mie-field-input";
-        newInput.placeholder = "输入新名字即新建 · type a name to create";
+        newInput.placeholder = "输入新资产的名字 · name of the new asset";
         newBlock.append(newInput);
-        wrap.append(exBlock, newBlock);
+
+        wrap.append(modeRow, exBlock, newBlock);
     } else {
         wrap.append(exBlock);
     }
 
+    // 模式由隐藏值唯一决定：✏️ 哨兵 = 新建，否则 = 已有。切模式 = 改隐藏值。
+    let mode = "existing";
+    const applyMode = () => {
+        if (!btnEx) return;
+        btnEx.classList.toggle("active", mode === "existing");
+        btnNew.classList.toggle("active", mode === "new");
+        exBlock.style.display = mode === "existing" ? "" : "none";
+        if (newBlock) newBlock.style.display = mode === "new" ? "" : "none";
+    };
+    const setMode = (m) => {
+        if (!btnEx || m === mode) return;
+        mode = m;
+        if (mode === "new") {
+            nameWidget.value = NEW_NAME;
+        } else {
+            nameWidget.value = sel.value || PLACEHOLDER;
+        }
+        applyMode();
+        nameWidget.callback?.(nameWidget.value);
+        relayoutNode(node);
+    };
+    btnEx?.addEventListener("click", () => setMode("existing"));
+    btnNew?.addEventListener("click", () => setMode("new"));
+
     const syncFromHidden = () => {
         const v = nameWidget.value || "";
         const isNew = v.includes(NEW_NAME);
+        if (btnEx) {
+            mode = isNew ? "new" : "existing";
+            applyMode();
+        }
         if (isNew) {
             sel.value = "";
             if (newInput && document.activeElement !== newInput) {
@@ -774,7 +823,8 @@ function makeAssetNameSelector(node, cfg) {
     if (newInput) {
         newInput.addEventListener("input", () => {
             newNameWidget.value = newInput.value;
-            nameWidget.value = newInput.value ? NEW_NAME : PLACEHOLDER;
+            // 「新建」模式下哨兵常驻：没填名字执行时由 Python 明确报错引导。
+            nameWidget.value = NEW_NAME;
             if (newInput.value) sel.value = "";
             nameWidget.callback?.(nameWidget.value);
             node.setDirtyCanvas?.(true, true);
@@ -981,6 +1031,13 @@ function ensureStyles() {
         // 解除 DOM widget 元素的高度锁定：host 容器另有指定高度，子元素被压
         // 在里面量不出真实内容高度（computeLayoutSize 自锁的另一半原因）。
         ".mie-domfit{height:auto !important;flex:none !important}",
+        // 资产名模式开关：已有/新建 二选一，激活面用与打开文件夹同族的渐变。
+        ".mie-mode-row{display:flex;gap:6px}",
+        ".mie-mode-btn{flex:1 1 0;min-width:0;padding:5px 10px;font-size:12px;font-weight:600;",
+        "border:1px solid rgba(128,150,180,.35);border-radius:8px;cursor:pointer;font-family:inherit;",
+        "background:rgba(128,150,180,.12);color:var(--input-text,#c8c8c8)}",
+        ".mie-mode-btn.active{background:linear-gradient(135deg,#4f7cff,#7f5cff);",
+        "color:#fff;border-color:transparent}",
     ].join("");
     document.head.appendChild(pickerStyleEl);
 }
