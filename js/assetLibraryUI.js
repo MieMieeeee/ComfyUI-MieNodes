@@ -29,6 +29,9 @@ const KIND_SCENE = "场景 Scene";
 const NODES = {
     "LoadCharacterAssetV2|Mie": { kinds: ["characters"], preview: "character" },
     "LoadSceneAssetV2|Mie": { kinds: ["scenes"], preview: "scene" },
+    // 删除节点：下拉 + 预览（删之前看得见要删的是什么），执行成功后名单刷新。
+    "DeleteCharacterAsset|Mie": { kinds: ["characters"], preview: "character", del: true },
+    "DeleteSceneAsset|Mie": { kinds: ["scenes"], preview: "scene", del: true },
     "SaveCharacterAssetV2|Mie": { kinds: ["characters"], save: "character" },
     "SaveSceneAssetV2|Mie": { kinds: ["scenes"], save: "scene" },
     // Auto 变体 = 对应 Save 节点 + LLM 起草空白描述/音色，UI 完全同款。
@@ -150,11 +153,16 @@ app.api?.addEventListener?.("executed", (e) => {
     const nodeId = e.detail?.node;
     const nodes = app.graph?._nodes || [];
     const node = nodes.find((n) => String(n.id) === String(nodeId));
-    if (!node || !node.__mieAssets?.cfg?.save) return;
+    if (!node || !(node.__mieAssets?.cfg?.save || node.__mieAssets?.cfg?.del)) return;
+    const deleting = !!node.__mieAssets?.cfg?.del;
     cache.clear();
     app.extensionManager?.toast?.add?.({
-        severity: "success", summary: "资产已保存 · Asset saved",
-        detail: "资产库写入完成，画布资产节点已刷新 · library written, canvas nodes refreshed", life: 3500,
+        severity: "success",
+        summary: deleting ? "资产已删除 · Asset deleted" : "资产已保存 · Asset saved",
+        detail: deleting
+            ? "已从库中移除，画布资产节点已刷新 · removed from the library, canvas nodes refreshed"
+            : "资产库写入完成，画布资产节点已刷新 · library written, canvas nodes refreshed",
+        life: 3500,
     });
     // 先重扫库（拿到新的名单和扫描戳），再刷新各节点的预览——顺序反了
     // 的话预览会拿旧 payload 渲染，看起来“保存没生效”。
@@ -169,11 +177,13 @@ app.api?.addEventListener?.("executed", (e) => {
 });
 
 app.api?.addEventListener?.("execution_success", () => {
-    // A finished queue may have written assets. Only spend a re-scan when
-    // at least one save node is on the canvas.
+    // A finished queue may have written or deleted assets. Only spend a
+    // re-scan when a save/delete node is on the canvas.
     const nodes = app.graph?._nodes || [];
-    const hasSave = nodes.some((n) => n.__mieAssets?.cfg?.save);
-    if (!hasSave) return;
+    const hasWrite = nodes.some(
+        (n) => n.__mieAssets?.cfg?.save || n.__mieAssets?.cfg?.del
+    );
+    if (!hasWrite) return;
     cache.clear();
     fetchAssets({ force: true }).then((payload) => {
         for (const other of nodes) {

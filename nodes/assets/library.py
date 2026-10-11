@@ -32,6 +32,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import struct
 import tempfile
 from pathlib import Path
@@ -1122,3 +1123,49 @@ def scene_cache_key(library_dir, name, plugin_root=None):
         return _hash_asset_files(target_dir)
     except Exception:
         return MISSING_CACHE_MARKER
+
+
+def delete_character(library_dir, name, plugin_root=None):
+    """Delete one character asset (the whole characters/<name> directory).
+
+    Raises FileNotFoundError when the character does not exist. Returns a
+    payload describing what was removed.
+    """
+    root = validate_library_dir(library_dir, plugin_root)
+    n = validate_name(name)
+    characters_dir = root / CHARACTERS_DIRNAME
+    target_dir = _find_casefold_sibling(characters_dir, n)
+    if target_dir is None or not target_dir.is_dir():
+        raise FileNotFoundError(
+            "character %r not found under %s (nothing deleted)" % (n, characters_dir)
+        )
+    files = [p for p in target_dir.rglob("*") if p.is_file()]
+    shutil.rmtree(target_dir)
+    return {
+        "ok": True,
+        "kind": "character",
+        "name": target_dir.name,
+        "deleted_files": len(files),
+        "deleted_dir": str(target_dir),
+    }
+
+
+def delete_scene(library_dir, name, plugin_root=None):
+    """Delete one scene asset (the whole scenes/<name> directory)."""
+    root = validate_library_dir(library_dir, plugin_root)
+    n = validate_name(name)
+    scenes_dir = root / SCENES_DIRNAME
+    target_dir = _find_casefold_sibling(scenes_dir, n)
+    if target_dir is None or not target_dir.is_dir():
+        raise FileNotFoundError(
+            "scene %r not found under %s (nothing deleted)" % (n, scenes_dir)
+        )
+    files = [p for p in target_dir.rglob("*") if p.is_file()]
+    shutil.rmtree(target_dir)
+    return {
+        "ok": True,
+        "kind": "scene",
+        "name": target_dir.name,
+        "deleted_files": len(files),
+        "deleted_dir": str(target_dir),
+    }

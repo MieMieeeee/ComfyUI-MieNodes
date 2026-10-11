@@ -549,6 +549,112 @@ class LoadSceneAssetV2(object):
         return (loaded["name"], loaded["description"], image, bundle)
 
 
+class _DeleteAssetBase(object):
+    """Shared delete-node plumbing: the confirm gate + status text."""
+
+    CATEGORY = ASSETS_CATEGORY
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return float("nan")
+
+    @classmethod
+    def VALIDATE_INPUTS(cls, name, **kwargs):
+        return _validate_exempt(name, **kwargs)
+
+    _KIND = "character"
+
+    def _delete(self, name, confirm, delete_fn):
+        if not confirm:
+            raise RuntimeError(
+                "%s delete is ARMED BY A SECOND WIDGET: flip 「confirm 确认删除」"
+                "to True on this node, then queue again. Nothing was deleted."
+                % self._KIND
+            )
+        result = delete_fn("", name)
+        status = (
+            "deleted %s %r (%d file(s) under %s) — Load nodes referencing it "
+            "will fail on their next run until re-picked"
+            % (result["kind"], result["name"], result["deleted_files"],
+               result["deleted_dir"])
+        )
+        return (result["name"], status)
+
+
+class DeleteCharacterAsset(_DeleteAssetBase):
+    """Delete one character asset from the fixed library (queue-executed).
+
+    The name dropdown lists existing characters only; the preview panel
+    shows what is about to be deleted; confirm must be flipped to True
+    (deliberate two-step for a destructive action)."""
+
+    _KIND = "character"
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "library_dir": ("STRING", {"default": ""}),
+                "name": (list(NAME_PLACEHOLDER), {
+                    "default": NAME_PLACEHOLDER[0],
+                    "tooltip": "要删除的角色：下拉只列库里已有的角色。\n"
+                               "Character to delete: the dropdown lists existing characters only.",
+                }),
+                "confirm": ("BOOLEAN", {
+                    "default": False,
+                    "tooltip": "删除是破坏性操作：先选名字，再把本开关翻成 True，"
+                               "排队执行才真正删除；False 时排队只会报错提醒，"
+                               "什么都不删。\n"
+                               "Destructive: pick the name, flip this to True, then "
+                               "queue. False = loud error, nothing is deleted.",
+                }),
+            },
+        }
+
+    RETURN_TYPES = ("STRING", "STRING")
+    RETURN_NAMES = ("name", "status")
+    FUNCTION = "delete_character"
+    OUTPUT_NODE = True
+
+    def delete_character(self, library_dir="", name="", confirm=False):
+        return self._delete(name, confirm, library.delete_character)
+
+
+class DeleteSceneAsset(_DeleteAssetBase):
+    """Delete one scene asset from the fixed library (queue-executed)."""
+
+    _KIND = "scene"
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "library_dir": ("STRING", {"default": ""}),
+                "name": (list(NAME_PLACEHOLDER), {
+                    "default": NAME_PLACEHOLDER[0],
+                    "tooltip": "要删除的场景：下拉只列库里已有的场景。\n"
+                               "Scene to delete: the dropdown lists existing scenes only.",
+                }),
+                "confirm": ("BOOLEAN", {
+                    "default": False,
+                    "tooltip": "删除是破坏性操作：先选名字，再把本开关翻成 True，"
+                               "排队执行才真正删除；False 时排队只会报错提醒，"
+                               "什么都不删。\n"
+                               "Destructive: pick the name, flip this to True, then "
+                               "queue. False = loud error, nothing is deleted.",
+                }),
+            },
+        }
+
+    RETURN_TYPES = ("STRING", "STRING")
+    RETURN_NAMES = ("name", "status")
+    FUNCTION = "delete_scene"
+    OUTPUT_NODE = True
+
+    def delete_scene(self, library_dir="", name="", confirm=False):
+        return self._delete(name, confirm, library.delete_scene)
+
+
 class AssetToSlots(object):
     """Split the generator's aggregated assets output into numbered slots.
 

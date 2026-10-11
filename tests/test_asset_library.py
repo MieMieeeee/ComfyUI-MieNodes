@@ -984,3 +984,56 @@ def test_asset_to_slots_accepts_direct_slot_wiring():
     assert outs[2].shape == (1, 8, 16, 3)
     with pytest.raises(ValueError, match="not a scene asset bundle"):
         AssetToSlots().split(assets=None, scene_1={"kind": "character", "name": "X"})
+
+
+# ---- delete ---------------------------------------------------------------- #
+
+def test_delete_character_and_scene(lib_dir):
+    lib_dir_local = Path(lib_dir)
+    library.save_character(str(lib_dir), "ToDelete", "d", "v", [make_png()], [])
+    library.save_scene(str(lib_dir), "场景删", "d", [make_png()])
+    result = library.delete_character(str(lib_dir), "ToDelete")
+    assert result["ok"] and result["kind"] == "character"
+    assert result["name"] == "ToDelete" and result["deleted_files"] >= 2  # json + png
+    assert not (lib_dir_local / "characters" / "ToDelete").exists()
+    sresult = library.delete_scene(str(lib_dir), "场景删")
+    assert sresult["kind"] == "scene" and not (lib_dir_local / "scenes" / "场景删").exists()
+    # gone from the listings
+    assert "ToDelete" not in library.list_characters(str(lib_dir))
+    assert "场景删" not in library.list_scenes(str(lib_dir))
+
+
+def test_delete_missing_and_bad_names_raise(lib_dir):
+    with pytest.raises(FileNotFoundError, match="nothing deleted"):
+        library.delete_character(str(lib_dir), "Ghost")
+    with pytest.raises(FileNotFoundError, match="nothing deleted"):
+        library.delete_scene(str(lib_dir), "Ghost")
+    with pytest.raises(ValueError):
+        library.delete_character(str(lib_dir), "../escape")
+
+
+def test_delete_casefold_matches_disk_spelling(lib_dir):
+    library.save_character(str(lib_dir), "MiXeD", "d", "v", [make_png()], [])
+    result = library.delete_character(str(lib_dir), "mixed")
+    assert result["name"] == "MiXeD"  # the on-disk spelling is what died
+    assert not (Path(lib_dir) / "characters" / "MiXeD").exists()
+
+
+def test_delete_node_confirm_gate_and_run(lib_dir, monkeypatch, tmp_path):
+    from nodes.assets import nodes as asset_nodes
+
+    monkeypatch.setenv(library.LIBRARY_DIR_ENV, str(lib_dir))
+    library.save_character(str(lib_dir), "NodeDel", "d", "v", [make_png()], [])
+    node = asset_nodes.DeleteCharacterAsset()
+    with pytest.raises(RuntimeError, match="confirm"):
+        node.delete_character(name="NodeDel", confirm=False)
+    assert (Path(lib_dir) / "characters" / "NodeDel").exists()  # untouched
+    out_name, status = node.delete_character(name="NodeDel", confirm=True)
+    assert out_name == "NodeDel" and "deleted character" in status
+    assert "NodeDel" not in library.list_characters(str(lib_dir))
+    # scene twin
+    library.save_scene(str(lib_dir), "Sdel", "d", [make_png()])
+    _, sstatus = asset_nodes.DeleteSceneAsset().delete_scene(name="Sdel", confirm=True)
+    assert "deleted scene" in sstatus
+    # combo exemption inherited
+    assert asset_nodes.DeleteCharacterAsset.VALIDATE_INPUTS("任意手打名字") is True

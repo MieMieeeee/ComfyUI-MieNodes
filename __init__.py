@@ -38,7 +38,7 @@ from _mienodes_internal.nodes.loop import MieLoopStart, MieLoopResume, MieLoopBo
     MieLoopCollectAudio, MieLoopFinalizeAudio, MieLoopCleanupAudio
 from _mienodes_internal.nodes.assets import \
     SaveCharacterAssetV2, LoadCharacterAssetV2, SaveSceneAssetV2, LoadSceneAssetV2, \
-    AssetToSlots
+    DeleteCharacterAsset, DeleteSceneAsset, AssetToSlots
 from _mienodes_internal.core.utils import add_suffix, add_emoji
 
 WEB_DIRECTORY = "./js"
@@ -153,6 +153,8 @@ NODE_CLASS_MAPPINGS = {
     add_suffix("LoadCharacterAssetV2"): LoadCharacterAssetV2,
     add_suffix("SaveSceneAssetV2"): SaveSceneAssetV2,
     add_suffix("LoadSceneAssetV2"): LoadSceneAssetV2,
+    add_suffix("DeleteCharacterAsset"): DeleteCharacterAsset,
+    add_suffix("DeleteSceneAsset"): DeleteSceneAsset,
     add_suffix("AssetToSlots"): AssetToSlots,
     add_suffix("SaveCharacterAssetAutoV2"): SaveCharacterAssetAutoV2,
     add_suffix("SaveSceneAssetAutoV2"): SaveSceneAssetAutoV2,
@@ -301,6 +303,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     add_suffix("LoadCharacterAssetV2"): add_emoji("Load Character Asset"),
     add_suffix("SaveSceneAssetV2"): add_emoji("Save Scene Asset"),
     add_suffix("LoadSceneAssetV2"): add_emoji("Load Scene Asset"),
+    add_suffix("DeleteCharacterAsset"): add_emoji("Delete Character Asset"),
+    add_suffix("DeleteSceneAsset"): add_emoji("Delete Scene Asset"),
     add_suffix("AssetToSlots"): add_emoji("Asset → Slots"),
     add_suffix("SaveCharacterAssetAutoV2"): add_emoji("Save Character Asset (Auto)"),
     add_suffix("SaveSceneAssetAutoV2"): add_emoji("Save Scene Asset (Auto)"),
