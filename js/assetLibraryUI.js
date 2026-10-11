@@ -231,16 +231,19 @@ function wireNode(node, cfg) {
     });
     refreshBtn.serialize = false;
 
-    // 「🗑 删除」删的是 name 下拉当前选中的资产（本机固定库）。两击确认：
-    // 第一击只点亮按钮进入待确认态（5 秒后自动解除），第二击才真正删除。
-    // 造型与应用保存按钮同款（渐变大按钮，红色系）。删除即时生效（不进
-    // 队列），成功后画布上所有资产节点的下拉与预览刷新。
+    // 「🗑 删除」删的是 name 下拉当前选中的资产（本机固定库）。只装在
+    // Load / Delete 节点上——保存节点是创作入口，下拉里选的常常是正要
+    // 覆盖更新的资产，破坏性按钮不贴着它放。两击确认：第一击只点亮按钮
+    // 进入待确认态（5 秒后自动解除），第二击才真正删除。造型与应用保存
+    // 按钮同款（渐变大按钮，红色系）。删除即时生效（不进队列），成功后
+    // 画布上所有资产节点的下拉与预览刷新。
+    let deleteWidget = null;
+    if (!cfg.save) {
     const DELETE_HTML = "<span class='mie-media-btn-icon'>🗑</span> 删除 · Delete";
     const CONFIRM_HTML = "<span class='mie-media-btn-icon'>⚠️</span> 确认删除？ · Confirm?";
     let deleteArmed = false;
     let disarmTimer = null;
     let deleteDomBtn = null;
-    let deleteWidget = null;
     const setDeleteArmed = (on) => {
         deleteArmed = on;
         if (deleteDomBtn) {
@@ -330,6 +333,7 @@ function wireNode(node, cfg) {
         deleteWidget = node.addWidget("button", "🗑 删除 · Delete", null, onDeleteClick);
         deleteWidget.serialize = false;
     }
+    } // end !cfg.save
 
     // 库操作按钮置顶：addWidget 默认排在所有输入 widget 之后，这里移到
     // 最上面。按钮都 serialize:false，前端 litegraph 序列化/加载两侧
@@ -339,7 +343,8 @@ function wireNode(node, cfg) {
         (w) => w !== openBtn && w !== refreshBtn && w !== deleteWidget
     );
     node.widgets.length = 0;
-    node.widgets.push(openBtn, refreshBtn, deleteWidget, ...rest);
+    if (deleteWidget) node.widgets.push(openBtn, refreshBtn, deleteWidget, ...rest);
+    else node.widgets.push(openBtn, refreshBtn, ...rest);
 
     if (cfg.save) {
         // 保存是 OUTPUT_NODE：点「执行/Queue」才真正落盘。这个按钮就是
