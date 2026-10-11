@@ -22,8 +22,8 @@ const THUMB_ENDPOINT = "/mie_nodes/assets/thumb";
 const OPEN_ENDPOINT = "/mie_nodes/assets/open";
 const NEW_NAME = "（✏️ 新名字…）";
 const PLACEHOLDER = "（下拉选择资产）";
-const KIND_CHAR = "角色";
-const KIND_SCENE = "场景";
+const KIND_CHAR = "角色 Char";
+const KIND_SCENE = "场景 Scene";
 
 // nodeData.name（含 |Mie 后缀）-> 行为配置
 const NODES = {
@@ -76,7 +76,7 @@ function reportScanError(payload) {
     if (payload && payload.ok === false && payload.error) {
         app.extensionManager?.toast?.add?.({
             severity: "error",
-            summary: "资产库读取失败",
+            summary: "资产库读取失败 · Library read failed",
             detail: String(payload.error).slice(0, 200),
             life: 6000,
         });
@@ -153,8 +153,8 @@ app.api?.addEventListener?.("executed", (e) => {
     if (!node || !node.__mieAssets?.cfg?.save) return;
     cache.clear();
     app.extensionManager?.toast?.add?.({
-        severity: "success", summary: "资产已保存",
-        detail: "资产库写入完成；画布上的资产节点已刷新", life: 3500,
+        severity: "success", summary: "资产已保存 · Asset saved",
+        detail: "资产库写入完成，画布资产节点已刷新 · library written, canvas nodes refreshed", life: 3500,
     });
     // 先重扫库（拿到新的名单和扫描戳），再刷新各节点的预览——顺序反了
     // 的话预览会拿旧 payload 渲染，看起来“保存没生效”。
@@ -199,23 +199,23 @@ function wireNode(node, cfg) {
     dirWidget.hidden = true;
 
     // 「📂 打开文件夹」请求固定端点，打开解析出的那一个目录。
-    const openBtn = node.addWidget("button", "📂 打开文件夹", null, async () => {
+    const openBtn = node.addWidget("button", "📂 打开文件夹 · Open Folder", null, async () => {
         try {
             const r = await fetch(OPEN_ENDPOINT, { method: "POST" });
             const j = await r.json();
             if (!j.ok) throw new Error(j.error || "HTTP " + r.status);
             app.extensionManager?.toast?.add?.({
-                severity: "success", summary: "已打开资产库", detail: j.library_dir, life: 4000,
+                severity: "success", summary: "已打开资产库 · Library opened", detail: j.library_dir, life: 4000,
             });
         } catch (err) {
             app.extensionManager?.toast?.add?.({
-                severity: "error", summary: "打开失败", detail: String(err).slice(0, 160), life: 5000,
+                severity: "error", summary: "打开失败 · Open failed", detail: String(err).slice(0, 160), life: 5000,
             });
         }
     });
     openBtn.serialize = false;
 
-    const refreshBtn = node.addWidget("button", "🔄 刷新资产列表", null, () => {
+    const refreshBtn = node.addWidget("button", "🔄 刷新资产列表 · Refresh", null, () => {
         applyLibrary(node, { force: true });
     });
     refreshBtn.serialize = false;
@@ -237,21 +237,21 @@ function wireNode(node, cfg) {
             const btn = document.createElement("button");
             btn.type = "button";
             btn.className = "mie-media-btn mie-save-btn";
-            btn.innerHTML = "<span class='mie-media-btn-icon'>💾</span> 应用保存（执行）";
-            btn.title = "把当前 widget/上传选择排入 ComfyUI 队列执行——保存节点是输出节点，队列跑完即写入资产库（等价于点 Queue）";
+            btn.innerHTML = "<span class='mie-media-btn-icon'>💾</span> 应用保存 · Save (Queue)";
+            btn.title = "把当前 widget/上传选择排入队列执行，队列跑完即写入资产库（等价于点 Queue）\nQueue the current widgets/uploads — save nodes are output nodes; the library is written when the queue finishes (same as pressing Queue).";
             btn.addEventListener("click", () => {
                 btn.disabled = true;
                 btn.classList.add("busy");
                 try {
                     app.queuePrompt();
                     app.extensionManager?.toast?.add?.({
-                        severity: "info", summary: "已加入队列",
-                        detail: "保存节点将在本次执行中写入资产库",
+                        severity: "info", summary: "已加入队列 · Queued",
+                        detail: "保存节点将在本次执行中写入资产库 · the save node writes the library during this run",
                         life: 3000,
                     });
                 } catch (err) {
                     app.extensionManager?.toast?.add?.({
-                        severity: "error", summary: "排队失败",
+                        severity: "error", summary: "排队失败 · Queue failed",
                         detail: String(err).slice(0, 160), life: 5000,
                     });
                 } finally {
@@ -281,13 +281,13 @@ function wireNode(node, cfg) {
         makeMediaPicker(
             node, "image_upload", "image",
             ".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp",
-            "/upload/image", "image", "🖼", "定妆图"
+            "/upload/image", "image", "🖼", "定妆图 Portrait"
         );
         if (cfg.save === "character") {
             makeMediaPicker(
                 node, "audio_upload", "audio",
                 ".wav,.mp3,audio/wav,audio/mpeg",
-                "/mie_nodes/assets/upload_audio", "audio", "🎵", "音色样本"
+                "/mie_nodes/assets/upload_audio", "audio", "🎵", "音色样本 Voice Sample"
             );
         }
         makePreviewWidget(node);
@@ -358,7 +358,7 @@ function makeMediaPicker(node, stateName, kind, accept, endpoint, field, icon, l
     select.className = "mie-media-select";
     const placeholder = document.createElement("option");
     placeholder.value = "";
-    placeholder.textContent = "（选择文件或点右侧上传）";
+    placeholder.textContent = "（选择文件或点右侧上传 · pick or upload）";
     select.append(placeholder);
     // 卡片里不放图片预览（2026-10-10 用户裁决）：选中/上传的图片由节点
     // 底部的预览面板显示，卡片只负责选文件和上传。
@@ -366,9 +366,11 @@ function makeMediaPicker(node, stateName, kind, accept, endpoint, field, icon, l
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "mie-media-btn";
-    btn.innerHTML = "<span class='mie-media-btn-icon'>📤</span> 上传";
+    btn.innerHTML = "<span class='mie-media-btn-icon'>📤</span> 上传 Upload";
     btn.title = "点击选择文件；也可以把文件拖到这一行，或聚焦后 Ctrl+V 粘贴。\n"
-        + "优先级：连线插座 > 这里的选择/上传；覆盖保存时两者都空 = 保留磁盘上的原文件。";
+        + "优先级：连线插座 > 这里的选择/上传；覆盖保存时两者都空 = 保留磁盘上的原文件。\n"
+        + "Click to browse; drag a file onto this row, or focus and Ctrl+V to paste.\n"
+        + "Priority: wired socket > picker/upload; both empty on overwrite = keep the disk files.";
 
     const input = document.createElement("input");
     input.type = "file";
@@ -410,11 +412,11 @@ function makeMediaPicker(node, stateName, kind, accept, endpoint, field, icon, l
             const sub = j.subfolder ? j.subfolder + "/" + name : name;
             setSelection(sub);
             app.extensionManager?.toast?.add?.({
-                severity: "success", summary: "已上传", detail: sub, life: 2500,
+                severity: "success", summary: "已上传 · Uploaded", detail: sub, life: 2500,
             });
         } catch (err) {
             app.extensionManager?.toast?.add?.({
-                severity: "error", summary: "上传失败",
+                severity: "error", summary: "上传失败 · Upload failed",
                 detail: String(err).slice(0, 160), life: 5000,
             });
         } finally {
@@ -485,11 +487,11 @@ function makeNewNameField(node) {
     wrap.className = "mie-newname";
     const label = document.createElement("span");
     label.className = "mie-newname-label";
-    label.textContent = "新名字";
+    label.textContent = "新名字 New name";
     const input = document.createElement("input");
     input.type = "text";
     input.className = "mie-newname-input";
-    input.placeholder = "输入新资产的名字";
+    input.placeholder = "输入新资产的名字 · type the new name";
     input.addEventListener("input", () => {
         hidden.value = input.value;
     });
@@ -640,11 +642,11 @@ function renderPreviewState(node, state) {
     const ts = ui.payload?._ts;
     wrap.innerHTML = "";
     if (state.mode === "boot" || state.mode === "empty-new") {
-        wrap.innerHTML = '<div class="mie-pv-hint">（选择资产后显示预览；保存节点会先回填库里的正文）</div>';
+        wrap.innerHTML = '<div class="mie-pv-hint">（选择资产后显示预览；保存节点会先回填库里的正文<br>Select an asset to preview; save nodes prefill the library text first）</div>';
         return;
     }
     if (state.mode === "missing") {
-        wrap.innerHTML = '<div class="mie-pv-hint">（库里没有 ' + kindName(kind) + '「' +
+        wrap.innerHTML = '<div class="mie-pv-hint">（库里没有 not in library: ' + kindName(kind) + '「' +
             String(state.name).slice(0, 24) + '」：' + String(state.error || "").slice(0, 120) + '）</div>';
         return;
     }
@@ -663,8 +665,8 @@ function renderPreviewState(node, state) {
     const title = document.createElement("div");
     title.className = "mie-pv-title";
     title.textContent = kindName(kind) + " " + meta.name +
-        "（" + meta.image_count + " 张" +
-        (meta.audio_count != null ? "，" + meta.audio_count + " 条音频" : "") + "）";
+        "（" + meta.image_count + " 张图 imgs" +
+        (meta.audio_count != null ? "，" + meta.audio_count + " 条音频 audio" : "") + "）";
     body.append(title);
 
     if (state.readonly) {
@@ -762,12 +764,13 @@ function patchGeneratorSocketGrow(node) {
         }
         if (!node.__mieCountLabel) {
             node.__mieCountLabel = node.addWidget(
-                "button", "📊 0 图 · 0 音", null, () => {}
+                "button", "📊 0 图 pics · 0 音 audio", null, () => {}
             );
             node.__mieCountLabel.serialize = false;
         }
         node.__mieCountLabel.name =
-            "📊 " + (chars + scenes) + " 图 · " + chars + " 音" + (scenes ? "（含场景 " + scenes + "）" : "");
+            "📊 " + (chars + scenes) + " 图 pics · " + chars + " 音 audio" +
+            (scenes ? "（含场景 scenes " + scenes + "）" : "");
     };
     const sync = () => {
         updateCountLabel();

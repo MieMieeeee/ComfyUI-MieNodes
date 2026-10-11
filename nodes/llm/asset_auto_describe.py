@@ -184,16 +184,19 @@ class SaveCharacterAssetAutoV2(SaveCharacterAssetV2):
         base = super().INPUT_TYPES()
         base["required"]["llm_service_connector"] = (
             "LLMServiceConnector",
-            {"tooltip": "起草空白 description/voice 的 LLM 连接器。"},
+            {"tooltip": "起草空白 description/voice 的 LLM 连接器。LLM connector that drafts the empty fields."},
         )
         base["optional"]["image_prompt"] = (
             "STRING",
             {
                 "default": "",
                 "multiline": True,
-                "placeholder": "图像描述提示词（可选）",
+                "placeholder": "图像描述提示词（可选）· image prompt (optional)",
                 "tooltip": "给描述 LLM 的作者先验（可选）：气质/着装细节、"
-                "画风、必须写进描述的事实等，任意语言。空 = 纯看图起草。",
+                "画风、必须写进描述的事实等，任意语言。空 = 纯看图起草。\n"
+                "Author prior for the description call (optional): mood, wardrobe "
+                "details, facts that must appear — any language. Empty = draft "
+                "from the picture alone.",
             },
         )
         base["optional"]["voice_prompt"] = (
@@ -201,10 +204,13 @@ class SaveCharacterAssetAutoV2(SaveCharacterAssetV2):
             {
                 "default": "",
                 "multiline": True,
-                "placeholder": "音色提示词（可选）",
+                "placeholder": "音色提示词（可选）· voice prompt (optional)",
                 "tooltip": "给音色 LLM 的作者先验（可选）：它听不到音频，"
                 "真实音色只能在这里告诉它，如「老年男声，沙哑，语速慢」。"
-                "空 = 从名字+外观推断。",
+                "空 = 从名字+外观推断。\n"
+                "Author prior for the voice call (optional): the LLM cannot hear "
+                "the sample — ground-truth timbre goes ONLY here, e.g. 'elderly "
+                "male, hoarse, slow pace'. Empty = inferred from name+looks.",
             },
         )
         return base
@@ -270,16 +276,19 @@ class SaveSceneAssetAutoV2(SaveSceneAssetV2):
         base = super().INPUT_TYPES()
         base["required"]["llm_service_connector"] = (
             "LLMServiceConnector",
-            {"tooltip": "起草空白 description 的 LLM 连接器。"},
+            {"tooltip": "起草空白 description 的 LLM 连接器。LLM connector that drafts the empty description."},
         )
         base["optional"]["image_prompt"] = (
             "STRING",
             {
                 "default": "",
                 "multiline": True,
-                "placeholder": "场景描述提示词（可选）",
+                "placeholder": "场景描述提示词（可选）· scene prompt (optional)",
                 "tooltip": "给描述 LLM 的作者先验（可选）：地点/时段/氛围、"
-                "必须写进描述的陈设事实等，任意语言。空 = 纯看图起草。",
+                "必须写进描述的陈设事实等，任意语言。空 = 纯看图起草。\n"
+                "Author prior for the description call (optional): place, time of "
+                "day, mood, furnishing facts that must appear — any language. "
+                "Empty = draft from the picture alone.",
             },
         )
         return base

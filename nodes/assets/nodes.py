@@ -306,34 +306,33 @@ class SaveCharacterAssetV2(object):
                 "library_dir": ("STRING", {"default": ""}),
                 "name": (list(NAME_PLACEHOLDER), {
                     "default": NAME_PLACEHOLDER[0],
-                    "tooltip": "资产名：下拉选已有名字 = 覆盖该资产；"
-                               "选「（✏️ 新名字…）」并在 new_name 里输入 = 新建。",
+                    "tooltip": "资产名：下拉选已有名字 = 覆盖该资产；选「（✏️ 新名字…）」并在 new_name 里输入 = 新建。\n"
+                               "Asset name: pick an existing name to overwrite it, or pick the 新名字 sentinel and type new_name to create.",
                 }),
                 "description": ("STRING", {
                     "default": "",
                     "multiline": True,
                     "placeholder": (
-                        "description · 角色外观描述（英文 60–100 词）：年龄/发型/"
-                        "脸型/着装/体型…\n"
-                        "例：A kind elderly Chinese grandfather, 68 years old, "
+                        "description · 角色外观描述 Character appearance（英文 EN 60–100 词 words）\n"
+                        "例 e.g.: A kind elderly Chinese grandfather, 68 years old, "
                         "short silver-white hair, black thick-rimmed reading "
                         "glasses, brown cardigan over a checked shirt."
                     ),
-                    "tooltip": "角色外观的英文描述（60–100 词），H3 用它当身份参考"
-                               "——只写长相事实，不写性格剧情。",
+                    "tooltip": "角色外观的英文描述（60–100 词），H3 用它当身份参考——只写长相事实，不写性格剧情。\n"
+                               "English appearance description (60-100 words); the H3 chain uses it as the identity reference — looks only, no personality or plot.",
                 }),
                 "voice": ("STRING", {
                     "default": "",
                     "multiline": True,
                     "placeholder": (
-                        "voice · 音色描述（英文一行，≤200 字符）\n"
-                        "例：adult male, low thick steady voice, warm cheerful "
+                        "voice · 音色描述 Voice timbre（英文一行 EN one line，≤200 字符 chars）\n"
+                        "例 e.g.: adult male, low thick steady voice, warm cheerful "
                         "undertone, unhurried pace"
                     ),
-                    "tooltip": "音色的英文一行描述（年龄/性别/音域/语速/质感，"
-                               "≤200 字符）。",
+                    "tooltip": "音色的英文一行描述（年龄/性别/音域/语速/质感，≤200 字符）。\n"
+                               "One-line English timbre descriptor (age/gender/register/pace/texture, <=200 chars).",
                 }),
-                "new_name": ("STRING", {"default": "", "placeholder": "新资产的名字"}),
+                "new_name": ("STRING", {"default": "", "placeholder": "新资产的名字 new asset name"}),
             },
             "optional": {
                 # Exactly one frame / one clip. Multi-image and multi-audio
@@ -452,23 +451,22 @@ class SaveSceneAssetV2(object):
                 "library_dir": ("STRING", {"default": ""}),
                 "name": (list(NAME_PLACEHOLDER), {
                     "default": NAME_PLACEHOLDER[0],
-                    "tooltip": "资产名：下拉选已有名字 = 覆盖该资产；"
-                               "选「（✏️ 新名字…）」并在 new_name 里输入 = 新建。",
+                    "tooltip": "资产名：下拉选已有名字 = 覆盖该资产；选「（✏️ 新名字…）」并在 new_name 里输入 = 新建。\n"
+                               "Asset name: pick an existing name to overwrite it, or pick the 新名字 sentinel and type new_name to create.",
                 }),
                 "description": ("STRING", {
                     "default": "",
                     "multiline": True,
                     "placeholder": (
-                        "description · 场景描述（英文 60–100 词）：空间/陈设/"
-                        "光源/氛围…\n"
-                        "例：A cozy family living room at night, beige fabric "
+                        "description · 场景描述 Scene description（英文 EN 60–100 词 words）\n"
+                        "例 e.g.: A cozy family living room at night, beige fabric "
                         "sofa against the left wall, warm floor lamp, old TV "
                         "cabinet on the right, soft amber lighting."
                     ),
-                    "tooltip": "场景的英文描述（60–100 词）：空间、陈设、光线、"
-                               "氛围；写清「什么在什么位置」。",
+                    "tooltip": "场景的英文描述（60–100 词）：空间、陈设、光线、氛围；写清「什么在什么位置」。\n"
+                               "English scene description (60-100 words): space, furniture, lighting, atmosphere; state what stands where.",
                 }),
-                "new_name": ("STRING", {"default": "", "placeholder": "新资产的名字"}),
+                "new_name": ("STRING", {"default": "", "placeholder": "新资产的名字 new asset name"}),
             },
             "optional": {
                 "image": ("IMAGE",),
