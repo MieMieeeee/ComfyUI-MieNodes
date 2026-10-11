@@ -723,9 +723,11 @@ class DeleteSceneAsset(DeleteAsset):
 class AssetToSlots(object):
     """Split the generator's aggregated assets output into numbered slots.
 
-    Wire `MiniMaxH3LoopPromptGeneratorV2.assets` into the single input; out
-    come, in the SAME slot order the plan used (characters then scenes =
-    <Picture N>), ALL declared slots at once:
+    Wire `MiniMaxH3LoopPromptGeneratorV2.assets` into the single input
+    (2026-10-11 ruling: the ONLY input — the old character_N/scene_N
+    direct sockets are gone); out come, in the SAME slot order the plan
+    used (characters then scenes = <Picture N>), ALL declared slots at
+    once:
 
     * ``picture_1..9`` (IMAGE) — picture_i is the i-th asset's image;
       picture_1 -> ref_image_0 by construction;
@@ -748,25 +750,13 @@ class AssetToSlots(object):
 
     @classmethod
     def INPUT_TYPES(cls):
-        optional = {}
-        for i in range(1, cls.MAX_SLOTS + 1):
-            optional["character_%d" % i] = (
-                CHARACTER_ASSET_TYPE,
-                {"tooltip": "（可选）直接接 Load Character Asset 的 asset 输出，按槽位序。与 assets 输入二选一。"},
-            )
-        for i in range(1, cls.MAX_SLOTS + 1):
-            optional["scene_%d" % i] = (
-                SCENE_ASSET_TYPE,
-                {"tooltip": "（可选）直接接 Load Scene Asset 的 asset 输出。与 assets 输入二选一。"},
-            )
         return {
             "required": {
                 "assets": (
                     ASSET_ROSTER_TYPE,
-                    {"tooltip": "接 MiniMax H3 Loop Plan Generator V2 的 assets 输出（或留空，改用下面的角色/场景插座）。"},
+                    {"tooltip": "接 MiniMax H3 Loop Plan Generator V2 的 assets 输出（唯一入口）。\nWire the generator V2's assets output here (the only input)."},
                 ),
             },
-            "optional": optional,
         }
 
     RETURN_TYPES = ("INT",) + ("IMAGE",) * 9 + ("INT",) + ("AUDIO",) * 3
@@ -778,23 +768,7 @@ class AssetToSlots(object):
     )
     FUNCTION = "split"
 
-    def split(self, assets=None, **slots):
-        # Also accept bundles wired straight into character_N / scene_N
-        # sockets (the pre-roster wiring some saved workflows carry).
-        if assets is None and slots:
-            ordered = []
-            for prefix, kind in (("character", "character"), ("scene", "scene")):
-                for i in range(1, self.MAX_SLOTS + 1):
-                    value = slots.get("%s_%d" % (prefix, i))
-                    if value is None:
-                        continue
-                    if not isinstance(value, dict) or value.get("kind") != kind:
-                        raise ValueError(
-                            "%s_%d is not a %s asset bundle; wire the matching "
-                            "Load node's asset output" % (prefix, i, kind)
-                        )
-                    ordered.append(value)
-            return self.split(ordered)
+    def split(self, assets=None):
         if assets is None:
             ordered = []
         elif isinstance(assets, (list, tuple)):

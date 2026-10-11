@@ -731,6 +731,9 @@ def test_asset_to_slots_spec():
     req = AssetToSlots.INPUT_TYPES()["required"]
     assert list(req) == ["assets"]  # widgets removed: output list is STATIC
     assert req["assets"][0] == ASSET_ROSTER_TYPE
+    # 2026-10-11 ruling: assets is the ONLY input — the character_N/scene_N
+    # direct sockets are gone (one linear chain: Load -> V2 -> assets).
+    assert not AssetToSlots.INPUT_TYPES().get("optional")
 
 
 # --------------------------------------------------------------------------- #
@@ -964,26 +967,19 @@ def test_upload_audio_endpoint_saves_into_audio_category(tmp_path, monkeypatch):
     assert body["ok"] is True and body["name"] == "voice clip.wav"
 
 
-def test_asset_to_slots_accepts_direct_slot_wiring():
-    """Mixed wiring (no roster): bundles straight into character_N/scene_N
-    sockets, mixed resolutions, native shapes preserved."""
-    import torch
+def test_asset_to_slots_no_direct_socket_inputs():
+    """2026-10-11 ruling: character_N/scene_N direct wiring is REMOVED —
+    extra kwargs are rejected loudly instead of silently re-routed."""
+    from nodes.assets.nodes import AssetToSlots
 
-    from nodes.assets.nodes import AssetToSlots, png_bytes_list_to_image_tensor
-
-    tall = png_bytes_list_to_image_tensor([make_png((1, 2, 3), 8, 16)])
-    wide = png_bytes_list_to_image_tensor([make_png((4, 5, 6), 16, 8)])
-    outs = AssetToSlots().split(
-        assets=None,
-        character_1={"kind": "character", "name": "A", "description": "d",
-                      "voice": "v", "image": tall, "audio": None},
-        scene_1={"kind": "scene", "name": "S", "description": "d", "image": wide},
-    )
-    assert outs[0] == 2
-    assert outs[1].shape == (1, 16, 8, 3)
-    assert outs[2].shape == (1, 8, 16, 3)
-    with pytest.raises(ValueError, match="not a scene asset bundle"):
-        AssetToSlots().split(assets=None, scene_1={"kind": "character", "name": "X"})
+    node = AssetToSlots()
+    with pytest.raises(TypeError, match="keyword argument"):
+        node.split(
+            assets=None,
+            character_1={"kind": "character", "name": "A",
+                         "description": "d", "voice": "v",
+                         "image": None, "audio": None},
+        )
 
 
 # ---- delete ---------------------------------------------------------------- #
