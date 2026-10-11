@@ -197,6 +197,24 @@ app.api?.addEventListener?.("execution_success", () => {
     });
 });
 
+// ---- DOM widget 高度适配（前端 1.53/1.55 布局引擎） --------------------------
+// 这个前端不给 addDOMWidget 的 widget 量内容高度：引擎只认 computeSize /
+// computeLayoutSize，DOM widget 都没有时按默认单行高分配，而元素又被压在
+// host 容器里量不出真实高度（自锁）→ 内容全部溢出，叠到下一个控件上
+// （2026-10-11 用户截屏的「重叠 + 看不到新建资产」就是它；options.getHeight
+// 在这个引擎里是死代码）。官方口子 = 覆盖 computeLayoutSize（前端自带的
+// video 预览 widget 同款），元素再用 .mie-domfit 解除高度锁定，测量值才
+// 是真实内容高度；distributeSpace 保证不低于 minHeight，放不下时节点自动
+// 长高。老前端没有这套引擎时 arrange 不可用，退回旧 relayout 路径。
+function fitDomWidget(w, wrap, pad = 28, floor = 26) {
+    wrap.classList.add("mie-domfit");
+    // pad 要盖住引擎从 computedHeight 里扣的上下两圈 margin（各 10px）加
+    // host 的实际摆放偏移（slot 顶 +~27 才是元素顶），否则元素底会戳出
+    // 槽位/节点底边。
+    const need = () => Math.max(floor, Math.round(wrap.offsetHeight) + pad);
+    w.computeLayoutSize = () => ({ minHeight: need(), maxHeight: need() });
+}
+
 // ---- 通用渐变大按钮（打开文件夹/刷新与删除/应用保存同一造型家族） ----------
 function makeStyledButton(node, widgetName, icon, label, title, extraClass, onClick) {
     if (typeof node.addDOMWidget !== "function") {
@@ -215,9 +233,9 @@ function makeStyledButton(node, widgetName, icon, label, title, extraClass, onCl
     wrap.append(btn);
     const w = node.addDOMWidget(widgetName, "mie-libbtn", wrap, {
         serialize: false, hideOnZoom: false,
-        getHeight: () => Math.max(40, wrap.offsetHeight + 6),
     });
     w.serialize = false;
+    fitDomWidget(w, wrap);
     return w;
 }
 
@@ -227,6 +245,9 @@ function wireNode(node, cfg) {
         patchGeneratorSocketGrow(node);
         return;
     }
+    // 样式表先于任何 DOM 控件落地：创建期的 arrange() 会立刻量高度，
+    // 无样式时量出来的值是错的。
+    ensureStyles();
     const dirWidget = node.widgets?.find((w) => w.name === "library_dir");
     if (!dirWidget) return;
     node.__mieAssets = { cfg, payload: null };
@@ -359,9 +380,9 @@ function wireNode(node, cfg) {
         delWrap.append(delBtn);
         deleteWidget = node.addDOMWidget("删除", "mie-delete", delWrap, {
             serialize: false, hideOnZoom: false,
-            getHeight: () => Math.max(40, delWrap.offsetHeight + 6),
         });
         deleteWidget.serialize = false;
+        fitDomWidget(deleteWidget, delWrap);
     } else {
         deleteWidget = node.addWidget("button", "🗑 删除 · Delete", null, onDeleteClick);
         deleteWidget.serialize = false;
@@ -405,9 +426,9 @@ function wireNode(node, cfg) {
             wrap.append(btn);
             const w = node.addDOMWidget("应用保存", "mie-save-apply", wrap, {
                 serialize: false, hideOnZoom: false,
-                getHeight: () => Math.max(40, wrap.offsetHeight + 6),
             });
             w.serialize = false;
+            fitDomWidget(w, wrap);
             applyWidget = w;
         }
         const nameWidget = node.widgets.find((w) => w.name === "name");
@@ -490,7 +511,12 @@ function wireNode(node, cfg) {
     const rest = node.widgets.filter((w) => !bottom.includes(w));
     node.widgets.length = 0;
     node.widgets.push(...rest, ...bottom);
-    node.setDirtyCanvas?.(true, true);
+
+    // 创建完所有控件后统一重排；再补两枪兜底异步内容（字体/上传列表/预览
+    // 图）稳定后的最终高度——computedHeight 只在 arrange() 时重算。
+    relayoutNode(node);
+    requestAnimationFrame(() => relayoutNode(node));
+    setTimeout(() => relayoutNode(node), 400);
 
     applyLibrary(node);
 }
@@ -648,10 +674,9 @@ function makeMediaPicker(node, stateName, kind, accept, endpoint, field, icon, l
 
     const widget = node.addDOMWidget(label, "mie-media-picker", wrap, {
         serialize: false, hideOnZoom: false,
-        // 缩略图出现/消失时卡片实际高度变化，静态高度会与下方 widget 重叠。
-        getHeight: () => Math.max(58, wrap.offsetHeight + 6),
     });
     widget.serialize = false;
+    fitDomWidget(widget, wrap);
 }
 
 
@@ -758,9 +783,9 @@ function makeAssetNameSelector(node, cfg) {
 
     const w = node.addDOMWidget("资产名 Name", "mie-name-select", wrap, {
         serialize: false, hideOnZoom: false,
-        getHeight: () => Math.max(48, wrap.offsetHeight + 6),
     });
     w.serialize = false;
+    fitDomWidget(w, wrap);
     const at = node.widgets.indexOf(nameWidget);
     const cur = node.widgets.indexOf(w);
     if (at >= 0 && cur !== at + 1) {
@@ -817,9 +842,9 @@ function makeTextField(node, widgetName, label, placeholder, tooltip) {
 
     const dw = node.addDOMWidget(widgetName + " 字段", "mie-text-field", wrap, {
         serialize: false, hideOnZoom: false,
-        getHeight: () => Math.max(52, wrap.offsetHeight + 6),
     });
     dw.serialize = false;
+    fitDomWidget(dw, wrap);
     const at = node.widgets.indexOf(w);
     const cur = node.widgets.indexOf(dw);
     if (at >= 0 && cur !== at + 1) {
@@ -953,6 +978,9 @@ function ensureStyles() {
         "background:linear-gradient(135deg,#c0392b,#e67e22)}",
         ".mie-save-apply .mie-delete-btn.armed{background:linear-gradient(135deg,#e74c3c,#ff6b3d);",
         "box-shadow:0 0 10px rgba(231,76,60,.55)}",
+        // 解除 DOM widget 元素的高度锁定：host 容器另有指定高度，子元素被压
+        // 在里面量不出真实内容高度（computeLayoutSize 自锁的另一半原因）。
+        ".mie-domfit{height:auto !important;flex:none !important}",
     ].join("");
     document.head.appendChild(pickerStyleEl);
 }
@@ -965,10 +993,9 @@ function makePreviewWidget(node) {
     const widget = node.addDOMWidget("预览", "mie-asset-preview", wrap, {
         serialize: false,
         hideOnZoom: false,
-        // 预览内容异步填充（图片加载、文字回填），高度跟随实际内容。
-        getHeight: () => Math.max(96, wrap.offsetHeight + 6),
     });
     widget.serialize = false;
+    fitDomWidget(widget, wrap, 28, 96);
     node.__mieAssets.previewEl = wrap;
     renderPreviewState(node, { mode: "boot" });
 }
@@ -1043,11 +1070,17 @@ function kindName(kind) {
     return kind === "scene" ? KIND_SCENE : KIND_CHAR;
 }
 
-// 内容异步变化（图片加载、正文回填）后重排：画布重绘 + 节点外框只放大
-// 不缩小。宽度永远保持用户当前值——computeSize 返回的是最小宽度
-// （~240px），直接 setSize 会把节点压窄、挤坏卡片里的横排布局。
+// 内容异步变化（图片加载、正文回填、控件创建）后重排。前端 1.53/1.55 的
+// 布局引擎里 computedHeight 只在 node.arrange() 时重算（onDrawForeground
+// 只读不算），所以这里先 arrange 再重绘画布；arrange 自己会按内容长高节点、
+// 且不会缩小。老前端没有 arrange 时退回旧路径：画布重绘 + 只放大不缩小，
+// 宽度永远保持用户当前值——computeSize 返回的是最小宽度（~240px），直接
+// setSize 会把节点压窄、挤坏卡片里的横排布局。
 function relayoutNode(node) {
     node.setDirtyCanvas?.(true, true);
+    if (typeof node.arrange === "function") {
+        try { node.arrange(); return; } catch (_) { /* 落到旧路径 */ }
+    }
     try {
         const need = node.computeSize?.();
         if (need && need[1] > (node.size?.[1] || 0) + 1) {

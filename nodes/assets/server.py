@@ -78,7 +78,7 @@ def _register() -> None:
             except Exception:
                 files = []
             exts = (".png", ".jpg", ".jpeg", ".webp")
-            out = [f for f in files if str(f).lower().endswith(exts)]
+        out = [f for f in files if str(f).lower().endswith(exts)]
         return web.json_response({"ok": True, "files": sorted(out)})
 
     @routes.post("/mie_nodes/assets/delete")
