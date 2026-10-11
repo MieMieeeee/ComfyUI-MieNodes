@@ -1208,3 +1208,14 @@ def test_assets_to_roster_collects_and_validates():
         node.collect(character_1=alice, character_2=alice)
     assert AssetsToRoster.RETURN_TYPES == (ASSET_ROSTER_TYPE,)
     assert "character_9" in AssetsToRoster.INPUT_TYPES()["optional"]
+
+
+def test_delete_confirm_defaults_on():
+    """2026-10-11 ruling: confirm ships ON — picking a name and queueing
+    deletes; flipping it off is the opt-out safety gate."""
+    from nodes.assets import nodes as A
+
+    spec = A.DeleteAsset.INPUT_TYPES()["required"]["confirm"][1]
+    assert spec["default"] is True
+    for cls in (A.DeleteCharacterAsset, A.DeleteSceneAsset):
+        assert cls.INPUT_TYPES()["required"]["confirm"][1]["default"] is True

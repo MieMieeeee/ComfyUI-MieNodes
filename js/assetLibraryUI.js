@@ -329,9 +329,11 @@ function wireNode(node, cfg) {
     // 覆盖更新的资产，破坏性按钮不贴着它放。两击确认：第一击只点亮按钮
     // 进入待确认态（5 秒后自动解除），第二击才真正删除。造型与应用保存
     // 按钮同款（渐变大按钮，红色系）。删除即时生效（不进队列），成功后
-    // 画布上所有资产节点的下拉与预览刷新。
+    // 画布上所有资产节点的下拉和预览刷新。
+    // 2026-10-11 裁定：只有删除节点（cfg.del）有删除按钮——Load 节点是
+    // 只读的，不放破坏性操作。
     let deleteWidget = null;
-    if (!cfg.save) {
+    if (cfg.del) {
     const DELETE_HTML = "<span class='mie-media-btn-icon'>🗑</span> 删除 · Delete";
     const CONFIRM_HTML = "<span class='mie-media-btn-icon'>⚠️</span> 确认删除？ · Confirm?";
     let deleteArmed = false;
@@ -426,7 +428,7 @@ function wireNode(node, cfg) {
         deleteWidget = node.addWidget("button", "🗑 删除 · Delete", null, onDeleteClick);
         deleteWidget.serialize = false;
     }
-    } // end !cfg.save
+    } // end cfg.del
 
     let applyWidget = null;
     if (cfg.save) {

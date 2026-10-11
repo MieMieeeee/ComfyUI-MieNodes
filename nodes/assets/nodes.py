@@ -625,9 +625,9 @@ class _DeleteAssetBase(object):
         kind = kind or self._KIND
         if not confirm:
             raise RuntimeError(
-                "%s delete is ARMED BY A SECOND WIDGET: flip 「confirm 确认删除」"
-                "to True on this node, then queue again. Nothing was deleted."
-                % kind
+                "%s delete was DISARMED: 「confirm 确认删除」is off on this "
+                "node — flip it back to True, then queue again. Nothing was "
+                "deleted." % kind
             )
         result = delete_fn("", name)
         status = (
@@ -660,12 +660,14 @@ class DeleteAsset(_DeleteAssetBase):
                                "Asset to delete: the dropdown lists existing assets of the chosen kind only.",
                 }),
                 "confirm": ("BOOLEAN", {
-                    "default": False,
-                    "tooltip": "删除是破坏性操作：先选名字，再把本开关翻成 True，"
-                               "排队执行才真正删除；False 时排队只会报错提醒，"
-                               "什么都不删。\n"
-                               "Destructive: pick the name, flip this to True, then "
-                               "queue. False = loud error, nothing is deleted.",
+                    "default": True,
+                    "tooltip": "删除是破坏性操作：默认开启——选好名字排队执行即"
+                               "删除；若翻成 False 再排队，只会报错提醒、什么都不"
+                               "删（防误触的反向闸）。\n"
+                               "Destructive: ON by default — queueing with a picked "
+                               "name deletes it. Flip to False and the queue only "
+                               "raises a loud reminder, deleting nothing (the "
+                               "reverse safety gate).",
                 }),
             },
         }
