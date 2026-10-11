@@ -14,6 +14,13 @@ from something better than a blank box:
   never listened to); the draft infers from name/appearance, and the
   user edits after hearing their sample.
 
+Both calls accept OPTIONAL author hints (``image_prompt`` /
+``voice_prompt``): free-text priors from the user, passed verbatim into
+the USER turn as "Author notes" — the system prompts keep their style
+contracts, the hint carries the facts. The voice hint is the ONLY
+channel for ground-truth timbre (the author has heard the sample; the
+LLM has not).
+
 It never writes to the library: outputs are plain strings to wire into
 Save Character/Scene Asset's description/voice inputs (convert the widget
 to an input, or preview with any text-display node).
@@ -95,6 +102,27 @@ class AssetAutoDescribe(object):
                 ),
                 "image": ("IMAGE", {"tooltip": "裸图（新建资产且未打包时用）。"}),
                 "name": ("STRING", {"default": "", "tooltip": "角色/场景名（裸图路径时填）。"}),
+                "image_prompt": (
+                    "STRING",
+                    {
+                        "default": "",
+                        "multiline": True,
+                        "placeholder": "图像描述提示词（可选）",
+                        "tooltip": "给描述 LLM 的作者先验（可选）：气质/着装细节、"
+                        "画风、必须写进描述的事实等，任意语言。空 = 纯看图起草。",
+                    },
+                ),
+                "voice_prompt": (
+                    "STRING",
+                    {
+                        "default": "",
+                        "multiline": True,
+                        "placeholder": "音色提示词（可选）",
+                        "tooltip": "给音色 LLM 的作者先验（可选）：它听不到音频，"
+                        "真实音色只能在这里告诉它，如「老年男声，沙哑，语速慢」。"
+                        "空 = 从名字+外观推断。",
+                    },
+                ),
             },
         }
 
@@ -129,7 +157,7 @@ class AssetAutoDescribe(object):
 
     # ---- execution ----------------------------------------------------------
     def describe(self, llm_service_connector, asset=None, scene_asset=None,
-                 image=None, name=""):
+                 image=None, name="", image_prompt="", voice_prompt=""):
         if not hasattr(llm_service_connector, "invoke"):
             raise RuntimeError(
                 "auto-describe requires an LLM connector with invoke(); "
@@ -166,19 +194,24 @@ class AssetAutoDescribe(object):
             raise RuntimeError("failed to encode the portrait to a data URL")
 
         # 1) Appearance / scene description — the generator's own captioner.
+        #    Author hints ride in the USER turn (data-only); the system
+        #    prompt keeps the 60-100 word English style contract.
         caption_system = caption_reference_prompt()
+        hint_image = (image_prompt or "").strip()
         if kind == "scene":
-            caption_messages = self._messages(
-                _SCENE_DESCRIPTION_HINT,
-                "Describe this place for a scene reference image.",
-                urls,
-            )
+            user_text = "Describe this place for a scene reference image."
         else:
-            caption_messages = self._messages(
-                caption_system,
-                "Describe this character for the identity reference image.",
-                urls,
+            user_text = "Describe this character for the identity reference image."
+        if hint_image:
+            user_text += (
+                "\n\nAuthor notes (facts you must respect; keep the output "
+                "style the system prompt defines): " + hint_image
             )
+        caption_messages = self._messages(
+            _SCENE_DESCRIPTION_HINT if kind == "scene" else caption_system,
+            user_text,
+            urls,
+        )
         reply = llm_service_connector.invoke(
             caption_messages, max_tokens=16384
         )
@@ -189,18 +222,24 @@ class AssetAutoDescribe(object):
             raise RuntimeError("the LLM returned an empty description draft")
 
         # 2) Voice descriptor — characters only; the LLM cannot hear the
-        #    sample (wav or mp3, the file is never listened to).
+        #    sample (wav or mp3, the file is never listened to). The author
+        #    hint is the ONLY channel for ground-truth timbre.
         voice = ""
+        hint_voice = (voice_prompt or "").strip()
         if kind == "character":
+            voice_user = (
+                "Name: %s\nAppearance: %s" % (name, description[:400])
+            )
+            if hint_voice:
+                voice_user += (
+                    "\nAuthor voice notes (ground truth from the author, who "
+                    "has heard the sample; follow them over your inference): "
+                    + hint_voice
+                )
+            voice_user += "\nDraft the one-line voice descriptor."
             voice_messages = [
                 {"role": "system", "content": _VOICE_SYSTEM},
-                {
-                    "role": "user",
-                    "content": (
-                        "Name: %s\nAppearance: %s\nDraft the one-line voice "
-                        "descriptor." % (name, description[:400])
-                    ),
-                },
+                {"role": "user", "content": voice_user},
             ]
             reply = llm_service_connector.invoke(voice_messages, max_tokens=512)
             if isinstance(reply, dict):
@@ -217,4 +256,15 @@ class AssetAutoDescribe(object):
                 "; voice drafted (%d chars)" % len(voice) if voice else "",
             )
         )
+        hints = "+".join(
+            label
+            for label, on in (
+                ("image", hint_image),
+                # scenes never draft a voice — don't claim an applied hint
+                ("voice", hint_voice and kind == "character"),
+            )
+            if on
+        )
+        if hints:
+            status += "; author hints applied (%s)" % hints
         return (name, description, voice, status)

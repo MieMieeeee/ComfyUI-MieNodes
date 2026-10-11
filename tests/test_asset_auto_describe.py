@@ -118,3 +118,58 @@ def test_raw_image_and_errors():
         node.describe(_Conn([]))
     with pytest.raises(RuntimeError, match="invoke"):
         node.describe(object())
+
+
+def test_author_hints_flow_into_user_turns():
+    mod = _load_node_module()
+    conn = _Conn([
+        "A stern war-veteran captain with a burn scar on the left cheek.",
+        "elderly male, gravelly and hoarse, slow deliberate pace",
+    ])
+    bundle = {
+        "kind": "character", "name": "船长",
+        "description": "", "voice": "",
+        "image": png_bytes_list_to_image_tensor([make_png((4, 5, 6))]),
+        "audio": None,
+    }
+    node = mod.AssetAutoDescribe()
+    _, _, _, status = node.describe(
+        conn, asset=bundle,
+        image_prompt="左脸颊有一道烧伤疤，务必写进描述",
+        voice_prompt="沙哑的老烟嗓，语速慢",
+    )
+    # hint 1 rides in the caption call's USER text (system keeps its contract)
+    caption_blob = json.dumps(conn.calls[0], ensure_ascii=False)
+    assert "Author notes" in caption_blob and "烧伤疤" in caption_blob
+    # hint 2 rides in the voice call's user text as ground truth
+    voice_user = conn.calls[1][1]["content"]
+    assert "ground truth" in voice_user and "沙哑的老烟嗓" in voice_user
+    assert "author hints applied (image+voice)" in status
+
+
+def test_empty_hints_keep_messages_byte_identical():
+    mod = _load_node_module()
+    replies = ["desc.", "voice."]
+    plain, hinted = _Conn(replies), _Conn(replies)
+    kwargs = dict(
+        image=png_bytes_list_to_image_tensor([make_png()]), name="x",
+    )
+    mod.AssetAutoDescribe().describe(plain, **kwargs)
+    mod.AssetAutoDescribe().describe(hinted, image_prompt="", voice_prompt="   ", **kwargs)
+    assert json.dumps(plain.calls) == json.dumps(hinted.calls)
+
+
+def test_scene_hint_only_affects_caption_call():
+    mod = _load_node_module()
+    conn = _Conn(["A rainy neon alley at night."])
+    bundle = {
+        "kind": "scene", "name": "小巷",
+        "image": png_bytes_list_to_image_tensor([make_png((7, 8, 9))]),
+    }
+    _, _, _, status = mod.AssetAutoDescribe().describe(
+        conn, scene_asset=bundle, image_prompt="雨夜霓虹", voice_prompt="不该出现"
+    )
+    blob = json.dumps(conn.calls[0], ensure_ascii=False)
+    assert "雨夜霓虹" in blob and len(conn.calls) == 1
+    assert "voice" not in status.split("—")[0]  # no voice draft for scenes
+    assert "author hints applied (image)" in status
