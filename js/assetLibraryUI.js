@@ -232,17 +232,26 @@ function wireNode(node, cfg) {
     refreshBtn.serialize = false;
 
     // 「🗑 删除」删的是 name 下拉当前选中的资产（本机固定库）。两击确认：
-    // 第一击只把按钮变红进入待确认态（5 秒后自动解除），第二击才真正删除。
-    // 删除即时生效（不进队列），成功后画布上所有资产节点的下拉与预览刷新。
-    const DELETE_LABEL = "🗑 删除 · Delete";
-    const CONFIRM_LABEL = "🗑 确认删除？ · Confirm?";
+    // 第一击只点亮按钮进入待确认态（5 秒后自动解除），第二击才真正删除。
+    // 造型与应用保存按钮同款（渐变大按钮，红色系）。删除即时生效（不进
+    // 队列），成功后画布上所有资产节点的下拉与预览刷新。
+    const DELETE_HTML = "<span class='mie-media-btn-icon'>🗑</span> 删除 · Delete";
+    const CONFIRM_HTML = "<span class='mie-media-btn-icon'>⚠️</span> 确认删除？ · Confirm?";
     let deleteArmed = false;
     let disarmTimer = null;
-    const setDeleteLabel = (text) => {
-        deleteBtn.name = text;
+    let deleteDomBtn = null;
+    let deleteWidget = null;
+    const setDeleteArmed = (on) => {
+        deleteArmed = on;
+        if (deleteDomBtn) {
+            deleteDomBtn.innerHTML = on ? CONFIRM_HTML : DELETE_HTML;
+            deleteDomBtn.classList.toggle("armed", on);
+        } else if (deleteWidget) {
+            deleteWidget.name = on ? "🗑 确认删除？ · Confirm?" : "🗑 删除 · Delete";
+        }
         node.setDirtyCanvas?.(true, true);
     };
-    const deleteBtn = node.addWidget("button", DELETE_LABEL, null, () => {
+    const onDeleteClick = () => {
         const kind = cfg.save || cfg.preview || (cfg.del ? "character" : null);
         const nameWidget = node.widgets.find((w) => w.name === "name");
         const name = (nameWidget?.value || "").trim();
@@ -256,18 +265,13 @@ function wireNode(node, cfg) {
             return;
         }
         if (!deleteArmed) {
-            deleteArmed = true;
-            setDeleteLabel(CONFIRM_LABEL);
+            setDeleteArmed(true);
             clearTimeout(disarmTimer);
-            disarmTimer = setTimeout(() => {
-                deleteArmed = false;
-                setDeleteLabel(DELETE_LABEL);
-            }, 5000);
+            disarmTimer = setTimeout(() => setDeleteArmed(false), 5000);
             return;
         }
         clearTimeout(disarmTimer);
-        deleteArmed = false;
-        setDeleteLabel(DELETE_LABEL);
+        setDeleteArmed(false);
         fetch(DELETE_ENDPOINT, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -305,22 +309,44 @@ function wireNode(node, cfg) {
                 detail: String(err).slice(0, 200), life: 5000,
             });
         });
-    });
-    deleteBtn.serialize = false;
+    };
+    if (typeof node.addDOMWidget === "function") {
+        const delWrap = document.createElement("div");
+        delWrap.className = "mie-save-apply";
+        const delBtn = document.createElement("button");
+        delBtn.type = "button";
+        delBtn.className = "mie-media-btn mie-delete-btn";
+        delBtn.innerHTML = DELETE_HTML;
+        delBtn.title = "删除 name 下拉当前选中的资产（两击确认，5 秒自动解除）\nDelete the asset selected in the name dropdown (two clicks to confirm; auto-disarm in 5s).";
+        delBtn.addEventListener("click", onDeleteClick);
+        deleteDomBtn = delBtn;
+        delWrap.append(delBtn);
+        deleteWidget = node.addDOMWidget("删除", "mie-delete", delWrap, {
+            serialize: false, hideOnZoom: false,
+            getHeight: () => Math.max(40, delWrap.offsetHeight + 6),
+        });
+        deleteWidget.serialize = false;
+    } else {
+        deleteWidget = node.addWidget("button", "🗑 删除 · Delete", null, onDeleteClick);
+        deleteWidget.serialize = false;
+    }
 
     // 库操作按钮置顶：addWidget 默认排在所有输入 widget 之后，这里移到
     // 最上面。按钮都 serialize:false，前端 litegraph 序列化/加载两侧
     // 都按 serialize 过滤后再顺序映射（1.53/1.55 已核实），位置不影响
     // 老工作流 widgets_values 的下标对应。原地重排，不换数组对象。
     const rest = node.widgets.filter(
-        (w) => w !== openBtn && w !== refreshBtn && w !== deleteBtn
+        (w) => w !== openBtn && w !== refreshBtn && w !== deleteWidget
     );
     node.widgets.length = 0;
-    node.widgets.push(openBtn, refreshBtn, deleteBtn, ...rest);
+    node.widgets.push(openBtn, refreshBtn, deleteWidget, ...rest);
 
     if (cfg.save) {
         // 保存是 OUTPUT_NODE：点「执行/Queue」才真正落盘。这个按钮就是
-        // 那一步——排队当前图（等价按 Queue），保存节点会随队列执行。
+        // 那一步——排队当前图（等价按 Queue）。创建后挪到节点最下面
+        // （serialize:false 位置自由）：它是收尾动作，走完所有输入再看到
+        // 它最顺。
+        let applyWidget = null;
         if (typeof node.addDOMWidget === "function") {
             const wrap = document.createElement("div");
             wrap.className = "mie-save-apply";
@@ -357,6 +383,7 @@ function wireNode(node, cfg) {
                 getHeight: () => Math.max(40, wrap.offsetHeight + 6),
             });
             w.serialize = false;
+            applyWidget = w;
         }
         const nameWidget = node.widgets.find((w) => w.name === "name");
         const origNameCallback = nameWidget?.callback;
@@ -381,6 +408,15 @@ function wireNode(node, cfg) {
             );
         }
         makePreviewWidget(node);
+        // 应用保存挪到节点最下面（在媒体卡片和预览面板之后）。
+        if (applyWidget) {
+            const i = node.widgets.indexOf(applyWidget);
+            if (i >= 0 && i !== node.widgets.length - 1) {
+                node.widgets.splice(i, 1);
+                node.widgets.push(applyWidget);
+                node.setDirtyCanvas?.(true, true);
+            }
+        }
     } else if (cfg.preview) {
         const nameWidget = node.widgets.find((w) => w.name === "name");
         const origNameCallback = nameWidget?.callback;
@@ -702,8 +738,12 @@ function ensureStyles() {
         "border:1px solid var(--border-color,#555);border-radius:8px;",
         "background:var(--comfy-input-bg,#1e1e1e);color:var(--input-text,#ddd)}",
         ".mie-save-apply{padding:2px 0}",
-        ".mie-save-apply .mie-save-btn{width:100%;padding:7px 14px;font-size:13px;", 
+        ".mie-save-apply .mie-save-btn{width:100%;padding:7px 14px;font-size:13px;",
         "background:linear-gradient(135deg,#2f9e6e,#4f7cff)}",
+        ".mie-save-apply .mie-delete-btn{width:100%;padding:7px 14px;font-size:13px;",
+        "background:linear-gradient(135deg,#c0392b,#e67e22)}",
+        ".mie-save-apply .mie-delete-btn.armed{background:linear-gradient(135deg,#e74c3c,#ff6b3d);",
+        "box-shadow:0 0 10px rgba(231,76,60,.55)}",
     ].join("");
     document.head.appendChild(pickerStyleEl);
 }
