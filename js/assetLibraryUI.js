@@ -178,12 +178,14 @@ app.api?.addEventListener?.("executed", (e) => {
             : "资产库写入完成，画布资产节点已刷新 · library written, canvas nodes refreshed",
         life: 3500,
     });
-    // 先重扫库（拿到新的名单和扫描戳），再刷新各节点的预览——顺序反了
-    // 的话预览会拿旧 payload 渲染，看起来“保存没生效”。
+    // 先重扫库（拿到新的名单和扫描戳），再刷新各节点的名单和预览——顺序反
+    // 了的话预览会拿旧 payload 渲染，看起来“保存没生效”。名单必须重填：
+    // 删除的资产要从下拉里消失（bug 2），新建的名字要出现。
     fetchAssets({ force: true }).then((payload) => {
         for (const other of nodes) {
             if (!other.__mieAssets) continue;
             other.__mieAssets.payload = payload;
+            refillNameLists(other, payload);
             if (other.__mieAssets.cfg?.preview) refreshLoadPreview(other);
             if (other.__mieAssets.cfg?.save) refreshSavePreview(other, { autofill: false });
         }
@@ -203,11 +205,27 @@ app.api?.addEventListener?.("execution_success", () => {
         for (const other of nodes) {
             if (!other.__mieAssets) continue;
             other.__mieAssets.payload = payload;
+            refillNameLists(other, payload);
             if (other.__mieAssets.cfg?.preview) refreshLoadPreview(other);
             if (other.__mieAssets.cfg?.save) refreshSavePreview(other, { autofill: false });
         }
     });
 });
+
+// 用最新 payload 重填一个节点的资产名下拉（fillNames 会把已消失的当前选
+// 择重置为占位）。
+function refillNameLists(node, payload) {
+    const cfg = node.__mieAssets?.cfg;
+    if (!cfg?.kinds) return;
+    const values = bareEntries(payload, cfg.kinds);
+    if (cfg.save) values.unshift(NEW_NAME);
+    const filler = node.__mieAssets?.fillNames;
+    if (filler) filler(values);
+    else {
+        const nw = node.widgets?.find((w) => w.name === "name");
+        if (nw) setComboOptions(nw, values);
+    }
+}
 
 // ---- DOM widget 高度适配（前端 1.53/1.55 布局引擎） --------------------------
 // 这个前端不给 addDOMWidget 的 widget 量内容高度：引擎只认 computeSize /
@@ -889,6 +907,13 @@ function makeAssetNameSelector(node, cfg) {
         mode = m;
         if (mode === "new") {
             nameWidget.value = NEW_NAME;
+            // 已选资产的自动回填正文不能带进新资产：切到「新建」即清空
+            // description/voice（这正是 autofill 会填的那两个字段）。
+            for (const field of ["description", "voice"]) {
+                const w = node.widgets.find((x) => x.name === field);
+                if (w) w.value = "";
+            }
+            syncAllFields(node);
         } else {
             nameWidget.value = sel.value || PLACEHOLDER;
         }
@@ -956,6 +981,11 @@ function makeAssetNameSelector(node, cfg) {
     }
 
     node.__mieAssets.fillNames = (values) => {
+        // 当前选择只在「新名单里仍存在」时保留；不存在 = 资产已被删除，或
+        // kind 切换后它属于另一类（如角色切场景）——两种都必须从列表里消
+        // 失并重置为占位（2026-10-11 bug 2/3：删除后要手动刷新、切换类型
+        // 后旧名字串进新类型的列表）。老工作流的手打名字走 syncFromHidden
+        // 的容错分支（按隐藏值补选项），不受影响。
         const keep = sel.value;
         sel.innerHTML = "";
         sel.append(exPh.cloneNode(true));
@@ -966,13 +996,12 @@ function makeAssetNameSelector(node, cfg) {
             opt.textContent = v;
             sel.append(opt);
         }
-        if (keep && ![...sel.options].some((o) => o.value === keep)) {
-            const opt = document.createElement("option");
-            opt.value = keep;
-            opt.textContent = keep;
-            sel.append(opt);
+        const stillThere = keep && [...sel.options].some((o) => o.value === keep);
+        sel.value = stillThere ? keep : "";
+        if (!stillThere && keep && !String(nameWidget.value || "").includes(NEW_NAME)) {
+            nameWidget.value = PLACEHOLDER;
+            nameWidget.callback?.(nameWidget.value);
         }
-        sel.value = keep;
         syncFromHidden();
     };
     (node.__mieAssets.fieldSync ||= {}).__namesel = syncFromHidden;
