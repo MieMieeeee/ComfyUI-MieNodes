@@ -477,6 +477,7 @@ function wireNode(node, cfg) {
                 origNameCallback?.apply(nameWidget, args);
                 syncNewNameVisibility(node);
                 refreshSavePreview(node, { autofill: true });
+                refreshSocketGrowLabels();
             };
         }
         makeAssetNameSelector(node, cfg);
@@ -547,6 +548,7 @@ function wireNode(node, cfg) {
             nameWidget.callback = (...args) => {
                 origNameCallback?.apply(nameWidget, args);
                 refreshLoadPreview(node);
+                refreshSocketGrowLabels();
             };
         }
         makeAssetNameSelector(node, cfg);
@@ -1299,6 +1301,17 @@ function relayoutNode(node) {
     setTimeout(() => node.setDirtyCanvas?.(true, true), 120);
 }
 
+// 名字变了 → 刷新全图 socketGrow 节点（生成器 V2 / Asset → Assets）的
+// 「📊 …：名字 → 名字」标签，让同序核对始终看到最新名单。
+function refreshSocketGrowLabels() {
+    for (const n of (app.graph?._nodes || [])) {
+        const c = n.__mieAssets?.cfg;
+        if (c && (c.socketGrow || c.generatorSockets)) {
+            n.__mieAssets.syncSlots?.();
+        }
+    }
+}
+
 // ---- 生成器 V2：character_N / scene_N 插座自动生长 -----------------------------
 // 后端在 INPUT_TYPES 里声明满额 9 个；前端裁剪到「已接线的最高位 + 1」，
 // 接上尾槽才露出下一个。configure() 会按已存工作流还原更多（同
@@ -1334,13 +1347,36 @@ function patchGeneratorSocketGrow(node) {
         if (indices.length >= MAX) return;
         node.addInput(prefix + "_" + (indices.length + 1), TYPES[prefix]);
     };
+    const wiredAssetName = (inputIdx) => {
+        // 从连线解析来源资产名：Load/Save 节点的隐藏 name widget（新建模式读
+        // new_name）。解析不到不猜，显示 ?。
+        const inp = node.inputs[inputIdx];
+        if (!inp || inp.link == null) return null;
+        const graph = node.graph || app.graph;
+        const link = graph?.links?.[inp.link];
+        if (!link) return null;
+        const src = graph.getNodeById?.(link.origin_id);
+        const nw = src?.widgets?.find((x) => x.name === "name");
+        if (!nw) return null;
+        let v = String(nw.value || "").trim();
+        if (v.includes(NEW_NAME)) {
+            const nn = src.widgets.find((x) => x.name === "new_name");
+            v = String(nn?.value || "").trim() || "✏️ 新建 new";
+        }
+        if (!v || v === PLACEHOLDER) return "?";
+        return v;
+    };
     const updateCountLabel = () => {
-        // 实时统计：接了几个角色/场景 = 多少 picture / 多少 audio。
+        // 实时统计：接了几个角色/场景 = 多少 picture / 多少 audio；并按槽位序
+        // 列出来源资产名（角色在前场景在后 = <Picture N>）——「与生成器 V2 同序
+        // 接线」的约定靠它一眼核对。
         let chars = 0, scenes = 0;
+        const names = [];
         for (const prefix of ["character", "scene"]) {
             for (const i of socketIndices(node, prefix)) {
                 if (node.inputs[i].link != null) {
                     if (prefix === "character") chars += 1; else scenes += 1;
+                    names.push(wiredAssetName(i) || "?");
                 }
             }
         }
@@ -1350,9 +1386,11 @@ function patchGeneratorSocketGrow(node) {
             );
             node.__mieCountLabel.serialize = false;
         }
+        const shown = names.length > 6 ? names.slice(0, 6).concat("…") : names;
         node.__mieCountLabel.name =
             "📊 " + (chars + scenes) + " 图 pics · " + chars + " 音 audio" +
-            (scenes ? "（含场景 scenes " + scenes + "）" : "");
+            (scenes ? "（含场景 scenes " + scenes + "）" : "") +
+            (shown.length ? "：" + shown.join(" → ") : "");
     };
     const sync = () => {
         updateCountLabel();

@@ -80,10 +80,10 @@ V2.assets ──► Asset → Slots ├──picture_1──► ref2v.ref_image_
 
 **不用生成器 V2？—— Asset → Assets 节点**（2026-10-11 新增）：没有 Prompt Generator V2 的链路，用 `Asset → Assets 🐑` 把 Load 出来的资产包汇成同一根 `assets` 线。它的 `character_1..9` / `scene_1..9` 插座与生成器同款**自动生长**（接上尾槽露出下一个），节点上有同样的「📊 N 图 · M 音」实时统计；槽位规则也相同：角色（按序号）在前、场景在后 = `<Picture N>`。接好后 `assets` 直连 Asset → Slots 的唯一输入，下游完全一致。
 
-**提示词是 V2 生成的，还能用 Asset → Assets 吗？——能，且顺序有机器校验**。两种拓扑：
+**提示词是 V2 生成的，还能用 Asset → Assets 吗？——能，按「同序接入」的约定**（2026-10-11 裁定）：
 
 - **生成器还在图里**：直接用 V2 自己的 `assets` 输出接 Asset → Slots——`<Picture N>` 编号和 assets 顺序出自同一组插座，**构造即对齐**，不需要也不应该再绕 Asset → Assets。
-- **提示词已生成、生成器已移出渲染图**（或资产在别处重新接线）：用 Asset → Assets 汇总，**并把那份 `plan_json` 接到它的 `plan_json` 输入**（或粘贴进 widget）。接上后每次执行都做**逐槽校验**：解析计划 prompt_prefix 里的名单块（`<Picture N> is 名字: 描述`），逐一比对插座顺序——数量不一致、任何一槽的名字/类型不一致都会**明确报错**并打印两边完整序列（`plan: [Picture 1=Alice…]` vs `wired: […]`），绝不悄悄换脸。计划里没有名单块（生成时没接资产插座）或 JSON 不合法也会报错；不接 `plan_json` 则不校验（纯无生成器链路）。
+- **提示词已生成、生成器已移出渲染图**：用 Asset → Assets 汇总，**按生成提示词时 V2 上的同款顺序接线**（角色按序在前、场景按序在后）。两个节点的编号规则完全一致，同序接入 = 同样的 `<Picture N>`。为此两个节点的统计标签都**按槽位序列出资产名**——「📊 3 图 pics · 2 音 audio（含场景 scenes 1）：孙女 → 爷爷 → 客厅」——生成时的 V2 与渲染时的 Asset → Assets 标签一致，顺序就对；不一致一眼可见（改插座序号即可），不会悄悄换脸。
 
 ```text
 Load Asset（角色·孙女）──asset──► Asset → Assets.character_1
