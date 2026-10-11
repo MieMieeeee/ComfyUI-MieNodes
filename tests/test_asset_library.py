@@ -1191,3 +1191,23 @@ def test_unified_and_compat_shapes():
     assert "voice" not in A.SaveSceneAssetV2.INPUT_TYPES()["required"]
     assert "audio_upload" not in A.SaveSceneAssetV2.INPUT_TYPES()["optional"]
     assert "voice_prompt" not in A.SaveSceneAssetV2.INPUT_TYPES()["optional"]
+
+
+def test_assets_to_roster_collects_and_validates():
+    from nodes.assets.nodes import ASSET_ROSTER_TYPE, AssetToSlots, AssetsToRoster
+
+    node = AssetsToRoster()
+    alice, grandpa, store = _bundle_char("Alice"), _bundle_char("Grandpa"), _bundle_scene("Store")
+    (roster,) = node.collect(character_1=alice, scene_1=store, character_2=grandpa)
+    assert [b["name"] for b in roster] == ["Alice", "Grandpa", "Store"]  # chars then scenes
+    # feeds Asset -> Slots directly, same slot order
+    outs = AssetToSlots().split(roster)
+    assert outs[0] == 3 and outs[10] == 2
+    # empty wiring = empty roster (Slots yields the all-None outputs)
+    assert AssetsToRoster().collect() == ([],)
+    with pytest.raises(ValueError, match="not a scene asset bundle"):
+        node.collect(scene_1=_bundle_char("WrongKind"))
+    with pytest.raises(ValueError, match="duplicate asset"):
+        node.collect(character_1=alice, character_2=alice)
+    assert AssetsToRoster.RETURN_TYPES == (ASSET_ROSTER_TYPE,)
+    assert "character_9" in AssetsToRoster.INPUT_TYPES()["optional"]

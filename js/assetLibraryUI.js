@@ -48,6 +48,9 @@ const NODES = {
     "SaveSceneAssetAutoV2|Mie": { kinds: ["scenes"], save: "scene" },
     // 生成器：角色/场景插座自动生长（无选择控件）。
     "MiniMaxH3LoopPromptGeneratorV2|Mie": { generatorSockets: true },
+    // asset → assets：不用生成器 V2 的链路，把 Load 出来的资产包汇成
+    // MIE_ASSET_ROSTER 喂给 Asset → Slots（插座同样自动生长）。
+    "AssetsToRoster|Mie": { socketGrow: true },
 };
 
 // ---- 取数 ------------------------------------------------------------------
@@ -128,14 +131,14 @@ app.registerExtension({
             wireNode(this, cfg);
         };
 
-        if (cfg.generatorSockets) {
+        if (cfg.generatorSockets || cfg.socketGrow) {
             // Prototype-level wrap: the frontend may reassign the
             // INSTANCE's onConnectionsChange after our onNodeCreated, which
             // silently detached the instance-level wrap (live-caught).
             const origConn = nodeType.prototype.onConnectionsChange;
             nodeType.prototype.onConnectionsChange = function (type, index, connected, ...rest) {
                 origConn?.apply(this, [type, index, connected, ...rest]);
-                if (type === 1 /*INPUT*/ && this.__mieAssets?.cfg?.generatorSockets) {
+                if (type === 1 /*INPUT*/ && (this.__mieAssets?.cfg?.generatorSockets || this.__mieAssets?.cfg?.socketGrow)) {
                     this.__mieAssets.syncSlots?.();
                 }
             };
@@ -151,8 +154,8 @@ app.registerExtension({
             applyLibrary(this);
             if (cfg.save) refreshSavePreview(this, { autofill: false });
             if (cfg.preview) refreshLoadPreview(this);
-            // 生成器：恢复已存接线后刷新统计标签（socketGrow 的 sync 也会做）。
-            if (cfg.generatorSockets && this.__mieAssets?.syncSlots) {
+            // 生成器 / asset→assets：恢复已存接线后刷新统计标签（socketGrow 的 sync 也会做）。
+            if ((cfg.generatorSockets || cfg.socketGrow) && this.__mieAssets?.syncSlots) {
                 this.__mieAssets.syncSlots();
             }
         };
@@ -262,7 +265,7 @@ function makeStyledButton(node, widgetName, icon, label, title, extraClass, onCl
 }
 
 function wireNode(node, cfg) {
-    if (cfg.generatorSockets) {
+    if (cfg.generatorSockets || cfg.socketGrow) {
         node.__mieAssets = { cfg };
         patchGeneratorSocketGrow(node);
         return;
@@ -1275,15 +1278,25 @@ function kindName(kind) {
 // setSize 会把节点压窄、挤坏卡片里的横排布局。
 function relayoutNode(node) {
     node.setDirtyCanvas?.(true, true);
+    const growFallback = () => {
+        try {
+            const need = node.computeSize?.();
+            if (need && need[1] > (node.size?.[1] || 0) + 1) {
+                node.setSize?.([node.size[0], need[1]]);
+            }
+        } catch (_) { /* computeSize 在部分节点上不可用，忽略 */ }
+    };
     if (typeof node.arrange === "function") {
-        try { node.arrange(); return; } catch (_) { /* 落到旧路径 */ }
+        try { node.arrange(); } catch (_) { growFallback(); }
+    } else {
+        growFallback();
     }
-    try {
-        const need = node.computeSize?.();
-        if (need && need[1] > (node.size?.[1] || 0) + 1) {
-            node.setSize?.([node.size[0], need[1]]);
-        }
-    } catch (_) { /* computeSize 在部分节点上不可用，忽略 */ }
+    // DOM 控件的宿主框要等 Vue 侧 widget 状态刷新后的那次重绘才就位；
+    // 同步触发的重绘拿到的还是旧状态，画布闲置时布局就会一直停在旧位置
+    // （kind 切换重现场景 → 显示的控件压住下方控件，直到手动再触发重绘）。
+    // 补两枪延迟重绘兜底。
+    requestAnimationFrame(() => node.setDirtyCanvas?.(true, true));
+    setTimeout(() => node.setDirtyCanvas?.(true, true), 120);
 }
 
 // ---- 生成器 V2：character_N / scene_N 插座自动生长 -----------------------------

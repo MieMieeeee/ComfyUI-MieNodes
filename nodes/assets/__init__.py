@@ -9,4 +9,5 @@ from .nodes import (
     DeleteCharacterAsset,
     DeleteSceneAsset,
     AssetToSlots,
+    AssetsToRoster,
 )

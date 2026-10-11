@@ -810,3 +810,64 @@ class AssetToSlots(object):
         for i in range(self.MAX_AUDIOS):
             outs.append(audios_out[i] if i < len(audios_out) else None)
         return tuple(outs)
+
+
+class AssetsToRoster(object):
+    """Collect asset bundles into the MIE_ASSET_ROSTER for Asset -> Slots.
+
+    For chains that do NOT use the prompt generator V2 (2026-10-11
+    request): wire the typed asset outputs of Load Asset nodes into
+    character_N / scene_N — the sockets auto-grow on the canvas exactly
+    like the generator's — and the single ``assets`` output feeds Asset
+    -> Slots. Slot order matches the generator's rule: characters (index
+    order) first, then scenes (index order) = ``<Picture N>``, so the
+    plan-side contract carries over unchanged."""
+
+    CATEGORY = ASSETS_CATEGORY
+
+    MAX_SLOTS = 9
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        optional = {}
+        for i in range(1, cls.MAX_SLOTS + 1):
+            optional["character_%d" % i] = (
+                CHARACTER_ASSET_TYPE,
+                {"tooltip": "接 Load Asset（角色）的 asset 输出；按序号排 <Picture N>，接上尾槽自动露出下一个。\nWire a character Load Asset's asset output; slot order = <Picture N>; wiring the tail socket grows the next."},
+            )
+        for i in range(1, cls.MAX_SLOTS + 1):
+            optional["scene_%d" % i] = (
+                SCENE_ASSET_TYPE,
+                {"tooltip": "接 Load Asset（场景）的 asset 输出；排在全部角色之后。\nWire a scene Load Asset's asset output; scenes come after all characters."},
+            )
+        return {"required": {}, "optional": optional}
+
+    RETURN_TYPES = (ASSET_ROSTER_TYPE,)
+    RETURN_NAMES = ("assets",)
+    FUNCTION = "collect"
+
+    def collect(self, **slots):
+        ordered = []
+        for prefix, kind in (("character", "character"), ("scene", "scene")):
+            for i in range(1, self.MAX_SLOTS + 1):
+                value = slots.get("%s_%d" % (prefix, i))
+                if value is None:
+                    continue
+                if not isinstance(value, dict) or value.get("kind") != kind:
+                    raise ValueError(
+                        "%s_%d is not a %s asset bundle; wire the matching "
+                        "kind's asset output" % (prefix, i, kind)
+                    )
+                ordered.append(value)
+        names = [b["name"] for b in ordered]
+        dupes = {n for n in names if names.count(n) > 1}
+        if dupes:
+            raise ValueError(
+                "duplicate asset in the roster: %s" % ", ".join(sorted(dupes))
+            )
+        if len(ordered) > self.MAX_SLOTS:
+            raise ValueError(
+                "%d assets wired; at most %d pictures are supported"
+                % (len(ordered), self.MAX_SLOTS)
+            )
+        return (ordered,)

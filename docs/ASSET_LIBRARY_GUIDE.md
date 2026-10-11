@@ -78,6 +78,14 @@ V2.assets ──► Asset → Slots ├──picture_1──► ref2v.ref_image_
 
 **顺序保障（Asset → Slots 节点，从生成器接出）**：V2 的第 5 个输出 `assets` 是接进来的全部资产包按槽位序（角色1..N → 场景1..M = `<Picture N>`）的汇总。Asset → Slots 吃这一个输入（2026-10-11 裁定：**唯一的输入**，早期版本的 character_N/scene_N 直连插座已删除——要接资产就去接生成器的插座，Slots 只认 `assets` 这一根线），拆出**生成提示词所用的同一批图片和音频**：
 
+**不用生成器 V2？—— Asset → Assets 节点**（2026-10-11 新增）：没有 Prompt Generator V2 的链路，用 `Asset → Assets 🐑` 把 Load 出来的资产包汇成同一根 `assets` 线。它的 `character_1..9` / `scene_1..9` 插座与生成器同款**自动生长**（接上尾槽露出下一个），节点上有同样的「📊 N 图 · M 音」实时统计；槽位规则也相同：角色（按序号）在前、场景在后 = `<Picture N>`。接好后 `assets` 直连 Asset → Slots 的唯一输入，下游完全一致。
+
+```text
+Load Asset（角色·孙女）──asset──► Asset → Assets.character_1
+Load Asset（场景·客厅）──asset──► Asset → Assets.scene_1
+Asset → Assets.assets ──► Asset → Slots.assets ──► ref_image_N / ref_audio_N
+```
+
 - `picture_1..9`（IMAGE）：第 i 张恒等于第 i 个资产——接 `ref_image_{i-1}`，图片对齐由构造保证。**各资产分辨率可以不同**（竖幅三视图 + 横幅三视图混用没问题）：每个输出保持该资产的原生尺寸，H3 对每路参考独立缩放（match/max）；只有生成器自己的 `images` 批次输出在尺寸不一时会置空并在 summary 里说明——用 Slots 节点的 picture 输出即可；
 - `audio_1..3`（AUDIO）：角色的音色样本按角色序（场景无音频；H3 独立音频上限 3）——接 `ref_audio_{i-1}`，`<Audio N>` 与 plan 的角色顺序一致；
 - `count` / `audio_count`（INT）：各有几张、几条。
