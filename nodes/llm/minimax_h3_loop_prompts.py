@@ -538,6 +538,70 @@ def build_camera_discipline_directive(mode: str) -> str:
     return ""
 
 
+# Affirmative cut / reframe / close-up phrasing. Deliberately NARROW:
+# these only match definite descriptions of a framing CHANGE or a
+# close-up ("the camera cuts to a tight close-up of X"), never the
+# negations the directives themselves inject ("No ... close-ups",
+# "no cut-ins"). 2026-10-11 live failure on the LAN box: a locked board
+# whose shots all said "The camera holds still" still cut to close-ups
+# — the storyboard clamp never reached the per-shot prose, and nothing
+# checked it.
+_CAMERA_CUT_RE = re.compile(
+    r"camera cuts to"
+    r"|\bcuts? to (?:a|an|the|her|his|their)\b"
+    r"|\bzoom(?:s|ed|ing)?(?: in| out)\b"
+    r"|\bpans? (?:to|across|left|right)\b"
+    r"|\bdolly(?:ies|ed|ing)?\b"
+    r"|\bpush(?:es|ed)? in\b"
+    r"|\bpull(?:s|ed)? (?:back|out)\b"
+    r"|\breframe[sd]?\b"
+    r"|\bswings? (?:to|around)\b"
+    r"|切到|切至|推近|拉远|摇镜",
+    re.IGNORECASE,
+)
+_CAMERA_CLOSEUP_RE = re.compile(
+    r"\bclose-?ups? of\b"
+    r"|\bextreme close-?ups?\b"
+    r"|\btight close-?ups?\b"
+    r"|\binsert shots? of\b"
+    r"|(?:^|[^不无未禁])特写",
+    re.IGNORECASE,
+)
+
+
+def camera_discipline_violation(text: str, mode: str) -> str:
+    """Mechanical check of a shot's description body against the camera
+    discipline. Returns "" when compliant, else the offending snippet +
+    which rule fired — the per-shot retry loop turns this into a
+    corrective user turn (LLM judges, code guarantees)."""
+    code = parse_camera_discipline(mode)
+    if code == "auto" or not text:
+        return ""
+    body = str(text)
+    hits: list[str] = []
+    m = _CAMERA_CLOSEUP_RE.search(body)
+    if m:
+        hits.append("close-up framing: %r" % body[max(0, m.start() - 20):m.end() + 20])
+    if code == "locked":
+        m = _CAMERA_CUT_RE.search(body)
+        if m:
+            hits.append(
+                "camera move/cut: %r" % body[max(0, m.start() - 20):m.end() + 20]
+            )
+    if not hits:
+        return ""
+    rule = (
+        "camera LOCKED (one constant framing, no cuts, no close-ups)"
+        if code == "locked"
+        else "no close-ups (medium shot or wider)"
+    )
+    return (
+        "%s — %s. Rewrite this shot with the SAME framing as every "
+        "other shot; describe what happens inside the frame, not a "
+        "change of frame." % (rule, "; ".join(hits))
+    )
+
+
 def apply_camera_discipline(shots: list, mode: str) -> list:
     """Deterministic clamp on the normalized storyboard — the code-side
     guarantee behind the directive. `locked` forces one framing family +

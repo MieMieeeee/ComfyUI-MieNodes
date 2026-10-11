@@ -182,6 +182,7 @@ try:
         parse_camera_discipline,
         build_camera_discipline_directive,
         apply_camera_discipline,
+        camera_discipline_violation,
         roster_appearance_by_slot,
         roster_bindings,
         roster_voices,
@@ -283,6 +284,7 @@ except ImportError:
         parse_camera_discipline,
         build_camera_discipline_directive,
         apply_camera_discipline,
+        camera_discipline_violation,
         roster_appearance_by_slot,
         roster_bindings,
         roster_voices,
@@ -2828,6 +2830,7 @@ class H3LoopPromptEnhancer:
     speaker_voices: Optional[dict] = None,
     role_bindings: Optional[dict] = None,
     asset_roster_block: str = "",
+    camera_discipline: str = "auto",
 ) -> list[str]:
         code = parse_reference_mode(mode)
         schema = schema_for_mode(mode)
@@ -2960,6 +2963,20 @@ class H3LoopPromptEnhancer:
                         "ref2va contract: detailed_description contains forbidden "
                         "timestamp (clock/seconds notation like 'At 00:03.500', "
                         "'from 0.0s to 5.2s')."
+                    )
+                # Camera discipline contract (2026-10-11 live hole: a
+                # locked board's shots said "The camera holds still" AND
+                # "the camera cuts to a tight close-up"). The storyboard
+                # clamp fixes the DATA; this checks the PROSE the model
+                # actually wrote, so the retry can fix it.
+                _cam_violation = camera_discipline_violation(
+                    description_body(lines_out, schema=schema),
+                    camera_discipline,
+                )
+                if _cam_violation:
+                    raise ValueError(
+                        "camera discipline violated in "
+                        "detailed_description: " + _cam_violation
                     )
                 # Dialogue-as-data: the spoken words never pass through
                 # the model on this path. Scrub anything it wrote
@@ -3782,22 +3799,6 @@ class H3LoopPromptEnhancer:
                 scene_target_total_sec=packed_scale_total,
             )
             warnings.extend(f"auto-storyboard: {w}" for w in sb_warnings)
-            # Code-side guarantee behind the camera directive: whatever the
-            # storyboard LLM decided, locked/no_closeups is enforced here.
-            if camera_code != "auto" and shots:
-                before = [str(sh.get("shot_type") or "") for sh in shots]
-                apply_camera_discipline(shots, camera_discipline)
-                clamped = [
-                    (b, str(sh.get("shot_type") or ""))
-                    for b, sh in zip(before, shots)
-                    if b != str(sh.get("shot_type") or "")
-                ]
-                if clamped:
-                    warnings.append(
-                        "camera discipline %s: %d shot(s) widened (%s)"
-                        % (camera_code, len(clamped),
-                           ", ".join("%s->%s" % c for c in clamped))
-                    )
             # 5b) Even time split: every scene gets an equal share of
             #     the budget (T / scene_count). Whether a scene's speech
             #     fits its share was already warned about above; the
@@ -3826,6 +3827,26 @@ class H3LoopPromptEnhancer:
                 shots = _insert_reaction_cuts(
                     shots, pending_reaction_cuts, warnings
                 )
+            # Code-side guarantee behind the camera directive: whatever the
+            # storyboard LLM decided — AND whatever the mechanically
+            # inserted reaction cuts hard-code (close_up) — locked /
+            # no_closeups is enforced here, AFTER the last board edit
+            # (2026-10-11 live hole: reaction cuts inserted after the
+            # clamp sailed through as close_ups under a locked board).
+            if camera_code != "auto" and shots:
+                before = [str(sh.get("shot_type") or "") for sh in shots]
+                apply_camera_discipline(shots, camera_discipline)
+                clamped = [
+                    (b, str(sh.get("shot_type") or ""))
+                    for b, sh in zip(before, shots)
+                    if b != str(sh.get("shot_type") or "")
+                ]
+                if clamped:
+                    warnings.append(
+                        "camera discipline %s: %d shot(s) widened (%s)"
+                        % (camera_code, len(clamped),
+                           ", ".join("%s->%s" % c for c in clamped))
+                    )
 
         # ---- Stage 0: per-shot duration guardrail (H3 4..14s) --------- #
         MIN_PER_SHOT_SECONDS = 4
@@ -4176,6 +4197,7 @@ class H3LoopPromptEnhancer:
                     speaker_voices=speaker_voices,
                     role_bindings=role_bindings,
                     asset_roster_block=roster_block,
+                    camera_discipline=camera_discipline,
                 )
                 entry["prompt"] = shot_prompt
                 seen_speakers.update(

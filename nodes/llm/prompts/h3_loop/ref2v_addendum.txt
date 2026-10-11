@@ -57,6 +57,13 @@ non_diegetic_music:
 - Timestamp ban (strict): in `detailed_description`, do NOT write clock
   or explicit second-span notation such as `At 00:03.500`, `at 5.2s`,
   `from 0.0s to 5.2s`, or `0.0s-5.2s`.
+- Environment stays visible (strict): whenever the framing tightens on
+  one subject (a close-up, a reaction, a single-speaker shot), the SAME
+  shot sentence must still anchor the environment behind them — name
+  the environment reference's key elements (the <Picture> setting:
+  walls, furniture, trees, lighting) in that sentence. A face floating
+  on a blank / undefined background is a defect; the destination
+  environment never leaves the frame.
 - Reference tokens: only `<Picture N>` and `<Subject N>` (per the
   manifest). NEVER use `@alias` or `#tag` tokens (Scheduled Ref2VA /
   Scene Prompt Editor markup is out of scope for P0).

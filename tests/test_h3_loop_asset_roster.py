@@ -1060,3 +1060,113 @@ def _wav_bytes():
         w.setframerate(16000)
         w.writeframes(data.tobytes())
     return buf.getvalue()
+
+
+def test_camera_discipline_violation_detector(lp):
+    # 2026-10-11 live failure on the LAN box: locked board, every shot said
+    # "The camera holds still", yet Shot 2 cut to a tight close-up.
+    bad = ("[Shot 2] At 00:02.961, the camera cuts to a tight close-up of "
+           "爷爷. The camera holds still.")
+    assert "close-up framing" in lp.camera_discipline_violation(bad, "locked")
+    assert "camera move/cut" in lp.camera_discipline_violation(bad, "locked")
+    assert lp.camera_discipline_violation(bad, "no_closeups")  # close-up only
+    # negations the directives themselves inject must NOT fire
+    ok = ("No shot/reverse-shot cutaways, no close-ups, no slow motion. "
+          "The camera holds still; the courtyard walls stay behind them.")
+    assert lp.camera_discipline_violation(ok, "locked") == ""
+    # free camera wording stays legal under auto / no_closeups (no close-up)
+    ok2 = "The camera pans to follow her across the room."
+    assert lp.camera_discipline_violation(ok2, "auto") == ""
+    assert lp.camera_discipline_violation(ok2, "no_closeups") == ""
+    assert lp.camera_discipline_violation(ok2, "locked")  # locked bans pans
+    # Chinese prose: 切到/特写 fire, negated 特写 does not
+    assert lp.camera_discipline_violation("镜头切到爷爷的特写。", "locked")
+    assert "爷爷特写" not in lp.camera_discipline_violation("无特写，全程固定机位。", "locked")
+
+
+def test_reaction_cuts_clamped_under_locked(lp, lg):
+    # 2026-10-11 ordering hole: reaction cuts are inserted AFTER the clamp,
+    # so their hard-coded close_up sailed through a locked board. The clamp
+    # now runs after the last board edit.
+    warnings = []
+    shots = [
+        {"id": "scene_01", "description": "A speaks.", "shot_type": "medium_shot",
+         "camera_movement": "static_lockoff", "characters": ["A", "B"],
+         "narrative_beat": "", "props": [], "notes": "",
+         "duration_seconds": 5.0, "_line_speakers": ["A"]},
+        {"id": "scene_02", "description": "B answers.", "shot_type": "medium_shot",
+         "camera_movement": "static_lockoff", "characters": ["A", "B"],
+         "narrative_beat": "", "props": [], "notes": "",
+         "duration_seconds": 5.0, "_line_speakers": ["B"]},
+    ]
+    out = lg._insert_reaction_cuts(shots, 1, warnings)
+    assert out[1]["shot_type"] == "close_up"  # inserted raw...
+    lp.apply_camera_discipline(out, "locked")  # ...and the clamp reaches it
+    assert out[1]["shot_type"] == "medium_shot"
+    assert out[1]["camera_movement"] == "static_lockoff"
+    assert "camera locked" in out[1]["notes"]
+
+
+def _ref2va_cut_violation_reply():
+    # The 2026-10-11 live failure shape: shot obeys "camera holds still"
+    # AND cuts to a tight close-up in the same breath.
+    return (
+        "subject_definitions:\n"
+        "<Picture 1> defines <Subject 1>, the courier waiting by the door.\n"
+        "<Picture 2> defines the greenhouse interior (environment).\n"
+        "\n"
+        "summary:\n"
+        "[reference generation] The courier waits inside the greenhouse.\n"
+        "\n"
+        "retention_analysis:\n"
+        "<Subject 1>: fully_preserved - retain face, jacket.\n"
+        "<Picture 2>: reference - environment where it happens.\n"
+        "\n"
+        "detailed_description:\n"
+        "[Shot 1] The courier stands among the seedling trays.\n"
+        "The camera cuts to a tight close-up of the courier; "
+        "the greenhouse walls stay behind her. The camera holds still.\n"
+        "\n"
+        "overall_soundscape:\n"
+        "Rain on glass, quiet room tone.\n"
+        "\n"
+        "non_diegetic_music:\n"
+        "No non-diegetic music.\n"
+    )
+
+
+def test_camera_discipline_retry_rewrites_cut_prose(lp, lg, tmp_path, monkeypatch):
+    """locked board + a shot reply that cuts to a close-up: the mechanical
+    guard rejects it, the corrective retry turn runs, and only the clean
+    rewrite reaches the plan (2026-10-11 live hole on the LAN box)."""
+    lib = _slot_lib(tmp_path, monkeypatch)
+    from nodes.assets.nodes import LoadCharacterAssetV2, LoadSceneAssetV2
+
+    char_bundle = LoadCharacterAssetV2().load_character("", "Alice")[5]
+    scene_bundle = LoadSceneAssetV2().load_scene("", "Store")[3]
+    conn = ScriptedConnector([
+        EXTRACT_DIALOGUE_EMPTY,
+        _storyboard(1),
+        PREFIX_REPLY,
+        _ref2va_cut_violation_reply(),   # attempt 1: violating prose
+        _ref2va_environment_second_reply(),  # attempt 2: clean rewrite
+    ])
+    node = lg.MiniMaxH3LoopPromptGeneratorV2()
+    plan_json, summary, board_kind, images, assets = node.generate_v2(
+        conn,
+        user_input="Alice waits in the store.",
+        reference_mode=REF2VA,
+        camera_discipline="locked - 固定机位(构图全场不变)",
+        seed=1,
+        character_1=char_bundle,
+        scene_1=scene_bundle,
+    )
+    prompts = _shot_prompts(conn)
+    joined = "\n".join(prompts[0])
+    assert "camera cuts to" not in joined
+    assert "close-up of" not in joined
+    # the corrective retry turn taught the model WHY (the violation text
+    # rides in the retry turn's content)
+    blob = json.dumps(conn.calls, ensure_ascii=False, default=str)
+    assert "camera discipline violated" in blob
+    assert "camera LOCKED" in blob
