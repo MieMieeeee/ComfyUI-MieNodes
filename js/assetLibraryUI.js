@@ -277,7 +277,7 @@ function wireNode(node, cfg) {
                 refreshSavePreview(node, { autofill: true });
             };
         }
-        syncNewNameVisibility(node);
+        makeNewNameField(node);
         makeMediaPicker(
             node, "image_upload", "image",
             ".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp",
@@ -461,14 +461,65 @@ function makeMediaPicker(node, stateName, kind, accept, endpoint, field, icon, l
     widget.serialize = false;
 }
 
-// ---- 保存节点：new_name 显隐 + 回填 + 将覆盖 ---------------------------------
-function syncNewNameVisibility(node) {
+// ---- 保存节点：new_name 输入框（紧跟 name 下拉） -----------------------------
+// Python 声明的 new_name widget 永久隐藏——它仍是序列化载体，且可序列化
+// widget 的位置参与 widgets_values 的顺序映射，不能挪。可见 UI 换成一个
+// serialize:false 的 DOM 输入框，插在 name 正下方：选「（✏️ 新名字…）」
+// 才出现，值与隐藏 widget 双向同步（位置自由已按 1.53/1.55 核实）。
+function makeNewNameField(node) {
     const nameWidget = node.widgets?.find((w) => w.name === "name");
-    const newNameWidget = node.widgets?.find((w) => w.name === "new_name");
-    if (!nameWidget || !newNameWidget) return;
-    const isSentinel = (nameWidget.value || "").includes(NEW_NAME);
-    newNameWidget.hidden = !isSentinel;
-    node.setDirtyCanvas?.(true, true);
+    const hidden = node.widgets?.find((w) => w.name === "new_name");
+    if (!nameWidget || !hidden) return;
+    if (typeof node.addDOMWidget !== "function") {
+        // 退化路径：直接显隐原生 widget（无 DOM 控件环境）。
+        node.__mieAssets.syncNewName = () => {
+            hidden.hidden = !(nameWidget.value || "").includes(NEW_NAME);
+            node.setDirtyCanvas?.(true, true);
+        };
+        node.__mieAssets.syncNewName();
+        return;
+    }
+    hidden.hidden = true;
+
+    const wrap = document.createElement("div");
+    wrap.className = "mie-newname";
+    const label = document.createElement("span");
+    label.className = "mie-newname-label";
+    label.textContent = "新名字";
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "mie-newname-input";
+    input.placeholder = "输入新资产的名字";
+    input.addEventListener("input", () => {
+        hidden.value = input.value;
+    });
+    wrap.append(label, input);
+
+    const w = node.addDOMWidget("新名字", "mie-new-name", wrap, {
+        serialize: false, hideOnZoom: false,
+        getHeight: () => Math.max(28, wrap.offsetHeight + 4),
+    });
+    w.serialize = false;
+    const at = node.widgets.indexOf(nameWidget);
+    const cur = node.widgets.indexOf(w);
+    if (at >= 0 && cur !== at + 1) {
+        node.widgets.splice(cur, 1);
+        node.widgets.splice(at + 1, 0, w);
+    }
+
+    node.__mieAssets.syncNewName = () => {
+        const show = (nameWidget.value || "").includes(NEW_NAME);
+        w.hidden = !show;
+        if (show && document.activeElement !== input) {
+            input.value = hidden.value || "";
+        }
+        node.setDirtyCanvas?.(true, true);
+    };
+    node.__mieAssets.syncNewName();
+}
+
+function syncNewNameVisibility(node) {
+    node.__mieAssets?.syncNewName?.();
 }
 
 async function refreshSavePreview(node, { autofill }) {
@@ -553,6 +604,11 @@ function ensureStyles() {
         ".mie-media-btn:hover{filter:brightness(1.15)}",
         ".mie-media-btn:active{transform:translateY(1px)}",
         ".mie-media-btn.busy{filter:saturate(.4) brightness(.9);cursor:wait}",
+        ".mie-newname{display:flex;gap:6px;align-items:center;padding:2px 0}",
+        ".mie-newname-label{font-size:12px;white-space:nowrap;opacity:.85}",
+        ".mie-newname-input{flex:1;min-width:0;font-size:12px;padding:4px 8px;",
+        "border:1px solid var(--border-color,#555);border-radius:8px;",
+        "background:var(--comfy-input-bg,#1e1e1e);color:var(--input-text,#ddd)}",
         ".mie-save-apply{padding:2px 0}",
         ".mie-save-apply .mie-save-btn{width:100%;padding:7px 14px;font-size:13px;", 
         "background:linear-gradient(135deg,#2f9e6e,#4f7cff)}",
