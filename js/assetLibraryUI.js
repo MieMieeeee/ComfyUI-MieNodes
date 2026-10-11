@@ -20,6 +20,7 @@ const LIST_ENDPOINT = "/mie_nodes/assets/list";
 const META_ENDPOINT = "/mie_nodes/assets/meta";
 const THUMB_ENDPOINT = "/mie_nodes/assets/thumb";
 const OPEN_ENDPOINT = "/mie_nodes/assets/open";
+const DELETE_ENDPOINT = "/mie_nodes/assets/delete";
 const NEW_NAME = "（✏️ 新名字…）";
 const PLACEHOLDER = "（下拉选择资产）";
 const KIND_CHAR = "角色 Char";
@@ -230,13 +231,92 @@ function wireNode(node, cfg) {
     });
     refreshBtn.serialize = false;
 
+    // 「🗑 删除」删的是 name 下拉当前选中的资产（本机固定库）。两击确认：
+    // 第一击只把按钮变红进入待确认态（5 秒后自动解除），第二击才真正删除。
+    // 删除即时生效（不进队列），成功后画布上所有资产节点的下拉与预览刷新。
+    const DELETE_LABEL = "🗑 删除 · Delete";
+    const CONFIRM_LABEL = "🗑 确认删除？ · Confirm?";
+    let deleteArmed = false;
+    let disarmTimer = null;
+    const setDeleteLabel = (text) => {
+        deleteBtn.name = text;
+        node.setDirtyCanvas?.(true, true);
+    };
+    const deleteBtn = node.addWidget("button", DELETE_LABEL, null, () => {
+        const kind = cfg.save || cfg.preview || (cfg.del ? "character" : null);
+        const nameWidget = node.widgets.find((w) => w.name === "name");
+        const name = (nameWidget?.value || "").trim();
+        if (!kind || !name || name === PLACEHOLDER || name.includes(NEW_NAME)) {
+            app.extensionManager?.toast?.add?.({
+                severity: "error",
+                summary: "先选中一个已有资产 · Pick an existing asset first",
+                detail: "删除按钮删的是 name 下拉里当前选中的资产。The button deletes the asset currently selected in the name dropdown.",
+                life: 4000,
+            });
+            return;
+        }
+        if (!deleteArmed) {
+            deleteArmed = true;
+            setDeleteLabel(CONFIRM_LABEL);
+            clearTimeout(disarmTimer);
+            disarmTimer = setTimeout(() => {
+                deleteArmed = false;
+                setDeleteLabel(DELETE_LABEL);
+            }, 5000);
+            return;
+        }
+        clearTimeout(disarmTimer);
+        deleteArmed = false;
+        setDeleteLabel(DELETE_LABEL);
+        fetch(DELETE_ENDPOINT, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name, kind }),
+        }).then((r) => r.json()).then((j) => {
+            if (!j.ok) throw new Error(j.error || ("HTTP " + j));
+            app.extensionManager?.toast?.add?.({
+                severity: "success",
+                summary: "资产已删除 · Asset deleted",
+                detail: name + "（" + (j.deleted_files != null ? j.deleted_files : "?") + " 个文件 files）",
+                life: 3500,
+            });
+            cache.clear();
+            fetchAssets({ force: true }).then((payload) => {
+                for (const other of app.graph?._nodes || []) {
+                    if (!other.__mieAssets) continue;
+                    other.__mieAssets.payload = payload;
+                    const oc = other.__mieAssets.cfg;
+                    if (oc?.kinds) {
+                        const nw = other.widgets.find((w) => w.name === "name");
+                        if (nw) {
+                            const vals = bareEntries(payload, oc.kinds);
+                            if (oc.save) vals.unshift(NEW_NAME);
+                            setComboOptions(nw, vals);
+                        }
+                    }
+                    if (oc?.preview) refreshLoadPreview(other);
+                    if (oc?.save) refreshSavePreview(other, { autofill: false });
+                }
+            });
+        }).catch((err) => {
+            app.extensionManager?.toast?.add?.({
+                severity: "error",
+                summary: "删除失败 · Delete failed",
+                detail: String(err).slice(0, 200), life: 5000,
+            });
+        });
+    });
+    deleteBtn.serialize = false;
+
     // 库操作按钮置顶：addWidget 默认排在所有输入 widget 之后，这里移到
-    // 最上面。两个按钮都 serialize:false，前端 litegraph 序列化/加载两侧
+    // 最上面。按钮都 serialize:false，前端 litegraph 序列化/加载两侧
     // 都按 serialize 过滤后再顺序映射（1.53/1.55 已核实），位置不影响
     // 老工作流 widgets_values 的下标对应。原地重排，不换数组对象。
-    const rest = node.widgets.filter((w) => w !== openBtn && w !== refreshBtn);
+    const rest = node.widgets.filter(
+        (w) => w !== openBtn && w !== refreshBtn && w !== deleteBtn
+    );
     node.widgets.length = 0;
-    node.widgets.push(openBtn, refreshBtn, ...rest);
+    node.widgets.push(openBtn, refreshBtn, deleteBtn, ...rest);
 
     if (cfg.save) {
         // 保存是 OUTPUT_NODE：点「执行/Queue」才真正落盘。这个按钮就是

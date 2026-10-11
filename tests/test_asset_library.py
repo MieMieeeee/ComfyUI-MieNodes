@@ -1037,3 +1037,63 @@ def test_delete_node_confirm_gate_and_run(lib_dir, monkeypatch, tmp_path):
     assert "deleted scene" in sstatus
     # combo exemption inherited
     assert asset_nodes.DeleteCharacterAsset.VALIDATE_INPUTS("任意手打名字") is True
+
+
+def test_delete_endpoint_happy_missing_and_sentinel(lib_dir, monkeypatch):
+    from nodes.assets import server as asset_server
+
+    monkeypatch.setenv(library.LIBRARY_DIR_ENV, str(lib_dir))
+    library.save_character(str(lib_dir), "BtnDel", "d", "v", [make_png()], [])
+
+    import asyncio
+    import types as _types
+
+    captured = {}
+
+    class _Routes:
+        def get(self, path):
+            return lambda fn: fn
+
+        def post(self, path):
+            def deco(fn):
+                captured[path] = fn
+                return fn
+            return deco
+
+    ps_instance = _types.SimpleNamespace(routes=_Routes())
+
+    class _PS:
+        instance = ps_instance
+
+    real = asset_server.PromptServer
+    asset_server.PromptServer = _PS
+    try:
+        asset_server._register()
+    finally:
+        asset_server.PromptServer = real
+
+    fn = captured.get("/mie_nodes/assets/delete")
+    assert fn is not None, "endpoint not registered"
+
+    class _Req:
+        def __init__(self, body):
+            self._body = body
+
+        async def json(self):
+            return self._body
+
+    import json as _json
+
+    out = asyncio.run(fn(_Req({"name": "BtnDel", "kind": "character"})))
+    body = _json.loads(out.body)
+    assert body["ok"] is True and body["name"] == "BtnDel"
+    assert body["deleted_files"] >= 2 and not (Path(lib_dir) / "characters" / "BtnDel").exists()
+
+    out = asyncio.run(fn(_Req({"name": "BtnDel", "kind": "character"})))
+    assert _json.loads(out.body)["ok"] is False  # already gone -> error, not crash
+
+    out = asyncio.run(fn(_Req({"name": "（✏️ 新名字…）", "kind": "character"})))
+    assert _json.loads(out.body)["ok"] is False  # sentinel refused
+
+    out = asyncio.run(fn(_Req({"name": "X", "kind": "bogus"})))
+    assert _json.loads(out.body)["ok"] is False  # bad kind refused
