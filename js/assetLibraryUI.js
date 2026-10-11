@@ -20,7 +20,6 @@ const LIST_ENDPOINT = "/mie_nodes/assets/list";
 const META_ENDPOINT = "/mie_nodes/assets/meta";
 const THUMB_ENDPOINT = "/mie_nodes/assets/thumb";
 const OPEN_ENDPOINT = "/mie_nodes/assets/open";
-const DELETE_ENDPOINT = "/mie_nodes/assets/delete";
 const NEW_NAME = "（✏️ 新名字…）";
 const PLACEHOLDER = "（下拉选择资产）";
 const KIND_CHAR = "角色 Char";
@@ -280,6 +279,10 @@ function wireNode(node, cfg) {
     // 库位置固定：widget 永久隐藏（不再有翻出来编辑的入口）。
     dirWidget.hidden = true;
 
+    // 删除节点的一次性确认令牌：由删除按钮的第二击写入（用户不可编辑）。
+    const tokW = node.widgets?.find((w) => w.name === "confirm_token");
+    if (tokW) tokW.hidden = true;
+
     // 统一节点：kind 一变，整个节点换一种资产形态（见 adaptKind）。原生
     // combo 隐藏作序列化载体，可见 UI 换成中英双语的分段按钮开关。
     if (cfg.kindWidget) {
@@ -370,43 +373,19 @@ function wireNode(node, cfg) {
         }
         clearTimeout(disarmTimer);
         setDeleteArmed(false);
-        fetch(DELETE_ENDPOINT, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ name, kind }),
-        }).then((r) => r.json()).then((j) => {
-            if (!j.ok) throw new Error(j.error || ("HTTP " + j));
-            app.extensionManager?.toast?.add?.({
-                severity: "success",
-                summary: "资产已删除 · Asset deleted",
-                detail: name + "（" + (j.deleted_files != null ? j.deleted_files : "?") + " 个文件 files）",
-                life: 3500,
-            });
-            cache.clear();
-            fetchAssets({ force: true }).then((payload) => {
-                for (const other of app.graph?._nodes || []) {
-                    if (!other.__mieAssets) continue;
-                    other.__mieAssets.payload = payload;
-                    const oc = other.__mieAssets.cfg;
-                    if (oc?.kinds) {
-                        const nw = other.widgets.find((w) => w.name === "name");
-                        if (nw) {
-                            const vals = bareEntries(payload, oc.kinds);
-                            if (oc.save) vals.unshift(NEW_NAME);
-                            setComboOptions(nw, vals);
-                        }
-                    }
-                    if (oc?.preview) refreshLoadPreview(other);
-                    if (oc?.save) refreshSavePreview(other, { autofill: false });
-                }
-            });
-        }).catch((err) => {
-            app.extensionManager?.toast?.add?.({
-                severity: "error",
-                summary: "删除失败 · Delete failed",
-                detail: String(err).slice(0, 200), life: 5000,
-            });
+        // 2026-10-11 裁定：确认是强制的且不是开关——第二击写入一次性
+        // 时间戳令牌并排队本图（与「应用保存」同一模式）；节点执行端
+        // 只认「新鲜」令牌（600 秒内），直接 Queue（没在节点上两击确认）
+        // 会响亮拒绝、绝不删除。
+        const tokenWidget = node.widgets.find((w) => w.name === "confirm_token");
+        if (tokenWidget) tokenWidget.value = String(Math.floor(Date.now() / 1000));
+        app.extensionManager?.toast?.add?.({
+            severity: "info",
+            summary: "已确认并排队删除 · Delete queued",
+            detail: name + " 将在本队列执行时删除（节点上两击确认 = 确认动作）· deleted when this queue run reaches the node (the two-click confirm IS the confirmation)",
+            life: 3500,
         });
+        app.queuePrompt();
     };
     if (typeof node.addDOMWidget === "function") {
         const delWrap = document.createElement("div");
@@ -415,7 +394,7 @@ function wireNode(node, cfg) {
         delBtn.type = "button";
         delBtn.className = "mie-media-btn mie-delete-btn";
         delBtn.innerHTML = DELETE_HTML;
-        delBtn.title = "删除 name 下拉当前选中的资产（两击确认，5 秒自动解除）\nDelete the asset selected in the name dropdown (two clicks to confirm; auto-disarm in 5s).";
+        delBtn.title = "删除 name 下拉当前选中的资产：两击确认（5 秒自动解除），第二击排队本图执行删除。\nDelete the asset selected in the name dropdown: two clicks to confirm (auto-disarm in 5s); the second click queues this graph — the node deletes only with that fresh confirmation.";
         delBtn.addEventListener("click", onDeleteClick);
         deleteDomBtn = delBtn;
         delWrap.append(delBtn);

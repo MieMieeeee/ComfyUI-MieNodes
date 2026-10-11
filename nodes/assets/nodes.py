@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import io
 import json
+import time
 import wave
 
 from pathlib import Path
@@ -607,11 +608,16 @@ class LoadSceneAssetV2(LoadAssetV2):
 
 
 class _DeleteAssetBase(object):
-    """Shared delete-node plumbing: the status text.
+    """Shared delete-node plumbing: the MANDATORY fresh-confirm token.
 
-    2026-10-11 ruling: no confirm OPTION — queueing an explicit Delete
-    node IS the confirmation. The interactive path (the 🗑 button on the
-    node) keeps its own two-click confirm."""
+    2026-10-11 ruling: 确认是必须的，且不是一个可开关的选项 — the only
+    confirmation is the node button's second click, which stamps
+    ``confirm_token`` (unix seconds) and queues the graph. Execution
+    accepts only a FRESH stamp (<= 600s); queueing by any other means
+    (Ctrl+Enter / the Queue button / a stale saved workflow) is refused
+    loudly and deletes nothing."""
+
+    CONFIRM_TOKEN_MAX_AGE = 600  # seconds
 
     CATEGORY = ASSETS_CATEGORY
 
@@ -625,8 +631,23 @@ class _DeleteAssetBase(object):
 
     _KIND = "character"
 
-    def _delete(self, name, delete_fn, kind=None):
+    def _delete(self, name, confirm_token, delete_fn, kind=None):
         kind = kind or self._KIND
+        token = str(confirm_token or "").strip()
+        fresh = False
+        try:
+            fresh = 0 <= time.time() - float(token) <= self.CONFIRM_TOKEN_MAX_AGE
+        except ValueError:
+            fresh = False
+        if not fresh:
+            raise RuntimeError(
+                "%s delete needs a FRESH on-node confirmation: click "
+                "「🗑 删除 · Delete」then「⚠️ 确认删除？ · Confirm?」on the "
+                "Delete node — the second click queues this node and stamps "
+                "the confirmation. Queueing directly (Ctrl+Enter / Queue) or "
+                "a stale workflow value NEVER deletes. 删除必须先在节点上"
+                "两击确认；直接排队不会删除任何东西。" % kind
+            )
         result = delete_fn("", name)
         status = (
             "deleted %s %r (%d file(s) under %s) — Load nodes referencing it "
@@ -641,9 +662,9 @@ class DeleteAsset(_DeleteAssetBase):
     """Unified delete node: kind dropdown picks character or scene.
 
     The name dropdown lists only the chosen kind; the preview panel shows
-    what is about to be deleted. Queuing this node is the confirmation —
-    it deletes immediately when the queue runs (the interactive 🗑 button
-    keeps its own two-click confirm)."""
+    what is about to be deleted. Deletion REQUIRES the fresh two-click
+    confirmation on the node (the second click stamps confirm_token and
+    queues this node); queueing by any other means refuses loudly."""
 
     CATEGORY = ASSETS_CATEGORY
 
@@ -655,9 +676,13 @@ class DeleteAsset(_DeleteAssetBase):
                 "library_dir": ("STRING", {"default": ""}),
                 "name": (list(NAME_PLACEHOLDER), {
                     "default": NAME_PLACEHOLDER[0],
-                    "tooltip": "要删除的资产：下拉只列所选类型里已有的资产。排队执行即删除（无确认开关）。\n"
-                               "Asset to delete: lists existing assets of the chosen kind only. Queueing deletes it (no confirm toggle).",
+                    "tooltip": "要删除的资产：下拉只列所选类型里已有的资产。删除前需在节点上两击确认（第二击排队执行）。\n"
+                               "Asset to delete: lists existing assets of the chosen kind only. Deletion requires the node's two-click confirm (the second click queues it).",
                 }),
+                # Written ONLY by the delete button's confirmed click (unix
+                # seconds); execution accepts a fresh stamp only. Not a
+                # user option — the two-click confirm is mandatory.
+                "confirm_token": ("STRING", {"default": ""}),
             },
         }
 
@@ -666,10 +691,10 @@ class DeleteAsset(_DeleteAssetBase):
     FUNCTION = "delete"
     OUTPUT_NODE = True
 
-    def delete(self, kind="character", library_dir="", name=""):
+    def delete(self, kind="character", library_dir="", name="", confirm_token=""):
         delete_fn = (library.delete_scene if kind == "scene"
                      else library.delete_character)
-        return self._delete(name, delete_fn, kind)
+        return self._delete(name, confirm_token, delete_fn, kind)
 
 
 class DeleteCharacterAsset(DeleteAsset):
@@ -685,8 +710,9 @@ class DeleteCharacterAsset(DeleteAsset):
 
     FUNCTION = "delete_character"
 
-    def delete_character(self, library_dir="", name=""):
-        return self.delete("character", library_dir=library_dir, name=name)
+    def delete_character(self, library_dir="", name="", confirm_token=""):
+        return self.delete("character", library_dir=library_dir,
+                           name=name, confirm_token=confirm_token)
 
 
 class DeleteSceneAsset(DeleteAsset):
@@ -702,8 +728,9 @@ class DeleteSceneAsset(DeleteAsset):
 
     FUNCTION = "delete_scene"
 
-    def delete_scene(self, library_dir="", name=""):
-        return self.delete("scene", library_dir=library_dir, name=name)
+    def delete_scene(self, library_dir="", name="", confirm_token=""):
+        return self.delete("scene", library_dir=library_dir,
+                           name=name, confirm_token=confirm_token)
 
 
 class AssetToSlots(object):

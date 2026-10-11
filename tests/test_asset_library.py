@@ -1020,14 +1020,23 @@ def test_delete_node_deletes_on_queue(lib_dir, monkeypatch, tmp_path):
     monkeypatch.setenv(library.LIBRARY_DIR_ENV, str(lib_dir))
     library.save_character(str(lib_dir), "NodeDel", "d", "v", [make_png()], [])
     node = asset_nodes.DeleteCharacterAsset()
-    # 2026-10-11 ruling: no confirm option — queueing IS the confirmation.
+    # 2026-10-11 ruling: confirmation is MANDATORY and is not an option —
+    # only the button's second click stamps a fresh token.
     assert "confirm" not in asset_nodes.DeleteAsset.INPUT_TYPES()["required"]
-    out_name, status = node.delete_character(name="NodeDel")
+    import time as _time
+    fresh = str(int(_time.time()))
+    # no token / stale token / garbage: all refuse, nothing deleted
+    for bad in ("", str(int(_time.time()) - 3600), "True", "yesterday"):
+        with pytest.raises(RuntimeError, match="FRESH on-node confirmation"):
+            node.delete_character(name="NodeDel", confirm_token=bad)
+        assert (Path(lib_dir) / "characters" / "NodeDel").exists()
+    out_name, status = node.delete_character(name="NodeDel", confirm_token=fresh)
     assert out_name == "NodeDel" and "deleted character" in status
     assert "NodeDel" not in library.list_characters(str(lib_dir))
     # scene twin
     library.save_scene(str(lib_dir), "Sdel", "d", [make_png()])
-    _, sstatus = asset_nodes.DeleteSceneAsset().delete_scene(name="Sdel")
+    _, sstatus = asset_nodes.DeleteSceneAsset().delete_scene(
+        name="Sdel", confirm_token=fresh)
     assert "deleted scene" in sstatus
     # combo exemption inherited
     assert asset_nodes.DeleteCharacterAsset.VALIDATE_INPUTS("任意手打名字") is True
@@ -1159,9 +1168,15 @@ def test_unified_delete_kinds(lib_dir, monkeypatch):
         image=png_bytes_list_to_image_tensor([make_png((4, 4, 4))]),
     )
     node = DeleteAsset()
-    # no confirm option anywhere (2026-10-11 ruling); queueing deletes
+    # no confirm OPTION; a fresh token (the button's confirmed click) is
+    # mandatory — direct queueing is refused loudly.
     assert "confirm" not in node.INPUT_TYPES()["required"]
-    name, status = node.delete(kind="scene", name="S1")
+    with pytest.raises(RuntimeError, match="FRESH on-node confirmation"):
+        node.delete(kind="scene", name="S1")
+    assert (lib_dir / "scenes" / "S1").exists()  # untouched
+    import time as _time
+    name, status = node.delete(
+        kind="scene", name="S1", confirm_token=str(int(_time.time())))
     assert name == "S1" and "deleted scene" in status
     assert not (lib_dir / "scenes" / "S1").exists()
     assert (lib_dir / "characters" / "C1").exists()  # other kind untouched
