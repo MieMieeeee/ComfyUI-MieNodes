@@ -217,3 +217,33 @@ def test_media_priority_socket_beats_upload(tmp_library, monkeypatch):
     assert called == []  # both sockets wired -> pickers never resolved
     char_dir = tmp_library / "characters" / "优先级"
     assert (char_dir / "character.json").exists()
+
+
+def test_unified_auto_kind_branches(tmp_library):
+    mod = _load_node_module()
+    conn = _Conn([
+        "A rainy neon alley at night.",
+        "young adult female voice",  # must NOT be consumed in scene mode
+    ])
+    node = mod.SaveAssetAutoV2()
+    name, description, voice, image, status, char_bundle, scene_bundle = node.save_auto(
+        conn, kind="scene", name="夜巷",
+        image=png_bytes_list_to_image_tensor([make_png()]),
+        voice_prompt="场景模式不该用到的音色提示",
+    )
+    assert name == "夜巷" and "neon alley" in description
+    assert len(conn.calls) == 1  # scenes never call the voice drafter
+    assert scene_bundle["kind"] == "scene" and char_bundle is None
+    assert (tmp_library / "scenes" / "夜巷" / "scene.json").exists()
+
+    conn2 = _Conn([
+        "A cute dazed 19-year-old Chinese girl with a yellow star hairpin.",
+        "young adult female, soft mid-high airy voice",
+    ])
+    out = mod.SaveAssetAutoV2().save_auto(
+        conn2, kind="character", name="女孩",
+        image=png_bytes_list_to_image_tensor([make_png((9, 9, 9))]),
+    )
+    assert out[5]["kind"] == "character" and out[6] is None
+    assert "drafted description and voice" in out[4]
+    assert (tmp_library / "characters" / "女孩" / "character.json").exists()

@@ -36,6 +36,17 @@ ASSETS_CATEGORY = "🐑 MieNodes/🐑 Assets"
 NAME_PLACEHOLDER = ["（下拉选择资产）"]
 NEW_NAME_SENTINEL = "（✏️ 新名字…）"
 
+# 2026-10-11 merge ruling: ONE node per operation, kind picked in a dropdown.
+# The per-kind V2 classes stay registered as CATEGORY "hidden" compat aliases
+# so old workflows (typed widgets_values, no kind slot) keep loading unchanged.
+KIND_COMBO = ["character", "scene"]
+KIND_TIP = (
+    "资产类型 kind：character = 角色（voice 音色 + 音频样本）；scene = 场景"
+    "（只有描述 + 图，音色/音频被忽略）。\n"
+    "Asset kind: character (voice + audio sample) or scene (description + "
+    "image only; voice/audio are ignored)."
+)
+
 
 def _validate_exempt(name, **_kwargs):
     """Exempt the combo-fed name inputs from class-level membership checks.
@@ -295,51 +306,68 @@ SCENE_ASSET_TYPE = "MIE_SCENE_ASSET"
 ASSET_ROSTER_TYPE = "MIE_ASSET_ROSTER"
 
 
-class SaveCharacterAssetV2(object):
-    """Simple model: ONE image (may be a three-view sheet), ONE description,
-    ONE audio clip, ONE voice line (2026-10-10 ruling)."""
+class SaveAssetV2(object):
+    """Unified save node (2026-10-11): kind dropdown, one node for both.
+
+    Scene mode ignores the voice text and the whole audio path (no scene
+    asset ever carries them) and returns the character-side outputs as
+    blanks/None; character mode vice versa. Both typed asset bundles are
+    emitted so downstream typed sockets (character_N / scene_N) keep their
+    type safety. Everything else matches the per-kind nodes: Existing/New
+    name toggle, upload pickers, socket>picker priority, overwrite
+    semantics."""
 
     CATEGORY = ASSETS_CATEGORY
+
+    _NAME_TIP = (
+        "资产名：📋 已有资产 Existing 模式下拉选名字 = 覆盖该资产；✏️ 新建 New 模式输入名字 = 新建（两者互斥二选一）。\n"
+        "Asset name: 📋 Existing mode picks an asset to overwrite; ✏️ New mode types a name to create — the two are mutually exclusive."
+    )
+    _DESC_PLACEHOLDER = (
+        "description · 资产描述 Asset description（英文 EN 60–100 词 words）\n"
+        "角色例 character e.g.: A kind elderly Chinese grandfather, 68 years old, short silver-white hair…\n"
+        "场景例 scene e.g.: A cozy family living room at night, beige sofa against the left wall, warm floor lamp…"
+    )
+    _DESC_TIP = (
+        "资产的英文描述（60–100 词）。角色 = 外观事实（年龄/发型/脸型/着装），场景 = 空间/陈设/光线/氛围。\n"
+        "English description (60-100 words). Character = looks only; scene = space, furniture, lighting, atmosphere."
+    )
+    _VOICE_PLACEHOLDER = (
+        "voice · 音色描述 Voice timbre（英文一行 EN one line，≤200 字符 chars，仅角色 · character only）\n"
+        "例 e.g.: adult male, low thick steady voice, warm cheerful undertone, unhurried pace"
+    )
+    _VOICE_TIP = (
+        "角色音色的英文一行描述（年龄/性别/音域/语速/质感，≤200 字符）；场景类型忽略本字段。\n"
+        "One-line English timbre descriptor for characters (age/gender/register/pace/texture, <=200 chars); ignored for scenes."
+    )
 
     @classmethod
     def INPUT_TYPES(cls):
         return {
             "required": {
+                "kind": (list(KIND_COMBO), {"default": "character", "tooltip": KIND_TIP}),
                 "library_dir": ("STRING", {"default": ""}),
                 "name": (list(NAME_PLACEHOLDER), {
                     "default": NAME_PLACEHOLDER[0],
-                    "tooltip": "资产名：📋 已有资产 Existing 模式下拉选名字 = 覆盖该资产；✏️ 新建 New 模式输入名字 = 新建（两者互斥二选一）。\n"
-                               "Asset name: 📋 Existing mode picks an asset to overwrite; ✏️ New mode types a name to create — the two are mutually exclusive.",
+                    "tooltip": cls._NAME_TIP,
                 }),
                 "description": ("STRING", {
                     "default": "",
                     "multiline": True,
-                    "placeholder": (
-                        "description · 角色外观描述 Character appearance（英文 EN 60–100 词 words）\n"
-                        "例 e.g.: A kind elderly Chinese grandfather, 68 years old, "
-                        "short silver-white hair, black thick-rimmed reading "
-                        "glasses, brown cardigan over a checked shirt."
-                    ),
-                    "tooltip": "角色外观的英文描述（60–100 词），H3 用它当身份参考——只写长相事实，不写性格剧情。\n"
-                               "English appearance description (60-100 words); the H3 chain uses it as the identity reference — looks only, no personality or plot.",
+                    "placeholder": cls._DESC_PLACEHOLDER,
+                    "tooltip": cls._DESC_TIP,
                 }),
                 "voice": ("STRING", {
                     "default": "",
                     "multiline": True,
-                    "placeholder": (
-                        "voice · 音色描述 Voice timbre（英文一行 EN one line，≤200 字符 chars）\n"
-                        "例 e.g.: adult male, low thick steady voice, warm cheerful "
-                        "undertone, unhurried pace"
-                    ),
-                    "tooltip": "音色的英文一行描述（年龄/性别/音域/语速/质感，≤200 字符）。\n"
-                               "One-line English timbre descriptor (age/gender/register/pace/texture, <=200 chars).",
+                    "placeholder": cls._VOICE_PLACEHOLDER,
+                    "tooltip": cls._VOICE_TIP,
                 }),
                 "new_name": ("STRING", {"default": "", "placeholder": "新资产的名字 new asset name"}),
             },
             "optional": {
-                # Exactly one frame / one clip. Multi-image and multi-audio
-                # stay on the (V1) nodes.
                 "image": ("IMAGE",),
+                # Character only; a scene asset never carries audio.
                 "audio": ("AUDIO",),
                 # Upload pickers: files in ComfyUI's input directory. A
                 # WIRED socket wins over a picked file; both empty on an
@@ -351,9 +379,11 @@ class SaveCharacterAssetV2(object):
             },
         }
 
-    RETURN_TYPES = ("STRING", "STRING", "STRING", "IMAGE", "STRING", CHARACTER_ASSET_TYPE)
-    RETURN_NAMES = ("name", "description", "voice", "image", "status", "asset")
-    FUNCTION = "save_character"
+    RETURN_TYPES = ("STRING", "STRING", "STRING", "IMAGE", "STRING",
+                    CHARACTER_ASSET_TYPE, SCENE_ASSET_TYPE)
+    RETURN_NAMES = ("name", "description", "voice", "image", "status",
+                    "character_asset", "scene_asset")
+    FUNCTION = "save"
     OUTPUT_NODE = True
 
     @classmethod
@@ -364,12 +394,23 @@ class SaveCharacterAssetV2(object):
     def VALIDATE_INPUTS(cls, name, new_name="", **kwargs):
         return _validate_exempt(name, new_name=new_name, **kwargs)
 
-    def save_character(self, library_dir="", name="", description="", voice="",
-                       new_name="", image=None, audio=None,
-                       image_upload="", audio_upload=""):
+    def save(self, kind="character", library_dir="", name="", description="",
+             voice="", new_name="", image=None, audio=None,
+             image_upload="", audio_upload=""):
         name = resolve_save_name(name, new_name)
         if image is None and (image_upload or "").strip():
             image = upload_image_to_tensor((image_upload or "").strip())
+        if kind == "scene":
+            png = None if image is None else image_tensor_to_png_bytes(image)
+            result = library.save_scene("", name, description,
+                                        None if png is None else [png])
+            picture = png_bytes_list_to_image_tensor(result["png_bytes_list"][:1])
+            scene_bundle = {
+                "kind": "scene", "name": result["name"],
+                "description": result["description"], "image": picture,
+            }
+            return (result["name"], result["description"], "", picture,
+                    result["status"], None, scene_bundle)
         if audio is None and (audio_upload or "").strip():
             audio = upload_audio_to_audio((audio_upload or "").strip())
         png = None if image is None else image_tensor_to_png_bytes(image)
@@ -389,11 +430,41 @@ class SaveCharacterAssetV2(object):
             "image": picture, "audio": audio_out,
         }
         return (result["name"], result["description"], result["voice"],
-                picture, result["status"], bundle)
+                picture, result["status"], bundle, None)
 
 
-class LoadCharacterAssetV2(object):
-    """Simple model read: name, description, ONE image, ONE audio, voice."""
+class SaveCharacterAssetV2(SaveAssetV2):
+    """Legacy per-kind save node — hidden from the menu, loads old workflows.
+
+    widgets_values shape is byte-compatible with the pre-merge node: no
+    kind slot, the character widget set only."""
+
+    CATEGORY = "hidden"
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        base = super().INPUT_TYPES()
+        base["required"].pop("kind")
+        return base
+
+    RETURN_TYPES = SaveAssetV2.RETURN_TYPES[:5] + (CHARACTER_ASSET_TYPE,)
+    RETURN_NAMES = ("name", "description", "voice", "image", "status", "asset")
+    FUNCTION = "save_character"
+
+    def save_character(self, library_dir="", name="", description="", voice="",
+                       new_name="", image=None, audio=None,
+                       image_upload="", audio_upload=""):
+        out = self.save("character", library_dir=library_dir, name=name,
+                        description=description, voice=voice, new_name=new_name,
+                        image=image, audio=audio, image_upload=image_upload,
+                        audio_upload=audio_upload)
+        return out[:5] + (out[5],)
+
+
+class LoadAssetV2(object):
+    """Unified load node: kind dropdown; both typed asset bundles emitted
+    (the inactive kind's bundle is None), so typed downstream sockets keep
+    working without dynamic RETURN_TYPES hacks."""
 
     CATEGORY = ASSETS_CATEGORY
 
@@ -401,10 +472,76 @@ class LoadCharacterAssetV2(object):
     def INPUT_TYPES(cls):
         return {
             "required": {
+                "kind": (list(KIND_COMBO), {"default": "character", "tooltip": KIND_TIP}),
                 "library_dir": ("STRING", {"default": ""}),
                 "name": (list(NAME_PLACEHOLDER), {"default": NAME_PLACEHOLDER[0]}),
             }
         }
+
+    RETURN_TYPES = ("STRING", "STRING", "STRING", "IMAGE", "AUDIO",
+                    CHARACTER_ASSET_TYPE, SCENE_ASSET_TYPE)
+    RETURN_NAMES = ("name", "description", "voice", "image", "audio",
+                    "character_asset", "scene_asset")
+    FUNCTION = "load"
+
+    @classmethod
+    def IS_CHANGED(cls, kind, library_dir, name):
+        if kind == "scene":
+            return library.scene_cache_key("", name)
+        return library.character_cache_key("", name)
+
+    @classmethod
+    def VALIDATE_INPUTS(cls, name, **kwargs):
+        return _validate_exempt(name, **kwargs)
+
+    def load(self, kind="character", library_dir="", name=""):
+        if kind == "scene":
+            loaded = library.load_scene("", name)
+            if len(loaded["png_bytes_list"]) != 1:
+                raise ValueError(
+                    "scene %r does not fit the simple model (one image): "
+                    "found %d image(s). Trim the asset under scenes/%s."
+                    % (loaded["name"], len(loaded["png_bytes_list"]),
+                       loaded["name"])
+                )
+            image = png_bytes_list_to_image_tensor(loaded["png_bytes_list"])
+            scene_bundle = {
+                "kind": "scene", "name": loaded["name"],
+                "description": loaded["description"], "image": image,
+            }
+            return (loaded["name"], loaded["description"], "", image, None,
+                    None, scene_bundle)
+        loaded = library.load_character("", name)
+        if len(loaded["png_bytes_list"]) != 1 or len(loaded["audio_bytes_list"]) != 1:
+            raise ValueError(
+                "character %r does not fit the simple model (one image + one "
+                "audio): found %d image(s) and %d audio clip(s). Trim the "
+                "asset under characters/%s."
+                % (loaded["name"], len(loaded["png_bytes_list"]),
+                   len(loaded["audio_bytes_list"]), loaded["name"])
+            )
+        image = png_bytes_list_to_image_tensor(loaded["png_bytes_list"])
+        audio_out = voice_sample_bytes_to_audio(
+            loaded["audio_bytes_list"][0], loaded["audio_exts"][0])
+        bundle = {
+            "kind": "character", "name": loaded["name"],
+            "description": loaded["description"], "voice": loaded["voice"],
+            "image": image, "audio": audio_out,
+        }
+        return (loaded["name"], loaded["description"], loaded["voice"],
+                image, audio_out, bundle, None)
+
+
+class LoadCharacterAssetV2(LoadAssetV2):
+    """Legacy per-kind load node — hidden, loads old workflows."""
+
+    CATEGORY = "hidden"
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        base = super().INPUT_TYPES()
+        base["required"].pop("kind")
+        return base
 
     RETURN_TYPES = ("STRING", "STRING", "STRING", "IMAGE", "AUDIO", CHARACTER_ASSET_TYPE)
     RETURN_NAMES = ("name", "description", "voice", "image", "audio", "asset")
@@ -412,115 +549,52 @@ class LoadCharacterAssetV2(object):
 
     @classmethod
     def IS_CHANGED(cls, library_dir, name):
-        return library.character_cache_key("", name)
-
-    @classmethod
-    def VALIDATE_INPUTS(cls, name, **kwargs):
-        return _validate_exempt(name, **kwargs)
+        return super().IS_CHANGED("character", library_dir, name)
 
     def load_character(self, library_dir="", name=""):
-        loaded = library.load_character("", name)
-        if len(loaded["png_bytes_list"]) != 1 or len(loaded["audio_bytes_list"]) != 1:
-            raise ValueError(
-                "character %r does not fit the simple model (one image + one "
-                "audio): found %d image(s) and %d audio clip(s). Use the (V1) "
-                "Load Character Asset node, or trim the asset under "
-                "characters/%s." % (loaded["name"], len(loaded["png_bytes_list"]),
-                                    len(loaded["audio_bytes_list"]), loaded["name"])
-            )
-        image = png_bytes_list_to_image_tensor(loaded["png_bytes_list"])
-        audio = voice_sample_bytes_to_audio(
-            loaded["audio_bytes_list"][0], loaded["audio_exts"][0]
-        )
-        bundle = {
-            "kind": "character", "name": loaded["name"],
-            "description": loaded["description"], "voice": loaded["voice"],
-            "image": image, "audio": audio,
-        }
-        return (loaded["name"], loaded["description"], loaded["voice"],
-                image, audio, bundle)
+        out = self.load("character", library_dir=library_dir, name=name)
+        return out[:5] + (out[5],)
 
 
-class SaveSceneAssetV2(object):
-    """Simple model: ONE image + ONE description."""
+class SaveSceneAssetV2(SaveAssetV2):
+    """Legacy per-kind save node — hidden, loads old workflows.
 
-    CATEGORY = ASSETS_CATEGORY
+    Pops the character-only widgets too (voice / audio / audio_upload) so
+    the widget order matches the pre-merge scene node exactly."""
+
+    CATEGORY = "hidden"
 
     @classmethod
     def INPUT_TYPES(cls):
-        return {
-            "required": {
-                "library_dir": ("STRING", {"default": ""}),
-                "name": (list(NAME_PLACEHOLDER), {
-                    "default": NAME_PLACEHOLDER[0],
-                    "tooltip": "资产名：📋 已有资产 Existing 模式下拉选名字 = 覆盖该资产；✏️ 新建 New 模式输入名字 = 新建（两者互斥二选一）。\n"
-                               "Asset name: 📋 Existing mode picks an asset to overwrite; ✏️ New mode types a name to create — the two are mutually exclusive.",
-                }),
-                "description": ("STRING", {
-                    "default": "",
-                    "multiline": True,
-                    "placeholder": (
-                        "description · 场景描述 Scene description（英文 EN 60–100 词 words）\n"
-                        "例 e.g.: A cozy family living room at night, beige fabric "
-                        "sofa against the left wall, warm floor lamp, old TV "
-                        "cabinet on the right, soft amber lighting."
-                    ),
-                    "tooltip": "场景的英文描述（60–100 词）：空间、陈设、光线、氛围；写清「什么在什么位置」。\n"
-                               "English scene description (60-100 words): space, furniture, lighting, atmosphere; state what stands where.",
-                }),
-                "new_name": ("STRING", {"default": "", "placeholder": "新资产的名字 new asset name"}),
-            },
-            "optional": {
-                "image": ("IMAGE",),
-                # Hidden STRING state; the visible picker + upload button
-                # is one DOM widget built by js/assetLibraryUI.js.
-                "image_upload": ("STRING", {"default": ""}),
-            },
-        }
+        base = super().INPUT_TYPES()
+        base["required"].pop("kind")
+        base["required"].pop("voice")
+        base["optional"].pop("audio")
+        base["optional"].pop("audio_upload")
+        return base
 
     RETURN_TYPES = ("STRING", "STRING", "IMAGE", "STRING", SCENE_ASSET_TYPE)
     RETURN_NAMES = ("name", "description", "image", "status", "asset")
     FUNCTION = "save_scene"
-    OUTPUT_NODE = True
-
-    @classmethod
-    def IS_CHANGED(cls, **kwargs):
-        return float("nan")
-
-    @classmethod
-    def VALIDATE_INPUTS(cls, name, new_name="", **kwargs):
-        return _validate_exempt(name, new_name=new_name, **kwargs)
 
     def save_scene(self, library_dir="", name="", description="", new_name="",
                    image=None, image_upload=""):
-        name = resolve_save_name(name, new_name)
-        if image is None and (image_upload or "").strip():
-            image = upload_image_to_tensor((image_upload or "").strip())
-        png = None if image is None else image_tensor_to_png_bytes(image)
-        result = library.save_scene("", name, description,
-                                    None if png is None else [png])
-        picture = png_bytes_list_to_image_tensor(result["png_bytes_list"][:1])
-        bundle = {
-            "kind": "scene", "name": result["name"],
-            "description": result["description"], "image": picture,
-        }
-        return (result["name"], result["description"], picture,
-                result["status"], bundle)
+        out = self.save("scene", library_dir=library_dir, name=name,
+                        description=description, new_name=new_name,
+                        image=image, image_upload=image_upload)
+        return (out[0], out[1], out[3], out[4], out[6])
 
 
-class LoadSceneAssetV2(object):
-    """Simple model read: name, description, ONE image."""
+class LoadSceneAssetV2(LoadAssetV2):
+    """Legacy per-kind load node — hidden, loads old workflows."""
 
-    CATEGORY = ASSETS_CATEGORY
+    CATEGORY = "hidden"
 
     @classmethod
     def INPUT_TYPES(cls):
-        return {
-            "required": {
-                "library_dir": ("STRING", {"default": ""}),
-                "name": (list(NAME_PLACEHOLDER), {"default": NAME_PLACEHOLDER[0]}),
-            }
-        }
+        base = super().INPUT_TYPES()
+        base["required"].pop("kind")
+        return base
 
     RETURN_TYPES = ("STRING", "STRING", "IMAGE", SCENE_ASSET_TYPE)
     RETURN_NAMES = ("name", "description", "image", "asset")
@@ -528,27 +602,11 @@ class LoadSceneAssetV2(object):
 
     @classmethod
     def IS_CHANGED(cls, library_dir, name):
-        return library.scene_cache_key("", name)
-
-    @classmethod
-    def VALIDATE_INPUTS(cls, name, **kwargs):
-        return _validate_exempt(name, **kwargs)
+        return super().IS_CHANGED("scene", library_dir, name)
 
     def load_scene(self, library_dir="", name=""):
-        loaded = library.load_scene("", name)
-        if len(loaded["png_bytes_list"]) != 1:
-            raise ValueError(
-                "scene %r does not fit the simple model (one image): found %d "
-                "image(s). Use the (V1) Load Scene Asset node, or trim the "
-                "asset under scenes/%s."
-                % (loaded["name"], len(loaded["png_bytes_list"]), loaded["name"])
-            )
-        image = png_bytes_list_to_image_tensor(loaded["png_bytes_list"])
-        bundle = {
-            "kind": "scene", "name": loaded["name"],
-            "description": loaded["description"], "image": image,
-        }
-        return (loaded["name"], loaded["description"], image, bundle)
+        out = self.load("scene", library_dir=library_dir, name=name)
+        return (out[0], out[1], out[3], out[6])
 
 
 class _DeleteAssetBase(object):
@@ -566,12 +624,13 @@ class _DeleteAssetBase(object):
 
     _KIND = "character"
 
-    def _delete(self, name, confirm, delete_fn):
+    def _delete(self, name, confirm, delete_fn, kind=None):
+        kind = kind or self._KIND
         if not confirm:
             raise RuntimeError(
                 "%s delete is ARMED BY A SECOND WIDGET: flip 「confirm 确认删除」"
                 "to True on this node, then queue again. Nothing was deleted."
-                % self._KIND
+                % kind
             )
         result = delete_fn("", name)
         status = (
@@ -583,24 +642,25 @@ class _DeleteAssetBase(object):
         return (result["name"], status)
 
 
-class DeleteCharacterAsset(_DeleteAssetBase):
-    """Delete one character asset from the fixed library (queue-executed).
+class DeleteAsset(_DeleteAssetBase):
+    """Unified delete node: kind dropdown picks character or scene.
 
-    The name dropdown lists existing characters only; the preview panel
-    shows what is about to be deleted; confirm must be flipped to True
+    The name dropdown lists only the chosen kind; the preview panel shows
+    what is about to be deleted; confirm must be flipped to True
     (deliberate two-step for a destructive action)."""
 
-    _KIND = "character"
+    CATEGORY = ASSETS_CATEGORY
 
     @classmethod
     def INPUT_TYPES(cls):
         return {
             "required": {
+                "kind": (list(KIND_COMBO), {"default": "character", "tooltip": KIND_TIP}),
                 "library_dir": ("STRING", {"default": ""}),
                 "name": (list(NAME_PLACEHOLDER), {
                     "default": NAME_PLACEHOLDER[0],
-                    "tooltip": "要删除的角色：下拉只列库里已有的角色。\n"
-                               "Character to delete: the dropdown lists existing characters only.",
+                    "tooltip": "要删除的资产：下拉只列所选类型里已有的资产。\n"
+                               "Asset to delete: the dropdown lists existing assets of the chosen kind only.",
                 }),
                 "confirm": ("BOOLEAN", {
                     "default": False,
@@ -615,46 +675,49 @@ class DeleteCharacterAsset(_DeleteAssetBase):
 
     RETURN_TYPES = ("STRING", "STRING")
     RETURN_NAMES = ("name", "status")
-    FUNCTION = "delete_character"
+    FUNCTION = "delete"
     OUTPUT_NODE = True
+
+    def delete(self, kind="character", library_dir="", name="", confirm=False):
+        delete_fn = (library.delete_scene if kind == "scene"
+                     else library.delete_character)
+        return self._delete(name, confirm, delete_fn, kind)
+
+
+class DeleteCharacterAsset(DeleteAsset):
+    """Legacy per-kind delete node — hidden, loads old workflows."""
+
+    CATEGORY = "hidden"
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        base = super().INPUT_TYPES()
+        base["required"].pop("kind")
+        return base
+
+    FUNCTION = "delete_character"
 
     def delete_character(self, library_dir="", name="", confirm=False):
-        return self._delete(name, confirm, library.delete_character)
+        return self.delete("character", library_dir=library_dir,
+                           name=name, confirm=confirm)
 
 
-class DeleteSceneAsset(_DeleteAssetBase):
-    """Delete one scene asset from the fixed library (queue-executed)."""
+class DeleteSceneAsset(DeleteAsset):
+    """Legacy per-kind delete node — hidden, loads old workflows."""
 
-    _KIND = "scene"
+    CATEGORY = "hidden"
 
     @classmethod
     def INPUT_TYPES(cls):
-        return {
-            "required": {
-                "library_dir": ("STRING", {"default": ""}),
-                "name": (list(NAME_PLACEHOLDER), {
-                    "default": NAME_PLACEHOLDER[0],
-                    "tooltip": "要删除的场景：下拉只列库里已有的场景。\n"
-                               "Scene to delete: the dropdown lists existing scenes only.",
-                }),
-                "confirm": ("BOOLEAN", {
-                    "default": False,
-                    "tooltip": "删除是破坏性操作：先选名字，再把本开关翻成 True，"
-                               "排队执行才真正删除；False 时排队只会报错提醒，"
-                               "什么都不删。\n"
-                               "Destructive: pick the name, flip this to True, then "
-                               "queue. False = loud error, nothing is deleted.",
-                }),
-            },
-        }
+        base = super().INPUT_TYPES()
+        base["required"].pop("kind")
+        return base
 
-    RETURN_TYPES = ("STRING", "STRING")
-    RETURN_NAMES = ("name", "status")
     FUNCTION = "delete_scene"
-    OUTPUT_NODE = True
 
     def delete_scene(self, library_dir="", name="", confirm=False):
-        return self._delete(name, confirm, library.delete_scene)
+        return self.delete("scene", library_dir=library_dir,
+                           name=name, confirm=confirm)
 
 
 class AssetToSlots(object):

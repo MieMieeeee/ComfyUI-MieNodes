@@ -35,6 +35,7 @@ except ImportError:
 
 try:
     from _mienodes_internal.nodes.assets.nodes import (
+        SaveAssetV2,
         SaveCharacterAssetV2,
         SaveSceneAssetV2,
         resolve_save_name,
@@ -43,6 +44,7 @@ try:
     )
 except ImportError:
     from ..assets.nodes import (
+        SaveAssetV2,
         SaveCharacterAssetV2,
         SaveSceneAssetV2,
         resolve_save_name,
@@ -168,13 +170,13 @@ def draft_voice(connector, name, description, hint=""):
     return voice
 
 
-class SaveCharacterAssetAutoV2(SaveCharacterAssetV2):
-    """Save Character Asset + LLM: empty description/voice get drafted.
+class SaveAssetAutoV2(SaveAssetV2):
+    """Unified Save Asset + LLM: kind dropdown; empty fields get drafted.
 
-    Everything else — name/new_name flow, upload pickers, media priority,
-    overwrite semantics — is inherited unchanged from Save Character
+    Everything else — Existing/New name toggle, upload pickers, media
+    priority, overwrite semantics — is inherited unchanged from Save
     Asset. Filled text fields are saved verbatim; the LLM only fills
-    blanks.
+    blanks. Scene mode skips the voice draft and ignores voice_prompt.
     """
 
     CATEGORY = ASSETS_CATEGORY
@@ -191,12 +193,12 @@ class SaveCharacterAssetAutoV2(SaveCharacterAssetV2):
             {
                 "default": "",
                 "multiline": True,
-                "placeholder": "图像描述提示词（可选）· image prompt (optional)",
-                "tooltip": "给描述 LLM 的作者先验（可选）：气质/着装细节、"
-                "画风、必须写进描述的事实等，任意语言。空 = 纯看图起草。\n"
-                "Author prior for the description call (optional): mood, wardrobe "
-                "details, facts that must appear — any language. Empty = draft "
-                "from the picture alone.",
+                "placeholder": "描述提示词（可选）· description prompt (optional)",
+                "tooltip": "给描述 LLM 的作者先验（可选）：角色 = 气质/着装/必须写进"
+                    "的事实；场景 = 地点/时段/氛围/陈设事实；任意语言。空 = 纯看图"
+                    "起草。\nAuthor prior for the description call (optional): "
+                    "character mood/wardrobe facts or scene place/time/furnishing "
+                    "facts — any language. Empty = draft from the picture alone.",
             },
         )
         base["optional"]["voice_prompt"] = (
@@ -204,23 +206,24 @@ class SaveCharacterAssetAutoV2(SaveCharacterAssetV2):
             {
                 "default": "",
                 "multiline": True,
-                "placeholder": "音色提示词（可选）· voice prompt (optional)",
-                "tooltip": "给音色 LLM 的作者先验（可选）：它听不到音频，"
-                "真实音色只能在这里告诉它，如「老年男声，沙哑，语速慢」。"
-                "空 = 从名字+外观推断。\n"
-                "Author prior for the voice call (optional): the LLM cannot hear "
-                "the sample — ground-truth timbre goes ONLY here, e.g. 'elderly "
-                "male, hoarse, slow pace'. Empty = inferred from name+looks.",
+                "placeholder": "音色提示词（可选，仅角色 · character only）· voice prompt (optional)",
+                "tooltip": "给音色 LLM 的作者先验（可选，仅角色类型）：它听不到音频，"
+                    "真实音色只能在这里告诉它，如「老年男声，沙哑，语速慢」。空 = 从"
+                    "名字+外观推断；场景类型忽略本字段。\nAuthor prior for the voice "
+                    "call (optional, characters only): the LLM cannot hear the "
+                    "sample — ground-truth timbre goes ONLY here, e.g. 'elderly "
+                    "male, hoarse, slow pace'. Empty = inferred from name+looks; "
+                    "ignored for scenes.",
             },
         )
         return base
 
     FUNCTION = "save_auto"
 
-    def save_auto(self, llm_service_connector, library_dir="", name="",
-                  description="", voice="", new_name="", image=None,
-                  audio=None, image_upload="", audio_upload="",
-                  image_prompt="", voice_prompt=""):
+    def save_auto(self, llm_service_connector, kind="character",
+                  library_dir="", name="", description="", voice="",
+                  new_name="", image=None, audio=None, image_upload="",
+                  audio_upload="", image_prompt="", voice_prompt=""):
         _check_connector(llm_service_connector)
         # Media priority mirrors the Save nodes exactly (socket > upload);
         # resolving once here also feeds the captioner when drafting.
@@ -240,10 +243,10 @@ class SaveCharacterAssetAutoV2(SaveCharacterAssetV2):
                     "type the description yourself"
                 )
             description = draft_description(
-                llm_service_connector, eff_image, "character", image_prompt
+                llm_service_connector, eff_image, kind, image_prompt
             )
             drafted.append("description")
-        if not (voice or "").strip():
+        if kind != "scene" and not (voice or "").strip():
             voice = draft_voice(
                 llm_service_connector,
                 resolve_save_name(name, new_name),
@@ -252,10 +255,10 @@ class SaveCharacterAssetAutoV2(SaveCharacterAssetV2):
             )
             drafted.append("voice")
 
-        out = super().save_character(
-            library_dir=library_dir, name=name, description=description,
-            voice=voice, new_name=new_name, image=eff_image,
-            audio=eff_audio,
+        out = super().save(
+            kind=kind, library_dir=library_dir, name=name,
+            description=description, voice=voice, new_name=new_name,
+            image=eff_image, audio=eff_audio,
         )
         if drafted:
             note = (
@@ -266,63 +269,63 @@ class SaveCharacterAssetAutoV2(SaveCharacterAssetV2):
         return out
 
 
-class SaveSceneAssetAutoV2(SaveSceneAssetV2):
-    """Save Scene Asset + LLM: an empty description gets drafted."""
+class SaveCharacterAssetAutoV2(SaveAssetAutoV2):
+    """Legacy per-kind Auto node — hidden, loads old workflows."""
 
-    CATEGORY = ASSETS_CATEGORY
+    CATEGORY = "hidden"
 
     @classmethod
     def INPUT_TYPES(cls):
         base = super().INPUT_TYPES()
-        base["required"]["llm_service_connector"] = (
-            "LLMServiceConnector",
-            {"tooltip": "起草空白 description 的 LLM 连接器。LLM connector that drafts the empty description."},
-        )
-        base["optional"]["image_prompt"] = (
-            "STRING",
-            {
-                "default": "",
-                "multiline": True,
-                "placeholder": "场景描述提示词（可选）· scene prompt (optional)",
-                "tooltip": "给描述 LLM 的作者先验（可选）：地点/时段/氛围、"
-                "必须写进描述的陈设事实等，任意语言。空 = 纯看图起草。\n"
-                "Author prior for the description call (optional): place, time of "
-                "day, mood, furnishing facts that must appear — any language. "
-                "Empty = draft from the picture alone.",
-            },
-        )
+        base["required"].pop("kind")
         return base
 
+    RETURN_TYPES = SaveAssetV2.RETURN_TYPES[:5] + (SaveAssetV2.RETURN_TYPES[5],)
+    RETURN_NAMES = ("name", "description", "voice", "image", "status", "asset")
+    FUNCTION = "save_auto"
+
+    def save_auto(self, llm_service_connector, library_dir="", name="",
+                  description="", voice="", new_name="", image=None,
+                  audio=None, image_upload="", audio_upload="",
+                  image_prompt="", voice_prompt=""):
+        out = super().save_auto(
+            llm_service_connector, "character", library_dir=library_dir,
+            name=name, description=description, voice=voice,
+            new_name=new_name, image=image, audio=audio,
+            image_upload=image_upload, audio_upload=audio_upload,
+            image_prompt=image_prompt, voice_prompt=voice_prompt,
+        )
+        return out[:5] + (out[5],)
+
+
+class SaveSceneAssetAutoV2(SaveAssetAutoV2):
+    """Legacy per-kind Auto node — hidden, loads old workflows.
+
+    Pops the character-only widgets (voice / audio / audio_upload /
+    voice_prompt) so the widget order matches the pre-merge scene node."""
+
+    CATEGORY = "hidden"
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        base = super().INPUT_TYPES()
+        base["required"].pop("kind")
+        base["required"].pop("voice")
+        base["optional"].pop("audio")
+        base["optional"].pop("audio_upload")
+        base["optional"].pop("voice_prompt")
+        return base
+
+    RETURN_TYPES = ("STRING", "STRING", "IMAGE", "STRING", SaveAssetV2.RETURN_TYPES[6])
+    RETURN_NAMES = ("name", "description", "image", "status", "asset")
     FUNCTION = "save_auto"
 
     def save_auto(self, llm_service_connector, library_dir="", name="",
                   description="", new_name="", image=None, image_upload="",
                   image_prompt=""):
-        _check_connector(llm_service_connector)
-        eff_image = image
-        if eff_image is None and (image_upload or "").strip():
-            eff_image = upload_image_to_tensor((image_upload or "").strip())
-
-        drafted = []
-        if not (description or "").strip():
-            if eff_image is None:
-                raise RuntimeError(
-                    "auto-draft needs a picture to write the description: "
-                    "wire an image (or pick one in the media card), or "
-                    "type the description yourself"
-                )
-            description = draft_description(
-                llm_service_connector, eff_image, "scene", image_prompt
-            )
-            drafted.append("description")
-
-        out = super().save_scene(
-            library_dir=library_dir, name=name, description=description,
-            new_name=new_name, image=eff_image,
+        out = super().save_auto(
+            llm_service_connector, "scene", library_dir=library_dir,
+            name=name, description=description, new_name=new_name,
+            image=image, image_upload=image_upload, image_prompt=image_prompt,
         )
-        if drafted:
-            note = (
-                "; LLM drafted description (review and re-save to correct)"
-            )
-            out = out[:3] + (out[3] + note,) + out[4:]
-        return out
+        return (out[0], out[1], out[3], out[4], out[6])

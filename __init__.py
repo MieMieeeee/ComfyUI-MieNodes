@@ -15,7 +15,7 @@ from _mienodes_internal.nodes.common import ShowAnythingMie, ShowAndSaveAnything
 from _mienodes_internal.nodes.files import BatchRenameFiles, BatchDeleteFiles, BatchEditTextFiles, BatchSyncImageCaptionFiles, \
     SummaryTextFiles, BatchConvertImageFiles, DedupImageFiles, ModelDownloader, HFRepoDownloader
 from _mienodes_internal.nodes.llm import TextTranslator, PromptGenerator, KontextPromptGenerator, AddUserKontextPreset, RemoveUserKontextPreset, \
-    FrameTransitionPromptGenerator, HunyuanVideoI2VPromptGenerator, HunyuanVideoT2VPromptGenerator, ZImagePromptGenerator, Flux2PromptGenerator, FluxKleinT2VPromptGenerator, LTX2PromptGenerator, BerniniPromptGenerator, Ideogram4PromptGenerator, CustomSystemPromptGenerator, AddCustomSystemPrompt, RemoveCustomSystemPrompt, Scail2PromptGenerator, Krea2PromptGenerator, MiniMaxH3PromptGenerator, LTX25PromptGenerator, MiniMaxH3StoryboardGenerator, MiniMaxH3LoopPromptGenerator, SaveCharacterAssetAutoV2, SaveSceneAssetAutoV2, MiniMaxH3LoopPromptGeneratorV2, MiniMaxH3LoopUserInputEnhancer, QwenImage21PromptGenerator
+    FrameTransitionPromptGenerator, HunyuanVideoI2VPromptGenerator, HunyuanVideoT2VPromptGenerator, ZImagePromptGenerator, Flux2PromptGenerator, FluxKleinT2VPromptGenerator, LTX2PromptGenerator, BerniniPromptGenerator, Ideogram4PromptGenerator, CustomSystemPromptGenerator, AddCustomSystemPrompt, RemoveCustomSystemPrompt, Scail2PromptGenerator, Krea2PromptGenerator, MiniMaxH3PromptGenerator, LTX25PromptGenerator, MiniMaxH3StoryboardGenerator, MiniMaxH3LoopPromptGenerator, SaveCharacterAssetAutoV2, SaveSceneAssetAutoV2, SaveAssetAutoV2, MiniMaxH3LoopPromptGeneratorV2, MiniMaxH3LoopUserInputEnhancer, QwenImage21PromptGenerator
 from _mienodes_internal.services.llm import SetGeneralLLMServiceConnector, SetSiliconFlowLLMServiceConnector, \
     SetZhiPuLLMServiceConnector, SetZhiPuCodeLLMServiceConnector, SetKimiLLMServiceConnector, \
     SetDeepSeekLLMServiceConnector, SetGeminiLLMServiceConnector, SetBailianLLMServiceConnector, \
@@ -37,6 +37,7 @@ from _mienodes_internal.nodes.loop import MieLoopStart, MieLoopResume, MieLoopBo
     MieLoopCollectText, MieLoopFinalizeTextList, MieLoopCleanupText, MieLoopCollectJSON, MieLoopFinalizeJSONList, MieLoopCleanupJSON, \
     MieLoopCollectAudio, MieLoopFinalizeAudio, MieLoopCleanupAudio
 from _mienodes_internal.nodes.assets import \
+    SaveAssetV2, LoadAssetV2, DeleteAsset, \
     SaveCharacterAssetV2, LoadCharacterAssetV2, SaveSceneAssetV2, LoadSceneAssetV2, \
     DeleteCharacterAsset, DeleteSceneAsset, AssetToSlots
 from _mienodes_internal.core.utils import add_suffix, add_emoji
@@ -149,6 +150,9 @@ NODE_CLASS_MAPPINGS = {
     add_suffix('RichTextNode'): RichTextNode,
     add_suffix('AboutAuthorNode'): AboutAuthorNode,
     add_suffix('AboutAuthorNodeEn'): AboutAuthorNodeEn,
+    add_suffix("SaveAssetV2"): SaveAssetV2,
+    add_suffix("LoadAssetV2"): LoadAssetV2,
+    add_suffix("DeleteAsset"): DeleteAsset,
     add_suffix("SaveCharacterAssetV2"): SaveCharacterAssetV2,
     add_suffix("LoadCharacterAssetV2"): LoadCharacterAssetV2,
     add_suffix("SaveSceneAssetV2"): SaveSceneAssetV2,
@@ -156,6 +160,7 @@ NODE_CLASS_MAPPINGS = {
     add_suffix("DeleteCharacterAsset"): DeleteCharacterAsset,
     add_suffix("DeleteSceneAsset"): DeleteSceneAsset,
     add_suffix("AssetToSlots"): AssetToSlots,
+    add_suffix("SaveAssetAutoV2"): SaveAssetAutoV2,
     add_suffix("SaveCharacterAssetAutoV2"): SaveCharacterAssetAutoV2,
     add_suffix("SaveSceneAssetAutoV2"): SaveSceneAssetAutoV2,
     add_suffix("MieLoopStart"): MieLoopStart,
@@ -299,6 +304,9 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     add_suffix('RichTextNode'): add_emoji('Rich Text'),
     add_suffix('AboutAuthorNode'): add_emoji('About Author'),
     add_suffix('AboutAuthorNodeEn'): add_emoji('About Author EN'),
+    add_suffix("SaveAssetV2"): add_emoji("Save Asset"),
+    add_suffix("LoadAssetV2"): add_emoji("Load Asset"),
+    add_suffix("DeleteAsset"): add_emoji("Delete Asset"),
     add_suffix("SaveCharacterAssetV2"): add_emoji("Save Character Asset"),
     add_suffix("LoadCharacterAssetV2"): add_emoji("Load Character Asset"),
     add_suffix("SaveSceneAssetV2"): add_emoji("Save Scene Asset"),
@@ -306,6 +314,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     add_suffix("DeleteCharacterAsset"): add_emoji("Delete Character Asset"),
     add_suffix("DeleteSceneAsset"): add_emoji("Delete Scene Asset"),
     add_suffix("AssetToSlots"): add_emoji("Asset → Slots"),
+    add_suffix("SaveAssetAutoV2"): add_emoji("Save Asset (Auto)"),
     add_suffix("SaveCharacterAssetAutoV2"): add_emoji("Save Character Asset (Auto)"),
     add_suffix("SaveSceneAssetAutoV2"): add_emoji("Save Scene Asset (Auto)"),
     add_suffix("MieLoopStart"): add_emoji("Mie Loop Start"),

@@ -1097,3 +1097,101 @@ def test_delete_endpoint_happy_missing_and_sentinel(lib_dir, monkeypatch):
 
     out = asyncio.run(fn(_Req({"name": "X", "kind": "bogus"})))
     assert _json.loads(out.body)["ok"] is False  # bad kind refused
+
+
+# --------------------------------------------------------------------------- #
+# Unified kind-dropdown nodes (2026-10-11 merge: one node per operation)
+# --------------------------------------------------------------------------- #
+def test_unified_save_both_kinds(lib_dir, monkeypatch):
+    from nodes.assets.nodes import SaveAssetV2, NEW_NAME_SENTINEL
+
+    monkeypatch.setenv(library.LIBRARY_DIR_ENV, str(lib_dir))
+    node = SaveAssetV2()
+    out = node.save(
+        kind="character", name=NEW_NAME_SENTINEL, new_name="K",
+        description="d", voice="v",
+        image=png_bytes_list_to_image_tensor([make_png((5, 5, 5))]),
+        audio=wav_bytes_to_audio(make_wav(freq=440.0)),
+    )
+    assert len(out) == 7
+    assert out[0] == "K" and (out[1], out[2]) == ("d", "v")
+    assert out[5]["kind"] == "character" and out[6] is None
+    assert "waveform" in out[5]["audio"]
+
+    out2 = node.save(
+        kind="scene", name="S1", description="sd",
+        image=png_bytes_list_to_image_tensor([make_png((6, 6, 6))]),
+    )
+    assert out2[2] == ""  # scene carries no voice
+    assert out2[5] is None and out2[6]["kind"] == "scene"
+    assert library.load_scene("", "S1")["description"] == "sd"
+
+
+def test_unified_load_both_kinds(lib_dir, monkeypatch):
+    from nodes.assets.nodes import LoadAssetV2, SaveAssetV2
+
+    monkeypatch.setenv(library.LIBRARY_DIR_ENV, str(lib_dir))
+    save = SaveAssetV2()
+    save.save(
+        kind="character", name="C1", description="cd", voice="cv",
+        image=png_bytes_list_to_image_tensor([make_png((1, 1, 1))]),
+        audio=wav_bytes_to_audio(make_wav(freq=300.0)),
+    )
+    save.save(
+        kind="scene", name="S1", description="sd",
+        image=png_bytes_list_to_image_tensor([make_png((2, 2, 2))]),
+    )
+    load = LoadAssetV2()
+    c = load.load(kind="character", name="C1")
+    assert c[0] == "C1" and c[2] == "cv"
+    assert "waveform" in c[4]
+    assert c[5]["kind"] == "character" and c[6] is None
+    s = load.load(kind="scene", name="S1")
+    assert s[2] == "" and s[4] is None
+    assert s[5] is None and s[6]["kind"] == "scene"
+
+
+def test_unified_delete_confirm_gate_and_kinds(lib_dir, monkeypatch):
+    from nodes.assets.nodes import DeleteAsset, SaveAssetV2
+
+    monkeypatch.setenv(library.LIBRARY_DIR_ENV, str(lib_dir))
+    SaveAssetV2().save(
+        kind="character", name="C1", description="cd", voice="cv",
+        image=png_bytes_list_to_image_tensor([make_png((3, 3, 3))]),
+        audio=wav_bytes_to_audio(make_wav()),
+    )
+    SaveAssetV2().save(
+        kind="scene", name="S1", description="sd",
+        image=png_bytes_list_to_image_tensor([make_png((4, 4, 4))]),
+    )
+    node = DeleteAsset()
+    with pytest.raises(RuntimeError, match="confirm"):
+        node.delete(kind="scene", name="S1", confirm=False)
+    name, status = node.delete(kind="scene", name="S1", confirm=True)
+    assert name == "S1" and "deleted scene" in status
+    assert not (lib_dir / "scenes" / "S1").exists()
+    assert (lib_dir / "characters" / "C1").exists()  # other kind untouched
+
+
+def test_unified_and_compat_shapes():
+    from nodes.assets import nodes as A
+
+    # Unified nodes lead with the kind dropdown and emit BOTH typed bundles,
+    # so downstream typed sockets keep their type safety either way.
+    assert list(A.SaveAssetV2.INPUT_TYPES()["required"])[0] == "kind"
+    assert list(A.LoadAssetV2.INPUT_TYPES()["required"])[0] == "kind"
+    assert list(A.DeleteAsset.INPUT_TYPES()["required"])[0] == "kind"
+    assert A.SaveAssetV2.RETURN_NAMES[-2:] == ("character_asset", "scene_asset")
+    assert A.LoadAssetV2.RETURN_TYPES[-2:] == (
+        A.CHARACTER_ASSET_TYPE, A.SCENE_ASSET_TYPE,
+    )
+    # Compat classes: hidden from the menu, widget sets byte-identical to
+    # the pre-merge nodes.
+    for cls in (A.SaveCharacterAssetV2, A.LoadCharacterAssetV2,
+                A.SaveSceneAssetV2, A.LoadSceneAssetV2,
+                A.DeleteCharacterAsset, A.DeleteSceneAsset):
+        assert cls.CATEGORY == "hidden"
+    assert list(A.SaveCharacterAssetV2.INPUT_TYPES()["required"])[0] == "library_dir"
+    assert "voice" not in A.SaveSceneAssetV2.INPUT_TYPES()["required"]
+    assert "audio_upload" not in A.SaveSceneAssetV2.INPUT_TYPES()["optional"]
+    assert "voice_prompt" not in A.SaveSceneAssetV2.INPUT_TYPES()["optional"]

@@ -28,6 +28,14 @@ const KIND_SCENE = "场景 Scene";
 
 // nodeData.name（含 |Mie 后缀）-> 行为配置
 const NODES = {
+    // 2026-10-11 合并裁决：每个操作一个节点，kind 下拉选角色/场景。
+    // kindWidget = 有 kind 下拉，cfg.save/preview/kinds 随其值实时变化。
+    "LoadAssetV2|Mie": { kinds: ["characters"], preview: "character", kindWidget: true },
+    "DeleteAsset|Mie": { kinds: ["characters"], preview: "character", del: true, kindWidget: true },
+    "SaveAssetV2|Mie": { kinds: ["characters"], save: "character", kindWidget: true },
+    "SaveAssetAutoV2|Mie": { kinds: ["characters"], save: "character", kindWidget: true },
+    // 旧的单类型节点（后端 CATEGORY=hidden，菜单里不出现，但老工作流照常
+    // 加载并保留完整 UI 接线）。
     "LoadCharacterAssetV2|Mie": { kinds: ["characters"], preview: "character" },
     "LoadSceneAssetV2|Mie": { kinds: ["scenes"], preview: "scene" },
     // 删除节点：下拉 + 预览（删之前看得见要删的是什么），执行成功后名单刷新。
@@ -136,6 +144,8 @@ app.registerExtension({
         const origConfigure = nodeType.prototype.onConfigure;
         nodeType.prototype.onConfigure = function () {
             origConfigure?.apply(this, arguments);
+            // 统一节点：configure 写回 kind 值后先按它定住控件形态，再刷预览。
+            if (cfg.kindWidget) adaptKind(this);
             if (cfg.save) syncNewNameVisibility(this);
             syncAllFields(this);  // 工作流加载后把隐藏值刷进自有控件
             applyLibrary(this);
@@ -210,9 +220,21 @@ function fitDomWidget(w, wrap, pad = 28, floor = 26) {
     wrap.classList.add("mie-domfit");
     // pad 要盖住引擎从 computedHeight 里扣的上下两圈 margin（各 10px）加
     // host 的实际摆放偏移（slot 顶 +~27 才是元素顶），否则元素底会戳出
-    // 槽位/节点底边。
-    const need = () => Math.max(floor, Math.round(wrap.offsetHeight) + pad);
+    // 槽位/节点底边。display:none（kind 切换收起）时高度归零，槽位塌缩。
+    const need = () => {
+        if (wrap.offsetParent === null) return 0;
+        return Math.max(floor, Math.round(wrap.offsetHeight) + pad);
+    };
     w.computeLayoutSize = () => ({ minHeight: need(), maxHeight: need() });
+}
+
+// 折叠/展开一个 DOM widget（kind 切换时收起角色专属/场景无关的控件）。
+// 只藏元素 + 归零 computeLayoutSize 高度；serialize:false 的它们本来
+// 就不参与 widgets_values。
+function setDomWidgetHidden(w, hidden) {
+    if (!w) return;
+    w.hidden = hidden;
+    if (w.element) w.element.style.display = hidden ? "none" : "";
 }
 
 // ---- 通用渐变大按钮（打开文件夹/刷新与删除/应用保存同一造型家族） ----------
@@ -254,6 +276,18 @@ function wireNode(node, cfg) {
 
     // 库位置固定：widget 永久隐藏（不再有翻出来编辑的入口）。
     dirWidget.hidden = true;
+
+    // 统一节点：kind 下拉一变，整个节点换一种资产形态（见 adaptKind）。
+    if (cfg.kindWidget) {
+        const kindW = node.widgets?.find((w) => w.name === "kind");
+        if (kindW) {
+            const origKindCb = kindW.callback;
+            kindW.callback = (...args) => {
+                origKindCb?.apply(kindW, args);
+                adaptKind(node);
+            };
+        }
+    }
 
     // 「📂 打开文件夹」请求固定端点，打开解析出的那一个目录。
     const openBtn = makeStyledButton(
@@ -441,53 +475,66 @@ function wireNode(node, cfg) {
             };
         }
         makeAssetNameSelector(node, cfg);
+        // 统一节点（kindWidget）把两种类型的控件全建出来、随 kind 折叠；
+        // 旧单类型节点维持按类型条件创建。
         const isScene = cfg.save === "scene";
-        makeTextField(
-            node, "description",
-            isScene
-                ? "description · 场景描述 Scene description（EN 60–100 词 words）"
-                : "description · 角色外观描述 Character appearance（EN 60–100 词 words）",
-            isScene
-                ? "例 e.g.: A cozy family living room at night, beige sofa against the left wall, warm floor lamp…"
-                : "例 e.g.: A kind elderly Chinese grandfather, 68 years old, short silver-white hair…",
-            isScene
-                ? "空间/陈设/光线/氛围，写清什么在什么位置。\nSpace, furniture, lighting, atmosphere; state what stands where."
-                : "只写长相事实（年龄/发型/脸型/着装/体型），H3 用它当身份参考。\nLooks only (age/hair/face/wardrobe/build); the H3 chain uses it as the identity reference."
+        const descWord = (scene) => scene ? {
+            label: "description · 场景描述 Scene description（EN 60–100 词 words）",
+            ph: "例 e.g.: A cozy family living room at night, beige sofa against the left wall, warm floor lamp…",
+            tip: "空间/陈设/光线/氛围，写清什么在什么位置。\nSpace, furniture, lighting, atmosphere; state what stands where.",
+        } : {
+            label: "description · 角色外观描述 Character appearance（EN 60–100 词 words）",
+            ph: "例 e.g.: A kind elderly Chinese grandfather, 68 years old, short silver-white hair…",
+            tip: "只写长相事实（年龄/发型/脸型/着装/体型），H3 用它当身份参考。\nLooks only (age/hair/face/wardrobe/build); the H3 chain uses it as the identity reference.",
+        };
+        const dw0 = descWord(isScene);
+        const descField = makeTextField(
+            node, "description", dw0.label, dw0.ph, dw0.tip
         );
-        if (!isScene) {
-            makeTextField(
-                node, "voice",
-                "voice · 音色描述 Voice timbre（EN 一行 one line，≤200 字符 chars）",
-                "例 e.g.: adult male, low thick steady voice, warm cheerful undertone, unhurried pace",
-                "年龄/性别/音域/语速/质感的一行英文描述。\nOne-line English descriptor: age/gender/register/pace/texture."
-            );
-        }
+        const wantVoice = cfg.kindWidget || !isScene;
+        const voiceField = wantVoice ? makeTextField(
+            node, "voice",
+            "voice · 音色描述 Voice timbre（EN 一行 one line，≤200 字符 chars，仅角色 · character only）",
+            "例 e.g.: adult male, low thick steady voice, warm cheerful undertone, unhurried pace",
+            "年龄/性别/音域/语速/质感的一行英文描述；场景类型忽略本字段。\nOne-line English descriptor: age/gender/register/pace/texture; ignored for scenes."
+        ) : null;
         // Auto 变体的两个提示词框（widget 不存在时自动跳过）。
         makeTextField(
             node, "image_prompt",
-            "image_prompt · 图像描述提示词 Image hint（可选 optional）",
+            "image_prompt · 描述提示词 Image hint（可选 optional）",
             "给描述 LLM 的先验：气质/着装/必须写进的事实，任意语言 · author prior for the description call",
             "留空 = 纯看图起草；填了作为 Author notes 附进描述调用。\nEmpty = draft from the picture alone; filled = appended as Author notes."
         );
-        makeTextField(
+        const voicePromptField = wantVoice ? makeTextField(
             node, "voice_prompt",
-            "voice_prompt · 音色提示词 Voice hint（可选 optional）",
+            "voice_prompt · 音色提示词 Voice hint（可选 optional，仅角色 · character only）",
             "真实音色只能在这里告诉它（它听不到音频）· ground-truth timbre goes here",
-            "留空 = 从名字+外观推断；填了覆盖纯推断。\nEmpty = inferred from name+looks; filled = followed over the inference."
-        );
+            "留空 = 从名字+外观推断；填了覆盖纯推断；场景类型忽略本字段。\nEmpty = inferred from name+looks; filled = followed over the inference; ignored for scenes."
+        ) : null;
         makeMediaPicker(
             node, "image_upload", "image",
             ".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp",
             "/upload/image", "image", "🖼", "定妆图 Portrait"
         );
-        if (cfg.save === "character") {
-            makeMediaPicker(
+        const audioCard = (cfg.kindWidget || cfg.save === "character")
+            ? makeMediaPicker(
                 node, "audio_upload", "audio",
                 ".wav,.mp3,audio/wav,audio/mpeg",
                 "/mie_nodes/assets/upload_audio", "audio", "🎵", "音色样本 Voice Sample"
-            );
-        }
+            )
+            : null;
         makePreviewWidget(node);
+        if (cfg.kindWidget) {
+            node.__mieAssets.setKindVisibility = (scene) => {
+                setDomWidgetHidden(voiceField?.w, scene);
+                setDomWidgetHidden(voicePromptField?.w, scene);
+                setDomWidgetHidden(audioCard, scene);
+            };
+            node.__mieAssets.refreshKindTexts = (scene) => {
+                const w = descWord(scene);
+                descField?.setWording(w.label, w.ph, w.tip);
+            };
+        }
     } else if (cfg.preview) {
         const nameWidget = node.widgets.find((w) => w.name === "name");
         const origNameCallback = nameWidget?.callback;
@@ -519,6 +566,29 @@ function wireNode(node, cfg) {
     setTimeout(() => relayoutNode(node), 400);
 
     applyLibrary(node);
+    // 统一节点按当前 kind 定形（折叠专属控件/文案/名单过滤）。
+    if (cfg.kindWidget) adaptKind(node);
+}
+
+// ---- 统一节点：kind 下拉联动 --------------------------------------------------
+// cfg 的 save/preview/kinds 对旧节点是静态常量；统一节点（kindWidget）按
+// kind 值实时改写：折叠角色专属控件（voice / 音频卡片 / voice_prompt）、
+// 切 description 文案、按类型重过滤下拉名单、按类型刷预览。
+function adaptKind(node) {
+    const ui = node.__mieAssets;
+    if (!ui?.cfg?.kindWidget) return;
+    const kindW = node.widgets.find((w) => w.name === "kind");
+    const scene = (kindW?.value || "character") === "scene";
+    const cfg = ui.cfg;
+    if (cfg.save) cfg.save = scene ? "scene" : "character";
+    if (cfg.preview) cfg.preview = scene ? "scene" : "character";
+    cfg.kinds = [scene ? "scenes" : "characters"];
+    ui.setKindVisibility?.(scene);
+    ui.refreshKindTexts?.(scene);
+    relayoutNode(node);
+    applyLibrary(node);
+    if (cfg.save) refreshSavePreview(node, { autofill: false });
+    else if (cfg.preview) refreshLoadPreview(node);
 }
 
 function applyLibrary(node, { force = false } = {}) {
@@ -677,6 +747,7 @@ function makeMediaPicker(node, stateName, kind, accept, endpoint, field, icon, l
     });
     widget.serialize = false;
     fitDomWidget(widget, wrap);
+    return widget;
 }
 
 
@@ -868,9 +939,10 @@ function makeAssetNameSelector(node, cfg) {
 }
 
 // ---- 自有文本框：label + placeholder 示例，原生 widget 隐藏作序列化载体 ------
+// 返回 { w, label, ta, setWording }——统一节点用它随 kind 切换改文案/折叠。
 function makeTextField(node, widgetName, label, placeholder, tooltip) {
     const w = node.widgets?.find((x) => x.name === widgetName);
-    if (!w || typeof node.addDOMWidget !== "function") return;
+    if (!w || typeof node.addDOMWidget !== "function") return null;
     w.hidden = true;
 
     const wrap = document.createElement("div");
@@ -903,6 +975,17 @@ function makeTextField(node, widgetName, label, placeholder, tooltip) {
     }
     (node.__mieAssets.fieldSync ||= {})[widgetName] = () => {
         if (document.activeElement !== ta) ta.value = w.value || "";
+    };
+    return {
+        w: dw,
+        label: lab,
+        ta,
+        setWording: (nextLabel, nextPlaceholder, nextTooltip) => {
+            lab.textContent = nextLabel;
+            if (nextTooltip) lab.title = nextTooltip;
+            if (nextPlaceholder !== undefined) ta.placeholder = nextPlaceholder;
+            if (nextTooltip) ta.title = nextTooltip;
+        },
     };
 }
 
