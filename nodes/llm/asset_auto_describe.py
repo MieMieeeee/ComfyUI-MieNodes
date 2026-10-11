@@ -280,7 +280,7 @@ class SaveCharacterAssetAutoV2(SaveAssetAutoV2):
         base["required"].pop("kind")
         return base
 
-    RETURN_TYPES = SaveAssetV2.RETURN_TYPES[:5] + (SaveAssetV2.RETURN_TYPES[5],)
+    RETURN_TYPES = SaveAssetV2.RETURN_TYPES  # single asset line, same shape
     RETURN_NAMES = ("name", "description", "voice", "image", "status", "asset")
     FUNCTION = "save_auto"
 
@@ -288,14 +288,13 @@ class SaveCharacterAssetAutoV2(SaveAssetAutoV2):
                   description="", voice="", new_name="", image=None,
                   audio=None, image_upload="", audio_upload="",
                   image_prompt="", voice_prompt=""):
-        out = super().save_auto(
+        return super().save_auto(
             llm_service_connector, "character", library_dir=library_dir,
             name=name, description=description, voice=voice,
             new_name=new_name, image=image, audio=audio,
             image_upload=image_upload, audio_upload=audio_upload,
             image_prompt=image_prompt, voice_prompt=voice_prompt,
         )
-        return out[:5] + (out[5],)
 
 
 class SaveSceneAssetAutoV2(SaveAssetAutoV2):
@@ -316,7 +315,7 @@ class SaveSceneAssetAutoV2(SaveAssetAutoV2):
         base["optional"].pop("voice_prompt")
         return base
 
-    RETURN_TYPES = ("STRING", "STRING", "IMAGE", "STRING", SaveAssetV2.RETURN_TYPES[6])
+    RETURN_TYPES = ("STRING", "STRING", "IMAGE", "STRING", SaveAssetV2.RETURN_TYPES[5])
     RETURN_NAMES = ("name", "description", "image", "status", "asset")
     FUNCTION = "save_auto"
 
@@ -328,4 +327,4 @@ class SaveSceneAssetAutoV2(SaveAssetAutoV2):
             name=name, description=description, new_name=new_name,
             image=image, image_upload=image_upload, image_prompt=image_prompt,
         )
-        return (out[0], out[1], out[3], out[4], out[6])
+        return (out[0], out[1], out[3], out[4], out[5])

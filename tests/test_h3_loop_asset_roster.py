@@ -674,8 +674,8 @@ def test_v2_node_extends_v1_widgets_with_socket_slots(lp, lg):
     opt = v2["optional"]
     # Slot SOCKETS (no selection widgets left on the generator).
     assert "asset_roster" not in opt
-    assert opt["character_1"][0] == "MIE_CHARACTER_ASSET"
-    assert opt["scene_1"][0] == "MIE_SCENE_ASSET"
+    assert opt["character_1"][0] == "MIE_ASSET"
+    assert opt["scene_1"][0] == "MIE_ASSET"
     assert "character_9" in opt and "scene_9" in opt
     # Outputs EXTEND V1's by one: plan_json/summary/board_kind keep their
     # slots (the Production Plan wiring is unchanged) and the appended

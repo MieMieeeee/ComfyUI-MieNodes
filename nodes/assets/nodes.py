@@ -297,10 +297,12 @@ def upload_audio_to_audio(name):
     return voice_sample_bytes_to_audio(blob, Path(name).suffix.lower())
 
 
-# One wire carries the whole asset: the bundle types the generator slots
-# consume. Named per kind so a scene cannot be wired into a character slot.
-CHARACTER_ASSET_TYPE = "MIE_CHARACTER_ASSET"
-SCENE_ASSET_TYPE = "MIE_SCENE_ASSET"
+# One wire carries the whole asset: the bundle type every asset line uses
+# (2026-10-11 ruling: ONE `asset` output on Load/Save — the kind lives in
+# the bundle; consumers reject a wrong-kind wiring loudly at execution,
+# naming the socket). Named per kind before the merge; the separate
+# MIE_CHARACTER_ASSET / MIE_SCENE_ASSET strings are gone.
+ASSET_BUNDLE_TYPE = "MIE_ASSET"
 # The generator's aggregated output: every wired bundle in slot order
 # (characters then scenes) — what Asset → Slots splits back apart.
 ASSET_ROSTER_TYPE = "MIE_ASSET_ROSTER"
@@ -380,9 +382,8 @@ class SaveAssetV2(object):
         }
 
     RETURN_TYPES = ("STRING", "STRING", "STRING", "IMAGE", "STRING",
-                    CHARACTER_ASSET_TYPE, SCENE_ASSET_TYPE)
-    RETURN_NAMES = ("name", "description", "voice", "image", "status",
-                    "character_asset", "scene_asset")
+                    ASSET_BUNDLE_TYPE)
+    RETURN_NAMES = ("name", "description", "voice", "image", "status", "asset")
     FUNCTION = "save"
     OUTPUT_NODE = True
 
@@ -405,12 +406,12 @@ class SaveAssetV2(object):
             result = library.save_scene("", name, description,
                                         None if png is None else [png])
             picture = png_bytes_list_to_image_tensor(result["png_bytes_list"][:1])
-            scene_bundle = {
+            bundle = {
                 "kind": "scene", "name": result["name"],
                 "description": result["description"], "image": picture,
             }
             return (result["name"], result["description"], "", picture,
-                    result["status"], None, scene_bundle)
+                    result["status"], bundle)
         if audio is None and (audio_upload or "").strip():
             audio = upload_audio_to_audio((audio_upload or "").strip())
         png = None if image is None else image_tensor_to_png_bytes(image)
@@ -430,14 +431,15 @@ class SaveAssetV2(object):
             "image": picture, "audio": audio_out,
         }
         return (result["name"], result["description"], result["voice"],
-                picture, result["status"], bundle, None)
+                picture, result["status"], bundle)
 
 
 class SaveCharacterAssetV2(SaveAssetV2):
     """Legacy per-kind save node — hidden from the menu, loads old workflows.
 
     widgets_values shape is byte-compatible with the pre-merge node: no
-    kind slot, the character widget set only."""
+    kind slot, the character widget set only. The unified output tuple is
+    already the legacy 6-slot shape (single asset line)."""
 
     CATEGORY = "hidden"
 
@@ -447,24 +449,22 @@ class SaveCharacterAssetV2(SaveAssetV2):
         base["required"].pop("kind")
         return base
 
-    RETURN_TYPES = SaveAssetV2.RETURN_TYPES[:5] + (CHARACTER_ASSET_TYPE,)
-    RETURN_NAMES = ("name", "description", "voice", "image", "status", "asset")
     FUNCTION = "save_character"
 
     def save_character(self, library_dir="", name="", description="", voice="",
                        new_name="", image=None, audio=None,
                        image_upload="", audio_upload=""):
-        out = self.save("character", library_dir=library_dir, name=name,
-                        description=description, voice=voice, new_name=new_name,
-                        image=image, audio=audio, image_upload=image_upload,
-                        audio_upload=audio_upload)
-        return out[:5] + (out[5],)
+        return self.save("character", library_dir=library_dir, name=name,
+                         description=description, voice=voice, new_name=new_name,
+                         image=image, audio=audio, image_upload=image_upload,
+                         audio_upload=audio_upload)
 
 
 class LoadAssetV2(object):
-    """Unified load node: kind dropdown; both typed asset bundles emitted
-    (the inactive kind's bundle is None), so typed downstream sockets keep
-    working without dynamic RETURN_TYPES hacks."""
+    """Unified load node: kind dropdown; ONE asset output (MIE_ASSET) —
+    the kind lives inside the bundle, and every consumer (generator
+    slots, Asset → Assets) rejects a wrong-kind wiring loudly at
+    execution, naming the socket."""
 
     CATEGORY = ASSETS_CATEGORY
 
@@ -479,9 +479,8 @@ class LoadAssetV2(object):
         }
 
     RETURN_TYPES = ("STRING", "STRING", "STRING", "IMAGE", "AUDIO",
-                    CHARACTER_ASSET_TYPE, SCENE_ASSET_TYPE)
-    RETURN_NAMES = ("name", "description", "voice", "image", "audio",
-                    "character_asset", "scene_asset")
+                    ASSET_BUNDLE_TYPE)
+    RETURN_NAMES = ("name", "description", "voice", "image", "audio", "asset")
     FUNCTION = "load"
 
     @classmethod
@@ -505,12 +504,12 @@ class LoadAssetV2(object):
                        loaded["name"])
                 )
             image = png_bytes_list_to_image_tensor(loaded["png_bytes_list"])
-            scene_bundle = {
+            bundle = {
                 "kind": "scene", "name": loaded["name"],
                 "description": loaded["description"], "image": image,
             }
             return (loaded["name"], loaded["description"], "", image, None,
-                    None, scene_bundle)
+                    bundle)
         loaded = library.load_character("", name)
         if len(loaded["png_bytes_list"]) != 1 or len(loaded["audio_bytes_list"]) != 1:
             raise ValueError(
@@ -529,11 +528,12 @@ class LoadAssetV2(object):
             "image": image, "audio": audio_out,
         }
         return (loaded["name"], loaded["description"], loaded["voice"],
-                image, audio_out, bundle, None)
+                image, audio_out, bundle)
 
 
 class LoadCharacterAssetV2(LoadAssetV2):
-    """Legacy per-kind load node — hidden, loads old workflows."""
+    """Legacy per-kind load node — hidden, loads old workflows. The
+    unified output tuple already matches the legacy 6-slot shape."""
 
     CATEGORY = "hidden"
 
@@ -543,8 +543,6 @@ class LoadCharacterAssetV2(LoadAssetV2):
         base["required"].pop("kind")
         return base
 
-    RETURN_TYPES = ("STRING", "STRING", "STRING", "IMAGE", "AUDIO", CHARACTER_ASSET_TYPE)
-    RETURN_NAMES = ("name", "description", "voice", "image", "audio", "asset")
     FUNCTION = "load_character"
 
     @classmethod
@@ -552,8 +550,7 @@ class LoadCharacterAssetV2(LoadAssetV2):
         return super().IS_CHANGED("character", library_dir, name)
 
     def load_character(self, library_dir="", name=""):
-        out = self.load("character", library_dir=library_dir, name=name)
-        return out[:5] + (out[5],)
+        return self.load("character", library_dir=library_dir, name=name)
 
 
 class SaveSceneAssetV2(SaveAssetV2):
@@ -573,7 +570,7 @@ class SaveSceneAssetV2(SaveAssetV2):
         base["optional"].pop("audio_upload")
         return base
 
-    RETURN_TYPES = ("STRING", "STRING", "IMAGE", "STRING", SCENE_ASSET_TYPE)
+    RETURN_TYPES = ("STRING", "STRING", "IMAGE", "STRING", ASSET_BUNDLE_TYPE)
     RETURN_NAMES = ("name", "description", "image", "status", "asset")
     FUNCTION = "save_scene"
 
@@ -582,7 +579,7 @@ class SaveSceneAssetV2(SaveAssetV2):
         out = self.save("scene", library_dir=library_dir, name=name,
                         description=description, new_name=new_name,
                         image=image, image_upload=image_upload)
-        return (out[0], out[1], out[3], out[4], out[6])
+        return (out[0], out[1], out[3], out[4], out[5])
 
 
 class LoadSceneAssetV2(LoadAssetV2):
@@ -596,7 +593,7 @@ class LoadSceneAssetV2(LoadAssetV2):
         base["required"].pop("kind")
         return base
 
-    RETURN_TYPES = ("STRING", "STRING", "IMAGE", SCENE_ASSET_TYPE)
+    RETURN_TYPES = ("STRING", "STRING", "IMAGE", ASSET_BUNDLE_TYPE)
     RETURN_NAMES = ("name", "description", "image", "asset")
     FUNCTION = "load_scene"
 
@@ -606,7 +603,7 @@ class LoadSceneAssetV2(LoadAssetV2):
 
     def load_scene(self, library_dir="", name=""):
         out = self.load("scene", library_dir=library_dir, name=name)
-        return (out[0], out[1], out[3], out[6])
+        return (out[0], out[1], out[3], out[5])
 
 
 class _DeleteAssetBase(object):
@@ -840,12 +837,12 @@ class AssetsToRoster(object):
         optional = {}
         for i in range(1, cls.MAX_SLOTS + 1):
             optional["character_%d" % i] = (
-                CHARACTER_ASSET_TYPE,
+                ASSET_BUNDLE_TYPE,
                 {"tooltip": "接 Load Asset（角色）的 asset 输出；按序号排 <Picture N>，接上尾槽自动露出下一个。\nWire a character Load Asset's asset output; slot order = <Picture N>; wiring the tail socket grows the next."},
             )
         for i in range(1, cls.MAX_SLOTS + 1):
             optional["scene_%d" % i] = (
-                SCENE_ASSET_TYPE,
+                ASSET_BUNDLE_TYPE,
                 {"tooltip": "接 Load Asset（场景）的 asset 输出；排在全部角色之后。\nWire a scene Load Asset's asset output; scenes come after all characters."},
             )
         return {"required": {}, "optional": optional}

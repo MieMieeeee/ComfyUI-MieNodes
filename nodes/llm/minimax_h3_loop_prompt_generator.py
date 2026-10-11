@@ -4845,7 +4845,7 @@ class MiniMaxH3LoopPromptGeneratorV2(MiniMaxH3LoopPromptGenerator):
         optional = dict(spec.get("optional") or {})
         for i in range(1, cls.MAX_SLOTS + 1):
             optional["character_%d" % i] = (
-                "MIE_CHARACTER_ASSET",
+                "MIE_ASSET",
                 {
                     "tooltip": (
                         "角色槽位 %d：接 Load Character Asset 的 asset 输出。"
@@ -4856,7 +4856,7 @@ class MiniMaxH3LoopPromptGeneratorV2(MiniMaxH3LoopPromptGenerator):
             )
         for i in range(1, cls.MAX_SLOTS + 1):
             optional["scene_%d" % i] = (
-                "MIE_SCENE_ASSET",
+                "MIE_ASSET",
                 {
                     "tooltip": (
                         "场景槽位 %d：接 Load Scene Asset 的 asset 输出（环境"

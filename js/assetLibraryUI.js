@@ -1332,7 +1332,7 @@ function socketIndices(node, prefix) {
 function patchGeneratorSocketGrow(node) {
     if (generatorGrowPatched.has(node)) return;
     generatorGrowPatched.add(node);
-    const TYPES = { character: "MIE_CHARACTER_ASSET", scene: "MIE_SCENE_ASSET" };
+    const TYPES = { character: "MIE_ASSET", scene: "MIE_ASSET" };
     const MAX = 9;
 
     const trimTo = (prefix, keep) => {

@@ -42,7 +42,7 @@ MieNodes 的资产库把「跨镜头要重复用的角色和场景」存成磁�
 | 角色 | **一张图**（可以是三视图/角色设定图）+ 一句图片描述 + **一段音频** + 一句声音描述 |
 | 场景 | **一张图** + 一句图片描述 |
 
-（2026-10-11 合并裁定：**每个操作一个节点**——`Save Asset` / `Load Asset` / `Delete Asset` / `Save Asset (Auto)`，开头的 **类型开关**（「👤 角色 · Character」/「🏞 场景 · Scene」分段按钮，二选一高亮；与资产名开关同一造型家族、青色系区分）选中资产类型。切换时整个节点跟着变形：角色专属的 voice 字段、音色样本卡片、voice_prompt（Auto）在 scene 下自动收起，description 的标签和示例切成场景措辞，资产名下拉只列所选类型的名字。输出侧两个类型各有一根**带类型的资产线**——`character_asset`（MIE_CHARACTER_ASSET）和 `scene_asset`（MIE_SCENE_ASSET），当前类型的那根有值、另一根为 None，直接接进生成器的 character_N / scene_N，类型安全不降级。）
+（2026-10-11 合并裁定：**每个操作一个节点**——`Save Asset` / `Load Asset` / `Delete Asset` / `Save Asset (Auto)`，开头的 **类型开关**（「👤 角色 · Character」/「🏞 场景 · Scene」分段按钮，二选一高亮；与资产名开关同一造型家族、青色系区分）选中资产类型。切换时整个节点跟着变形：角色专属的 voice 字段、音色样本卡片、voice_prompt（Auto）在 scene 下自动收起，description 的标签和示例切成场景措辞，资产名下拉只列所选类型的名字。输出侧只有**一根 `asset` 资产线**（MIE_ASSET）——类型信息在资产包内部，生成器 V2 / Asset → Assets 的各插座在执行时会按插座名**响亮校验** kind，接错（比如把场景接进 character_N）会明确报错并指出是哪一个插座。）
 
 （旧的单类型 V2 节点——Save/Load Character/Scene Asset 及其 Auto 版——**没有删除**：它们从节点菜单里隐藏（CATEGORY=hidden），但旧工作流照常加载、行为不变；新工作流请用统一节点。2026-10-10 更早的裁定：V1 多图/多音频节点已整体移除，旧工作流里的 V1 节点会显示为缺失。）
 

@@ -358,8 +358,7 @@ def test_save_node_ignores_library_dir_and_bundles(lib_dir, monkeypatch):
 
 def test_widget_order_and_output_shapes():
     from nodes.assets.nodes import (
-        CHARACTER_ASSET_TYPE,
-        SCENE_ASSET_TYPE,
+        ASSET_BUNDLE_TYPE,
         LoadCharacterAssetV2,
         LoadSceneAssetV2,
         SaveCharacterAssetV2,
@@ -371,8 +370,8 @@ def test_widget_order_and_output_shapes():
     assert req[0] == "library_dir"  # hidden, positional anchor for old workflows
     assert req[-1] == "new_name"
     assert "image" in opt and "audio" in opt
-    assert LoadCharacterAssetV2.RETURN_TYPES[-1] == CHARACTER_ASSET_TYPE
-    assert LoadSceneAssetV2.RETURN_TYPES[-1] == SCENE_ASSET_TYPE
+    assert LoadCharacterAssetV2.RETURN_TYPES[-1] == ASSET_BUNDLE_TYPE
+    assert LoadSceneAssetV2.RETURN_TYPES[-1] == ASSET_BUNDLE_TYPE
     assert SaveCharacterAssetV2.RETURN_NAMES == (
         "name", "description", "voice", "image", "status", "asset"
     )
@@ -1109,9 +1108,9 @@ def test_unified_save_both_kinds(lib_dir, monkeypatch):
         image=png_bytes_list_to_image_tensor([make_png((5, 5, 5))]),
         audio=wav_bytes_to_audio(make_wav(freq=440.0)),
     )
-    assert len(out) == 7
+    assert len(out) == 6
     assert out[0] == "K" and (out[1], out[2]) == ("d", "v")
-    assert out[5]["kind"] == "character" and out[6] is None
+    assert out[5]["kind"] == "character"
     assert "waveform" in out[5]["audio"]
 
     out2 = node.save(
@@ -1119,7 +1118,7 @@ def test_unified_save_both_kinds(lib_dir, monkeypatch):
         image=png_bytes_list_to_image_tensor([make_png((6, 6, 6))]),
     )
     assert out2[2] == ""  # scene carries no voice
-    assert out2[5] is None and out2[6]["kind"] == "scene"
+    assert out2[5]["kind"] == "scene"
     assert library.load_scene("", "S1")["description"] == "sd"
 
 
@@ -1141,10 +1140,10 @@ def test_unified_load_both_kinds(lib_dir, monkeypatch):
     c = load.load(kind="character", name="C1")
     assert c[0] == "C1" and c[2] == "cv"
     assert "waveform" in c[4]
-    assert c[5]["kind"] == "character" and c[6] is None
+    assert c[5]["kind"] == "character"
     s = load.load(kind="scene", name="S1")
     assert s[2] == "" and s[4] is None
-    assert s[5] is None and s[6]["kind"] == "scene"
+    assert s[5]["kind"] == "scene"
 
 
 def test_unified_delete_confirm_gate_and_kinds(lib_dir, monkeypatch):
@@ -1172,15 +1171,13 @@ def test_unified_delete_confirm_gate_and_kinds(lib_dir, monkeypatch):
 def test_unified_and_compat_shapes():
     from nodes.assets import nodes as A
 
-    # Unified nodes lead with the kind dropdown and emit BOTH typed bundles,
-    # so downstream typed sockets keep their type safety either way.
+    # Unified nodes lead with the kind dropdown; the asset line is ONE
+    # generic output (kind lives in the bundle; consumers check it loudly).
     assert list(A.SaveAssetV2.INPUT_TYPES()["required"])[0] == "kind"
     assert list(A.LoadAssetV2.INPUT_TYPES()["required"])[0] == "kind"
     assert list(A.DeleteAsset.INPUT_TYPES()["required"])[0] == "kind"
-    assert A.SaveAssetV2.RETURN_NAMES[-2:] == ("character_asset", "scene_asset")
-    assert A.LoadAssetV2.RETURN_TYPES[-2:] == (
-        A.CHARACTER_ASSET_TYPE, A.SCENE_ASSET_TYPE,
-    )
+    assert A.SaveAssetV2.RETURN_NAMES[-1] == "asset"
+    assert A.LoadAssetV2.RETURN_TYPES[-1] == A.ASSET_BUNDLE_TYPE == "MIE_ASSET"
     # Compat classes: hidden from the menu, widget sets byte-identical to
     # the pre-merge nodes.
     for cls in (A.SaveCharacterAssetV2, A.LoadCharacterAssetV2,
