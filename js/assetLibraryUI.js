@@ -367,24 +367,10 @@ function wireNode(node, cfg) {
     }
     } // end !cfg.save
 
-    // 库操作按钮置顶：addWidget 默认排在所有输入 widget 之后，这里移到
-    // 最上面。按钮都 serialize:false，前端 litegraph 序列化/加载两侧
-    // 都按 serialize 过滤后再顺序映射（1.53/1.55 已核实），位置不影响
-    // 老工作流 widgets_values 的下标对应。原地重排，不换数组对象。
-    // Delete 节点的删除按钮不置顶——它是那个节点的收尾动作，稍后挪到
-    // 节点最下面（与应用保存同理）。
-    const topRow = [openBtn, refreshBtn];
-    if (deleteWidget && !cfg.del) topRow.push(deleteWidget);
-    const rest = node.widgets.filter((w) => !topRow.includes(w));
-    node.widgets.length = 0;
-    node.widgets.push(...topRow, ...rest);
-
+    let applyWidget = null;
     if (cfg.save) {
         // 保存是 OUTPUT_NODE：点「执行/Queue」才真正落盘。这个按钮就是
-        // 那一步——排队当前图（等价按 Queue）。创建后挪到节点最下面
-        // （serialize:false 位置自由）：它是收尾动作，走完所有输入再看到
-        // 它最顺。
-        let applyWidget = null;
+        // 那一步——排队当前图（等价按 Queue）；最终排位在函数尾部统一处理。
         if (typeof node.addDOMWidget === "function") {
             const wrap = document.createElement("div");
             wrap.className = "mie-save-apply";
@@ -446,15 +432,6 @@ function wireNode(node, cfg) {
             );
         }
         makePreviewWidget(node);
-        // 应用保存挪到节点最下面（在媒体卡片和预览面板之后）。
-        if (applyWidget) {
-            const i = node.widgets.indexOf(applyWidget);
-            if (i >= 0 && i !== node.widgets.length - 1) {
-                node.widgets.splice(i, 1);
-                node.widgets.push(applyWidget);
-                node.setDirtyCanvas?.(true, true);
-            }
-        }
     } else if (cfg.preview) {
         const nameWidget = node.widgets.find((w) => w.name === "name");
         const origNameCallback = nameWidget?.callback;
@@ -467,16 +444,17 @@ function wireNode(node, cfg) {
         makePreviewWidget(node);
     }
 
-    // Delete 节点：删除按钮挪到节点最下面（预览面板之后）——先看清要删
-    // 的是什么，再看到红色的它。
-    if (cfg.del && deleteWidget) {
-        const i = node.widgets.indexOf(deleteWidget);
-        if (i >= 0 && i !== node.widgets.length - 1) {
-            node.widgets.splice(i, 1);
-            node.widgets.push(deleteWidget);
-            node.setDirtyCanvas?.(true, true);
-        }
-    }
+    // 底部操作区（2026-10-11 用户裁决的统一顺序）：
+    //   【各种设置和上传】→ 打开文件夹 → 刷新资产列表 → 本节点核心操作
+    //   （保存节点 = 应用保存；Load/Delete 节点 = 删除）。
+    // 按钮都 serialize:false，位置不影响 widgets_values 映射；原地重排。
+    const bottom = [openBtn, refreshBtn];
+    if (deleteWidget) bottom.push(deleteWidget);
+    if (applyWidget) bottom.push(applyWidget);
+    const rest = node.widgets.filter((w) => !bottom.includes(w));
+    node.widgets.length = 0;
+    node.widgets.push(...rest, ...bottom);
+    node.setDirtyCanvas?.(true, true);
 
     applyLibrary(node);
 }
