@@ -12,4 +12,4 @@ from .minimax_h3_storyboard_generator import *
 from .minimax_h3_loop_prompt_generator import *
 from .minimax_h3_loop_user_input_enhancer import *
 from .qwen_image_21_prompt_generator import *
-from .asset_auto_describe import AssetAutoDescribe
+from .asset_auto_describe import SaveCharacterAssetAutoV2, SaveSceneAssetAutoV2

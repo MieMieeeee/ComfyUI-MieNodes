@@ -31,6 +31,9 @@ const NODES = {
     "LoadSceneAssetV2|Mie": { kinds: ["scenes"], preview: "scene" },
     "SaveCharacterAssetV2|Mie": { kinds: ["characters"], save: "character" },
     "SaveSceneAssetV2|Mie": { kinds: ["scenes"], save: "scene" },
+    // Auto 变体 = 对应 Save 节点 + LLM 起草空白描述/音色，UI 完全同款。
+    "SaveCharacterAssetAutoV2|Mie": { kinds: ["characters"], save: "character" },
+    "SaveSceneAssetAutoV2|Mie": { kinds: ["scenes"], save: "scene" },
     // 生成器：角色/场景插座自动生长（无选择控件）。
     "MiniMaxH3LoopPromptGeneratorV2|Mie": { generatorSockets: true },
 };
@@ -364,7 +367,8 @@ function makeMediaPicker(node, stateName, kind, accept, endpoint, field, icon, l
     btn.type = "button";
     btn.className = "mie-media-btn";
     btn.innerHTML = "<span class='mie-media-btn-icon'>📤</span> 上传";
-    btn.title = "点击选择文件；也可以把文件拖到这一行，或聚焦后 Ctrl+V 粘贴";
+    btn.title = "点击选择文件；也可以把文件拖到这一行，或聚焦后 Ctrl+V 粘贴。\n"
+        + "优先级：连线插座 > 这里的选择/上传；覆盖保存时两者都空 = 保留磁盘上的原文件。";
 
     const input = document.createElement("input");
     input.type = "file";

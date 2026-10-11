@@ -1,29 +1,22 @@
 # -*- coding: utf-8 -*-
-"""LLM-assisted description filler for the asset library (2026-10-10).
+"""Save-based LLM-assisted asset nodes (2026-10-10, merged 2026-10-11).
 
-The description (image description) and voice (audio description) fields
-are authored English text the user fills by hand — that contract is
-unchanged. This node DRAFTS both fields from the LLM so a save can start
-from something better than a blank box:
+The Auto nodes ARE the Save nodes plus one ``llm_service_connector`` input
+and optional author-hint prompts — wire them exactly like Save Character /
+Save Scene Asset, leave ``description`` (and ``voice``) EMPTY, and the LLM
+drafts those fields during the same queue run that saves:
 
 * description — the SAME multimodal captioner the H3 prompt generator
-  uses for reference images (60-100 word English identity description,
-  the exact style the library already documents);
+  uses for reference images (60-100 word English identity description);
 * voice — a text call from the name + the drafted appearance. The LLM
   cannot hear the voice sample (wav/mp3 make no difference — the file is
-  never listened to); the draft infers from name/appearance, and the
-  user edits after hearing their sample.
+  never listened to); the ``voice_prompt`` hint is the ONLY channel for
+  ground-truth timbre (the author has heard the sample; the LLM has not).
 
-Both calls accept OPTIONAL author hints (``image_prompt`` /
-``voice_prompt``): free-text priors from the user, passed verbatim into
-the USER turn as "Author notes" — the system prompts keep their style
-contracts, the hint carries the facts. The voice hint is the ONLY
-channel for ground-truth timbre (the author has heard the sample; the
-LLM has not).
-
-It never writes to the library: outputs are plain strings to wire into
-Save Character/Scene Asset's description/voice inputs (convert the widget
-to an input, or preview with any text-display node).
+Fields the user FILLED are saved verbatim — the LLM only fills blanks,
+it never rewrites authored text. Media priority is unchanged from the
+Save nodes: a wired socket beats the upload picker; both empty on an
+overwrite keeps the disk media.
 """
 
 from __future__ import annotations
@@ -42,11 +35,20 @@ except ImportError:
 
 try:
     from _mienodes_internal.nodes.assets.nodes import (
-        CHARACTER_ASSET_TYPE,
-        SCENE_ASSET_TYPE,
+        SaveCharacterAssetV2,
+        SaveSceneAssetV2,
+        resolve_save_name,
+        upload_audio_to_audio,
+        upload_image_to_tensor,
     )
 except ImportError:
-    from ..assets.nodes import CHARACTER_ASSET_TYPE, SCENE_ASSET_TYPE
+    from ..assets.nodes import (
+        SaveCharacterAssetV2,
+        SaveSceneAssetV2,
+        resolve_save_name,
+        upload_audio_to_audio,
+        upload_image_to_tensor,
+    )
 
 ASSETS_CATEGORY = "🐑 MieNodes/🐑 Assets"
 
@@ -70,201 +72,248 @@ _SCENE_DESCRIPTION_HINT = (
 )
 
 
-class AssetAutoDescribe(object):
-    """Draft description (+ voice for characters) from a portrait via the LLM.
+# ---- shared draft helpers -------------------------------------------------
+def _messages(system, user_text, image_urls=None):
+    content = []
+    for url in image_urls or []:
+        content.append(
+            {"type": "image_url", "image_url": {"url": url, "detail": "auto"}}
+        )
+    content.append({"type": "text", "text": user_text})
+    return [
+        {"role": "system", "content": system},
+        {"role": "user", "content": content},
+    ]
 
-    Wire a Load Character/Scene Asset's ``asset`` output in (or a raw
-    ``image`` + ``name`` for a brand-new asset), plus an
-    ``llm_service_connector``. Out come ``name`` / ``description`` /
-    ``voice`` / ``status`` — wire ``description`` (and ``voice``) into the
-    Save node's corresponding inputs, or read them in a preview node. The
-    node never touches the library.
+
+def _clean(text, limit):
+    body = " ".join(str(text or "").split())
+    return body[:limit]
+
+
+def _reply_text(reply):
+    if isinstance(reply, dict):
+        reply = json.dumps(reply, ensure_ascii=False)
+    return reply
+
+
+def _check_connector(llm_service_connector):
+    if not hasattr(llm_service_connector, "invoke"):
+        raise RuntimeError(
+            "the Auto node requires an LLM connector with invoke(); "
+            "connect a full LLMServiceConnector"
+        )
+
+
+def draft_description(connector, tensor, kind, hint=""):
+    """One multimodal call: the captioner for characters, a place hint for
+    scenes. Author hints ride in the USER turn; the system prompt keeps
+    its style contract."""
+    import torch as _torch
+
+    tensor = _torch.as_tensor(tensor)
+    if tensor.ndim == 3:
+        tensor = tensor[None, ...]
+    if tensor.ndim != 4 or tensor.shape[0] < 1:
+        raise RuntimeError("auto-draft needs a non-empty IMAGE")
+    urls = image_tensor_batch_to_data_urls(tensor[:1])
+    if not urls:
+        raise RuntimeError("failed to encode the portrait to a data URL")
+
+    if kind == "scene":
+        system, user_text = (
+            _SCENE_DESCRIPTION_HINT,
+            "Describe this place for a scene reference image.",
+        )
+    else:
+        system, user_text = (
+            caption_reference_prompt(),
+            "Describe this character for the identity reference image.",
+        )
+    hint = (hint or "").strip()
+    if hint:
+        user_text += (
+            "\n\nAuthor notes (facts you must respect; keep the output "
+            "style the system prompt defines): " + hint
+        )
+    reply = _reply_text(connector.invoke(_messages(system, user_text, urls),
+                                         max_tokens=16384))
+    description = _clean(reply, 800)
+    if not description:
+        raise RuntimeError("the LLM returned an empty description draft")
+    return description
+
+
+def draft_voice(connector, name, description, hint=""):
+    """One text call. The hint is the only ground-truth timbre channel."""
+    user_text = "Name: %s\nAppearance: %s" % (name, description[:400])
+    hint = (hint or "").strip()
+    if hint:
+        user_text += (
+            "\nAuthor voice notes (ground truth from the author, who "
+            "has heard the sample; follow them over your inference): "
+            + hint
+        )
+    user_text += "\nDraft the one-line voice descriptor."
+    reply = _reply_text(
+        connector.invoke(
+            [{"role": "system", "content": _VOICE_SYSTEM},
+             {"role": "user", "content": user_text}],
+            max_tokens=512,
+        )
+    )
+    voice = _clean(reply, 200)
+    if not voice:
+        raise RuntimeError("the LLM returned an empty voice draft")
+    return voice
+
+
+class SaveCharacterAssetAutoV2(SaveCharacterAssetV2):
+    """Save Character Asset + LLM: empty description/voice get drafted.
+
+    Everything else — name/new_name flow, upload pickers, media priority,
+    overwrite semantics — is inherited unchanged from Save Character
+    Asset. Filled text fields are saved verbatim; the LLM only fills
+    blanks.
     """
 
     CATEGORY = ASSETS_CATEGORY
 
     @classmethod
     def INPUT_TYPES(cls):
-        return {
-            "required": {
-                "llm_service_connector": ("LLMServiceConnector",),
+        base = super().INPUT_TYPES()
+        base["required"]["llm_service_connector"] = (
+            "LLMServiceConnector",
+            {"tooltip": "起草空白 description/voice 的 LLM 连接器。"},
+        )
+        base["optional"]["image_prompt"] = (
+            "STRING",
+            {
+                "default": "",
+                "multiline": True,
+                "placeholder": "图像描述提示词（可选）",
+                "tooltip": "给描述 LLM 的作者先验（可选）：气质/着装细节、"
+                "画风、必须写进描述的事实等，任意语言。空 = 纯看图起草。",
             },
-            "optional": {
-                "asset": (
-                    # Combo-of-types inputs validate as membership; two
-                    # separate sockets accept each bundle type cleanly.
-                    CHARACTER_ASSET_TYPE,
-                    {"tooltip": "Load Character Asset 的 asset 输出。"},
-                ),
-                "scene_asset": (
-                    SCENE_ASSET_TYPE,
-                    {"tooltip": "Load Scene Asset 的 asset 输出（接了以场景描述起草，无音色）。"},
-                ),
-                "image": ("IMAGE", {"tooltip": "裸图（新建资产且未打包时用）。"}),
-                "name": ("STRING", {"default": "", "tooltip": "角色/场景名（裸图路径时填）。"}),
-                "image_prompt": (
-                    "STRING",
-                    {
-                        "default": "",
-                        "multiline": True,
-                        "placeholder": "图像描述提示词（可选）",
-                        "tooltip": "给描述 LLM 的作者先验（可选）：气质/着装细节、"
-                        "画风、必须写进描述的事实等，任意语言。空 = 纯看图起草。",
-                    },
-                ),
-                "voice_prompt": (
-                    "STRING",
-                    {
-                        "default": "",
-                        "multiline": True,
-                        "placeholder": "音色提示词（可选）",
-                        "tooltip": "给音色 LLM 的作者先验（可选）：它听不到音频，"
-                        "真实音色只能在这里告诉它，如「老年男声，沙哑，语速慢」。"
-                        "空 = 从名字+外观推断。",
-                    },
-                ),
+        )
+        base["optional"]["voice_prompt"] = (
+            "STRING",
+            {
+                "default": "",
+                "multiline": True,
+                "placeholder": "音色提示词（可选）",
+                "tooltip": "给音色 LLM 的作者先验（可选）：它听不到音频，"
+                "真实音色只能在这里告诉它，如「老年男声，沙哑，语速慢」。"
+                "空 = 从名字+外观推断。",
             },
-        }
+        )
+        return base
 
-    RETURN_TYPES = ("STRING", "STRING", "STRING", "STRING")
-    RETURN_NAMES = ("name", "description", "voice", "status")
-    FUNCTION = "describe"
+    FUNCTION = "save_auto"
+
+    def save_auto(self, llm_service_connector, library_dir="", name="",
+                  description="", voice="", new_name="", image=None,
+                  audio=None, image_upload="", audio_upload="",
+                  image_prompt="", voice_prompt=""):
+        _check_connector(llm_service_connector)
+        # Media priority mirrors the Save nodes exactly (socket > upload);
+        # resolving once here also feeds the captioner when drafting.
+        eff_image = image
+        if eff_image is None and (image_upload or "").strip():
+            eff_image = upload_image_to_tensor((image_upload or "").strip())
+        eff_audio = audio
+        if eff_audio is None and (audio_upload or "").strip():
+            eff_audio = upload_audio_to_audio((audio_upload or "").strip())
+
+        drafted = []
+        if not (description or "").strip():
+            if eff_image is None:
+                raise RuntimeError(
+                    "auto-draft needs a picture to write the description: "
+                    "wire an image (or pick one in the media card), or "
+                    "type the description yourself"
+                )
+            description = draft_description(
+                llm_service_connector, eff_image, "character", image_prompt
+            )
+            drafted.append("description")
+        if not (voice or "").strip():
+            voice = draft_voice(
+                llm_service_connector,
+                resolve_save_name(name, new_name),
+                description,
+                voice_prompt,
+            )
+            drafted.append("voice")
+
+        out = super().save_character(
+            library_dir=library_dir, name=name, description=description,
+            voice=voice, new_name=new_name, image=eff_image,
+            audio=eff_audio,
+        )
+        if drafted:
+            note = (
+                "; LLM drafted %s (sample audio is never listened to; "
+                "review and re-save to correct)" % " and ".join(drafted)
+            )
+            out = out[:4] + (out[4] + note,) + out[5:]
+        return out
+
+
+class SaveSceneAssetAutoV2(SaveSceneAssetV2):
+    """Save Scene Asset + LLM: an empty description gets drafted."""
+
+    CATEGORY = ASSETS_CATEGORY
 
     @classmethod
-    def IS_CHANGED(cls, **kwargs):
-        # One caption + one text call; re-run on every queue so an edit to
-        # the portrait or a re-pick of the model always re-drafts.
-        return float("nan")
-
-    # ---- helpers -----------------------------------------------------------
-    @staticmethod
-    def _messages(system, user_text, image_urls=None):
-        content = []
-        for url in image_urls or []:
-            content.append(
-                {"type": "image_url", "image_url": {"url": url, "detail": "auto"}}
-            )
-        content.append({"type": "text", "text": user_text})
-        return [
-            {"role": "system", "content": system},
-            {"role": "user", "content": content},
-        ]
-
-    @staticmethod
-    def _clean(text, limit):
-        body = " ".join(str(text or "").split())
-        return body[:limit]
-
-    # ---- execution ----------------------------------------------------------
-    def describe(self, llm_service_connector, asset=None, scene_asset=None,
-                 image=None, name="", image_prompt="", voice_prompt=""):
-        if not hasattr(llm_service_connector, "invoke"):
-            raise RuntimeError(
-                "auto-describe requires an LLM connector with invoke(); "
-                "connect a full LLMServiceConnector"
-            )
-        kind = "character"
-        if isinstance(scene_asset, dict):
-            asset = scene_asset
-            kind = "scene"
-        if isinstance(asset, dict):
-            if kind == "character":
-                kind = str(asset.get("kind") or "character")
-            if asset.get("image") is not None:
-                image = asset["image"]
-            if not (name or "").strip():
-                name = str(asset.get("name") or "")
-        name = (name or "").strip() or "Unnamed"
-
-        if image is None:
-            raise RuntimeError(
-                "auto-describe needs a picture: wire an asset bundle or an "
-                "image"
-            )
-
-        import torch as _torch
-
-        tensor = _torch.as_tensor(image)
-        if tensor.ndim == 3:
-            tensor = tensor[None, ...]
-        if tensor.ndim != 4 or tensor.shape[0] < 1:
-            raise RuntimeError("auto-describe needs a non-empty IMAGE")
-        urls = image_tensor_batch_to_data_urls(tensor[:1])
-        if not urls:
-            raise RuntimeError("failed to encode the portrait to a data URL")
-
-        # 1) Appearance / scene description — the generator's own captioner.
-        #    Author hints ride in the USER turn (data-only); the system
-        #    prompt keeps the 60-100 word English style contract.
-        caption_system = caption_reference_prompt()
-        hint_image = (image_prompt or "").strip()
-        if kind == "scene":
-            user_text = "Describe this place for a scene reference image."
-        else:
-            user_text = "Describe this character for the identity reference image."
-        if hint_image:
-            user_text += (
-                "\n\nAuthor notes (facts you must respect; keep the output "
-                "style the system prompt defines): " + hint_image
-            )
-        caption_messages = self._messages(
-            _SCENE_DESCRIPTION_HINT if kind == "scene" else caption_system,
-            user_text,
-            urls,
+    def INPUT_TYPES(cls):
+        base = super().INPUT_TYPES()
+        base["required"]["llm_service_connector"] = (
+            "LLMServiceConnector",
+            {"tooltip": "起草空白 description 的 LLM 连接器。"},
         )
-        reply = llm_service_connector.invoke(
-            caption_messages, max_tokens=16384
+        base["optional"]["image_prompt"] = (
+            "STRING",
+            {
+                "default": "",
+                "multiline": True,
+                "placeholder": "场景描述提示词（可选）",
+                "tooltip": "给描述 LLM 的作者先验（可选）：地点/时段/氛围、"
+                "必须写进描述的陈设事实等，任意语言。空 = 纯看图起草。",
+            },
         )
-        if isinstance(reply, dict):
-            reply = json.dumps(reply, ensure_ascii=False)
-        description = self._clean(reply, 800)
-        if not description:
-            raise RuntimeError("the LLM returned an empty description draft")
+        return base
 
-        # 2) Voice descriptor — characters only; the LLM cannot hear the
-        #    sample (wav or mp3, the file is never listened to). The author
-        #    hint is the ONLY channel for ground-truth timbre.
-        voice = ""
-        hint_voice = (voice_prompt or "").strip()
-        if kind == "character":
-            voice_user = (
-                "Name: %s\nAppearance: %s" % (name, description[:400])
-            )
-            if hint_voice:
-                voice_user += (
-                    "\nAuthor voice notes (ground truth from the author, who "
-                    "has heard the sample; follow them over your inference): "
-                    + hint_voice
+    FUNCTION = "save_auto"
+
+    def save_auto(self, llm_service_connector, library_dir="", name="",
+                  description="", new_name="", image=None, image_upload="",
+                  image_prompt=""):
+        _check_connector(llm_service_connector)
+        eff_image = image
+        if eff_image is None and (image_upload or "").strip():
+            eff_image = upload_image_to_tensor((image_upload or "").strip())
+
+        drafted = []
+        if not (description or "").strip():
+            if eff_image is None:
+                raise RuntimeError(
+                    "auto-draft needs a picture to write the description: "
+                    "wire an image (or pick one in the media card), or "
+                    "type the description yourself"
                 )
-            voice_user += "\nDraft the one-line voice descriptor."
-            voice_messages = [
-                {"role": "system", "content": _VOICE_SYSTEM},
-                {"role": "user", "content": voice_user},
-            ]
-            reply = llm_service_connector.invoke(voice_messages, max_tokens=512)
-            if isinstance(reply, dict):
-                reply = json.dumps(reply, ensure_ascii=False)
-            voice = self._clean(reply, 200)
+            description = draft_description(
+                llm_service_connector, eff_image, "scene", image_prompt
+            )
+            drafted.append("description")
 
-        status = (
-            "drafted %s description (%d chars)%s — review before saving; the "
-            "voice draft is inferred from name+appearance (the sample audio "
-            "is never listened to)"
-            % (
-                kind,
-                len(description),
-                "; voice drafted (%d chars)" % len(voice) if voice else "",
-            )
+        out = super().save_scene(
+            library_dir=library_dir, name=name, description=description,
+            new_name=new_name, image=eff_image,
         )
-        hints = "+".join(
-            label
-            for label, on in (
-                ("image", hint_image),
-                # scenes never draft a voice — don't claim an applied hint
-                ("voice", hint_voice and kind == "character"),
+        if drafted:
+            note = (
+                "; LLM drafted description (review and re-save to correct)"
             )
-            if on
-        )
-        if hints:
-            status += "; author hints applied (%s)" % hints
-        return (name, description, voice, status)
+            out = out[:3] + (out[3] + note,) + out[4:]
+        return out
