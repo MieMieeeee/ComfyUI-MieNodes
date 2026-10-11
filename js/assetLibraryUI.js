@@ -196,6 +196,30 @@ app.api?.addEventListener?.("execution_success", () => {
     });
 });
 
+// ---- 通用渐变大按钮（打开文件夹/刷新与删除/应用保存同一造型家族） ----------
+function makeStyledButton(node, widgetName, icon, label, title, extraClass, onClick) {
+    if (typeof node.addDOMWidget !== "function") {
+        const w = node.addWidget("button", icon + " " + label, null, onClick);
+        w.serialize = false;
+        return w;
+    }
+    const wrap = document.createElement("div");
+    wrap.className = "mie-save-apply";
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "mie-media-btn " + extraClass;
+    btn.innerHTML = "<span class='mie-media-btn-icon'>" + icon + "</span> " + label;
+    btn.title = title;
+    btn.addEventListener("click", onClick);
+    wrap.append(btn);
+    const w = node.addDOMWidget(widgetName, "mie-libbtn", wrap, {
+        serialize: false, hideOnZoom: false,
+        getHeight: () => Math.max(40, wrap.offsetHeight + 6),
+    });
+    w.serialize = false;
+    return w;
+}
+
 function wireNode(node, cfg) {
     if (cfg.generatorSockets) {
         node.__mieAssets = { cfg };
@@ -210,26 +234,34 @@ function wireNode(node, cfg) {
     dirWidget.hidden = true;
 
     // 「📂 打开文件夹」请求固定端点，打开解析出的那一个目录。
-    const openBtn = node.addWidget("button", "📂 打开文件夹 · Open Folder", null, async () => {
-        try {
-            const r = await fetch(OPEN_ENDPOINT, { method: "POST" });
-            const j = await r.json();
-            if (!j.ok) throw new Error(j.error || "HTTP " + r.status);
-            app.extensionManager?.toast?.add?.({
-                severity: "success", summary: "已打开资产库 · Library opened", detail: j.library_dir, life: 4000,
-            });
-        } catch (err) {
-            app.extensionManager?.toast?.add?.({
-                severity: "error", summary: "打开失败 · Open failed", detail: String(err).slice(0, 160), life: 5000,
-            });
+    const openBtn = makeStyledButton(
+        node, "📂 打开文件夹 · Open Folder", "📂", "打开文件夹 · Open Folder",
+        "打开本机的资产库文件夹（固定库目录）。\nOpen this machine's asset-library folder (the fixed library directory).",
+        "mie-open-btn",
+        async () => {
+            try {
+                const r = await fetch(OPEN_ENDPOINT, { method: "POST" });
+                const j = await r.json();
+                if (!j.ok) throw new Error(j.error || "HTTP " + r.status);
+                app.extensionManager?.toast?.add?.({
+                    severity: "success", summary: "已打开资产库 · Library opened", detail: j.library_dir, life: 4000,
+                });
+            } catch (err) {
+                app.extensionManager?.toast?.add?.({
+                    severity: "error", summary: "打开失败 · Open failed", detail: String(err).slice(0, 160), life: 5000,
+                });
+            }
         }
-    });
-    openBtn.serialize = false;
+    );
 
-    const refreshBtn = node.addWidget("button", "🔄 刷新资产列表 · Refresh", null, () => {
-        applyLibrary(node, { force: true });
-    });
-    refreshBtn.serialize = false;
+    const refreshBtn = makeStyledButton(
+        node, "🔄 刷新资产列表 · Refresh", "🔄", "刷新资产列表 · Refresh",
+        "重新扫描资产库并刷新下拉名单（保存/删除后通常已自动刷新）。\nRescan the library and refresh the dropdowns (saves/deletes already auto-refresh).",
+        "mie-refresh-btn",
+        () => {
+            applyLibrary(node, { force: true });
+        }
+    );
 
     // 「🗑 删除」删的是 name 下拉当前选中的资产（本机固定库）。只装在
     // Load / Delete 节点上——保存节点是创作入口，下拉里选的常常是正要
@@ -339,12 +371,13 @@ function wireNode(node, cfg) {
     // 最上面。按钮都 serialize:false，前端 litegraph 序列化/加载两侧
     // 都按 serialize 过滤后再顺序映射（1.53/1.55 已核实），位置不影响
     // 老工作流 widgets_values 的下标对应。原地重排，不换数组对象。
-    const rest = node.widgets.filter(
-        (w) => w !== openBtn && w !== refreshBtn && w !== deleteWidget
-    );
+    // Delete 节点的删除按钮不置顶——它是那个节点的收尾动作，稍后挪到
+    // 节点最下面（与应用保存同理）。
+    const topRow = [openBtn, refreshBtn];
+    if (deleteWidget && !cfg.del) topRow.push(deleteWidget);
+    const rest = node.widgets.filter((w) => !topRow.includes(w));
     node.widgets.length = 0;
-    if (deleteWidget) node.widgets.push(openBtn, refreshBtn, deleteWidget, ...rest);
-    else node.widgets.push(openBtn, refreshBtn, ...rest);
+    node.widgets.push(...topRow, ...rest);
 
     if (cfg.save) {
         // 保存是 OUTPUT_NODE：点「执行/Queue」才真正落盘。这个按钮就是
@@ -432,6 +465,17 @@ function wireNode(node, cfg) {
             };
         }
         makePreviewWidget(node);
+    }
+
+    // Delete 节点：删除按钮挪到节点最下面（预览面板之后）——先看清要删
+    // 的是什么，再看到红色的它。
+    if (cfg.del && deleteWidget) {
+        const i = node.widgets.indexOf(deleteWidget);
+        if (i >= 0 && i !== node.widgets.length - 1) {
+            node.widgets.splice(i, 1);
+            node.widgets.push(deleteWidget);
+            node.setDirtyCanvas?.(true, true);
+        }
     }
 
     applyLibrary(node);
@@ -745,6 +789,10 @@ function ensureStyles() {
         ".mie-save-apply{padding:2px 0}",
         ".mie-save-apply .mie-save-btn{width:100%;padding:7px 14px;font-size:13px;",
         "background:linear-gradient(135deg,#2f9e6e,#4f7cff)}",
+        ".mie-save-apply .mie-open-btn{width:100%;padding:7px 14px;font-size:13px;",
+        "background:linear-gradient(135deg,#4f7cff,#7f5cff)}",
+        ".mie-save-apply .mie-refresh-btn{width:100%;padding:7px 14px;font-size:13px;",
+        "background:linear-gradient(135deg,#2a7f8f,#3d5a80)}",
         ".mie-save-apply .mie-delete-btn{width:100%;padding:7px 14px;font-size:13px;",
         "background:linear-gradient(135deg,#c0392b,#e67e22)}",
         ".mie-save-apply .mie-delete-btn.armed{background:linear-gradient(135deg,#e74c3c,#ff6b3d);",
