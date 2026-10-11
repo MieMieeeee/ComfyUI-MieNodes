@@ -238,21 +238,34 @@ def _upload_audio_options():
 
 
 def _read_upload_file(name, category="input"):
+    """Resolve a picker file name to bytes.
+
+    ``get_annotated_filepath`` resolves against the INPUT root, but the
+    audio picker lists names relative to the 'audio' category dir
+    (input/audio — where our upload endpoint writes). Try both; a
+    hand-placed file in the input root still works."""
+    candidates = []
     try:
         import folder_paths
 
         path = folder_paths.get_annotated_filepath(name)
         if isinstance(path, tuple):
             path = path[0]
+        candidates.append(path)
+        if category == "audio":
+            candidates.append(
+                Path(folder_paths.get_input_directory()) / "audio" / name
+            )
     except Exception:
-        path = None
-    if not path or not Path(path).is_file():
-        raise FileNotFoundError(
-            "%r is not readable from the ComfyUI %s directory (drop the "
-            "file via the upload button or a LoadImage box, then press R to "
-            "refresh)" % (name, category)
-        )
-    return Path(path).read_bytes()
+        pass
+    for path in candidates:
+        if path and Path(path).is_file():
+            return Path(path).read_bytes()
+    raise FileNotFoundError(
+        "%r is not readable from the ComfyUI %s directory (drop the "
+        "file via the upload button or a LoadImage box, then press R to "
+        "refresh)" % (name, category)
+    )
 
 
 def upload_image_to_tensor(name):

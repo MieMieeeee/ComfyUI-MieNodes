@@ -839,6 +839,48 @@ def test_save_node_socket_beats_upload_picker(lib_dir, monkeypatch, tmp_path):
     assert "audio_upload" not in scene_spec
 
 
+def test_upload_audio_resolves_against_audio_dir(lib_dir, monkeypatch, tmp_path):
+    """Live bug 2026-10-11: our upload endpoint writes input/audio/<name>
+    and the audio picker lists bare names relative to that dir, but
+    ComfyUI's get_annotated_filepath resolves against the INPUT ROOT
+    only — _read_upload_file must also try input/audio. The fake here
+    mimics real ComfyUI (annotated = input root, nothing else)."""
+    from nodes.assets import nodes as asset_nodes
+
+    monkeypatch.setenv(library.LIBRARY_DIR_ENV, str(lib_dir))
+    inp = tmp_path / "input"
+    (inp / "audio").mkdir(parents=True)
+    (inp / "audio" / "成熟性感的御姐音色.wav").write_bytes(make_wav(freq=300.0))
+
+    class _FP:
+        @staticmethod
+        def get_input_directory():
+            return str(inp)
+
+        @staticmethod
+        def get_filename_list(category):
+            d = inp if category == "input" else inp / "audio"
+            if not d.exists():
+                return []
+            return [p.name for p in sorted(d.iterdir()) if p.is_file()]
+
+        @staticmethod
+        def get_annotated_filepath(name):
+            return str(inp / name)  # real ComfyUI: input root only
+
+    import sys
+    monkeypatch.setitem(sys.modules, "folder_paths", _FP)
+
+    node = asset_nodes.SaveCharacterAssetV2()
+    node.save_character(
+        name="御姐", description="d", voice="v",
+        image=png_bytes_list_to_image_tensor([make_png((3, 3, 3))]),
+        audio_upload="成熟性感的御姐音色.wav",
+    )
+    loaded = library.load_character("", "御姐")
+    assert loaded["audio_exts"] == [".wav"]
+
+
 # --------------------------------------------------------------------------- #
 # Own audio upload endpoint handler (multipart field 'audio' -> input/audio)
 # --------------------------------------------------------------------------- #
