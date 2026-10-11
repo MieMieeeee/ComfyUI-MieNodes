@@ -814,6 +814,12 @@ _REF2VA_FORBIDDEN_TIMECODE_RE = re.compile(
 
 _THINK_BLOCK_RE = re.compile(r"^\s*<think>.*?</think>\s*", re.DOTALL)
 _PARSE_RETRIES = 1
+# The per-shot stage carries the identity bindings — falling back there
+# is the most expensive quality loss on the board (2026-10-11 live
+# failure: one contract miss -> fallback clip lost the Subject bindings
+# and the grandfather morphed into the girl). Give it one extra
+# corrective attempt before that happens.
+_SHOT_PARSE_RETRIES = 2
 
 
 def _caption_cache_key(image_url: str, prompt_text: str) -> str:
@@ -2901,7 +2907,7 @@ class H3LoopPromptEnhancer:
         )
         messages = self._messages(system, user_text)
         last_error: Optional[Exception] = None
-        for attempt in range(1 + _PARSE_RETRIES):
+        for attempt in range(1 + _SHOT_PARSE_RETRIES):
             _check_interrupt(f"shot[{shot['id']}][attempt {attempt + 1}]")
             # Retry carries a corrective user turn (mirrors the storyboard
             # pipeline): identical resend taught the model nothing.

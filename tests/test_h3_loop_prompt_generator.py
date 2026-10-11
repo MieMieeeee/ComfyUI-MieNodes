@@ -242,7 +242,8 @@ def test_shot_parse_retry_then_success(lg):
     assert "integrated_multimodal_description:" in retry_call[2]["content"]
 
 def test_shot_parse_failure_uses_deterministic_fallback(lg):
-    conn = ScriptedConnector(["not a prompt", "still not"])
+    # shot stage now retries twice (1 + _SHOT_PARSE_RETRIES = 3 attempts)
+    conn = ScriptedConnector(["not a prompt", "still not", "nope again"])
     out = lg.H3LoopPromptEnhancer(conn)(
         user_input="甲猫：你好。\n乙猫：好的。",
         scene_count=1,

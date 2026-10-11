@@ -1246,18 +1246,48 @@ def build_fallback_shot_lines(
     """Plain six- or three-section clip used when the model never returns
     a sectioned answer. Picture captions and positions stay. Speech is
     installed later by the caller, from the locked lines.
-    """
+
+    2026-10-11 live failure: the old fallback (a) capped each about at
+    400 chars and (b) wrote bare ``Picture N:`` lines with NO
+    <Subject> -> <Picture> binding — so a ref2va continuation clip that
+    fell back lost its identity anchors entirely and the grandfather
+    morphed into the girl. The fallback now carries the FULL authored
+    about text, binds identity slots as ``<Subject K> -> <Picture N>``
+    (K = identity order in the manifest), and emits a per-label
+    retention line — a fallback clip is still identity-complete."""
     subject_lines: list[str] = []
+    retention_lines: list[str] = []
+    subject_k = 0
     for item in manifest or []:
-        slot = str(item.get("slot") or "").strip() or "Subject"
+        slot = str(item.get("slot") or "").strip()
         about = _reply_compact(str(item.get("about") or ""))
-        if len(about) > 400:
-            about = about[:400].rstrip()
-        if about:
-            subject_lines.append(f"{slot}: {about}")
+        if not about:
+            continue
+        role = str(item.get("role") or "").strip().lower()
+        if schema == SCHEMA_SIX and role == "identity" and slot:
+            subject_k += 1
+            subject_lines.append(
+                f"<Subject {subject_k}> -> <{slot}>: {about}"
+            )
+            retention_lines.append(
+                f"<Subject {subject_k}> -> <{slot}>: fully_preserved - "
+                "preserve face identity, hair, wardrobe, and scale; do not "
+                "preserve the reference head angle or eye direction."
+            )
+        else:
+            label = f"<{slot}>: " if slot else ""
+            subject_lines.append(f"{label}{about}")
+            if schema == SCHEMA_SIX and slot:
+                retention_lines.append(
+                    f"<{slot}>: reference - use as the destination "
+                    "environment; do not copy a final pose."
+                )
     if not subject_lines:
         subject_lines = [
             "The characters keep the appearance already established for this clip."
+        ]
+        retention_lines = [
+            "fully_preserved - face identity, fur, wardrobe, and scale."
         ]
     layout_bits = [
         f"{name} stays {pos}"
@@ -1283,7 +1313,7 @@ def build_fallback_shot_lines(
             summary,
             "",
             f"{SECTION_RETENTION}:",
-            "fully_preserved - face identity, fur, wardrobe, and scale.",
+            *retention_lines,
             "",
             f"{SECTION_DETAIL}:",
             detail,

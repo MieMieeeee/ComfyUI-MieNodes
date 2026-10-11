@@ -1170,3 +1170,78 @@ def test_camera_discipline_retry_rewrites_cut_prose(lp, lg, tmp_path, monkeypatc
     blob = json.dumps(conn.calls, ensure_ascii=False, default=str)
     assert "camera discipline violated" in blob
     assert "camera LOCKED" in blob
+
+
+def test_fallback_shot_lines_keep_identity_bindings(lp):
+    """2026-10-11 live failure: the fallback capped about at 400 chars and
+    wrote bare 'Picture N:' lines with no <Subject> binding — a ref2va
+    continuation that fell back lost its identity anchors (grandfather
+    morphed into the girl). The fallback must be identity-complete."""
+    long_about_girl = "A cute dazed girl. " + "detail " * 120  # ~900 chars
+    long_about_man = "A kind elderly grandfather. " + "detail " * 110
+    manifest = [
+        {"slot": "Picture 1", "about": long_about_girl, "role": "identity"},
+        {"slot": "Picture 2", "about": long_about_man, "role": "identity"},
+        {"slot": "Picture 3", "about": "A cozy living room at night.",
+         "role": "environment"},
+    ]
+    lines = lp.build_fallback_shot_lines(
+        lp.SCHEMA_SIX, manifest=manifest,
+        spatial_layout={"爷爷": "left of frame", "孙女": "right of frame"},
+    )
+    body = "\n".join(lines)
+    # FULL about text — no 400-char cap on authored ground truth
+    assert "detail detail detail" in body
+    assert len([ln for ln in lines if "detail" in ln and "Picture 1" in ln
+                or "Subject 1" in ln and "detail" in ln]) >= 1
+    assert len(body) > 1600  # two ~800-char abouts survive whole
+    # identity slots carry the binding syntax
+    assert "<Subject 1> -> <Picture 1>:" in body
+    assert "<Subject 2> -> <Picture 2>:" in body
+    # environment stays a plain picture line, unbound
+    assert "<Picture 3>: A cozy living room at night." in body
+    # per-label retention lines
+    assert ("<Subject 1> -> <Picture 1>: fully_preserved" in body)
+    assert ("<Picture 3>: reference - use as the destination" in body)
+    # layout preserved
+    assert "爷爷 stays left of frame" in body
+
+
+def test_fallback_shot_lines_without_manifest(lp):
+    lines = lp.build_fallback_shot_lines(lp.SCHEMA_SIX)
+    body = "\n".join(lines)
+    assert "already established" in body
+    assert "fully_preserved" in body
+
+
+def test_shot_stage_survives_two_bad_replies(lp, lg, tmp_path, monkeypatch):
+    """_SHOT_PARSE_RETRIES = 2: two unparseable replies then a clean one
+    must NOT fall back (the fallback costs the most at this stage)."""
+    lib = _slot_lib(tmp_path, monkeypatch)
+    from nodes.assets.nodes import LoadCharacterAssetV2, LoadSceneAssetV2
+
+    char_bundle = LoadCharacterAssetV2().load_character("", "Alice")[5]
+    scene_bundle = LoadSceneAssetV2().load_scene("", "Store")[3]
+    conn = ScriptedConnector([
+        EXTRACT_DIALOGUE_EMPTY,
+        _storyboard(1),
+        PREFIX_REPLY,
+        "garbage — no sections at all",
+        "still not a sectioned reply",
+        _ref2va_environment_second_reply(),
+    ])
+    node = lg.MiniMaxH3LoopPromptGeneratorV2()
+    plan_json, summary, board_kind, images, assets = node.generate_v2(
+        conn,
+        user_input="Alice waits in the store.",
+        reference_mode=REF2VA,
+        seed=1,
+        character_1=char_bundle,
+        scene_1=scene_bundle,
+    )
+    plan = json.loads(plan_json)
+    shot_lines = "\n".join(plan["shots"][0]["prompt"])
+    assert "seedling trays" in shot_lines  # the clean third reply was used
+    assert "<Subject 1>" in shot_lines      # real binding, not the fallback
+    # three shot-stage calls happened (2 bad + 1 good), not a fallback path
+    assert len(_shot_prompts(conn)) == 3
