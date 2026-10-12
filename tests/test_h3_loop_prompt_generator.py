@@ -912,15 +912,13 @@ def test_scene_count_repacks_dialogue_to_exact_target(lg):
         assert f"<d>[Chinese] {line}</d>" in prompt_text
 
 
-def test_scene_count_above_line_count_gets_reaction_cuts(lg):
-    """scene_count=5 with only 3 dialogue lines: the board tops up with
-    2 mechanical SILENT reaction cuts at speaker-change boundaries —
-    the user's count is reached without touching a single spoken line."""
+def test_scene_count_above_line_count_is_capped(lg):
+    """2026-10-12 ruling (没事尽可能不切 scene): scene_count=5 with only 3
+    spoken lines is CAPPED at 3 (one line per scene) with a warning — the
+    board never gains silent reaction-cut padding scenes."""
     conn = ScriptedConnector([
         _dlg_clip_reply(1, "莎莉猫", "S1", "adult female", "你好。"),
-        _clip_reply(1),  # reaction cut (silent)
         _dlg_clip_reply(2, "哈利猫", "S2", "adult male", "为什么。"),
-        _clip_reply(2),  # reaction cut (silent)
         _dlg_clip_reply(3, "莎莉猫", "S1", "adult female", "再见。"),
     ])
     out = lg.H3LoopPromptEnhancer(conn)(
@@ -929,23 +927,12 @@ def test_scene_count_above_line_count_gets_reaction_cuts(lg):
         seed=1,
     )
     plan = json.loads(out["plan_json"])
-    assert len(plan["shots"]) == 5
-    assert [s["id"] for s in plan["shots"]] == [
-        "scene_01", "scene_02", "scene_03", "scene_04", "scene_05",
-    ]
-    # Shots 1/3/5 carry the dialogue verbatim; shots 2/4 are silent.
-    texts = ["\n".join(s["prompt"]) for s in plan["shots"]]
-    for line in ("你好。", "为什么。", "再见。"):
-        assert sum(f"<d>[Chinese] {line}</d>" in t for t in texts) == 1
-    assert "<d>" not in texts[1] and "<d>" not in texts[3]
-    # The reaction shots' per-shot user templates carried the mechanical
-    # storyboard entry + the no-dialogue notice.
-    reaction_user_texts = [conn.calls[i][1]["content"] for i in (1, 3)]
-    for txt in reaction_user_texts:
-        assert "Reaction cut" in txt
-        assert "no dialogue lines assigned to this turn" in txt
-    # And the preflight tells the user what was inserted.
-    assert "reaction cut" in out["summary"]
+    assert len(plan["shots"]) == 3  # capped at the spoken-line count
+    assert "capped at 3" in out["summary"]
+    assert "no silent reaction scenes" in out["summary"]
+    # every scene carries speech — no silent padding anywhere
+    for shot in plan["shots"]:
+        assert "<d>[Chinese]" in "\n".join(shot["prompt"])
 
 
 def test_scene_count_one_squeezes_all_lines_time_only(lg):
@@ -1355,3 +1342,25 @@ def test_extract_dialogue_salvage_rejects_wrong_text(lg):
     assert enh.extract_dialogue(concept) == []  # narrator fallback
     assert len(conn.calls) == 3
     assert enh._dialogue_extract_warnings
+
+
+def test_generate_v2_honours_explicit_scene_count(lg):
+    """2026-10-12 live gap: through the NODE entry (generate_v2) an
+    explicit scene_count=3 was ignored (live runs logged 'scene_count
+    auto'). The enhancer path honours it; prove the node path does too
+    (or catch the drop where it happens)."""
+    conn = ScriptedConnector([
+        _dlg_clip_reply(1, "莎莉猫", "S1", "adult female", "你好。"),
+        _dlg_clip_reply(2, "哈利猫", "S2", "adult male", "为什么。"),
+        _dlg_clip_reply(3, "莎莉猫", "S1", "adult female", "再见。"),
+    ])
+    node = lg.MiniMaxH3LoopPromptGeneratorV2()
+    plan_json, _summary, board_kind, _images, assets = node.generate_v2(
+        conn,
+        user_input=_DIALOGUE_CONCEPT,
+        scene_count=3,
+        seed=1,
+    )
+    plan = json.loads(plan_json)
+    assert len(plan["shots"]) == 3, "explicit scene_count must be honoured"
+    assert board_kind == "dialogue"

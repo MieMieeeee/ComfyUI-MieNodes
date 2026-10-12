@@ -1084,29 +1084,6 @@ def test_camera_discipline_violation_detector(lp):
     assert "爷爷特写" not in lp.camera_discipline_violation("无特写，全程固定机位。", "locked")
 
 
-def test_reaction_cuts_clamped_under_locked(lp, lg):
-    # 2026-10-11 ordering hole: reaction cuts are inserted AFTER the clamp,
-    # so their hard-coded close_up sailed through a locked board. The clamp
-    # now runs after the last board edit.
-    warnings = []
-    shots = [
-        {"id": "scene_01", "description": "A speaks.", "shot_type": "medium_shot",
-         "camera_movement": "static_lockoff", "characters": ["A", "B"],
-         "narrative_beat": "", "props": [], "notes": "",
-         "duration_seconds": 5.0, "_line_speakers": ["A"]},
-        {"id": "scene_02", "description": "B answers.", "shot_type": "medium_shot",
-         "camera_movement": "static_lockoff", "characters": ["A", "B"],
-         "narrative_beat": "", "props": [], "notes": "",
-         "duration_seconds": 5.0, "_line_speakers": ["B"]},
-    ]
-    out = lg._insert_reaction_cuts(shots, 1, warnings)
-    assert out[1]["shot_type"] == "close_up"  # inserted raw...
-    lp.apply_camera_discipline(out, "locked")  # ...and the clamp reaches it
-    assert out[1]["shot_type"] == "medium_shot"
-    assert out[1]["camera_movement"] == "static_lockoff"
-    assert "camera locked" in out[1]["notes"]
-
-
 def _ref2va_cut_violation_reply():
     # The 2026-10-11 live failure shape: shot obeys "camera holds still"
     # AND cuts to a tight close-up in the same breath.
@@ -1282,3 +1259,134 @@ def test_assembled_plan_has_no_mechanical_cut_or_clock(lp, lg, tmp_path, monkeyp
     import re as _re
     assert not _re.search(r"\b\d{1,2}:\d{2}\.\d{3}\b", blob), \
         "no MM:SS.mmm clock anywhere in the assembled plan"
+
+
+def test_rebuild_spans_drops_duplicate_fragments(lp):
+    """2026-10-12 live failure (seed 60606061): three identical extractor
+    failures — line 5 was a short FRAGMENT of an earlier line with a
+    span pointing back into it. The rebuild must drop the duplicate
+    fragment and keep every full line verbatim."""
+    concept = (
+        "客厅里，爷爷和孙女坐在沙发上聊天。\n"
+        "孙女：爷爷，我一直有个心理阴影。\n"
+        "爷爷：是什么呢。\n"
+        "孙女：小时候我还没上小学。\n"
+        "孙女：咱家院子里有几只小刺猬。"
+    )
+    import _mienodes_internal.nodes.llm.dialogue_segmenter as ds
+    frag = "心理阴影。"  # substring of line 2's spoken text
+    lines = [
+        ds.ExtractedLine(text="爷爷，我一直有个心理阴影。", start=0, end=9),
+        ds.ExtractedLine(text="是什么呢。", start=140, end=149),
+        ds.ExtractedLine(text="小时候我还没上小学。", start=30, end=44),
+        ds.ExtractedLine(text="咱家院子里有几只小刺猬。", start=61, end=66),
+        ds.ExtractedLine(text=frag, start=61, end=66),  # the duplicate
+    ]
+    out, ok, notes = ds.rebuild_extracted_line_spans(concept, lines)
+    assert ok
+    assert [l.text for l in out] == [
+        "爷爷，我一直有个心理阴影。", "是什么呢。", "小时候我还没上小学。", "咱家院子里有几只小刺猬。",
+    ]
+    assert any("duplicate fragment" in n for n in notes)
+
+
+def test_repair_label_pairings_normalizes_and_injects(lp):
+    """The auto-seed live hard-fail: bare 'Picture 1:' lines + <Subject 1>
+    referenced in prose -> label policy killed the whole run. The repair
+    normalizes bare labels and injects missing bindings from the
+    manifest."""
+    manifest = [
+        {"slot": "Picture 1", "about": "A girl with a star hairpin.", "role": "identity"},
+        {"slot": "Picture 2", "about": "An elderly grandfather.", "role": "identity"},
+        {"slot": "Picture 3", "about": "A living room.", "role": "environment"},
+    ]
+    shot = [
+        "subject_definitions:",
+        "Picture 1: A girl with a star hairpin.",
+        "Picture 2: An elderly grandfather.",
+        "Picture 3: A living room.",
+        "",
+        "summary:",
+        "[reference generation] both speak.",
+        "",
+        "detailed_description:",
+        "[Shot 1] <Subject 1> leans toward <Subject 2>.",
+    ]
+    fixed, n = lp.repair_label_pairings(shot, manifest)
+    assert n >= 3  # three bare labels normalized
+    body = "\n".join(fixed)
+    assert "<Picture 1>: A girl" in body          # normalized
+    # subjects referenced in prose now have their paired picture present
+    assert "<Picture 1>" in body and "<Picture 2>" in body
+    # validation would now pass on this shot (no missing pairs)
+    plan = {"shots": [{"prompt": fixed, "id": "scene_01"}], "prompt_prefix": []}
+    errs = lp.validate_label_policy(plan, "ref2va", manifest)
+    assert errs == [], errs
+
+
+def test_rebuild_spans_drops_header_fragments(lp):
+    """The seed-70707071 live shape: line 5's 'text' was a 5-char slice
+    of the PRE-DIALOGUE header (scene-setting prose), not any spoken
+    line — a backward anchor into the header must be dropped, keeping
+    every real spoken line."""
+    import _mienodes_internal.nodes.llm.dialogue_segmenter as ds
+    concept = (
+        "客厅里，爷爷和孙女坐在沙发上聊天：爷爷在画面左侧，孙女在画面右侧，对称双人中景。\n"
+        "孙女：爷爷，我一直有个心理阴影。\n"
+        "爷爷：是什么呢。\n"
+        "孙女：小时候我还没上小学。"
+    )
+    header_frag = concept[61:66]  # a 5-char slice of the header line
+    lines = [
+        ds.ExtractedLine(text="爷爷，我一直有个心理阴影。", start=0, end=9),
+        ds.ExtractedLine(text="是什么呢。", start=140, end=149),
+        ds.ExtractedLine(text="小时候我还没上小学。", start=30, end=44),
+        ds.ExtractedLine(text=header_frag, start=61, end=66),
+    ]
+    out, ok, notes = ds.rebuild_extracted_line_spans(concept, lines)
+    assert ok
+    assert [l.text for l in out] == [
+        "爷爷，我一直有个心理阴影。", "是什么呢。", "小时候我还没上小学。",
+    ]
+    assert any("backward" in n or "duplicate" in n for n in notes)
+
+
+def test_rebuild_spans_refuses_hallucinated_text(lp):
+    import _mienodes_internal.nodes.llm.dialogue_segmenter as ds
+    concept = "孙女：你好。"
+    lines = [
+        ds.ExtractedLine(text="你好。", start=3, end=6),
+        ds.ExtractedLine(text="这句是编造的台词。", start=10, end=20),
+    ]
+    out, ok, notes = ds.rebuild_extracted_line_spans(concept, lines)
+    assert not ok
+    assert any("not found verbatim" in n for n in notes)
+
+
+def test_repair_label_pairings_environment_mislabel(lp):
+    """2026-10-12 live: the model labelled the ENVIRONMENT picture's
+    definition line 'Subject 3:' — a phantom subject that hard-failed
+    the run. Manifest-aware normalization must send it to <Picture 3>."""
+    manifest = [
+        {"slot": "Picture 1", "about": "A girl.", "role": "identity"},
+        {"slot": "Picture 2", "about": "A grandfather.", "role": "identity"},
+        {"slot": "Picture 3", "about": "A living room.", "role": "environment"},
+    ]
+    shot = [
+        "subject_definitions:",
+        "<Subject 1> -> <Picture 1>: A girl.",
+        "<Subject 2> -> <Picture 2>: A grandfather.",
+        "Subject 3: A living room.",
+        "",
+        "summary:",
+        "[reference generation] both speak.",
+        "",
+        "detailed_description:",
+        "[Shot 1] <Subject 1> and <Subject 2> talk.",
+    ]
+    fixed, n = lp.repair_label_pairings(shot, manifest)
+    body = "\n".join(fixed)
+    assert "<Picture 3>: A living room." in body
+    assert "<Subject 3>" not in body
+    plan = {"shots": [{"prompt": fixed, "id": "scene_01"}], "prompt_prefix": []}
+    assert lp.validate_label_policy(plan, "ref2va", manifest) == []

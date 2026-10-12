@@ -170,6 +170,7 @@ try:
         split_six_sections,
         split_three_sections,
         validate_label_policy,
+        repair_label_pairings as _lp_repair_label_pairings,
         validate_manifest,
         validate_plan,
         validate_dialogue_invariantity,
@@ -1464,114 +1465,6 @@ def _cut_budget_advice(
     return []
 
 
-def _insert_reaction_cuts(
-    shots: list[dict],
-    needed: int,
-    warnings: list[str],
-) -> list[dict]:
-    """Mechanically top up a dialogue board with silent reaction shots.
-
-    Used when the user's ``scene_count`` exceeds the per-line ceiling
-    (one dialogue line per scene): the extra scenes become 切换镜头 —
-    the classic multi-cam "cut to the listener" beat. Insertion points
-    are speaker-change boundaries AFTER the first spoken shot (a
-    reaction before anyone speaks would react to nothing); the reaction
-    shot shows the NEXT speaker listening silently.
-
-    Contract guarantees:
-      - a reaction shot carries NO dialogue lines (no
-        ``_dialogue_lines`` / ``_line_speakers`` / ``_turn_speaker``
-        keys), so the 1-line -> 1-<d>-block invariant is untouched, the
-        speaker-ID map ignores it, and the per-shot prompt generator
-        writes a silent shot ("no dialogue lines assigned");
-      - boundaries cycle until ``needed`` cuts are placed;
-      - IDs are renumbered ``scene_01..N`` afterwards so downstream
-        id-keyed stages stay consistent.
-
-    When no speaker-change boundary exists (single-speaker monologue
-    squeezed into one scene), the board is returned unchanged with a
-    warning — we never invent speech to fill a count.
-    """
-    if needed <= 0 or not shots:
-        return shots
-
-    def _last_speaker(shot: dict) -> str:
-        spk = [s for s in (shot.get("_line_speakers") or []) if s]
-        return spk[-1] if spk else ""
-
-    def _first_speaker(shot: dict) -> str:
-        spk = [s for s in (shot.get("_line_speakers") or []) if s]
-        return spk[0] if spk else ""
-
-    # Boundary after original index i exists when shot i ends a spoken
-    # run and some LATER shot opens a different speaker's run.
-    boundaries: list[tuple[int, str]] = []
-    for i in range(len(shots) - 1):
-        s_i = _last_speaker(shots[i])
-        if not s_i:
-            continue
-        for j in range(i + 1, len(shots)):
-            s_j = _first_speaker(shots[j])
-            if s_j:
-                if s_j != s_i:
-                    boundaries.append((i, s_j))
-                break
-    if not boundaries:
-        warnings.append(
-            f"scene_count: could not insert {needed} reaction cut(s) — no "
-            "speaker-change boundary on the board (single-speaker or "
-            "single-scene dialogue); emitting the dialogue scenes only"
-        )
-        return shots
-
-    cuts_after: dict[int, int] = {}
-    listeners_after: dict[int, str] = {}
-    for k in range(needed):
-        idx, listener = boundaries[k % len(boundaries)]
-        cuts_after[idx] = cuts_after.get(idx, 0) + 1
-        listeners_after.setdefault(idx, listener)
-
-    out: list[dict] = []
-    for i, shot in enumerate(shots):
-        out.append(shot)
-        n = cuts_after.get(i, 0)
-        for _ in range(n):
-            listener = listeners_after[i]
-            out.append(
-                {
-                    "id": "scene_??",  # renumbered below
-                    "description": (
-                        f"[Reaction cut] {listener} listens in silence as "
-                        "the previous line lands — a micro-expression "
-                        "shift, no speech, lips closed. Brief hold, then "
-                        "the exchange continues."
-                    ),
-                    "shot_type": "close_up",
-                    "camera_movement": "locked_off",
-                    "transition_in": "invisible_cut",
-                    "duration_seconds": 4.0,
-                    "narrative_beat": f"Silent reaction cut to {listener}.",
-                    "characters": [listener],
-                    "props": [],
-                    "notes": (
-                        "mechanically inserted reaction shot; NO dialogue "
-                        "lines — do not invent speech or lip movement"
-                    ),
-                }
-            )
-    for j, shot in enumerate(out, start=1):
-        shot["id"] = f"scene_{j:02d}"
-    warnings.append(
-        f"scene_count: inserted {needed} mechanical silent reaction "
-        f"cut(s) at speaker-change boundaries (no dialogue touched)"
-    )
-    log_pipeline(
-        f"reaction cuts: +{needed} silent scene(s); board is now "
-        f"{len(out)} scene(s)"
-    )
-    return out
-
-
 def _parse_first_json_object(text: str):
     """Tolerantly extract the first balanced ``{...}`` JSON object.
 
@@ -2080,6 +1973,23 @@ class H3LoopPromptEnhancer:
                 )
                 if ok and not _dlg_validate_extracted_lines(concept, rebuilt):
                     relocated = rebuilt
+                    if len(rebuilt) != len(rows):
+                        # The salvage may DROP mis-anchored duplicate /
+                        # fragment rows; keep the speaker pairing aligned
+                        # by walking rows against the rebuilt list in
+                        # order (a raw zip would misattribute or lose a
+                        # real line — 2026-10-12 live: 爷爷's line was
+                        # squeezed out exactly this way).
+                        kept_rows, ri = [], 0
+                        for spk, rl in rows:
+                            if ri < len(rebuilt) and (
+                                (rebuilt[ri].text or "").strip()
+                                == (rl.text or "").strip()
+                            ):
+                                kept_rows.append((spk, rebuilt[ri]))
+                                ri += 1
+                        rows = kept_rows
+                        relocated = [line for _, line in rows]
                     log_pipeline(
                         "dialogue extractor: span salvage rebuilt offsets "
                         "from verbatim texts ("
@@ -3695,7 +3605,6 @@ class H3LoopPromptEnhancer:
             storyboard_bias = _PACING_TO_STORYBOARD_BIAS.get(
                 pacing_key, "balanced"
             )
-            pending_reaction_cuts = 0
             user_scene_count = int(scene_count or 0)
             even_time_split = False
             if is_narrator_fallback:
@@ -3724,25 +3633,27 @@ class H3LoopPromptEnhancer:
                         log_pipeline(warnings[-1])
                         user_scene_count = min_for_cap
                     if user_scene_count > total_lines:
-                        # Ceiling: one line per scene; the rest become
-                        # silent reaction cuts after the board is built.
-                        turn_scenes = [[b] for b in fine_budgets]
-                        pending_reaction_cuts = (
-                            user_scene_count - total_lines
+                        # 2026-10-12 ruling（没事尽可能不切 scene）: an
+                        # explicit count NEVER manufactures silent reaction
+                        # scenes on top of the spoken lines — the 切换镜头
+                        # top-up is retired. Cap at one spoken line per
+                        # scene and say so; cutting more than the lines
+                        # justify is exactly the "没事" we avoid.
+                        warnings.append(
+                            f"scene_count={user_scene_count} exceeds the "
+                            f"{total_lines} spoken line(s); capped at "
+                            f"{total_lines} (one line per scene, no silent "
+                            "reaction scenes — 没事尽可能不切 scene)"
                         )
-                        log_pipeline(
-                            f"scene_count={user_scene_count}: one line per "
-                            f"scene ({total_lines}) + "
-                            f"{pending_reaction_cuts} reaction cut(s)"
-                        )
-                    else:
-                        turn_scenes = _dlg_distribute_lines_to_scenes(
-                            fine_budgets, scene_count=user_scene_count
-                        )
-                        log_pipeline(
-                            f"scene_count={user_scene_count}: distributed "
-                            f"{total_lines} line(s) evenly by speech time"
-                        )
+                        log_pipeline(warnings[-1])
+                        user_scene_count = total_lines
+                    turn_scenes = _dlg_distribute_lines_to_scenes(
+                        fine_budgets, scene_count=user_scene_count
+                    )
+                    log_pipeline(
+                        f"scene_count={user_scene_count}: distributed "
+                        f"{total_lines} line(s) evenly by speech time"
+                    )
                     # Whether the speech actually fits the budget is a
                     # WARNING, not a constraint (能否说完不重要).
                     speech_total = sum(
@@ -3841,24 +3752,13 @@ class H3LoopPromptEnhancer:
                     f"/ {len(shots)} scene(s) = {share:.2f}s each (Stage 0 "
                     "clamps to the 4-14s H3 window)"
                 )
-            # 6) Reaction cuts: when the user's scene_count exceeded the
-            #    per-line ceiling, top the board up with mechanically
-            #    inserted silent reaction shots (切换镜头) at
-            #    speaker-change boundaries — multi-cam dialogue rhythm.
-            #    A reaction shot carries NO dialogue lines (the per-shot
-            #    prompt generation then writes a silent shot), never
-            #    touches the spoken text, and never joins the speaker-ID
-            #    map (no _line_speakers / _turn_speaker keys).
-            if pending_reaction_cuts > 0 and shots:
-                shots = _insert_reaction_cuts(
-                    shots, pending_reaction_cuts, warnings
-                )
+            # 6) Reaction cuts RETIRED (2026-10-12 ruling 没事尽可能不切
+            #    scene): an explicit scene_count above the spoken-line
+            #    count is capped at one line per scene with a warning —
+            #    the board never gains silent padding scenes.
             # Code-side guarantee behind the camera directive: whatever the
-            # storyboard LLM decided — AND whatever the mechanically
-            # inserted reaction cuts hard-code (close_up) — locked /
-            # no_closeups is enforced here, AFTER the last board edit
-            # (2026-10-11 live hole: reaction cuts inserted after the
-            # clamp sailed through as close_ups under a locked board).
+            # storyboard LLM decided, locked / no_closeups is enforced
+            # here, AFTER the last board edit.
             if camera_code != "auto" and shots:
                 before = [str(sh.get("shot_type") or "") for sh in shots]
                 apply_camera_discipline(shots, camera_discipline)
@@ -4289,6 +4189,25 @@ class H3LoopPromptEnhancer:
         plan_errors = validate_plan(plan, schema=schema)
         if plan_errors:
             raise RuntimeError("plan validation failed: " + "; ".join(plan_errors))
+        # Mechanical pairing repair BEFORE the hard label gate: flaky
+        # scene replies write bare 'Picture N:' lines or omit the pairing
+        # entirely — both are deterministic to fix, and a hard failure
+        # here kills the WHOLE generation after every clip was written
+        # (2026-10-12 live: one bare-label scene failed the entire run).
+        if ref_code == "ref2va":
+            _label_fixes = 0
+            for _shot in plan["shots"]:
+                _lines = _shot.get("prompt") or []
+                _fixed, _n = _lp_repair_label_pairings(_lines, manifest or [])
+                if _n:
+                    _shot["prompt"] = _fixed
+                    _label_fixes += _n
+            if _label_fixes:
+                log_pipeline(
+                    f"label pairing: mechanically repaired {_label_fixes} "
+                    "line(s) (bare labels normalized / missing bindings "
+                    "injected) before validation"
+                )
         # Label policy: identity Subjects are only REQUIRED for pictures
         # the concept actually names — unreferenced wired pictures get a
         # preflight warning instead of a post-spend hard failure
@@ -4479,10 +4398,14 @@ class MiniMaxH3LoopPromptGenerator:
                             "split bias (fast=aggressive, slow=conservative)."
                             "\n\n"
                             ">0 on a dialogue board: speech is spread evenly "
-                            "across that many scenes; above one-line-per-"
-                            "scene the extras become silent reaction cuts "
-                            "(cut to the listener). A line is never split "
-                            "mid-utterance.\n\n"
+                            "across that many scenes, capped at one line per "
+                            "scene — a count above the spoken-line count is "
+                            "capped with a warning; NO silent reaction scenes "
+                            "are manufactured to reach a number (没事尽可能"
+                            "不切 scene, 2026-10-12). A line is never split "
+                            "mid-utterance. 场景数：0=自动（最小切分）；显式"
+                            "数字在台词数以内精确生效，超出封顶为每场一句并"
+                            "警告，绝不添加无声反应镜头凑数。\n\n"
                             ">0 on a narration board: the storyboard LLM "
                             "produces exactly that many scenes."
                         ),
@@ -4859,6 +4782,13 @@ class MiniMaxH3LoopPromptGenerator:
         return h.hexdigest()
 
 
+# Asset slot sockets are character_1..9 / scene_1..9 ONLY. A bare
+# startswith("scene_") scan also swallows the scene_count WIDGET —
+# the exact live bug that silently ignored every explicit scene
+# count on the V2 node path (2026-10-12).
+_SLOT_KEY_RE = re.compile(r"^(?:character|scene)_\d+$")
+
+
 class MiniMaxH3LoopPromptGeneratorV2(MiniMaxH3LoopPromptGenerator):
     """The same generator, with assets wired in from the Load nodes.
 
@@ -5031,7 +4961,8 @@ class MiniMaxH3LoopPromptGeneratorV2(MiniMaxH3LoopPromptGenerator):
         scenes = self._slot_bundles(kwargs, "scene", "scene")
         # The slot sockets are consumed HERE; they must not leak into the
         # enhancer's keyword contract.
-        for key in [k for k in list(kwargs) if k.startswith(("character_", "scene_"))]:
+        for key in [k for k in list(kwargs)
+                     if _SLOT_KEY_RE.match(k)]:
             kwargs.pop(key)
         roster_manifest = None
         images_out = None
@@ -5081,6 +5012,7 @@ class MiniMaxH3LoopPromptGeneratorV2(MiniMaxH3LoopPromptGenerator):
         # Slot sockets are wired inputs: upstream Load nodes invalidate via
         # their own content-hash IS_CHANGED, which naturally re-runs this
         # node. Nothing widget-side left to hash for them.
-        for key in [k for k in list(kwargs) if k.startswith(("character_", "scene_"))]:
+        for key in [k for k in list(kwargs)
+                     if _SLOT_KEY_RE.match(k)]:
             kwargs.pop(key)
         return super().is_changed(llm_service_connector, **kwargs)

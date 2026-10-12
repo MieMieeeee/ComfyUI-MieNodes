@@ -860,6 +860,73 @@ def _identity_subject_slots(manifest: list[dict]) -> dict[int, int]:
     return out
 
 
+def repair_label_pairings(
+    shot_lines: list[str],
+    manifest: list[dict],
+) -> tuple[list[str], int]:
+    """Mechanical pairing repair BEFORE validate_label_policy.
+
+    2026-10-12 live failure: one flaky scene wrote bare ``Picture 1:``
+    lines (no angle brackets) while the description referenced
+    ``<Subject 1>`` — the label policy then hard-failed the WHOLE
+    generation. Both shapes are mechanically repairable:
+      (a) normalize bare ``Picture N:`` / ``Subject N:`` line starts to
+          the bracketed form;
+      (b) if a manifest-bound <Subject K> is referenced in the scene but
+          its paired picture label never appears, inject the binding
+          line ``<Subject K> -> <Picture M>: about`` from the manifest.
+    Returns (lines, fix_count); the caller logs the count."""
+    import re as _re
+
+    identities = []
+    for e in manifest or []:
+        if str(e.get("role") or "") != "identity":
+            continue
+        slot = str(e.get("slot") or "")
+        m = _re.search(r"\d+", slot)
+        if m:
+            identities.append((int(m.group()), e))
+    identities.sort(key=lambda t: t[0])
+    identity_nums = {num for num, _ in identities}
+    pic_nums = set()
+    for e in manifest or []:
+        m = _re.search(r"\d+", str(e.get("slot") or ""))
+        if m:
+            pic_nums.add(int(m.group()))
+    lines = list(shot_lines or [])
+    fixes = 0
+    # (a) bare label normalization — manifest-aware: a bare "Subject N:"
+    # that is NOT an identity number but IS a picture slot is the model
+    # mislabeling an environment/destination line (2026-10-12 live:
+    # "Subject 3:" for the environment picture), so it normalizes to
+    # <Picture N>, never to a phantom Subject.
+    for i, ln in enumerate(lines):
+        m = _re.match(r"^(Picture|Subject) (\d+):\s*(.*)$", ln.strip())
+        if not m:
+            continue
+        kind, num, rest = m.group(1), int(m.group(2)), m.group(3)
+        if kind == "Subject" and num not in identity_nums and num in pic_nums:
+            lines[i] = f"<Picture {num}>: {rest}"
+        else:
+            lines[i] = f"<{kind} {num}>: {rest}"
+        fixes += 1
+    blob = "\n".join(lines)
+    # (b) missing pair injection
+    for k, (_pic_num, entry) in enumerate(identities, start=1):
+        pic_label = f"<Picture {_pic_num}>"
+        subj_label = f"<Subject {k}>"
+        if subj_label in blob and pic_label not in blob:
+            about = _reply_compact(str(entry.get("about") or ""))
+            try:
+                i0 = lines.index("subject_definitions:")
+            except ValueError:
+                continue
+            lines.insert(i0 + 1, f"{subj_label} -> {pic_label}: {about}")
+            fixes += 1
+            blob = "\n".join(lines)
+    return lines, fixes
+
+
 def validate_label_policy(
     plan: dict,
     mode: str,

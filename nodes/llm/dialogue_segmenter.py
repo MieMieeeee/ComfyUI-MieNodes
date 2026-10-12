@@ -615,16 +615,54 @@ def rebuild_extracted_line_spans(
     storyboard — every spoken line lost."""
     if concept is None:
         return list(raw_lines or []), False, ["concept is None"]
-    out: list[ExtractedLine] = []
-    notes: list[str] = []
-    cursor = 0
+    # Phase 1: drop DUPLICATE-FRAGMENT lines — the model sometimes
+    # returns a short fragment of an EARLIER line as its own entry with
+    # a span pointing back into it (2026-10-12 live: three identical
+    # failures, 'line 5: span [61,66) overlaps previous line ending at
+    # 146'). A text that lives INSIDE an already-accepted span adds no
+    # speech; dropping it keeps every full line verbatim.
+    accepted: list[tuple[int, int]] = []
+    kept: list[ExtractedLine] = []
+    dropped: list[str] = []
     for i, line in enumerate(raw_lines or []):
+        text = (line.text or "").strip()
+        if not text:
+            continue
+        if any(ps <= concept.find(text) < pe or ps < concept.find(text) + len(text) <= pe
+               for ps, pe in accepted if concept.find(text) >= 0):
+            dropped.append(f"line {i}: duplicate fragment {text[:24]!r}")
+            continue
+        pos = concept.find(text)
+        if pos >= 0:
+            accepted.append((pos, pos + len(text)))
+        kept.append(line)
+    # Phase 2: monotonic-cursor rebuild over the surviving lines. A line
+    # whose text exists in the concept only EARLIER (pointing backward —
+    # into an already-accepted span or the pre-dialogue header) is a
+    # mis-anchored artifact: its spoken content is already preserved by
+    # the kept lines, so drop it. Only a text that exists NOWHERE in the
+    # concept (hallucinated) refuses.
+    out: list[ExtractedLine] = []
+    notes: list[str] = dropped
+    cursor = 0
+    first_accepted_start = accepted[0][0] if accepted else 0
+    for i, line in enumerate(kept):
         text = (line.text or "").strip()
         if not text:
             continue
         pos = concept.find(text, cursor)
         if pos < 0:
-            return list(raw_lines or []), False, [
+            earlier = concept.find(text)
+            if earlier >= 0 and (
+                earlier < first_accepted_start
+                or any(ps <= earlier < pe for ps, pe in accepted)
+            ):
+                notes.append(
+                    "line %d: dropped backward-anchored duplicate %r "
+                    "(content preserved by an earlier line)" % (i, text[:24])
+                )
+                continue
+            return list(raw_lines or []), False, notes + [
                 "line %d: text not found verbatim after offset %d: %r"
                 % (i, cursor, text[:40])
             ]
