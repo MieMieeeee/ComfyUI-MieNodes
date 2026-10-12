@@ -293,8 +293,14 @@ function makeStyledButton(node, widgetName, icon, label, title, extraClass, onCl
 }
 
 function wireNode(node, cfg) {
-    if (cfg.generatorSockets || cfg.socketGrow) {
-        node.__mieAssets = { cfg };
+    // NODES 里的 cfg 是同类节点共享的模板对象；adaptKind 会改写
+    // cfg.save/preview/kinds——在共享模板上改会让同画布上的角色/场景
+    // 节点互相串列表（2026-10-12 实测：双节点工作流里第一个节点拿到
+    // 第二个节点类型的名单，且已保存的选择被清空）。每个节点持有
+    // 自己的浅拷贝。
+    const ownCfg = Object.assign({}, cfg);
+    if (ownCfg.generatorSockets || ownCfg.socketGrow) {
+        node.__mieAssets = { cfg: ownCfg };
         patchGeneratorSocketGrow(node);
         return;
     }
@@ -303,7 +309,7 @@ function wireNode(node, cfg) {
     ensureStyles();
     const dirWidget = node.widgets?.find((w) => w.name === "library_dir");
     if (!dirWidget) return;
-    node.__mieAssets = { cfg, payload: null };
+    node.__mieAssets = { cfg: ownCfg, payload: null };
 
     // 库位置固定：widget 永久隐藏（不再有翻出来编辑的入口）。
     dirWidget.hidden = true;
