@@ -924,9 +924,12 @@ function makeAssetNameSelector(node, cfg) {
         mode = m;
         if (mode === "new") {
             nameWidget.value = NEW_NAME;
-            // 已选资产的自动回填正文不能带进新资产：切到「新建」即清空
-            // description/voice（这正是 autofill 会填的那两个字段）。
-            for (const field of ["description", "voice"]) {
+            // 已选资产的回填/提示不能带进新资产：切到「新建」即清空全部
+            // 文本框——autofill 会填的 description/voice，加上 Auto 节点
+            // 特有的两个提示词框（2026-10-12 用户实测残留：image_prompt /
+            // voice_prompt 里上一个资产的提示原样带进新建）。widget 不
+            // 存在的节点自动跳过。
+            for (const field of ["description", "voice", "image_prompt", "voice_prompt"]) {
                 const w = node.widgets.find((x) => x.name === field);
                 if (w) w.value = "";
             }
