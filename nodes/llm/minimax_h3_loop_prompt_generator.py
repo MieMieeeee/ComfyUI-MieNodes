@@ -215,6 +215,7 @@ try:
         scene_raw_seconds as _dlg_scene_raw_seconds,
         group_budgets_into_scenes as _dlg_group_budgets_into_scenes,
         relocate_extracted_lines as _dlg_relocate_extracted_lines,
+        rebuild_extracted_line_spans as _dlg_rebuild_extracted_line_spans,
         validate_extracted_lines as _dlg_validate_extracted_lines,
     )
 except ImportError:
@@ -317,6 +318,7 @@ except ImportError:
         scene_raw_seconds as _dlg_scene_raw_seconds,
         group_budgets_into_scenes as _dlg_group_budgets_into_scenes,
         relocate_extracted_lines as _dlg_relocate_extracted_lines,
+        rebuild_extracted_line_spans as _dlg_rebuild_extracted_line_spans,
         validate_extracted_lines as _dlg_validate_extracted_lines,
     )
 
@@ -2066,6 +2068,24 @@ class H3LoopPromptEnhancer:
                 concept, [line for _, line in rows]
             )
             errors = _dlg_validate_extracted_lines(concept, relocated)
+            if errors:
+                # 2026-10-12 salvage BEFORE burning another attempt: the
+                # model's spans are recomputable data — rebuild them from
+                # the verbatim texts with a monotonic cursor. Backwards /
+                # overlapping / byte-offset spans all pass this; only a
+                # genuinely wrong TEXT fails (then it is not worth
+                # retrying the same reply shape).
+                rebuilt, ok, rb_notes = _dlg_rebuild_extracted_line_spans(
+                    concept, [line for _, line in rows]
+                )
+                if ok and not _dlg_validate_extracted_lines(concept, rebuilt):
+                    relocated = rebuilt
+                    log_pipeline(
+                        "dialogue extractor: span salvage rebuilt offsets "
+                        "from verbatim texts ("
+                        + "; ".join(rb_notes[:4]) + ")"
+                    )
+                    errors = []
             if errors:
                 last_reason = errors[0]
                 log_pipeline(

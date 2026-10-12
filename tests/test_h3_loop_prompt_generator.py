@@ -1300,3 +1300,58 @@ def test_caption_reply_rejects_reasoning_dump(lg):
     assert not lg._caption_reply_usable("Need answer. " * 80)
     assert not lg._caption_reply_usable("我需要先描述这张参考图的毛色和衣服。")
     assert not lg._caption_reply_usable("")
+
+
+def test_extract_dialogue_salvages_backwards_spans(lg):
+    """2026-10-12 live failure: MiniMax returned a line-5 span pointing
+    BACK into line 4 (non-monotonic, slice-matching fragment); three
+    identical failures dropped every spoken line to the narrator board.
+    The monotonic-cursor rebuild must rescue the turn set from ONE
+    reply — no retries, no narrator fallback."""
+    concept = (
+        "客厅里，爷爷和孙女坐在沙发上聊天。\n"
+        "孙女：爷爷，我一直有个心理阴影。\n"
+        "爷爷：是什么呢。\n"
+        "孙女：小时候我还没上小学。\n"
+        "孙女：咱家院子里有几只小刺猬。"
+    )
+    # spans deliberately garbled: line 2 lands inside line 1's span, the
+    # rest are byte-ish nonsense — the texts are the only good data.
+    extract = json.dumps({"turns": [
+        {"speaker": "孙女", "lines": [
+            {"text": "爷爷，我一直有个心理阴影。", "start": 0, "end": 9}]},
+        {"speaker": "爷爷", "lines": [
+            {"text": "是什么呢。", "start": 140, "end": 149}]},
+        {"speaker": "孙女", "lines": [
+            {"text": "小时候我还没上小学。", "start": 30, "end": 44}]},
+        {"speaker": "孙女", "lines": [
+            {"text": "咱家院子里有几只小刺猬。", "start": 61, "end": 66}]},
+    ]}, ensure_ascii=False)
+    conn = ScriptedConnector([extract])  # ONE reply, nothing else
+    enh = lg.H3LoopPromptEnhancer(conn, temperature=0.0, timeout=30)
+    turns = enh.extract_dialogue(concept)
+    assert len(conn.calls) == 1, "salvage must not need a retry"
+    assert [t.speaker for t in turns] == ["孙女", "爷爷", "孙女"]
+    assert turns[2].lines == ["小时候我还没上小学。", "咱家院子里有几只小刺猬。"]
+    # rebuilt spans are monotonic over the concept
+    assert turns[0].start < turns[1].start < turns[2].start
+    assert concept[turns[1].start:turns[1].end] == "是什么呢。"
+
+
+def test_extract_dialogue_salvage_rejects_wrong_text(lg):
+    """A text that is not verbatim in the concept is a genuinely bad
+    extraction: salvage refuses it and the retry loop still runs."""
+    concept = "甲猫：你好。"
+    extract = json.dumps({"turns": [
+        {"speaker": "甲猫", "lines": [
+            {"text": "这句根本不在原文里。", "start": 3, "end": 6}]},
+        {"speaker": "甲猫", "lines": [
+            {"text": "你好。", "start": 3, "end": 6}]},
+        {"speaker": "甲猫", "lines": [
+            {"text": "你好。", "start": 3, "end": 6}]},
+    ]}, ensure_ascii=False)
+    conn = ScriptedConnector([extract, extract, extract])
+    enh = lg.H3LoopPromptEnhancer(conn, temperature=0.0, timeout=30)
+    assert enh.extract_dialogue(concept) == []  # narrator fallback
+    assert len(conn.calls) == 3
+    assert enh._dialogue_extract_warnings

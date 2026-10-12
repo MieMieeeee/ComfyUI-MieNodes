@@ -596,6 +596,49 @@ def relocate_extracted_lines(
     return out, notes
 
 
+def rebuild_extracted_line_spans(
+    concept: str,
+    raw_lines: list[ExtractedLine],
+) -> tuple[list[ExtractedLine], bool, list[str]]:
+    """Recompute every span from the verbatim texts alone (monotonic
+    cursor scan). The strongest salvage for garbled extractor offsets:
+    dialogue lines appear IN ORDER inside the concept, so the texts
+    themselves locate them — byte offsets, off-by-ones, backwards spans
+    and copied few-shot spans are all irrelevant. Returns ``(lines, ok,
+    notes)``; ``ok=False`` means some text is not present verbatim after
+    the cursor (the extraction itself is wrong, not just its offsets).
+
+    2026-10-12 live failure this exists for: the model returned a line-5
+    span pointing back INTO line 4 (non-monotonic) with a slice-matching
+    fragment; relocation found no unique unused hit; three attempts
+    failed identically and the whole dialogue fell to the narrator
+    storyboard — every spoken line lost."""
+    if concept is None:
+        return list(raw_lines or []), False, ["concept is None"]
+    out: list[ExtractedLine] = []
+    notes: list[str] = []
+    cursor = 0
+    for i, line in enumerate(raw_lines or []):
+        text = (line.text or "").strip()
+        if not text:
+            continue
+        pos = concept.find(text, cursor)
+        if pos < 0:
+            return list(raw_lines or []), False, [
+                "line %d: text not found verbatim after offset %d: %r"
+                % (i, cursor, text[:40])
+            ]
+        end = pos + len(text)
+        if (line.start, line.end) != (pos, end):
+            notes.append(
+                "line %d: span [%s, %s) -> [%d, %d)"
+                % (i, line.start, line.end, pos, end)
+            )
+        out.append(ExtractedLine(text=line.text, start=pos, end=end))
+        cursor = end
+    return out, bool(out), notes
+
+
 def validate_extracted_lines(
     concept: str,
     raw_lines: list[ExtractedLine],
