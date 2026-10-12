@@ -87,12 +87,23 @@ function thumbUrl(name, kind, ts) {
 }
 
 function reportScanError(payload) {
-    if (payload && payload.ok === false && payload.error) {
+    if (!payload) return;
+    if (payload.ok === false && payload.error) {
         app.extensionManager?.toast?.add?.({
             severity: "error",
             summary: "资产库读取失败 · Library read failed",
             detail: String(payload.error).slice(0, 200),
             life: 6000,
+        });
+    } else if (payload.ok === true && payload.error) {
+        // 跳过的资产（歧义音频等）必须可见：2026-10-11 实例——从别的机器
+        // 拷贝资产文件夹与本地 01.wav 合并出 01.mp3+01.wav，扫描器跳过该
+        // 资产，用户只看到「找不到」，没有任何原因提示。
+        app.extensionManager?.toast?.add?.({
+            severity: "warn",
+            summary: "部分资产被跳过 · Some assets skipped",
+            detail: String(payload.error).slice(0, 300),
+            life: 8000,
         });
     }
 }

@@ -1224,3 +1224,21 @@ def test_assets_to_roster_collects_and_validates():
     assert "character_9" in AssetsToRoster.INPUT_TYPES()["optional"]
 
 
+
+
+def test_list_payload_surfaces_skip_notes(tmp_path, monkeypatch):
+    """2026-10-11 live case: copying an asset folder over an existing one
+    merged 01.mp3 next to 01.wav — the scanner skips the asset and the
+    payload must CARRY that reason (ok stays true; the frontend warns)."""
+    lib = tmp_path / "lib"
+    monkeypatch.setenv(library.LIBRARY_DIR_ENV, str(lib))
+    library.save_character(
+        str(lib), "Amb", "d", "v", [make_png()], [make_wav()]
+    )
+    # hand-merge a second-extension sibling, like a folder copy would
+    (lib / "characters" / "Amb" / "audio" / "01.mp3").write_bytes(b"ID3x")
+    payload = library.list_assets_payload(str(lib))
+    assert payload["ok"] is True
+    assert [e["name"] for e in payload["characters"]] == []  # skipped
+    assert "ambiguous audio" in (payload["error"] or "")
+    assert "Amb" in (payload["error"] or "")
