@@ -3281,30 +3281,6 @@ _POSE_LOCK_NOTE = (
 _STILL_CUES = ("不动", "没有动作", "静止", "嘴闭", "不说话", "still", "no action")
 
 
-def intra_scene_cut_seconds(duration_seconds: float, clip_index: int) -> float:
-    """Clock time of the one in-scene cut, on the raw generation length."""
-    overlap = 0.0 if int(clip_index) <= 1 else CHAIN_OVERLAP_HEAD_SEC
-    dur = float(duration_seconds or 0.0)
-    if dur < 4.0:
-        dur = 6.0
-    earliest = overlap + 0.8
-    latest = max(earliest, dur - 1.5)
-    cut = overlap + (dur - overlap) * 0.45
-    if cut < earliest:
-        cut = earliest
-    if cut > latest:
-        cut = latest
-    return round(cut, 3)
-
-
-def format_cut_clock(seconds: float) -> str:
-    """``MM:SS.mmm``, the H3 ``At 00:03.500`` form."""
-    total_ms = int(round(max(0.0, float(seconds)) * 1000))
-    minutes = total_ms // 60000
-    rem = (total_ms % 60000) / 1000.0
-    return f"{minutes:02d}:{rem:06.3f}"
-
-
 def _unique_names(names: list[str]) -> list[str]:
     out: list[str] = []
     for name in names:
@@ -3336,21 +3312,6 @@ def _shot1_coverage(speakers: list[str], *, voiceover: bool) -> str:
         f"only one eye fully clear on each face, eyes on each other and not on the lens. "
         f"The reference picture is a front-facing portrait; that head angle is not used. "
         f"The camera holds still inside this shot."
-    )
-
-
-def _shot2_coverage(speaker: str, other: str, clock: str) -> str:
-    edge = (
-        f"{other}'s profile stays at the frame edge as the eyeline target. "
-        if other
-        else "The listener's profile stays at the frame edge as the eyeline target. "
-    )
-    who = speaker or "the speaker"
-    return (
-        f"[Shot 2] At {clock}, the camera cuts to a tight close-up of {who}. "
-        f"Three-quarter view, the nose points toward the other subject, "
-        f"only one eye is fully visible. {edge}"
-        f"Eyes are not on the lens. The camera holds still."
     )
 
 
@@ -3575,26 +3536,19 @@ def install_shot_speech(
             only=set(first_appearance_speakers or ()),
             max_chars=180,
         ))
-    # Two spoken lines: the action between them stays in the wide shot,
-    # then the node writes the close-up clock. One line, or voiceover,
-    # stays a single held shot — a cut is not a new scene, and a still
-    # voiceover has no speaker close-up.
-    use_cut = (not voiceover) and len(speech_lines) == 2
-    clock = format_cut_clock(intra_scene_cut_seconds(duration_seconds, clip_index))
+    # 2026-10-11 removal: the node used to insert a mechanical
+    # "[Shot 2] At 00:0X.XXX, the camera cuts to a tight close-up ..."
+    # line between the two speech lines of a two-line scene. That line
+    # contradicted the plugin's OWN contracts three ways — the shared
+    # shot addendum ("never write [Shot 2], no timestamps, never 'the
+    # camera cuts to'"), the ref2va timestamp ban, and
+    # camera_discipline=locked — and it was assembled AFTER the
+    # per-shot validation, so the guards policing the model's prose
+    # never saw it. A clip is one continuous held shot: both speech
+    # lines land inside the [Shot 1] framing, the stage cues included.
     for index, speech in enumerate(speech_lines):
         for cue in cues[index] or []:
-            if index == 1 and use_cut:
-                break
             body.append(_cue_sentence(str(cue)))
-        if index == 1 and use_cut:
-            for cue in cues[index] or []:
-                body.append(_cue_sentence(str(cue)))
-            other = ""
-            for name in per_line:
-                if name and name != per_line[1]:
-                    other = name
-                    break
-            body.append(_shot2_coverage(per_line[1], other, clock))
         body.append(speech)
     for cue in trailing_stage or []:
         body.append(_cue_sentence(str(cue)))

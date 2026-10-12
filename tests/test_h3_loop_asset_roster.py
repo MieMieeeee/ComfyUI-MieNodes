@@ -1245,3 +1245,40 @@ def test_shot_stage_survives_two_bad_replies(lp, lg, tmp_path, monkeypatch):
     assert "<Subject 1>" in shot_lines      # real binding, not the fallback
     # three shot-stage calls happened (2 bad + 1 good), not a fallback path
     assert len(_shot_prompts(conn)) == 3
+
+
+def test_assembled_plan_has_no_mechanical_cut_or_clock(lp, lg, tmp_path, monkeypatch):
+    """2026-10-11 root cause of the recurring 'camera cuts + At 00:0X.XXX'
+    in every generated plan: the node-owned description assembly inserted
+    a mechanical '[Shot 2] At clock, the camera cuts to a tight
+    close-up' line between the two speech lines of a two-line scene —
+    AFTER the per-shot validation, so the prose guards never saw it, and
+    in direct violation of the shot addendum + timestamp ban + locked
+    discipline. The assembly must keep one continuous held shot."""
+    lib = _slot_lib(tmp_path, monkeypatch)
+    from nodes.assets.nodes import LoadCharacterAssetV2, LoadSceneAssetV2
+
+    char_bundle = LoadCharacterAssetV2().load_character("", "Alice")[5]
+    scene_bundle = LoadSceneAssetV2().load_scene("", "Store")[3]
+    conn = ScriptedConnector([
+        EXTRACT_DIALOGUE_EMPTY,
+        _storyboard(1),
+        PREFIX_REPLY,
+        _ref2va_environment_second_reply(),
+    ])
+    node = lg.MiniMaxH3LoopPromptGeneratorV2()
+    plan_json, _summary, _bk, _img, _assets = node.generate_v2(
+        conn,
+        user_input="Alice waits in the store.",
+        reference_mode=REF2VA,
+        camera_discipline="locked - 固定机位(构图全场不变)",
+        seed=1,
+        character_1=char_bundle,
+        scene_1=scene_bundle,
+    )
+    blob = json.dumps(json.loads(plan_json), ensure_ascii=False)
+    assert "[Shot 2]" not in blob
+    assert "camera cuts to" not in blob
+    import re as _re
+    assert not _re.search(r"\b\d{1,2}:\d{2}\.\d{3}\b", blob), \
+        "no MM:SS.mmm clock anywhere in the assembled plan"
