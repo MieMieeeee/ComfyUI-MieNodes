@@ -1390,3 +1390,32 @@ def test_repair_label_pairings_environment_mislabel(lp):
     assert "<Subject 3>" not in body
     plan = {"shots": [{"prompt": fixed, "id": "scene_01"}], "prompt_prefix": []}
     assert lp.validate_label_policy(plan, "ref2va", manifest) == []
+
+
+def test_repair_label_pairings_detokenizes_phantom_subjects(lp):
+    """2026-10-13 live flake: the model referenced '<Subject 3>' in prose
+    with only 2 identities + 1 environment picture — the label policy
+    hard-failed the whole run. Phantom tokens de-tokenize to plain text
+    (no semantic guess); valid tokens stay untouched."""
+    manifest = [
+        {"slot": "Picture 1", "about": "A kitten.", "role": "identity"},
+        {"slot": "Picture 2", "about": "A grandfather cat.", "role": "identity"},
+        {"slot": "Picture 3", "about": "A snowy cottage.", "role": "environment"},
+    ]
+    shot = [
+        "subject_definitions:",
+        "<Subject 1> -> <Picture 1>: A kitten.",
+        "<Subject 2> -> <Picture 2>: A grandfather cat.",
+        "<Picture 3>: A snowy cottage.",
+        "",
+        "detailed_description:",
+        "[Shot 1] <Subject 1> turns to <Subject 3> while <Picture 3> "
+        "stays behind them, and <Picture 9> is nowhere.",
+    ]
+    fixed, n = lp.repair_label_pairings(shot, manifest)
+    body = "\n".join(fixed)
+    assert "<Subject 3>" not in body and "Subject 3" in body   # de-tokenized
+    assert "<Picture 9>" not in body and "Picture 9" in body   # phantom picture too
+    assert "<Subject 1>" in body and "<Picture 3>:" in body    # valid tokens intact
+    plan = {"shots": [{"prompt": fixed, "id": "scene_01"}], "prompt_prefix": []}
+    assert lp.validate_label_policy(plan, "ref2va", manifest) == []

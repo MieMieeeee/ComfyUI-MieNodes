@@ -924,6 +924,26 @@ def repair_label_pairings(
             lines.insert(i0 + 1, f"{subj_label} -> {pic_label}: {about}")
             fixes += 1
             blob = "\n".join(lines)
+    # (c) phantom tokens: <Subject N> with N beyond the identity count
+    # (or <Picture N> not in the manifest) referenced in PROSE. The label
+    # policy hard-fails the whole run on them; the model hallucinated
+    # the number, so de-tokenize to plain text (no semantic guessing
+    # about which real subject was meant). 2026-10-13 live flake:
+    # '<Subject 3>' with 2 identities + 1 environment picture.
+    def _detokenize(match):
+        kind, num = match.group(1), int(match.group(2))
+        if kind == "Subject" and num > len(identities):
+            return f"Subject {num}"
+        if kind == "Picture" and num not in pic_nums:
+            return f"Picture {num}"
+        return match.group(0)
+
+    token_re = _re.compile(r"<(Subject|Picture) (\d+)>")
+    for i, ln in enumerate(lines):
+        fixed = token_re.sub(_detokenize, ln)
+        if fixed != ln:
+            lines[i] = fixed
+            fixes += 1
     return lines, fixes
 
 
