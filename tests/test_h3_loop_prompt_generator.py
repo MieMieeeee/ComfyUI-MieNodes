@@ -1364,3 +1364,118 @@ def test_generate_v2_honours_explicit_scene_count(lg):
     plan = json.loads(plan_json)
     assert len(plan["shots"]) == 3, "explicit scene_count must be honoured"
     assert board_kind == "dialogue"
+
+
+_KITTEN_CONCEPT = (
+    "小猫妹妹和猫爷爷在客厅说话。\n"
+    "小猫妹妹：爷爷，喝水要喝小瓶的，吃东西要吃小份的，这样才优雅！\n"
+    "猫爷爷：优雅啥呀。喝大水，睡大觉，练薄肌。\n"
+    "小猫妹妹（嫌弃）： 你这也太糙了吧！\n"
+    "猫爷爷：不买昂贵补品，不研究复杂配方，主打一个身体需要什么就给什么。这叫——极简猫生哲学。"
+)
+
+
+def test_locked_camera_keeps_deterministic_parse(lg):
+    """2026-10-13 LAN live loss: with camera_discipline=locked, the
+    directive's ENGLISH COLONS made the deterministic parser bail
+    ("colon line after dialogue"), every canonical board fell to the
+    flash LLM extractor, and one omitted line ('优雅啥呀。喝大水，睡大
+    觉，练薄肌。') silently vanished. The parser now sees the
+    PRE-DIRECTIVE text: locked + canonical input must take the
+    deterministic path (ZERO extractor calls) and keep all 4 lines."""
+    conn = ScriptedConnector([
+        _clip_reply(1),
+        _clip_reply(2),
+        _clip_reply(3),
+    ])
+    out = lg.H3LoopPromptEnhancer(conn)(
+        user_input=_KITTEN_CONCEPT,
+        camera_discipline="locked - 固定机位(构图全场不变)",
+        seed=1,
+    )
+    blob = json.dumps(json.loads(out["plan_json"]), ensure_ascii=False)
+    for tail in ("这样才优雅！</d>", "优雅啥呀。喝大水，睡大觉，练薄肌。</d>",
+                 "你这也太糙了吧！</d>", "这叫——极简猫生哲学。</d>"):
+        assert tail in blob, tail
+    # deterministic path: not one extractor call reached the connector
+    for messages in conn.calls:
+        first = str(messages[0].get("content", ""))
+        assert "span-anchored dialogue extractor" not in first
+    assert "Board: dialogue" in out["summary"]
+    assert blob.count("<d>") == 4
+
+
+def test_speaker_parenthetical_suffix_stripped(lg):
+    """小猫妹妹（嫌弃） must map to ONE speaker tag, not split the
+    character into two (S) voices."""
+    conn = ScriptedConnector([
+        _dlg_clip_reply(1, "小猫妹妹", "S1", "young female", "。"),
+        _dlg_clip_reply(2, "猫爷爷", "S2", "elderly male", "。"),
+        _dlg_clip_reply(3, "小猫妹妹", "S1", "young female", "。"),
+    ])
+    out = lg.H3LoopPromptEnhancer(conn)(
+        user_input=_KITTEN_CONCEPT,
+        camera_discipline="auto - 自动(分镜自由构图)",
+        seed=1,
+    )
+    blob = json.dumps(json.loads(out["plan_json"]), ensure_ascii=False)
+    assert "(S3)" not in blob  # no phantom third speaker tag
+    # the parenthetical may survive in cosmetic CAST listings, but never
+    # as a speaker identity: the spoken blocks are attributed via S1/S2
+    assert blob.count("<d>") == 4
+
+
+def test_union_restores_line_the_extractor_omitted(lg):
+    """Lenient-mode union: the LLM extractor returns only 3 of the 4
+    canonical lines (valid spans); the deterministic parse fills the
+    missing one verbatim, span-ordered."""
+    concept = _KITTEN_CONCEPT
+    # spans in the RAW concept (a strict prefix of idea)
+    def find(t):
+        i = concept.find(t)
+        return i, i + len(t)
+    s0, e0 = find("爷爷，喝水要喝小瓶的，吃东西要吃小份的，这样才优雅！")
+    s2, e2 = find("你这也太糙了吧！")
+    s3, e3 = find("不买昂贵补品，不研究复杂配方，主打一个身体需要什么就给什么。这叫——极简猫生哲学。")
+    extract = json.dumps({"turns": [
+        {"speaker": "小猫妹妹", "lines": [
+            {"text": "爷爷，喝水要喝小瓶的，吃东西要吃小份的，这样才优雅！", "start": s0, "end": e0}]},
+        {"speaker": "小猫妹妹", "lines": [
+            {"text": "你这也太糙了吧！", "start": s2, "end": e2}]},
+        {"speaker": "猫爷爷", "lines": [
+            {"text": "不买昂贵补品，不研究复杂配方，主打一个身体需要什么就给什么。这叫——极简猫生哲学。", "start": s3, "end": e3}]},
+    ]}, ensure_ascii=False)
+    # force the LLM path: a non-dialogue colon line BEFORE any dialogue
+    # makes the strict parser refuse (prologue colon rule) — append a
+    # stage note header the strict parser rejects but lenient survives.
+    forced = "备注：演示输入。\n" + concept
+    s0f, _ = find("爷爷，喝水")
+    # recompute spans against `forced` (prologue prefix shifts offsets)
+    def findf(t):
+        i = forced.find(t)
+        return i, i + len(t)
+    s0, e0 = findf("爷爷，喝水要喝小瓶的，吃东西要吃小份的，这样才优雅！")
+    s2, e2 = findf("你这也太糙了吧！")
+    s3, e3 = findf("不买昂贵补品，不研究复杂配方，主打一个身体需要什么就给什么。这叫——极简猫生哲学。")
+    extract = json.dumps({"turns": [
+        {"speaker": "小猫妹妹", "lines": [
+            {"text": "爷爷，喝水要喝小瓶的，吃东西要吃小份的，这样才优雅！", "start": s0, "end": e0}]},
+        {"speaker": "小猫妹妹", "lines": [
+            {"text": "你这也太糙了吧！", "start": s2, "end": e2}]},
+        {"speaker": "猫爷爷", "lines": [
+            {"text": "不买昂贵补品，不研究复杂配方，主打一个身体需要什么就给什么。这叫——极简猫生哲学。", "start": s3, "end": e3}]},
+    ]}, ensure_ascii=False)
+    conn = ScriptedConnector([
+        extract,                              # extractor: omits line 2
+        _dlg_clip_reply(1, "小猫妹妹", "S1", "young female", "。"),
+        _dlg_clip_reply(2, "猫爷爷", "S2", "elderly male", "。"),
+        _dlg_clip_reply(3, "小猫妹妹", "S1", "young female", "。"),
+    ])
+    out = lg.H3LoopPromptEnhancer(conn)(
+        user_input=forced,
+        camera_discipline="auto - 自动(分镜自由构图)",
+        seed=1,
+    )
+    blob = json.dumps(json.loads(out["plan_json"]), ensure_ascii=False)
+    assert "优雅啥呀。喝大水，睡大觉，练薄肌。</d>" in blob  # restored verbatim
+    assert blob.count("<d>") == 4

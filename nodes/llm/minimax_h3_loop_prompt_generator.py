@@ -3253,6 +3253,14 @@ class H3LoopPromptEnhancer:
                 warnings.append(
                     "user_input empty: used the built-in default concept"
                 )
+        # Dialogue is parsed from the PRE-DIRECTIVE text: the camera
+        # directive carries English colons ("advice: the camera...") and
+        # the deterministic parser's mixed-content guard bails on ANY
+        # colon line after dialogue starts — so with locked/no_closeups
+        # appended, every canonical 角色：台词 board fell to the LLM
+        # extractor, whose line omissions then dropped real dialogue
+        # (2026-10-13 LAN live loss: 4 lines in, 3 out).
+        parse_concept = idea
         if camera_directive_text:
             idea = idea.rstrip("\n") + "\n" + camera_directive_text
         # Kinship survives a rewrite that drops 「是爸爸」. The raw draft
@@ -3447,10 +3455,10 @@ class H3LoopPromptEnhancer:
             #    concept as one beat; facts fall back to the regex
             #    extractors.
             turns, _structured_prologue = (
-                _dlg_parse_structured_dialogue_turns(idea)
+                _dlg_parse_structured_dialogue_turns(parse_concept)
             )
             if not turns:
-                voice_lines = _dlg_parse_voiceover_lines(idea)
+                voice_lines = _dlg_parse_voiceover_lines(parse_concept)
                 if voice_lines:
                     turns = [
                         _DLG_DialogueTurn(
@@ -3503,6 +3511,36 @@ class H3LoopPromptEnhancer:
                 turns, semantic_facts = self.extract_board_facts(idea)
                 if self._dialogue_extract_warnings:
                     warnings.extend(self._dialogue_extract_warnings)
+                # Union completion (2026-10-13 LAN live loss: the flash
+                # extractor OMITTED one canonical line and self-validated
+                # — nothing retried). The deterministic parser in LENIENT
+                # mode keeps collecting 角色：台词 lines even among prose;
+                # any spoken line it finds that the extractor's reply
+                # lacks is restored verbatim, span-ordered. Spans are in
+                # the pre-directive text = a strict prefix of idea, so
+                # they compare directly.
+                if turns:
+                    _det_turns, _det_pro = _dlg_parse_structured_dialogue_turns(
+                        parse_concept, lenient=True
+                    )
+                    if _det_turns:
+                        _have = {ln.strip() for t in turns for ln in t.lines}
+                        _add = [
+                            _DLG_DialogueTurn(
+                                speaker=t.speaker, lines=[ln],
+                                start=t.start, end=t.end,
+                            )
+                            for t in _det_turns
+                            for ln in t.lines
+                            if ln.strip() not in _have
+                        ]
+                        if _add:
+                            turns = sorted(turns + _add, key=lambda t: t.start)
+                            log_pipeline(
+                                "dialogue union: restored "
+                                f"{len(_add)} line(s) the LLM extractor "
+                                "omitted (deterministic parse, verbatim)"
+                            )
             pacing_obj = _DLG_PACING_PRESETS[pacing_key]
             if not turns:
                 # Genuine {"turns": []} is narration. Exhausted extract

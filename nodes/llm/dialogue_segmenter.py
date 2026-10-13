@@ -250,6 +250,18 @@ _NON_SPEAKER_PREFIXES = {
 }
 
 _STRUCTURED_LINE_RE = None  # compiled lazily below (module keeps no re dep)
+_SPEAKER_SUFFIX_RE = None
+
+
+def _speaker_suffix_re():
+    global _SPEAKER_SUFFIX_RE
+    if _SPEAKER_SUFFIX_RE is None:
+        import re as _re
+
+        _SPEAKER_SUFFIX_RE = _re.compile(
+            r"[（(][^（）()]{0,12}[）)]$"
+        )
+    return _SPEAKER_SUFFIX_RE
 
 
 def _structured_line_re():
@@ -265,6 +277,8 @@ def _structured_line_re():
 
 def parse_structured_dialogue_turns(
     concept: str,
+    *,
+    lenient: bool = False,
 ) -> tuple[Optional[list[DialogueTurn]], str]:
     """Deterministically parse a canonical ``speaker：line`` concept.
 
@@ -339,16 +353,21 @@ def parse_structured_dialogue_turns(
                 # speaker line (``镜头：`` / a mistyped name). Bail out
                 # so the LLM extractor can judge it. A colon-free line
                 # is a stage direction, not a new speaker; it stays in
-                # the concept for the stage-cue pass.
-                if "：" in stripped or ":" in stripped:
+                # the concept for the stage-cue pass. Lenient mode
+                # (union completion) keeps collecting instead.
+                if ("：" in stripped or ":" in stripped) and not lenient:
                     return None, ""
             else:
                 prologue_lines.append(stripped)
         offset = next_offset
-    if len(matches) < 2:
+    if len(matches) < 2 and not lenient:
         return None, ""
     turns: list[DialogueTurn] = []
     for start, end, speaker, text in matches:
+        # Strip parenthetical mood/role suffixes (小猫妹妹（嫌弃） ->
+        # 小猫妹妹): one character must map to ONE speaker tag, or the
+        # speaker-ID map splits her into two (S) voices.
+        speaker = _speaker_suffix_re().sub("", speaker).strip() or speaker
         if turns and turns[-1].speaker == speaker and start >= turns[-1].end:
             turns[-1].lines.append(text)
             turns[-1].end = end
