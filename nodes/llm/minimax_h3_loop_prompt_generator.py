@@ -1127,6 +1127,15 @@ def _normalize_turn_speakers(
 ) -> list:
     """One character = one speaker tag (2026-10-13 prompt(5) live bug).
 
+    STANDING USER RULING (2026-10-14, 统一把确定性归一作为保底):
+    deterministic normalization is the BASELINE GUARANTEE for every
+    structural field this chain consumes — speaker names, picture/
+    subject bindings (repair_label_pairings), dialogue spans (rebuild +
+    union), scene packing, camera discipline. Correctness NEVER requires
+    the 润色/enhance path; the enhancer may tidy, but the same
+    invariants hold with it off (the default). LLM judges, code
+    guarantees.
+
     The user's lines used verbal-attribution labels — 小猫妹妹哭着说 /
     小猫妹妹眨了眨眼说 / 小猫妹妹破涕为笑的说 — and each became its OWN
     speaker, splitting one character into (S1)/(S3)/(S4) voices with the

@@ -1519,3 +1519,46 @@ def test_verbal_attribution_speakers_collapse(lg):
     assert "哭着说" not in blob and "眨了眨眼" not in blob \
         and "破涕为笑" not in blob.split("Setting:")[-1].split("overall_soundscape")[0]
     assert "小猫妹妹哭着说 are" not in blob  # no mangled prose
+
+
+def test_normalize_turn_speakers_unit(lg):
+    """The standing ruling (2026-10-14): deterministic normalization is
+    the baseline — direct unit coverage of the choke point."""
+    T = lg._DLG_DialogueTurn
+    turns = [
+        T(speaker="小猫妹妹哭着说", lines=["a"], start=0, end=1),
+        T(speaker="猫爷爷", lines=["b"], start=2, end=3),
+        T(speaker="小猫妹妹眨了眨眼说", lines=["c"], start=4, end=5),
+    ]
+    out = lg._normalize_turn_speakers(turns, ["小猫妹妹", "猫爷爷"])
+    assert [t.speaker for t in out] == ["小猫妹妹", "猫爷爷", "小猫妹妹"]
+
+    # no roster: the manner-suffix table is the fallback
+    out2 = lg._normalize_turn_speakers(
+        [T(speaker="小猫妹妹破涕为笑的说", lines=["x"], start=0, end=1)], []
+    )
+    assert out2[0].speaker == "小猫妹妹"
+
+    # longest roster match wins when names nest
+    out3 = lg._normalize_turn_speakers(
+        [T(speaker="小猫妹妹哭着说", lines=["x"], start=0, end=1)],
+        ["小猫", "小猫妹妹"],
+    )
+    assert out3[0].speaker == "小猫妹妹"
+
+    # unknown speakers pass through untouched
+    out4 = lg._normalize_turn_speakers(
+        [T(speaker="神秘人", lines=["x"], start=0, end=1)], ["小猫妹妹"]
+    )
+    assert out4[0].speaker == "神秘人"
+
+    # consecutive same-speaker turns merge after rename (span-ordered)
+    out5 = lg._normalize_turn_speakers(
+        [
+            T(speaker="小猫妹妹哭着说", lines=["x"], start=0, end=1),
+            T(speaker="小猫妹妹笑着说", lines=["y"], start=1, end=2),
+        ],
+        ["小猫妹妹"],
+    )
+    assert len(out5) == 1 and out5[0].speaker == "小猫妹妹"
+    assert out5[0].lines == ["x", "y"]
