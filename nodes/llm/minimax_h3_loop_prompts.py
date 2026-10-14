@@ -863,6 +863,7 @@ def _identity_subject_slots(manifest: list[dict]) -> dict[int, int]:
 def repair_label_pairings(
     shot_lines: list[str],
     manifest: list[dict],
+    referenced_pictures: Optional[set] = None,
 ) -> tuple[list[str], int]:
     """Mechanical pairing repair BEFORE validate_label_policy.
 
@@ -944,6 +945,47 @@ def repair_label_pairings(
         if fixed != ln:
             lines[i] = fixed
             fixes += 1
+    # (d) CANONICAL BINDING GUARANTEE (2026-10-14 prompt(7)/(8) live):
+    # the model writes the Subject-Picture pairing in wildly variable
+    # forms — "<Picture 1> binds to <Subject 1>", "<Picture 1> is NAME:"
+    # — and sometimes OMITS it entirely from subject_definitions (prompt
+    # (8) scene_01 had no <Subject> token at all in the FIRST clip, the
+    # one that establishes the reference mapping). Per the deterministic
+    # baseline ruling, inject the canonical "<Subject k> -> <Picture m>:
+    # about" line whenever no DEFINITION-block line pairs the two tokens
+    # in any form. Pairings mentioned only in retention do NOT count —
+    # retention is a different section. Identities whose picture the
+    # concept never references stay untouched (the label policy already
+    # treats their Subjects as optional; injecting them would resurrect
+    # de-tokenized phantoms). Equivalent forms are left alone.
+    def _definition_block(lines):
+        try:
+            i0 = lines.index("subject_definitions:")
+        except ValueError:
+            return []
+        out = []
+        for ln in lines[i0 + 1:]:
+            if not ln.strip() or _re.match(r"^[a-z_]+:$", ln.strip()):
+                break
+            out.append(ln)
+        return out
+
+    for k, (pic_num, entry) in enumerate(identities, start=1):
+        if referenced_pictures is not None and pic_num not in referenced_pictures:
+            continue
+        subj_tok = f"<Subject {k}>"
+        pic_tok = f"<Picture {pic_num}>"
+        if any(subj_tok in ln and pic_tok in ln for ln in _definition_block(lines)):
+            continue
+        about = _reply_compact(str(entry.get("about") or "")
+                               ) or str(entry.get("name") or "identity reference")
+        bind_line = f"{subj_tok} -> {pic_tok}: {about}"
+        try:
+            i0 = lines.index("subject_definitions:")
+        except ValueError:
+            continue
+        lines.insert(i0 + 1, bind_line)
+        fixes += 1
     return lines, fixes
 
 

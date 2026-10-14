@@ -1419,3 +1419,49 @@ def test_repair_label_pairings_detokenizes_phantom_subjects(lp):
     assert "<Subject 1>" in body and "<Picture 3>:" in body    # valid tokens intact
     plan = {"shots": [{"prompt": fixed, "id": "scene_01"}], "prompt_prefix": []}
     assert lp.validate_label_policy(plan, "ref2va", manifest) == []
+
+
+def test_repair_injects_canonical_binding_when_absent(lp):
+    """2026-10-14 prompt(8) live: scene_01's subject_definitions carried
+    ONLY name-form lines ('<Picture 1> is 带珍珠耳环的咩: ...') — no
+    <Subject> token paired with the picture in ANY line of the clip that
+    establishes the reference mapping. The canonical binding line is now
+    injected whenever no line pairs the two tokens (in any form);
+    equivalent forms are left untouched."""
+    manifest = [
+        {"slot": "Picture 1", "about": "A pearl-earring lamb.", "role": "identity"},
+        {"slot": "Picture 2", "about": "A beanie lamb.", "role": "identity"},
+        {"slot": "Picture 3", "about": "A stall.", "role": "environment"},
+    ]
+    # prompt(8)-style: name-form only, NO <Subject> anywhere
+    shot = [
+        "subject_definitions:",
+        "<Picture 1> is 带珍珠耳环的咩: A pearl-earring lamb.",
+        "<Picture 2> is 帽子咩: A beanie lamb.",
+        "<Picture 3> is the environment: A stall.",
+        "",
+        "retention_analysis:",
+        "<Subject 1> bound to <Picture 1>: fully_preserved - face.",
+    ]
+    fixed, n = lp.repair_label_pairings(shot, manifest)
+    body = "\n".join(fixed)
+    assert "<Subject 1> -> <Picture 1>: A pearl-earring lamb." in body
+    assert "<Subject 2> -> <Picture 2>: A beanie lamb." in body
+    # referencing gate: an identity whose picture the concept never
+    # references is NOT force-injected (phantom resurrection guard)
+    fixed_r = lp.repair_label_pairings(shot, manifest, referenced_pictures={1})
+    body_r = "\n".join(fixed_r[0])
+    assert "<Subject 1> -> <Picture 1>" in body_r
+    assert "<Subject 2> -> <Picture 2>" not in body_r
+    # prompt(7)-style equivalent ("<Picture 1> binds to <Subject 1>") is
+    # left untouched — the mapping already exists in a paired line
+    shot2 = [
+        "subject_definitions:",
+        "<Picture 1> binds to <Subject 1>: A pearl-earring lamb.",
+        "<Picture 2> binds to <Subject 2>: A beanie lamb.",
+        "<Picture 3>: A stall.",
+    ]
+    fixed2, _ = lp.repair_label_pairings(shot2, manifest)
+    body2 = "\n".join(fixed2)
+    assert "binds to" in body2
+    assert body2.count("<Subject 1>") == 1  # no duplicate injected

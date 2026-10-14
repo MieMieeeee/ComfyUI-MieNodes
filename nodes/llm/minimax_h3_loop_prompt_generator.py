@@ -4341,7 +4341,10 @@ class H3LoopPromptEnhancer:
             _label_fixes = 0
             for _shot in plan["shots"]:
                 _lines = _shot.get("prompt") or []
-                _fixed, _n = _lp_repair_label_pairings(_lines, manifest or [])
+                _fixed, _n = _lp_repair_label_pairings(
+                    _lines, manifest or [],
+                    referenced_pictures=concept_referenced_pics,
+                )
                 if _n:
                     _shot["prompt"] = _fixed
                     _label_fixes += _n
