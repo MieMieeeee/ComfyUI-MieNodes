@@ -1479,3 +1479,43 @@ def test_union_restores_line_the_extractor_omitted(lg):
     blob = json.dumps(json.loads(out["plan_json"]), ensure_ascii=False)
     assert "优雅啥呀。喝大水，睡大觉，练薄肌。</d>" in blob  # restored verbatim
     assert blob.count("<d>") == 4
+
+
+_VATTR_CONCEPT = (
+    "小猫妹妹和猫爷爷在客厅说话。\n"
+    "小猫妹妹哭着说：爷爷……我又把花瓶打碎了……妈妈又骂我了……全世界都在指责我……\n"
+    "猫爷爷：如果全世界都指责你，我就带你去吃刘文祥。\n"
+    "小猫妹妹眨了眨眼说： 刘文祥是啥？\n"
+    "猫爷爷： 一家麻辣烫。\n"
+    "小猫妹妹破涕为笑的说： 刘文祥，你懂我！"
+)
+
+
+def test_verbal_attribution_speakers_collapse(lg):
+    """2026-10-13 prompt(5) live bug: 小猫妹妹哭着说 / 眨了眨眼说 /
+    破涕为笑的说 each became its OWN speaker — one character split into
+    (S1)/(S3)/(S4) voices, the mangled name leaking into the identity
+    pin, the summary and the shot-coverage prose. All 5 lines verbatim,
+    ONE speaker tag for 小猫妹妹, no mood phrase anywhere."""
+    conn = ScriptedConnector([
+        _clip_reply(1),
+        _clip_reply(2),
+        _clip_reply(3),
+        _clip_reply(4),
+        _clip_reply(5),
+        _clip_reply(6),
+    ])
+    out = lg.H3LoopPromptEnhancer(conn)(
+        user_input=_VATTR_CONCEPT,
+        camera_discipline="locked - 固定机位(构图全场不变)",
+        seed=1,
+    )
+    blob = json.dumps(json.loads(out["plan_json"]), ensure_ascii=False)
+    for tail in ("全世界都在指责我……</d>", "带你去吃刘文祥。</d>",
+                 "刘文祥是啥？</d>", "一家麻辣烫。</d>", "刘文祥，你懂我！</d>"):
+        assert tail in blob, tail
+    assert blob.count("<d>") == 5
+    assert "(S3)" not in blob and "(S4)" not in blob  # ONE tag per character
+    assert "哭着说" not in blob and "眨了眨眼" not in blob \
+        and "破涕为笑" not in blob.split("Setting:")[-1].split("overall_soundscape")[0]
+    assert "小猫妹妹哭着说 are" not in blob  # no mangled prose

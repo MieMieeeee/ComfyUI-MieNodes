@@ -212,6 +212,7 @@ try:
         min_total_seconds_for_scene_count as _dlg_min_total_seconds_for_scene_count,
         parse_structured_dialogue_turns as _dlg_parse_structured_dialogue_turns,
         parse_voiceover_lines as _dlg_parse_voiceover_lines,
+        normalize_speaker_token as _dlg_normalize_speaker_token,
         MAX_SPOKEN_LINES_PER_SCENE as _DLG_MAX_SPOKEN_LINES,
         scene_raw_seconds as _dlg_scene_raw_seconds,
         group_budgets_into_scenes as _dlg_group_budgets_into_scenes,
@@ -315,6 +316,7 @@ except ImportError:
         min_total_seconds_for_scene_count as _dlg_min_total_seconds_for_scene_count,
         parse_structured_dialogue_turns as _dlg_parse_structured_dialogue_turns,
         parse_voiceover_lines as _dlg_parse_voiceover_lines,
+        normalize_speaker_token as _dlg_normalize_speaker_token,
         MAX_SPOKEN_LINES_PER_SCENE as _DLG_MAX_SPOKEN_LINES,
         scene_raw_seconds as _dlg_scene_raw_seconds,
         group_budgets_into_scenes as _dlg_group_budgets_into_scenes,
@@ -1117,6 +1119,62 @@ def _default_concept() -> str:
         "one hero prop, and a simple emotional arc told in a continuous "
         "chain of moments."
     )
+
+
+def _normalize_turn_speakers(
+    turns: list,
+    roster_names: list,
+) -> list:
+    """One character = one speaker tag (2026-10-13 prompt(5) live bug).
+
+    The user's lines used verbal-attribution labels — 小猫妹妹哭着说 /
+    小猫妹妹眨了眨眼说 / 小猫妹妹破涕为笑的说 — and each became its OWN
+    speaker, splitting one character into (S1)/(S3)/(S4) voices with the
+    mangled name leaking into the identity pin, the summary and the shot
+    coverage prose. Normalization, in priority order:
+      1. ROSTER-anchored rename (ground truth from the asset library):
+         a speaker token CONTAINING a wired character's name becomes
+         that name — longest match wins; covers any manner phrase.
+      2. The segmenter's manner-suffix strip (哭着说 / 说道 / ... list).
+    Consecutive same-speaker turns merge afterwards (invariant 3)."""
+    names = sorted(
+        {str(x).strip() for x in roster_names if str(x or "").strip()},
+        key=len,
+        reverse=True,
+    )
+    renames: list[str] = []
+    out: list = []
+    for t in turns:
+        speaker = str(t.speaker or "").strip()
+        new = speaker
+        for name in names:
+            if name in speaker:
+                new = name
+                break
+        if new == speaker and speaker:
+            new = _dlg_normalize_speaker_token(speaker) or speaker
+        if new != speaker:
+            renames.append(f"{speaker!r} -> {new!r}")
+        if (
+            out
+            and out[-1].speaker == new
+            and t.lines
+            and t.start >= out[-1].end
+        ):
+            out[-1].lines.extend(t.lines)
+            out[-1].end = max(out[-1].end, t.end)
+            continue
+        out.append(
+            _DLG_DialogueTurn(
+                speaker=new, lines=list(t.lines),
+                start=t.start, end=t.end,
+            )
+        )
+    if renames:
+        log_pipeline(
+            "speaker normalization: " + ", ".join(renames[:6])
+        )
+    return out
 
 
 def _build_shots_from_turns(
@@ -3549,6 +3607,12 @@ class H3LoopPromptEnhancer:
             is_narrator_fallback = (
                 len(turns) == 1 and turns[0].speaker == "(narrator)"
             )
+            if turns and not is_narrator_fallback:
+                turns = _normalize_turn_speakers(
+                    turns,
+                    [e["name"] for e in roster_entries
+                     if e.get("kind") == "character"],
+                )
             # Dialogue board + category "none": the spoken-scene
             # cinematography contract (shot/reverse-shot, no subtitles)
             # is what the user expects once lines are extracted — the

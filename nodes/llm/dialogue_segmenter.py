@@ -264,6 +264,46 @@ def _speaker_suffix_re():
     return _SPEAKER_SUFFIX_RE
 
 
+_VERBAL_ATTRIBUTION_RE = None
+
+
+def _verbal_attribution_re():
+    """``小猫妹妹哭着说`` / ``眨了眨眼说`` / ``破涕为笑的说`` — the
+    Chinese verbal-attribution speaker label. Strips a trailing
+    MANNER-BEARING suffix (a free ``说`` alone is ambiguous with real
+    names, so it is deliberately not in the list). Fully-anchored
+    explicit suffixes only — the roster-anchored rename in the
+    generator is the primary normalizer when assets are wired."""
+    global _VERBAL_ATTRIBUTION_RE
+    if _VERBAL_ATTRIBUTION_RE is None:
+        import re as _re
+
+        _VERBAL_ATTRIBUTION_RE = _re.compile(
+            r"(?:哭着说|笑着说|说着|破涕为笑的?说|破涕为笑地?说|眨了眨眼说|"
+            r"叹了口气说|叹了口气道|摇摇头说|摇摇头道|低声说|轻声说|大声说|"
+            r"小声说|急忙说|连忙说|好奇地问|好奇地问道|惊讶地问|惊讶地问道|"
+            r"无奈地说|得意地说|生气地说|喃喃说|自言自语说|说道|问道|答道|"
+            r"喊道|叫道|回应道|感叹道|追问|反问)$"
+        )
+    return _VERBAL_ATTRIBUTION_RE
+
+
+def normalize_speaker_token(token: str) -> str:
+    """Canonicalize a speaker label: strip a trailing parenthetical mood
+    (小猫妹妹（嫌弃）) and a trailing verbal attribution (小猫妹妹哭着说
+    -> 小猫妹妹). One character must map to ONE speaker tag."""
+    text = str(token or "").strip()
+    if not text:
+        return text
+    stripped = _speaker_suffix_re().sub("", text).strip()
+    if stripped and stripped != text:
+        text = stripped
+    stripped = _verbal_attribution_re().sub("", text).strip()
+    if stripped and stripped != text:
+        text = stripped
+    return text or token
+
+
 def _structured_line_re():
     global _STRUCTURED_LINE_RE
     if _STRUCTURED_LINE_RE is None:
@@ -364,10 +404,11 @@ def parse_structured_dialogue_turns(
         return None, ""
     turns: list[DialogueTurn] = []
     for start, end, speaker, text in matches:
-        # Strip parenthetical mood/role suffixes (小猫妹妹（嫌弃） ->
-        # 小猫妹妹): one character must map to ONE speaker tag, or the
-        # speaker-ID map splits her into two (S) voices.
-        speaker = _speaker_suffix_re().sub("", speaker).strip() or speaker
+        # Strip parenthetical moods AND verbal attributions
+        # (小猫妹妹（嫌弃）/ 小猫妹妹哭着说 -> 小猫妹妹): one character
+        # must map to ONE speaker tag, or the speaker-ID map splits her
+        # into multiple (S) voices.
+        speaker = normalize_speaker_token(speaker)
         if turns and turns[-1].speaker == speaker and start >= turns[-1].end:
             turns[-1].lines.append(text)
             turns[-1].end = end
