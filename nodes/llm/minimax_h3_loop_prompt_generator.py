@@ -1124,6 +1124,7 @@ def _default_concept() -> str:
 def _normalize_turn_speakers(
     turns: list,
     roster_names: list,
+    roster_entries: list = None,
 ) -> list:
     """One character = one speaker tag (2026-10-13 prompt(5) live bug).
 
@@ -1140,26 +1141,47 @@ def _normalize_turn_speakers(
     小猫妹妹眨了眨眼说 / 小猫妹妹破涕为笑的说 — and each became its OWN
     speaker, splitting one character into (S1)/(S3)/(S4) voices with the
     mangled name leaking into the identity pin, the summary and the shot
-    coverage prose. Normalization, in priority order:
-      1. ROSTER-anchored rename (ground truth from the asset library):
-         a speaker token CONTAINING a wired character's name becomes
-         that name — longest match wins; covers any manner phrase.
+    coverage prose (prompt(5)); and positional labels — 图1中的人物 /
+    图2中的人物 — which never matched the roster names (黑白/银白), so
+    the authored VOICE descriptors never applied and the audio drifted
+    (prompt(6) 音色串了). Normalization, in priority order:
+      0. POSITIONAL resolution (图N中的人物): the label names picture
+         slot N — rename to the CHARACTER wired at that roster slot.
+         Deterministic, grounded in the authored roster order.
+      1. ROSTER-anchored rename: a speaker token CONTAINING a wired
+         character's name becomes that name — longest match wins;
+         covers any manner phrase.
       2. The segmenter's manner-suffix strip (哭着说 / 说道 / ... list).
     Consecutive same-speaker turns merge afterwards (invariant 3)."""
+    import re as _re
+
+    slot_character: dict = {}
+    if roster_entries:
+        for e in roster_entries:
+            if str(e.get("kind") or "") != "character":
+                continue
+            m = _re.search(r"\d+", str(e.get("slot") or ""))
+            if m:
+                slot_character[int(m.group())] = str(e.get("name") or "")
     names = sorted(
         {str(x).strip() for x in roster_names if str(x or "").strip()},
         key=len,
         reverse=True,
     )
+    positional_re = _re.compile(r"^(?:图|圖|图片|圖片|Picture|picture)\s*(\d+)")
     renames: list[str] = []
     out: list = []
     for t in turns:
         speaker = str(t.speaker or "").strip()
         new = speaker
-        for name in names:
-            if name in speaker:
-                new = name
-                break
+        pm = positional_re.match(speaker)
+        if pm and int(pm.group(1)) in slot_character:
+            new = slot_character[int(pm.group(1))]
+        if new == speaker:
+            for name in names:
+                if name in speaker:
+                    new = name
+                    break
         if new == speaker and speaker:
             new = _dlg_normalize_speaker_token(speaker) or speaker
         if new != speaker:
@@ -3487,7 +3509,16 @@ class H3LoopPromptEnhancer:
         # pictures), and the label policy (Subjects bound to unused
         # pictures are optional — see validate_label_policy). Empty set
         # (concept names no pictures) keeps the strict all-slots rules.
+        # 2026-10-14 (prompt(6) live bug: 背景没用上): ENVIRONMENT slots
+        # are EXEMPT from the narrowing — a concept naming 图1/图2 via
+        # positional speakers must never stop teaching the destination
+        # scene; without it ref2va ignores the third reference picture
+        # and the background never materializes.
         concept_referenced_pics = _referenced_picture_numbers(idea) or None
+        if concept_referenced_pics and roster_scene_slot_set:
+            concept_referenced_pics = (
+                set(concept_referenced_pics) | set(roster_scene_slot_set)
+            )
 
         # ---- Stage 0.5: auto storyboard ------------------------------ #
         # Semantic facts (LLM-harvested layout / bindings; empty when
@@ -3621,6 +3652,7 @@ class H3LoopPromptEnhancer:
                     turns,
                     [e["name"] for e in roster_entries
                      if e.get("kind") == "character"],
+                    roster_entries=roster_entries,
                 )
             # Dialogue board + category "none": the spoken-scene
             # cinematography contract (shot/reverse-shot, no subtitles)

@@ -247,3 +247,18 @@ def test_unified_auto_kind_branches(tmp_library):
     assert out[5]["kind"] == "character"
     assert "drafted description and voice" in out[4]
     assert (tmp_library / "characters" / "女孩" / "character.json").exists()
+
+
+def test_clean_trims_at_sentence_boundary():
+    """2026-10-14 live: 黑白/银白's saved descriptions were truncated
+    mid-word at exactly 800 chars ('multi-pane windo'). The captioner's
+    _clean now trims to the last sentence end inside the cap."""
+    from nodes.llm.asset_auto_describe import _clean
+    long = ("A young woman with twin tails and a maid dress. "
+            "She sits centered on a pale classroom desk in a sunlit "
+            "room with a bright multi-pane window. " * 12)
+    out = _clean(long, 300)
+    assert len(out) <= 301
+    assert out.endswith(".") and not out.endswith("windo")
+    # under the cap: untouched
+    assert _clean("short text", 300) == "short text"

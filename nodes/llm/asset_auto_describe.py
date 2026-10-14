@@ -90,7 +90,17 @@ def _messages(system, user_text, image_urls=None):
 
 def _clean(text, limit):
     body = " ".join(str(text or "").split())
-    return body[:limit]
+    if len(body) <= limit:
+        return body
+    # Never ship a mid-word stump (2026-10-14 live: 黑白/银白's saved
+    # descriptions end "multi-pane windo" / "out-of-focus circul" — an
+    # 800-char hard cut). Trim to the last sentence end inside the cap;
+    # fall back to the last space.
+    window = body[:limit]
+    cut = max(window.rfind(". "), window.rfind(".\u2026"), window.rfind("。"))
+    if cut < int(limit * 0.5):
+        cut = window.rfind(" ")
+    return (window[:cut + 1] if cut >= 0 else window).rstrip()
 
 
 def _reply_text(reply):
@@ -140,7 +150,10 @@ def draft_description(connector, tensor, kind, hint=""):
         )
     reply = _reply_text(connector.invoke(_messages(system, user_text, urls),
                                          max_tokens=16384))
-    description = _clean(reply, 800)
+    # 800 -> 2000: the captioner's 60-100-word contract is ~500-700
+    # chars, but detailed wardrobe runs longer; a hard 800 cut shipped
+    # truncated stumps into the library (see _clean).
+    description = _clean(reply, 2000)
     if not description:
         raise RuntimeError("the LLM returned an empty description draft")
     return description

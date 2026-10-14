@@ -1562,3 +1562,33 @@ def test_normalize_turn_speakers_unit(lg):
     )
     assert len(out5) == 1 and out5[0].speaker == "小猫妹妹"
     assert out5[0].lines == ["x", "y"]
+
+
+def test_positional_speaker_labels_resolve_to_roster(lg):
+    """2026-10-14 prompt(6) live bug: speakers 图1中的人物/图2中的人物
+    never matched the roster names (黑白/银白) — the authored VOICE
+    descriptors never applied (音色串了). Positional labels resolve to
+    the CHARACTER wired at that roster slot."""
+    T = lg._DLG_DialogueTurn
+    entries = [
+        {"name": "黑白", "kind": "character", "slot": "Picture 1"},
+        {"name": "银白", "kind": "character", "slot": "Picture 2"},
+        {"name": "咖啡馆-真实", "kind": "scene", "slot": "Picture 3"},
+    ]
+    turns = [
+        T(speaker="图1中的人物", lines=["a"], start=0, end=1),
+        T(speaker="图2中的人物", lines=["b"], start=2, end=3),
+    ]
+    out = lg._normalize_turn_speakers(
+        turns, [e["name"] for e in entries if e["kind"] == "character"],
+        roster_entries=entries,
+    )
+    assert [t.speaker for t in out] == ["黑白", "银白"]
+
+    # a positional label pointing at the ENVIRONMENT slot is not a
+    # character rename — falls through untouched (no crash, no bogus map)
+    out2 = lg._normalize_turn_speakers(
+        [T(speaker="图3中的人物", lines=["x"], start=0, end=1)],
+        ["黑白", "银白"], roster_entries=entries,
+    )
+    assert out2[0].speaker == "图3中的人物"
