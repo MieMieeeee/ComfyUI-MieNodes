@@ -148,6 +148,7 @@ try:
         install_shot_speech,
         assign_stage_cues,
         extract_spatial_layout,
+        complete_layout_from_turn_order,
         scrub_dialogue_from_prompt_text,
         validate_spatial_layout_invariant,
         build_speaker_id_map,
@@ -253,6 +254,7 @@ except ImportError:
         install_shot_speech,
         assign_stage_cues,
         extract_spatial_layout,
+        complete_layout_from_turn_order,
         scrub_dialogue_from_prompt_text,
         validate_spatial_layout_invariant,
         build_speaker_id_map,
@@ -4174,15 +4176,29 @@ class H3LoopPromptEnhancer:
         # Layout is a SEMANTIC fact: the LLM extractor's harvested
         # layout is primary (it understands relative positions like
         # "黑猫在小猫旁边" that regex cannot); the regex extractor is the
-        # fallback when the facts came back empty. The result is
-        # injected into every per-shot user template via
-        # build_spatial_layout_directive; the prefix pin rides the
-        # prefix-synth rule (roster names, no POV pin).
+        # fallback when the facts came back empty. The third tier is
+        # the deterministic turn-order default — when BOTH extractors
+        # return nothing (2026-10-15 live: a MiniMax-M3 facts reply
+        # carried neither layout nor bindings), the scenes used to
+        # ship with no spatial pin at all. The result is injected into
+        # every per-shot user template via build_spatial_layout_directive;
+        # the prefix pin rides the prefix-synth rule (roster names, no
+        # POV pin).
+        speaker_id_map = build_speaker_id_map(shots)
         spatial_layout = dict(semantic_facts.get("layout") or {})
         layout_source = "llm facts"
         if not spatial_layout:
             spatial_layout = extract_spatial_layout(idea)
             layout_source = "regex fallback"
+        completed = complete_layout_from_turn_order(
+            list(speaker_id_map), spatial_layout
+        )
+        if completed != spatial_layout and completed:
+            layout_source = (
+                "turn-order default" if not spatial_layout
+                else layout_source + " + turn-order completion"
+            )
+            spatial_layout = completed
         if spatial_layout:
             log_pipeline(
                 f"spatial layout ({layout_source}): "
@@ -4199,8 +4215,8 @@ class H3LoopPromptEnhancer:
         # ---- Stage 2: per-clip or single_call ------------------------- #
         # Deterministic speaker-ID map (official H3 rule: a speaker keeps
         # the same (S<n>) across shots). Derived from the storyboard turn
-        # order so every per-shot LLM call sees the identical assignment.
-        speaker_id_map = build_speaker_id_map(shots)
+        # order so every per-shot LLM call sees the identical assignment
+        # (built in Stage 1.5 so the layout default can reuse it).
         if speaker_id_map:
             log_pipeline(
                 "speaker ID map: "

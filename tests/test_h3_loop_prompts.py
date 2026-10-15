@@ -1345,3 +1345,31 @@ def test_all_speaking_scene_summary_wording_unchanged(lp):
     )
     text = "\n".join(out)
     assert "[reference generation] 黑白, 银白 are visible and speaking." in text
+
+
+def test_complete_layout_from_turn_order(lp):
+    """2026-10-15 combo matrix on MiniMax-M3: most facts replies carried
+    no layout (or a partial one) and the scenes shipped without spatial
+    pins. The completion keeps returned anchors verbatim and fills the
+    missing on-screen speakers by first-appearance turn order from the
+    unused canonical slots; narrators are never pinned."""
+    assert lp.complete_layout_from_turn_order(["小猫妹妹", "帽子咩"]) == {
+        "小猫妹妹": "left of frame", "帽子咩": "right of frame",
+    }
+    # partial layout: 帽子咩 keeps her returned anchor, the missing
+    # speaker takes the first free slot
+    assert lp.complete_layout_from_turn_order(
+        ["带珍珠耳环的咩", "帽子咩"], {"帽子咩": "right of frame"}
+    ) == {"帽子咩": "right of frame", "带珍珠耳环的咩": "left of frame"}
+    # three speakers, one anchored
+    assert lp.complete_layout_from_turn_order(
+        ["甲", "乙", "丙"], {"丙": "right of frame"}
+    ) == {
+        "丙": "right of frame", "甲": "left of frame", "乙": "center of frame",
+    }
+    # narrator never pinned; lone speaker still gets a deterministic slot
+    assert lp.complete_layout_from_turn_order(["旁白"]) == {}
+    assert lp.complete_layout_from_turn_order(
+        ["小猫妹妹"], {"帽子咩": "right of frame"}
+    ) == {"帽子咩": "right of frame", "小猫妹妹": "left of frame"}
+    assert lp.complete_layout_from_turn_order([]) == {}

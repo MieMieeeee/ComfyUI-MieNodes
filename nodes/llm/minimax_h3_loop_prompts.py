@@ -3412,7 +3412,8 @@ def replace_description_body(
 CHAIN_OVERLAP_HEAD_SEC = 39 / 24
 
 _POSE_LOCK_NOTE = (
-    " Face identity, fur, wardrobe, and scale stay locked. "
+    " Face identity, fur or hair as the subject actually has, wardrobe, "
+    "and scale stay locked. "
     "The reference picture's front-facing head angle and eye direction "
     "are not preserved."
 )
@@ -4380,6 +4381,39 @@ def format_speaker_id_map_text(id_map: dict) -> str:
     return ", ".join(
         f"{name}=({sid})" for name, sid in (id_map or {}).items()
     )
+
+
+def complete_layout_from_turn_order(speaker_names: list, existing=None) -> dict:
+    """Deterministic spatial-layout completion (2026-10-14 ruling: every
+    structural field ships a code-side normalizer — correctness never
+    waits on an LLM).
+
+    2026-10-15 combo matrix on MiniMax-M3: most facts replies carried
+    NO layout (or a partial one), and the scenes silently shipped
+    without spatial pins — cross-clip continuity died with them. This
+    helper keeps every anchor the extractors DID return and fills the
+    missing on-screen speakers by first-appearance turn order, taking
+    the first unused slot from left / right / center of frame. The
+    absolute side is arbitrary; being pinned CONSISTENTLY in every
+    scene is the continuity contract. Off-screen narrators are never
+    pinned.
+    """
+    names = [
+        n for n in (str(s).strip() for s in speaker_names or [])
+        if n and n not in ("旁白", "(narrator)")
+    ]
+    layout = {k: v for k, v in dict(existing or {}).items()}
+    free = [
+        p for p in ("left of frame", "right of frame", "center of frame")
+        if p not in layout.values()
+    ]
+    for name in names:
+        if name in layout:
+            continue
+        if not free:
+            break  # three canonical slots exhausted; rest stay unpinned
+        layout[name] = free.pop(0)
+    return layout
 
 
 def repair_speaker_ids(
