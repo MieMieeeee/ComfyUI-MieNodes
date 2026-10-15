@@ -92,3 +92,12 @@ non_diegetic_music:
   `<Subject 2> (S1), adult female, light mid-range pitch, soft rounded
   timbre, says ...`. Wrong or missing IDs are repaired / rejected
   mechanically.
+- Spoken delivery contract (strict): EVERY `<d>` block in this clip is
+  spoken COMPLETELY and VERBATIM, in the listed order, nothing added.
+  A short first line must land in full — mouth open, words articulated
+  — BEFORE the next line begins; never skip, merge, absorb, mumble, or
+  truncate a line, however short it is next to its neighbour
+  (2026-10-15 live ASR: in 3 of 4 two-line clips the shorter FIRST
+  line was swallowed — '不怕亏钱吗' rendered as a bare '吗'). The
+  clip's frame budget already covers every line at real-time pace;
+  there is room, do not compress the first line away.

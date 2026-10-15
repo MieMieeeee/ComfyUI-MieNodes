@@ -176,6 +176,24 @@ def test_auto_cut_names_the_unsplittable_line(gen):
     assert "longest single line" in notes[0]
 
 
+def test_two_line_packing_appends_reroll_hint(gen):
+    """2026-10-15 live ASR forensics: H3 swallowed the shorter FIRST
+    line in 3 of 4 two-line clips (raw generated audio, prompts
+    verbatim-correct). More lines than scenes = at least one two-line
+    scene, so the re-roll recipe rides along after the cut note."""
+    notes = _advice(gen, scene_count=0, total=0, scenes=4)
+    assert len(notes) >= 2
+    assert "re-roll" in notes[1]
+    assert "scene_range" in notes[1]
+
+
+def test_one_line_per_scene_has_no_reroll_hint(gen):
+    """A board whose scenes each hold one line is not the risk class;
+    the hint stays quiet."""
+    notes = _advice(gen, scene_count=0, total=0, scenes=7)
+    assert all("re-roll" not in n for n in notes)
+
+
 def test_auto_cut_skipped_when_alternative_equals_delivered(gen):
     """Suggesting scene_count=3 beside a delivered 3-scene board is the
     exact noise this rule exists to prevent."""

@@ -1500,6 +1500,22 @@ def _cut_budget_advice(
         # same whole-second total (rounded up, never floored).
         return _dlg_min_total_seconds_for_scene_count(fine, count)
 
+    def _two_line_hint(scene_count: int) -> list[str]:
+        # 2026-10-15 live ASR forensics: in 3 of 4 two-line clips H3
+        # swallowed the SHORTER FIRST line (raw generated audio; the
+        # prompts were verbatim-correct). Pigeonhole: more lines than
+        # scenes means at least one scene packs two lines. Render-level
+        # flake, so the advice is a re-roll recipe, not a plan change.
+        if line_total <= scene_count:
+            return []
+        return [
+            "Two-line scenes: H3 occasionally swallows the shorter "
+            "FIRST line of a scene (2026-10-15 live: 3 of 4 two-line "
+            "clips). If a render drops a line, re-roll just that scene "
+            "— change its seed in the plan JSON and set Loop Start "
+            "scene_range to that scene number."
+        ]
+
     if user_scene_count > 0 and explicit_total > 0:
         # Explicit cut already honoured; the ONLY thing worth saying is
         # whether the speech fits. `even_time_split` gives every scene an
@@ -1532,7 +1548,7 @@ def _cut_budget_advice(
             f"{longest:.1f}s and cannot be split, so it will be truncated. "
             f"Raise total_duration_seconds to about {need_total} (or lower "
             f"scene_count) so every line finishes."
-        ]
+        ] + _two_line_hint(eff)
 
     # Auto cut: suggest a concrete alternative only when it is genuinely
     # different from what minimal-cut packing produced.
@@ -1550,7 +1566,7 @@ def _cut_budget_advice(
             f"scene_count={candidate} with total_duration_seconds≈"
             f"{int(need)} ({need / candidate:.1f}s per scene; the longest "
             f"single line needs {longest:.1f}s and cannot be split)."
-        ]
+        ] + _two_line_hint(delivered_scenes)
     return []
 
 
