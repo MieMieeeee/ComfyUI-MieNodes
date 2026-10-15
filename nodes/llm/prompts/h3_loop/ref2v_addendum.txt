@@ -15,6 +15,10 @@ non_diegetic_music:
   for H3 stability). Dialogue policy is independent and follows the
   user's own lines verbatim — English lines stay English, Chinese
   lines stay Chinese; NEVER translate speech in either direction.
+  NEVER copy a user-prose line verbatim into a section (2026-10-15
+  live: a Chinese "Setting: 黑白和银白在说话。" line rode through all
+  four clips) — rewrite scene-setting facts as fluent prose in the
+  output language; only the <d> dialogue itself is quoted verbatim.
 - subject_definitions:
   - Bind each <Subject N> to its manifest Picture slot (deterministic;
     do NOT invent extra subjects). Identity-role slots bind to <Subject>;
@@ -34,13 +38,23 @@ non_diegetic_music:
   - One sentence: who is visible and who is speaking. Do NOT quote or
     paraphrase any spoken line.
 - retention_analysis:
-  - Identity slots -> `fully_preserved - ...` (preserve face identity,
-    hair or fur as the subject actually has, wardrobe, and scale — never
-    "fur" on a human subject. Do NOT preserve a front-facing portrait's
-    head angle or eye direction).
-  - Non-identity slots -> `reference - ...` (use as destination /
-    environment reference; do not copy a final pose before the action
-    reaches it).
+  - Identity slots -> `fully_preserved - ...`: ONE line per identity
+    slot, listing only what the slot description states — face identity,
+    hair or fur as the subject ACTUALLY has (never "fur" on a human
+    subject), wardrobe, scale. Do NOT preserve a front-facing portrait's
+    head angle or eye direction. Never write a `<Picture N>` retention
+    line for an identity slot — the Subject line already carries it
+    (2026-10-15 prompt(10) live: `<Picture 1>: fully_preserved —
+    identity anchor ...` duplicates and `<Picture 1>: reference —
+    environmental anchor ...` lines appeared under a characters-only
+    roster).
+  - Non-identity (destination / environment) slots -> `reference - ...`
+    (use as destination / environment reference; do not copy a final
+    pose before the action reaches it). When the manifest has NO
+    environment slot, the setting comes from the scene prose ONLY —
+    never mine a character portrait's background (its classroom window,
+    waterfront, studio wall) as the environment; an identity picture is
+    an identity reference, nothing more.
   - Every <Picture> / <Subject> label used in this scene MUST appear
     here.
 - detailed_description:
