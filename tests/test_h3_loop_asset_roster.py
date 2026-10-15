@@ -1465,3 +1465,66 @@ def test_repair_injects_canonical_binding_when_absent(lp):
     body2 = "\n".join(fixed2)
     assert "binds to" in body2
     assert body2.count("<Subject 1>") == 1  # no duplicate injected
+
+
+def test_repair_no_duplicate_when_blank_separates_entries(lp):
+    """2026-10-15 prompt(9) live: the model separated its definition
+    entries with blank lines and put the Subject-2 pairing two rows
+    below the first blank — the old blank-break scan never reached it
+    and the canonical injection DUPLICATED a pairing the model had
+    already written. Blank lines inside the block no longer end the
+    scan; only the next section header does."""
+    manifest = [
+        {"slot": "Picture 1", "about": "A maid.", "role": "identity"},
+        {"slot": "Picture 2", "about": "A silver-haired woman.", "role": "identity"},
+        {"slot": "Picture 3", "about": "A café.", "role": "environment"},
+    ]
+    shot = [
+        "subject_definitions:",
+        "<Picture 1> binds to <Subject 1>: A maid.",
+        "",
+        "<Picture 2> binds to <Subject 2>: A silver-haired woman.",
+        "",
+        "<Picture 3>: A café.",
+        "",
+        "summary:",
+        "[reference generation] 黑白, 银白 are visible and speaking.",
+    ]
+    fixed, n = lp.repair_label_pairings(shot, manifest)
+    body = "\n".join(fixed)
+    assert body.count("<Subject 2>") == 1   # model's line, no duplicate
+    assert "-> <Picture" not in body        # no canonical injection fired
+    plan = {"shots": [{"prompt": fixed, "id": "scene_01"}], "prompt_prefix": []}
+    assert lp.validate_label_policy(plan, "ref2va", manifest) == []
+
+
+def test_repair_injects_at_block_end_across_blanks(lp):
+    """When the pairing really is missing, the canonical line lands at
+    the END of the definition block (below the model's entries), and
+    blank separators inside the block are spanned both for the check
+    and for the insertion point."""
+    manifest = [
+        {"slot": "Picture 1", "about": "A maid.", "role": "identity"},
+        {"slot": "Picture 2", "about": "A silver-haired woman.", "role": "identity"},
+        {"slot": "Picture 3", "about": "A café.", "role": "environment"},
+    ]
+    shot = [
+        "subject_definitions:",
+        "<Picture 1> binds to <Subject 1>: A maid.",
+        "",
+        "<Picture 2> is 银白: A silver-haired woman.",
+        "",
+        "<Picture 3>: A café.",
+        "",
+        "summary:",
+        "[reference generation] 黑白, 银白 are visible and speaking.",
+    ]
+    fixed, n = lp.repair_label_pairings(shot, manifest)
+    body = "\n".join(fixed)
+    assert "<Subject 2> -> <Picture 2>: A silver-haired woman." in body
+    assert fixed.index("<Subject 2> -> <Picture 2>: A silver-haired woman.") > fixed.index(
+        "<Picture 3>: A café."
+    )
+    assert body.count("<Subject 1>") == 1   # untouched pairing stays single
+    plan = {"shots": [{"prompt": fixed, "id": "scene_01"}], "prompt_prefix": []}
+    assert lp.validate_label_policy(plan, "ref2va", manifest) == []

@@ -959,32 +959,42 @@ def repair_label_pairings(
     # treats their Subjects as optional; injecting them would resurrect
     # de-tokenized phantoms). Equivalent forms are left alone.
     def _definition_block(lines):
+        """(block_lines, insert_index): the definition lines from the
+        header down to the NEXT section header, with insert_index just
+        past the last definition line. Blank separator lines INSIDE the
+        block are spanned, not treated as the block's end — 2026-10-15
+        prompt(9) live: the model separated its entries with blank
+        lines, the blank-break scan stopped one entry short, and the
+        canonical injection DUPLICATED a pairing the model had already
+        written two rows below the blank."""
         try:
             i0 = lines.index("subject_definitions:")
         except ValueError:
-            return []
+            return [], -1
         out = []
-        for ln in lines[i0 + 1:]:
-            if not ln.strip() or _re.match(r"^[a-z_]+:$", ln.strip()):
+        end = i0 + 1
+        for i in range(i0 + 1, len(lines)):
+            if _re.match(r"^[a-z_]+:$", lines[i].strip()):
                 break
-            out.append(ln)
-        return out
+            if lines[i].strip():
+                out.append(lines[i])
+                end = i + 1
+        return out, end
 
     for k, (pic_num, entry) in enumerate(identities, start=1):
         if referenced_pictures is not None and pic_num not in referenced_pictures:
             continue
         subj_tok = f"<Subject {k}>"
         pic_tok = f"<Picture {pic_num}>"
-        if any(subj_tok in ln and pic_tok in ln for ln in _definition_block(lines)):
+        block, insert_at = _definition_block(lines)
+        if any(subj_tok in ln and pic_tok in ln for ln in block):
             continue
         about = _reply_compact(str(entry.get("about") or "")
                                ) or str(entry.get("name") or "identity reference")
         bind_line = f"{subj_tok} -> {pic_tok}: {about}"
-        try:
-            i0 = lines.index("subject_definitions:")
-        except ValueError:
+        if insert_at < 0:
             continue
-        lines.insert(i0 + 1, bind_line)
+        lines.insert(insert_at, bind_line)
         fixes += 1
     return lines, fixes
 

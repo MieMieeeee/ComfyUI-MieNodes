@@ -35,7 +35,8 @@ non_diegetic_music:
     paraphrase any spoken line.
 - retention_analysis:
   - Identity slots -> `fully_preserved - ...` (preserve face identity,
-    fur, wardrobe, and scale. Do NOT preserve a front-facing portrait's
+    hair or fur as the subject actually has, wardrobe, and scale — never
+    "fur" on a human subject. Do NOT preserve a front-facing portrait's
     head angle or eye direction).
   - Non-identity slots -> `reference - ...` (use as destination /
     environment reference; do not copy a final pose before the action
