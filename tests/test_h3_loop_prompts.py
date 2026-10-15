@@ -1278,3 +1278,70 @@ def test_voiceover_summary_names_on_screen_subjects_not_the_narrator(lp):
         "The on-screen characters' lips remain completely closed."
     ]
     assert "(S1)" not in blocks[0]
+
+
+def test_single_speaker_scene_keeps_silent_placed_character(lp):
+    """2026-10-15 prompt(12) scene 4: only 小猫妹妹 spoke while 帽子咩
+    stayed placed right of frame — the bare-name alias, the pair prose,
+    and the summary were all derived from the SPEAKERS, so the silent
+    lamb vanished from every name list while the spatial pin still
+    named her, and H3 improvised her identity and position (the lamb
+    drifted left against the pin). The visible cast is the spatial
+    layout, not the speaker list."""
+    lines = [
+        "subject_definitions:", "x",
+        "", "summary:", "y",
+        "", "retention_analysis:", "fully_preserved face.",
+        "", "detailed_description:", "d",
+        "", "overall_soundscape:", "s",
+        "", "non_diegetic_music:", "m",
+    ]
+    out = lp.install_shot_speech(
+        lines,
+        ["小猫妹妹 speaks as (S1) a soft voice "
+         "<d>[Chinese] 还是你这儿好，吃了不烧心</d>"],
+        schema="six_section",
+        spatial_layout={"小猫妹妹": "left of frame", "帽子咩": "right of frame"},
+        speaker_identities={
+            "小猫妹妹": "A calico kitten in a floral dress.",
+            "帽子咩": "A lamb in a red knit beanie.",
+        },
+        line_speakers=["小猫妹妹"],
+        voiceover=False,
+    )
+    text = "\n".join(out)
+    assert (
+        "[reference generation] 小猫妹妹 and 帽子咩 are visible in the frame; "
+        "小猫妹妹 is speaking." in text
+    )
+    assert "帽子咩 are visible and speaking" not in text
+    # the silent-but-placed character keeps her bare-name alias
+    assert "帽子咩: A lamb in a red knit beanie." in text
+    # the pair prose names who is IN VIEW, not who talks
+    assert "小猫妹妹 and 帽子咩 are in three-quarter view" in text
+    assert "小猫妹妹 stays at left of frame" in text
+
+
+def test_all_speaking_scene_summary_wording_unchanged(lp):
+    """When every placed character speaks, the summary keeps the exact
+    historical wording (locked by earlier plans and tests)."""
+    lines = [
+        "subject_definitions:", "x",
+        "", "summary:", "y",
+        "", "retention_analysis:", "fully_preserved face.",
+        "", "detailed_description:", "d",
+        "", "overall_soundscape:", "s",
+        "", "non_diegetic_music:", "m",
+    ]
+    out = lp.install_shot_speech(
+        lines,
+        ["黑白 speaks as (S1) a voice <d>[Chinese] 老板，怎么办？</d>",
+         "银白 speaks as (S2) a voice <d>[Chinese] 倒掉</d>"],
+        schema="six_section",
+        spatial_layout={"黑白": "left", "银白": "right"},
+        speaker_identities={"黑白": "A maid.", "银白": "A woman."},
+        line_speakers=["黑白", "银白"],
+        voiceover=False,
+    )
+    text = "\n".join(out)
+    assert "[reference generation] 黑白, 银白 are visible and speaking." in text

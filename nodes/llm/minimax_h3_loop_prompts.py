@@ -3650,8 +3650,18 @@ def install_shot_speech(
     """
     lines = neutralize_offscreen_claims(prompt_lines)
     speakers = [s for s in (identity_speakers or line_speakers or []) if s]
-    if schema == SCHEMA_SIX and speakers and not voiceover:
-        pins = identity_pin_lines(speakers, speaker_identities)
+    # Who is IN FRAME is owned by the spatial layout, not by the
+    # speakers. A scene where only one placed character talks
+    # (2026-10-15 scene 4) used to drop the silent one from the
+    # bare-name aliases, the pair prose, and the summary while the
+    # spatial pin still named her — H3 then improvised that
+    # character's identity and position (the lamb drifted left
+    # against the pin).
+    visible = _unique_names(
+        list((spatial_layout or {}).keys()) + list(speakers)
+    )
+    if schema == SCHEMA_SIX and visible and not voiceover:
+        pins = identity_pin_lines(visible, speaker_identities)
         if pins:
             lines = _insert_section_suffix(lines, "subject_definitions:", pins)
     per_line = list(line_speakers or [])
@@ -3660,7 +3670,7 @@ def install_shot_speech(
     cues = list(stage_cues or [])
     while len(cues) < len(speech_lines):
         cues.append([])
-    body: list[str] = [_shot1_coverage(per_line, voiceover=voiceover)]
+    body: list[str] = [_shot1_coverage(visible, voiceover=voiceover)]
     spatial = build_spatial_layout_directive(spatial_layout)
     if spatial and not spatial.startswith("(no spatial"):
         body.append(spatial)
@@ -3698,14 +3708,13 @@ def install_shot_speech(
         )
     lines = replace_description_body(lines, body, schema=schema)
     if schema == SCHEMA_SIX:
-        names = _unique_names(per_line)
-        who = ", ".join(names) if names else "The subjects"
         if voiceover:
             # The voiceover name is not a person in the frame. Name the
-            # picture subjects when the layout knows them.
-            visible = _unique_names(list((spatial_layout or {}).keys()))
+            # picture subjects when the layout knows them — the narrator
+            # never joins this list.
+            on_screen = _unique_names(list((spatial_layout or {}).keys()))
             who_visible = (
-                " and ".join(visible) if visible else "The on-screen characters"
+                " and ".join(on_screen) if on_screen else "The on-screen characters"
             )
             summary = (
                 "[reference generation] "
@@ -3717,11 +3726,27 @@ def install_shot_speech(
                 "no non-diegetic music bed."
             )
         else:
-            summary = (
-                "[reference generation] "
-                f"{who} are visible and speaking. "
-                "The spoken words are not restated here."
-            )
+            speaking = _unique_names(per_line)
+            if set(speaking) >= set(visible):
+                who = ", ".join(speaking) if speaking else "The subjects"
+                summary = (
+                    "[reference generation] "
+                    f"{who} are visible and speaking. "
+                    "The spoken words are not restated here."
+                )
+            else:
+                # Silent-but-placed characters stay in the visible list;
+                # only the speakers are said to be talking.
+                vis = " and ".join(visible)
+                vis_verb = "is" if len(visible) == 1 else "are"
+                spk = ", ".join(speaking) if speaking else "nobody"
+                spk_verb = "is" if len(speaking) == 1 else "are"
+                summary = (
+                    "[reference generation] "
+                    f"{vis} {vis_verb} visible in the frame; "
+                    f"{spk} {spk_verb} speaking. "
+                    "The spoken words are not restated here."
+                )
             sound = ""
         lines = _replace_section_body(lines, "summary:", [summary, ""])
         if sound:
