@@ -101,3 +101,13 @@ non_diegetic_music:
   line was swallowed — '不怕亏钱吗' rendered as a bare '吗'). The
   clip's frame budget already covers every line at real-time pace;
   there is room, do not compress the first line away.
+- Voice ownership (strict): a `<d>` block belongs ENTIRELY to the one
+  character named on its line, from the first syllable to the last.
+  That character's mouth and that character's voice carry the WHOLE
+  block — never hand the line, mid-block, to another character whose
+  reference voice is similar; never let the timbre drift toward
+  another speaker's register partway through; the other characters'
+  mouths stay closed for every frame of the block (2026-10-15 live
+  F0 + frame check: the back half of a long line slid from the
+  speaker's register into the co-speaker's — 46% of voiced frames —
+  and the wrong character's mouth opened mid-line).
