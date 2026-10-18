@@ -1454,6 +1454,55 @@ def _build_shots_from_scenes(
     return shots
 
 
+def _monologue_scene_hint(shots: list, cast_size: int) -> list[str]:
+    """Run-summary advice for single-speaker scenes.
+
+    2026-10-18 live forensics (LAN, four full runs): on continuation
+    clips where ONE character owns every spoken line, H3 ref2va
+    sometimes drops the SPEAKER from the frame — the worst case
+    rendered the whole scene as an empty environment plate, a second
+    case kept only the silent co-speaker. It reproduced across seeds,
+    across plans, and across dialogue languages (Chinese AND English);
+    the segment prompts were structurally complete and the reference
+    wiring was byte-identical to the healthy clips. Render-level flake
+    outside our control, so like the two-line hint this names the risk
+    and the re-roll recipe instead of changing the plan.
+    """
+    if cast_size < 2:
+        return []
+    mono: list[tuple[str, str, int]] = []
+    for shot in shots or []:
+        per_line = [
+            s for s in ((shot or {}).get("_line_speakers") or []) if s
+        ]
+        lines = (shot or {}).get("_dialogue_lines") or []
+        speakers = set(per_line) or (
+            {str((shot or {}).get("_turn_speaker") or "").strip()} - {""}
+        )
+        if lines and len(speakers) == 1:
+            mono.append(
+                (str((shot or {}).get("id") or "?"), sorted(speakers)[0],
+                 len(lines))
+            )
+    if not mono:
+        return []
+    listed = ", ".join(
+        "%s (%s speaks all %d line(s))" % (sid, spk, n)
+        for sid, spk, n in mono
+    )
+    return [
+        "Single-speaker scene risk: " + listed + ". A known H3 render "
+        "defect sometimes drops the SPEAKER from such clips (2026-10-18 "
+        "live: one rendered as an empty room, another lost the speaker "
+        "while the silent character stayed; across seeds and languages, "
+        "with structurally complete prompts). If a scene renders "
+        "without its characters, re-roll just that scene — change its "
+        "seed in the plan JSON and set Loop Start scene_range to that "
+        "scene number; or give the silent character a line in the "
+        "script to break the monologue."
+    ]
+
+
 def _cut_budget_advice(
     *,
     turns: list,
@@ -4443,6 +4492,11 @@ class H3LoopPromptEnhancer:
                     user_scene_count=user_scene_count,
                     explicit_total=int(effective_total_duration or 0),
                     delivered_scenes=len(plan["shots"]),
+                )
+            )
+            summary_lines.extend(
+                _monologue_scene_hint(
+                    plan["shots"], cast_size=len(speaker_id_map)
                 )
             )
         if enhance_header is not None:
