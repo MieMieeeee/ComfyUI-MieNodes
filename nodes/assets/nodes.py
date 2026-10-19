@@ -939,7 +939,7 @@ class AssetsToRoster(object):
 # --------------------------------------------------------------------------- #
 STORYBOARD_BUNDLE_TYPE = "MIE_STORYBOARD"
 
-STORYBOARD_NAME_PLACEHOLDER = ["（下拉选择分镜）"]
+STORYBOARD_NAME_PLACEHOLDER = ["（下拉选择分镜 · pick storyboard）"]
 
 
 class LoadStoryboardAsset(object):

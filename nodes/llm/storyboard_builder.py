@@ -6,12 +6,12 @@ Why this module exists:
   The H3 Loop pipeline already does the heavy lifting of stamping a
   six-section Ref2VA prompt (subject / summary / retention / detail /
   sound / music) from a roster of cast members and a sequence of
-  dialogue lines. ``build_fallback_shot_lines`` + ``install_shot_speech``
-  were always the deterministic part — they DO NOT touch an LLM. What
-  this module does is take a hand-written storyboard JSON (cast, shots,
-  optional spatial layout, optional English Setting), assemble one
-  identical-shape prompt per shot with no model in the loop, and emit
-  the same dict the Longform-V Plan node accepts.
+  dialogue lines. ``build_fallback_shot_lines`` + the speech-installer
+  helpers were always the deterministic part — they DO NOT touch an LLM.
+  What this module does is take a hand-written storyboard JSON (cast,
+  shots, optional spatial layout, optional English Setting), assemble
+  one identical-shape prompt per shot with no model in the loop, and
+  emit the same dict the Longform-V Plan node accepts.
 
 Hard rules (mirroring PLAN_STORYBOARD_ASSET §1 + §2):
   * No LLM calls. No connector sockets. No ``_invoke`` / ``enhance_user_input``.
@@ -20,6 +20,17 @@ Hard rules (mirroring PLAN_STORYBOARD_ASSET §1 + §2):
   * No re-authoring. The English ``setting_line``, ``picture`` cues and
     ``prompt_prefix`` go in as the user wrote them — a hostile printer
     (CJK in an English-only field) is rejected at the JSON layer.
+
+Slot semantics (PLAN §4.2 — explicitly NOT compacting empty sockets):
+  ``character_slot`` is an ABSOLUTE picture number 1..8 (or 1..N for the
+  characters the storyboard actually uses). When the cast references
+  slots {1, 3} but the user wires only ``character_1`` and ``character_3``
+  with ``character_2`` empty, the empty slot is a HARD ERROR — silently
+  binding slot 2 to whatever is wired at socket 3 would produce a
+  correct-looking plan with the WRONG character bound to slot 2 (a silent
+  mis-binding; reviewed 2026-10-19). The build node collects every
+  socket (including None) and ``assemble_plan`` raises with the exact
+  empty slot number before any prompt text is generated.
 
 Byte-level reproducibility:
   Same storyboard JSON + same connected character/scene bundles + same
@@ -44,7 +55,6 @@ try:
     from _mienodes_internal.nodes.llm.dialogue_segmenter import (
         DialogueTurn,
         Pacing,
-        ShotBudget,
         PACING_PRESETS,
         estimate_shot_budget,
         group_budgets_into_scenes,
@@ -52,7 +62,6 @@ try:
     from _mienodes_internal.nodes.llm.minimax_h3_loop_prompts import (
         DEFAULT_MUSIC_LINE,
         SCHEMA_SIX,
-        SCHEMA_THREE,
         SIX_SECTION_FIELDS,
         SECTION_SUBJECT,
         SECTION_SUMMARY,
@@ -61,12 +70,16 @@ try:
         SECTION_SOUND,
         SECTION_MUSIC,
         _replace_section_body,
+        _shot1_coverage,
+        annotate_retention_pose,
         build_fallback_shot_lines,
         build_plan,
+        build_spatial_layout_directive,
         complete_layout_from_turn_order,
-        install_shot_speech,
+        identity_pin_lines,
+        neutralize_offscreen_claims,
         plan_to_json_string,
-        resolve_line_facing,
+        replace_description_body,
         validate_dialogue_invariantity,
         validate_label_policy,
         validate_plan,
@@ -76,7 +89,6 @@ except ImportError:  # pragma: no cover
     from .dialogue_segmenter import (  # type: ignore
         DialogueTurn,
         Pacing,
-        ShotBudget,
         PACING_PRESETS,
         estimate_shot_budget,
         group_budgets_into_scenes,
@@ -84,7 +96,6 @@ except ImportError:  # pragma: no cover
     from .minimax_h3_loop_prompts import (  # type: ignore
         DEFAULT_MUSIC_LINE,
         SCHEMA_SIX,
-        SCHEMA_THREE,
         SIX_SECTION_FIELDS,
         SECTION_SUBJECT,
         SECTION_SUMMARY,
@@ -93,12 +104,16 @@ except ImportError:  # pragma: no cover
         SECTION_SOUND,
         SECTION_MUSIC,
         _replace_section_body,
+        _shot1_coverage,
+        annotate_retention_pose,
         build_fallback_shot_lines,
         build_plan,
+        build_spatial_layout_directive,
         complete_layout_from_turn_order,
-        install_shot_speech,
+        identity_pin_lines,
+        neutralize_offscreen_claims,
         plan_to_json_string,
-        resolve_line_facing,
+        replace_description_body,
         validate_dialogue_invariantity,
         validate_label_policy,
         validate_plan,
@@ -107,15 +122,25 @@ except ImportError:  # pragma: no cover
 
 
 # --------------------------------------------------------------------------- #
-# Camera-discipline fallback (locked / no_closeups / auto all use the same
-# locked [Shot 1] mid-shot — §2 "we accept flatter prose"; the discipline
-# is only used to pick one of three English ambience defaults when BOTH the
-# storyboard ambience and the scene ambience are empty).
+# Camera-discipline fallback — three distinct English ambience lines the
+# builder uses when BOTH the storyboard ``ambience`` AND the scene
+# ``ambience`` are empty. PLAN §3.1 says the discipline picks one of three
+# constants; v1 keeps all three visibly different so the choice is not
+# silently a no-op.
 # --------------------------------------------------------------------------- #
 AMBIENCE_FALLBACKS = {
-    "locked": "The room tone stays quiet and even throughout.",
-    "no_closeups": "The room tone stays quiet and even throughout.",
-    "auto": "The room tone stays quiet and even throughout.",
+    "locked": (
+        "The room tone stays quiet and even throughout, with no "
+        "non-diegetic sound beyond the spoken lines."
+    ),
+    "no_closeups": (
+        "The ambient bed of the room carries through every shot; no "
+        "extra foley enters when the framing changes."
+    ),
+    "auto": (
+        "The room tone follows the natural ambience of the setting; "
+        "soft handling and fabric sounds ride underneath the dialogue."
+    ),
 }
 
 # `<d>` tag prefix from the storyboard's ``language`` field (PLAN §3.1
@@ -126,45 +151,95 @@ DIALOGUE_TAG = {"zh": "[Chinese]", "en": "[English]"}
 # --------------------------------------------------------------------------- #
 # Shot packing
 # --------------------------------------------------------------------------- #
-def _per_line_budgets(lines_per_shot: list[list[dict]], pacing: Pacing):
-    """Run ``estimate_shot_budget`` over a SINGLE-SPEAKER turn at a time so
-    the dialogue_segmenter's per-line packing rules carry over verbatim
-    even when adjacent turns share a speaker.
+def _lines_per_shot(storyboard: dict):
+    """Normalise the storyboard into ``[[{speaker, text, picture?}, ...], ...]``.
 
-    The builder does not need the per-line audio bookkeeping — only the
-    rounded length — so the per-shot budgets are merged back here into
-    a ``length: int, lines: list[dict]`` tuple per shot."""
-    budgets: list[tuple[int, list[dict]]] = []
-    for shot_lines in lines_per_shot:
-        if not shot_lines:
-            budgets.append((pacing_to_minimum_length(pacing), []))
-            continue
-        # Construct a single-turn placeholder so the estimator runs the
-        # same code path as the LLM track. The speaker label does not
-        # affect length maths; we only need lines / line_count.
-        speaker = shot_lines[0]["speaker"]
-        texts = [str(ln["text"]) for ln in shot_lines]
-        turn = DialogueTurn(speaker=speaker, lines=texts)
-        per_turn, _report = estimate_shot_budget([turn], pacing)
-        if len(per_turn) == 1:
-            length = int(per_turn[0].rounded_length_frames)
-            budgets.append((length, list(shot_lines)))
-        else:
-            # A single shot spanned multiple sub-budgets because the
-            # packed lines overflowed the 14 s ceiling. We still keep
-            # them on one scene (the assembler accepts a longer length)
-            # — the dialogue_segmenter split is a model-pacing tweak that
-    # the zero-LLM track does not need.
-            length = sum(int(b.rounded_length_frames) for b in per_turn)
-            budgets.append((length, list(shot_lines)))
-    return budgets
+    Three input shapes are accepted (mutually exclusive — exactly one
+    must produce a non-None result):
+
+    1. ``shots`` present (preferred): each shot's ``lines`` is preserved
+       verbatim — the author owns the cut.
+    2. ``lines`` present (top-level flat list of ``{speaker, text,
+       picture?}``): packed via the dialogue_segmenter's minimal-cut
+       rule (``group_budgets_into_scenes`` with
+       ``max_lines_per_scene=2``) — PLAN §3.1.
+    3. both absent: hard error.
+    """
+    raw = storyboard.get("shots")
+    if raw is not None:
+        return [list(shot["lines"]) for shot in raw]
+    flat = storyboard.get("lines")
+    if flat is None:
+        raise ValueError(
+            "storyboard must declare either 'shots: [...]' (authored) or "
+            "'lines: [...]' (auto-packed by the minimal-cut rule)"
+        )
+    return _auto_pack_flat_lines(flat, storyboard)
 
 
-def pacing_to_minimum_length(pacing: Pacing) -> int:
-    """A speaker change at scene boundary with no lines is rare; we still
-    need a positive ``length``. One second is the smallest valid H3
-    length (24 frames) — round up to the 17k+5 grid (5)."""
-    return 5
+def _auto_pack_flat_lines(
+    flat_lines: list[dict],
+    storyboard: dict,
+) -> list[list[dict]]:
+    """Auto-pack a flat ``lines`` list into scenes (PLAN §3.1).
+
+    The dialogue_segmenter's ``estimate_shot_budget`` + ``group_budgets_into_scenes``
+    chain expects ``DialogueTurn`` objects. We construct ONE turn per
+    line (the storyboard has no fixed turn grouping), let the estimator
+    measure each line's runtime, then pack 2 lines per scene.
+    """
+    if not isinstance(flat_lines, list) or not flat_lines:
+        raise ValueError(
+            "storyboard.lines must be a non-empty list of "
+            "{speaker, text, picture?} entries"
+        )
+    pacing_key = storyboard.get("pacing", "normal")
+    if pacing_key not in PACING_PRESETS:
+        raise ValueError(
+            "unknown pacing %r (storyboard validator should have rejected "
+            "this earlier)" % pacing_key
+        )
+    pacing = PACING_PRESETS[pacing_key]
+
+    turns: list[DialogueTurn] = []
+    for entry in flat_lines:
+        if not isinstance(entry, dict):
+            raise ValueError(
+                "storyboard.lines entries must be objects, got %s"
+                % type(entry).__name__
+            )
+        speaker = entry.get("speaker")
+        text = entry.get("text")
+        if not isinstance(speaker, str) or not speaker.strip():
+            raise ValueError(
+                "storyboard.lines entry missing 'speaker': %r" % entry
+            )
+        if not isinstance(text, str) or not text.strip():
+            raise ValueError(
+                "storyboard.lines entry missing 'text': %r" % entry
+            )
+        turns.append(DialogueTurn(speaker=speaker.strip(),
+                                  lines=[text]))
+
+    budgets, _report = estimate_shot_budget(turns, pacing)
+    scenes = group_budgets_into_scenes(
+        budgets, pacing, max_lines_per_scene=2,
+    )
+    out: list[list[dict]] = []
+    for scene in scenes:
+        lines_for_scene: list[dict] = []
+        for budget in scene:
+            # Budget.lines is the per-line TEXT list (we constructed one
+            # turn per flat entry); recover the original flat entry so
+            # ``picture`` cues ride along.
+            for line_text in budget.lines:
+                for entry in flat_lines:
+                    if entry.get("text") == line_text:
+                        lines_for_scene.append(dict(entry))
+                        break
+        if lines_for_scene:
+            out.append(lines_for_scene)
+    return out
 
 
 # --------------------------------------------------------------------------- #
@@ -177,49 +252,34 @@ def _speaker_to_slot(cast: dict[str, dict]) -> dict[str, int]:
     return {name: int(info["character_slot"]) for name, info in cast.items()}
 
 
-def _lines_per_shot(storyboard: dict):
-    """Normalise the storyboard into ``[[{speaker, text, picture?}, ...], ...]``.
-
-    When ``shots`` is omitted, the auto-packer (``group_budgets_into_scenes``
-    with ``max_lines_per_scene=2``) is the documented behaviour — we
-    delegate that to the dialogue_segmenter in ``build_assembly``. When
-    ``shots`` is explicit, the order is preserved verbatim and the
-    snapshot is built one-for-one.
-    """
-    raw = storyboard.get("shots")
-    if raw is not None:
-        return [list(shot["lines"]) for shot in raw]
-    return None  # caller handles the auto-pack path
-
-
-def _build_manifest(storyboard: dict, slot_bundles: list[dict]) -> list[dict]:
+def _build_manifest(
+    storyboard: dict,
+    used_slots: list[int],
+    slot_to_bundle: dict[int, dict | None],
+) -> list[dict]:
     """Build the six-section manifest the prompt helpers expect.
 
-    ``slot_bundles`` is the ordered list of wired character/scene bundles
-    (characters then scenes), where slot N is ``character_slot=N`` or, for
-    scenes, the next sequential slot past the last character. Each entry
+    ``used_slots`` is the sorted list of picture numbers actually
+    occupied by the wired bundles (1..N for characters + scene). Each
     contributes ``{"slot": "Picture N", "about": <asset description>,
-    "role": "identity" or "environment"}``."""
-    speaker_to_slot = _speaker_to_slot(storyboard["cast"])
-    # Pictures: characters first (in slot order), then the scene slots
-    # past them. The builder doesn't accept more than one scene in v1
-    # (§3.1: only ``scene_1``), so the picture count is
-    # ``len(characters) + 1``.
-    picture_specs = []  # (slot_n, bundle, speaker_or_None, role)
-    slot = 0
-    for bundle in slot_bundles:
-        if bundle.get("kind") != "character":
-            continue
-        slot += 1
-        picture_specs.append((slot, bundle, None, "identity"))
-    for bundle in slot_bundles:
-        if bundle.get("kind") != "scene":
-            continue
-        slot += 1
-        picture_specs.append((slot, bundle, None, "environment"))
+    "role": "identity" or "environment"}``.
 
-    manifest = []
-    for pic_slot, bundle, _speaker, role in picture_specs:
+    The cast's declared ``character_slot`` values are NOT trusted here
+    — by the time ``_build_manifest`` runs, ``slot_to_bundle`` has
+    already been validated to contain every slot the cast needs.
+    """
+    picture_specs: list[tuple[int, dict, str]] = []
+    for slot in sorted(used_slots):
+        bundle = slot_to_bundle.get(slot)
+        if bundle is None:
+            continue  # already reported by the earlier empty-slot check
+        role = (
+            "identity" if bundle.get("kind") == "character" else "environment"
+        )
+        picture_specs.append((slot, bundle, role))
+
+    manifest: list[dict] = []
+    for pic_slot, bundle, role in picture_specs:
         about = (bundle.get("description") or "").strip()
         if not about:
             raise ValueError(
@@ -275,25 +335,24 @@ def _check_character_audio(bundle: dict, slot: int) -> str:
     return voice_clean
 
 
-def _slot_to_character(slot_bundles: list[dict]) -> dict[int, dict]:
-    """Map ``character_slot`` → character bundle. Characters are wired in
-    ``character_1..8`` socket order; ``character_slot`` from the storyboard
-    is the slot index. A bundle whose slot does not exist → hard error."""
-    out: dict[int, dict] = {}
-    for bundle in slot_bundles:
-        if bundle.get("kind") != "character":
-            continue
-        out[len(out) + 1] = bundle
-    return out
+def _shot_length(lines: list[dict], pacing: Pacing) -> int:
+    """Length of one user-authored shot, measured by the dialogue
+    segmenter's per-shot budget.
 
-
-def _resolve_role_bindings(storyboard: dict) -> dict[str, str]:
-    """The plan's vocative-facing detector expects role→speaker name
-    bindings. Storyboards don't carry role syntax, so we return an empty
-    mapping: a line-initial vocative like 「爷爷，」 therefore does NOT
-    insert a ``turns to face`` clause (the regex won't match anyway, and
-    the builder's choice in §6 is no facing rewrite)."""
-    return {}
+    ``estimate_shot_budget`` may split a single turn into sub-budgets
+    when the packed runtime overflows the 14 s window. The zero-LLM
+    track keeps the lines on a single shot (the assembler accepts a
+    longer length), so the returned length is the SUM of all
+    sub-budget frames — picking ``[0].rounded_length_frames`` would drop
+    the tail."""
+    if not lines:
+        return 5  # smallest valid H3 length (24 fps; 17k+5 grid → 5)
+    speaker = lines[0]["speaker"]
+    turn = DialogueTurn(
+        speaker=speaker, lines=[ln["text"] for ln in lines],
+    )
+    per_turn, _report = estimate_shot_budget([turn], pacing)
+    return sum(int(b.rounded_length_frames) for b in per_turn)
 
 
 def _assemble_one_shot(
@@ -307,23 +366,22 @@ def _assemble_one_shot(
     manifest: list[dict],
     ambience_line: str,
 ) -> dict:
-    """Build one shot's schema, segments, length and seed. No LLM. The
-    output dict matches ``build_plan``'s shot entry shape.
+    """Build one shot's schema, segments, length and seed. No LLM.
 
-    We intentionally bypass ``install_shot_speech`` because its cue
-    branch passes stage cues through ``_cue_sentence``, which wraps a
-    non-still cue as "Silent picture only. Mouths stay closed and nobody
+    The body is composed by ``_build_storyboard_shot_body`` (this
+    function is a thin wrapper). We deliberately bypass
+    ``install_shot_speech`` because its cue branch wraps a non-still
+    cue as "Silent picture only. Mouths stay closed and nobody
     speaks." — a contradiction when the cue is on a SPEAKING line.
-    ``_build_storyboard_shot_body`` below emits the same six-section
-    shape using the underlying helpers directly."""
+    See PLAN_STORYBOARD_ASSET §5 (deviation note) for the rationale.
+    """
     prompt_lines = build_fallback_shot_lines(
         SCHEMA_SIX, manifest=manifest, spatial_layout=spatial_layout,
     )
     # Pin the resolved ambience (storyboard > scene > camera-discipline
-    # fallback) into ``overall_soundscape`` BEFORE the body is
-    # composed — the speech-path logic preserves the soundscape (it
-    # only replaces the section body in voiceover mode, which we never
-    # use).
+    # fallback) into ``overall_soundscape`` BEFORE the body is composed —
+    # the speech-path logic preserves the soundscape (it only replaces
+    # the section body in voiceover mode, which we never use).
     prompt_lines = _replace_section_body(
         prompt_lines, "overall_soundscape:", [ambience_line],
     )
@@ -352,13 +410,8 @@ def _assemble_one_shot(
         storyboard=storyboard,
     )
 
-    # Length: the dialogue_segmenter's per-shot budget covers each
-    # user-authored shot 1:1.
     pacing = PACING_PRESETS[storyboard.get("pacing", "normal")]
-    speaker = lines[0]["speaker"] if lines else ""
-    turn = DialogueTurn(speaker=speaker, lines=[ln["text"] for ln in lines])
-    per_turn, _ = estimate_shot_budget([turn], pacing)
-    length = int(per_turn[0].rounded_length_frames)
+    length = _shot_length(lines, pacing)
 
     return {
         "id": "scene_%02d" % shot_index,
@@ -378,18 +431,12 @@ def _build_storyboard_shot_body(
     speaker_identities: dict[str, str],
     storyboard: dict,
 ) -> list[str]:
-    """Compose the six-section shot body without going through
-    ``install_shot_speech``. Mirrors its ref2va path but keeps the
-    picture cue as a plain descriptive sentence (not the silent-only
-    wrapper)."""
-    from _mienodes_internal.nodes.llm.minimax_h3_loop_prompts import (  # noqa
-        _shot1_coverage,
-        build_spatial_layout_directive,
-        identity_pin_lines,
-        annotate_retention_pose,
-        neutralize_offscreen_claims,
-    )
-
+    """Compose the six-section shot body. The plan §5 deviation note:
+    ``install_shot_speech`` wraps a non-still picture cue as "Silent
+    picture only. Mouths stay closed and nobody speaks.", which
+    contradicts the upcoming speaking line. This helper mirrors
+    ``install_shot_speech``'s ref2va path but emits the picture cue
+    as a plain descriptive sentence."""
     prompt_lines = neutralize_offscreen_claims(prompt_lines)
 
     visible_names = sorted(
@@ -434,11 +481,9 @@ def _build_storyboard_shot_body(
             body.append(_picture_cue_sentence(cue))
         body.append(speech)
 
-    # Find the description section (six-section = detailed_description).
-    from _mienodes_internal.nodes.llm.minimax_h3_loop_prompts import (
-        replace_description_body,
+    prompt_lines = replace_description_body(
+        prompt_lines, body, schema=SCHEMA_SIX,
     )
-    prompt_lines = replace_description_body(prompt_lines, body, schema=SCHEMA_SIX)
 
     # Reference-generation summary (mirrors install_shot_speech's
     # SCHEMA_SIX branch).
@@ -493,90 +538,107 @@ def _picture_cue_sentence(cue: str) -> str:
 # --------------------------------------------------------------------------- #
 # Public assembler
 # --------------------------------------------------------------------------- #
+# Picture-numbering convention: characters occupy slots 1..N in the
+# order they appear in the cast, then the scene occupies the next slot.
+# An EXPLICIT cast character_slot > N would land in a gap (rejected
+# loudly) — see the loop in ``assemble_plan`` that asserts every cast
+# slot is wired and that no wired slot exceeds the cast's max.
+SCENE_SLOT_OFFSET = 0  # scene sits at ``max(cast_slots) + 1``.
+
+
+def _slot_layout(
+    cast: dict[str, dict],
+    max_character_slot: int,
+) -> tuple[list[int], int]:
+    """The full set of occupied slots: every character slot used by
+    cast, then ``scene`` at ``max(cast_slots) + 1`` (or 1 if no
+    characters). Returns ``(used_slots, scene_slot)``."""
+    cast_slots = sorted({int(v["character_slot"]) for v in cast.values()})
+    scene_slot = (max(cast_slots) if cast_slots else 0) + 1
+    used = list(cast_slots) + [scene_slot]
+    return used, scene_slot
+
+
 def assemble_plan(
     *,
     storyboard: dict,
-    slot_bundles: list[dict],
+    slot_bundles: dict[int, dict | None],
     seed_base: int = 0,
     summary_extra: Optional[list[str]] = None,
     _skip_validation: bool = False,
 ) -> dict:
-    """Pure function: storyboard JSON + wired asset bundles → plan dict
-    (the same shape ``MiniMaxH3ChainPlanModern`` accepts).
+    """Pure function: storyboard JSON + slot→bundle map → plan dict.
 
-    ``slot_bundles`` are in slot order (character_1..N then scene_1).
-    Every character the storyboard references must be in
-    ``slot_bundles``; the scene (only ``scene_1`` in v1) must be in the
-    LAST slot (``Picture #slot_of_N + 1``). The build fails loudly when
-    a required slot is empty.
+    ``slot_bundles`` is keyed by picture number:
+
+    * ``1..MAX_CHARACTER_SLOT`` → character bundle or ``None``;
+    * the scene bundle lives at the FIRST unused slot past the cast's
+      max (or ``1`` when there are no characters). The build node
+      surfaces the scene bundle at index ``MAX_CHARACTER_SLOT + 1``
+      (i.e., socket ``scene_1``) and ``assemble_plan`` relocates it
+      here so the picture-numbering contract (``scene = max(cast) +
+      1``) is enforced uniformly.
+
+    Every character slot the cast declares must be filled. Every
+    wired slot must be either a character (1..MAX) or the scene at
+    ``max(cast) + 1``. Any mismatch is a loud error.
 
     Returns ``{"plan": {...}, "summary_lines": [...], "ambience": str,
-    "size_note": ""}``. ``plan`` is ready for ``plan_to_json_string``; the
-    callers (the node) call that themselves.
-
-    ``_skip_validation`` is an internal fast-path for tests that already
-    validated the payload through ``library.validate_storyboard_payload``.
-    Production code accepts the cost of re-validating so a malformed
-    bundle from any caller cannot reach the assembly path.
+    "size_note": ""}``.
     """
     if not isinstance(storyboard, dict):
         raise ValueError("storyboard bundle must be a dict")
-    if not isinstance(slot_bundles, list):
-        raise ValueError("slot_bundles must be a list")
+    if not isinstance(slot_bundles, dict):
+        raise ValueError("slot_bundles must be a dict keyed by picture number")
     if not _skip_validation:
         storyboard = _storyboard.validate_storyboard_payload(storyboard)
 
     cast = storyboard.get("cast") or {}
     if not cast:
-        raise ValueError("storyboard has no cast; the builder cannot "
-                         "assemble a plan without speakers")
+        raise ValueError(
+            "storyboard has no cast; the builder cannot assemble a "
+            "plan without speakers"
+        )
     speaker_to_slot = _speaker_to_slot(cast)
-    # Sanity: the storyboard validates slots during JSON load, but the
-    # build node may receive a bundle dict directly (the test suite).
-    used = sorted(set(int(v["character_slot"]) for v in cast.values()))
-    if len(used) != len(cast):
+    cast_slots = sorted({int(v["character_slot"]) for v in cast.values()})
+    if len(cast_slots) != len(cast):
         raise ValueError("duplicate character_slot values in cast")
-    if max(used) > _storyboard.MAX_CHARACTER_SLOT:
+    if max(cast_slots) > _storyboard.MAX_CHARACTER_SLOT:
         raise ValueError(
             "cast uses character_slot %d; the upper limit is %d"
-            % (max(used), _storyboard.MAX_CHARACTER_SLOT)
+            % (max(cast_slots), _storyboard.MAX_CHARACTER_SLOT)
         )
 
-    # Collect the bundles actually needed.
-    character_bundles = [b for b in slot_bundles if b.get("kind") == "character"]
-    scene_bundles = [b for b in slot_bundles if b.get("kind") == "scene"]
-    if not scene_bundles:
-        raise ValueError(
-            "the zero-LLM builder needs at least one scene wire (scene_1); "
-            "no scene bundles found in the inputs"
-        )
-    if len(scene_bundles) > 1:
-        raise ValueError(
-            "storyboard builder accepts exactly one scene in this version; "
-            "got %d scene bundles" % len(scene_bundles)
-        )
+    # Resolve the picture-numbering layout (where the scene sits).
+    used_slots, scene_slot = _slot_layout(cast, _storyboard.MAX_CHARACTER_SLOT)
 
-    # Slot-to-bundle map (character_1..N = bundle index in character_bundles,
-    # then scene_1 = scene_bundles[0]).
-    slot_to_bundle: dict[int, dict] = {}
-    for idx, bundle in enumerate(character_bundles, 1):
-        slot_to_bundle[idx] = bundle
-    scene_slot = len(character_bundles) + 1
-    slot_to_bundle[scene_slot] = scene_bundles[0]
+    # Strip a scene bundle out of slot_bundles if the build node
+    # placed it at MAX+1 — relocate it to the actual scene slot so
+    # the picture numbering stays coherent.
+    scene_bundle_raw = slot_bundles.get(_storyboard.MAX_CHARACTER_SLOT + 1)
+    if scene_bundle_raw is not None and scene_bundle_raw.get("kind") == "scene":
+        slot_bundles = dict(slot_bundles)
+        slot_bundles.pop(_storyboard.MAX_CHARACTER_SLOT + 1, None)
+        slot_bundles[scene_slot] = scene_bundle_raw
 
-    # Every character slot used in the cast MUST be wired.
-    for slot in used:
-        if slot not in slot_to_bundle:
+    # Every cast slot must be wired (HARD ERROR — no compaction).
+    for slot in cast_slots:
+        bundle = slot_bundles.get(slot)
+        if bundle is None:
             raise ValueError(
-                "character_slot %d is referenced by cast but no "
-                "character_%d asset was wired into the builder"
-                % (slot, slot)
+                "character_slot %d is declared by cast (%s) but no asset "
+                "is wired into socket 'character_%d' on the build node; "
+                "either wire the asset, or remove the slot from the cast. "
+                "Empty slots in the middle of a wiring are a hard error "
+                "(PLAN_STORYBOARD_ASSET §4.2 — silent re-binding would "
+                "produce wrong-character <Picture N> tags)"
+                % (slot, sorted(cast.keys()), slot)
             )
 
-    # Voice / image / audio checks per character bundle.
+    # Voice / audio checks per character bundle.
     slot_to_voice: dict[int, str] = {}
-    for slot in used:
-        bundle = slot_to_bundle[slot]
+    for slot in cast_slots:
+        bundle = slot_bundles[slot]
         if bundle.get("kind") != "character":
             raise ValueError(
                 "character_slot %d expected a character bundle, got kind=%r"
@@ -584,16 +646,25 @@ def assemble_plan(
             )
         slot_to_voice[slot] = _check_character_audio(bundle, slot)
 
-    # Picture index order: characters in slot order, then the scene.
-    manifest_bundles = list(character_bundles) + list(scene_bundles)
-    manifest = _build_manifest(storyboard, manifest_bundles)
+    # Scene check: exactly one scene bundle at the scene slot.
+    scene_bundle = slot_bundles.get(scene_slot)
+    if scene_bundle is None or scene_bundle.get("kind") != "scene":
+        raise ValueError(
+            "the zero-LLM builder needs exactly one scene wire at "
+            "Picture %d; got %r"
+            % (scene_slot, scene_bundle.get("kind") if scene_bundle else None)
+        )
+    scene_bundles = [scene_bundle]
+
+    manifest = _build_manifest(storyboard, used_slots, slot_bundles)
 
     # Spatial layout: from the storyboard; missing speakers are filled
     # in turn-order via the existing helper (PLAN §3.1 "缺的说话人用
     # complete_layout_from_turn_order 补左/右/中").
-    turn_speaker_order = []
-    for sl in storyboard.get("shots") or []:
-        for ln in sl["lines"]:
+    turn_speaker_order: list[str] = []
+    for sl in storyboard.get("shots") or storyboard.get("lines") or []:
+        lines_in = sl.get("lines") if "lines" in sl else [sl]
+        for ln in lines_in:
             if ln["speaker"] not in turn_speaker_order:
                 turn_speaker_order.append(ln["speaker"])
     declared = storyboard.get("spatial_layout") or {}
@@ -607,39 +678,37 @@ def assemble_plan(
             layout_was_filled = True
             break
 
-    # Ambience: storyboard → first scene bundle → camera-discipline
-    # fallback.
     ambience = _resolve_ambience(storyboard, scene_bundles)
 
-    # Build the shots. We pack the user-authored shots 1:1 — when
-    # ``shots`` is omitted, fall back to the dialogue_segmenter auto
-    # packing with ``max_lines_per_scene=2`` (PLAN §3.1).
-    raw_shots = storyboard.get("shots")
-    if raw_shots is None:
-        # Auto-pack: every line becomes its own turn; pack two lines
-        # per scene.
-        all_lines: list[dict] = []
-        # The storyboard has no fixed speakers per turn — we treat
-        # every line as its own turn so consecutive same-speaker lines
-        # stay together (matches the LLM track's grouping rule).
-        cur_speaker = None
-        cur_block: list[dict] = []
-        # We don't have a single flat dialogue list, so the simplest
-        # faithful auto-pack is: list EVERY line as one scene (one line
-        # per shot) — this is what the LLM track's auto scene_count
-        # cap = 1 + REVISED 2026-10-12 rule would emit on a stripped
-        # storyboard without per-turn dialogue structure.
+    # Build the shots. Shots are explicit, or auto-packed from a top-level
+    # ``lines`` field (PLAN §3.1).
+    raw_shots_in = storyboard.get("shots")
+    flat_lines_in = storyboard.get("lines")
+    if raw_shots_in is None and flat_lines_in is None:
         raise ValueError(
-            "auto-pack path is not supported in this version of the "
-            "storyboard builder — author shots: [...] in the JSON, or wire "
-            "the LLM-track MiniMaxH3LoopPromptGenerator"
+            "storyboard must declare either 'shots: [...]' (authored) or "
+            "'lines: [...]' (auto-packed by the minimal-cut rule)"
         )
+    if raw_shots_in is not None and flat_lines_in is not None:
+        raise ValueError(
+            "storyboard carries both 'shots' and 'lines'; provide exactly "
+            "one — 'shots' for an authored cut, 'lines' for auto-packing"
+        )
+    if raw_shots_in is not None:
+        shots_per_scene = [list(shot["lines"]) for shot in raw_shots_in]
+        raw_shots = raw_shots_in
+    else:
+        # Auto-pack path. We still need a raw_shots view for the dialogue
+        # invariantity check downstream — synthesise it from the packed
+        # scenes.
+        shots_per_scene = _auto_pack_flat_lines(flat_lines_in, storyboard)
+        raw_shots = [{"lines": s} for s in shots_per_scene]
 
     shot_entries: list[dict] = []
-    for shot_idx, sl in enumerate(raw_shots, 1):
+    for shot_idx, sl_lines in enumerate(shots_per_scene, 1):
         shot = _assemble_one_shot(
             shot_index=shot_idx,
-            lines=sl["lines"],
+            lines=sl_lines,
             speaker_to_slot=speaker_to_slot,
             slot_to_voice=slot_to_voice,
             spatial_layout=completed_layout,
@@ -672,10 +741,10 @@ def assemble_plan(
     # Dialogue invariantity (1 line == 1 <d> block, verbatim text).
     turns = [
         DialogueTurn(
-            speaker=sl["lines"][0]["speaker"],
-            lines=[ln["text"] for ln in sl["lines"]],
+            speaker=sl_lines[0]["speaker"],
+            lines=[ln["text"] for ln in sl_lines],
         )
-        for sl in raw_shots
+        for sl_lines in shots_per_scene
     ]
     dialogue_errors = validate_dialogue_invariantity(plan["shots"], turns)
     if dialogue_errors:
@@ -694,7 +763,6 @@ def assemble_plan(
             + "; ".join(spatial_errors)
         )
 
-    # Run-summary lines (string outputs only, never the plan text).
     summary_lines: list[str] = []
     if layout_was_filled:
         summary_lines.append(
@@ -703,7 +771,7 @@ def assemble_plan(
         )
     # Monologue-scene hint (mirrors the LLM track's `_monologue_scene_hint`).
     cast_size = len(cast)
-    mono_lines = _monologue_hint(plan["shots"], cast_size)
+    mono_lines = _monologue_hint_from_shots(raw_shots, cast_size)
     if mono_lines:
         summary_lines.extend(mono_lines)
     if summary_extra:
@@ -717,39 +785,44 @@ def assemble_plan(
     }
 
 
-def _monologue_hint(shots: list[dict], cast_size: int) -> list[str]:
-    """A near-copy of the LLM track's monologue hint: when ONE speaker
-    fills an entire shot, the H3 render layer has a known flake that
-    drops the speaker from the frame (2026-10-18 LAN forensics). The
-    mechanical builder does not fix the flake — it just reports it."""
+def _monologue_hint_from_shots(
+    raw_shots: list[dict],
+    cast_size: int,
+) -> list[str]:
+    """Run-summary advice for single-speaker scenes. Mirrors the LLM
+    track's ``_monologue_scene_hint`` (2026-10-18 LAN forensics:
+    continuation clips with ONE speaker sometimes drop the speaker
+    from the frame). Uses the storyboard's authored structure
+    directly — no regex reverse-engineering of finished prompt text,
+    which breaks on multi-word speaker names.
+
+    The plan §5 deviation note (vocative turning) is unrelated: the
+    hint inspects the storyboard's pre-assembly shape, so it works
+    even when the assembled speech sentence rewrites the speaker's
+    head."""
     if cast_size < 2:
         return []
     mono: list[tuple[str, str, int]] = []
-    for shot in shots or []:
-        prompt = shot.get("prompt") or []
-        d_speakers = set()
-        for ln in prompt:
-            if not isinstance(ln, str):
-                continue
-            for m in re.finditer(
-                r"speaks as \(S(\d+)\) ", ln,
-            ):
-                # Recover the speaker by walking backwards from the match.
-                # The grammar is `<player> speaks as (Sn) ...` — we
-                # split on the literal to recover the speaker label.
-                head = ln[: m.start()]
-                if "turns to face" in head:
-                    head = head.rsplit("turns to face", 1)[0]
-                if head.endswith(","):
-                    head = head[:-1]
-                name = head.rsplit(" ", 1)[-1].strip()
-                if name:
-                    d_speakers.add(name)
-        if d_speakers and len(d_speakers) == 1:
-            mono.append((shot.get("id") or "?", sorted(d_speakers)[0], 0))
+    for shot_idx, sl in enumerate(raw_shots or [], 1):
+        lines = sl.get("lines") if isinstance(sl, dict) and "lines" in sl else [sl]
+        speakers = {
+            str(ln.get("speaker") or "").strip()
+            for ln in lines
+            if ln.get("speaker")
+        }
+        speakers = {s for s in speakers if s}
+        if lines and len(speakers) == 1:
+            mono.append((
+                "scene_%02d" % shot_idx,
+                sorted(speakers)[0],
+                len(lines),
+            ))
     if not mono:
         return []
-    listed = ", ".join("%s (%s alone)" % (s, n) for s, n, _ in mono)
+    listed = ", ".join(
+        "%s (%s speaks all %d line(s))" % (sid, spk, n)
+        for sid, spk, n in mono
+    )
     return [
         "Single-speaker scene risk: " + listed + ". A known H3 render "
         "defect sometimes drops the SPEAKER from such clips (2026-10-18 "
@@ -770,6 +843,10 @@ ASSET_BUNDLE_TYPE = "MIE_ASSET"
 ASSET_ROSTER_TYPE = "MIE_ASSET_ROSTER"
 
 CATEGORY = "🐑 MieNodes/🐑 Prompt Generator"
+
+# The scene bundle is parked at MAX + 1 inside the socket dict. The
+# ``assemble_plan`` caller relocates it to ``max(cast_slots) + 1``.
+SCENE_SOCKET_INDEX = 0  # placeholder; actual value set on the class.
 
 
 class BuildPlanFromStoryboard(object):
@@ -842,15 +919,16 @@ class BuildPlanFromStoryboard(object):
     CATEGORY = CATEGORY
 
     def build(self, storyboard, seed=0, **kwargs):
-        # Collect the wired bundles in slot order (character_1..N then scene_1).
-        bundles: list[dict] = []
+        # Collect the wired bundles into a slot-keyed dict. Empty
+        # sockets are PRESERVED as None — ``assemble_plan`` raises when
+        # a cast slot is empty (PLAN §4.2 "不把空洞压紧"); non-empty
+        # sockets keep their character_slot identity.
+        slot_bundles: dict[int, dict | None] = {}
         for i in range(1, self.MAX_SLOTS + 1):
-            bundle = kwargs.get("character_%d" % i)
-            if isinstance(bundle, dict):
-                bundles.append(bundle)
-        scene_bundle = kwargs.get("scene_1")
-        if isinstance(scene_bundle, dict):
-            bundles.append(scene_bundle)
+            slot_bundles[i] = kwargs.get("character_%d" % i)
+        # Park the scene bundle at MAX + 1; ``assemble_plan`` relocates
+        # it to ``max(cast_slots) + 1`` once it knows the cast.
+        slot_bundles[self.MAX_SLOTS + 1] = kwargs.get("scene_1")
 
         # Validate the storyboard bundle. The load node already ran
         # validation, but a stray hand-edited bundle is not unusual.
@@ -860,15 +938,34 @@ class BuildPlanFromStoryboard(object):
 
         out = assemble_plan(
             storyboard=cleaned,
-            slot_bundles=bundles,
+            slot_bundles=slot_bundles,
             seed_base=int(seed),
             _skip_validation=True,  # we just validated above
         )
 
+        # The MIE_ASSET_ROSTER contract: characters in slot order, then
+        # the scene. We walk the resolved slot dict (so empty sockets
+        # stay out of the roster) and emit one entry per occupied slot.
+        roster: list[dict] = []
+        bundles_for_images: list[dict] = []
+        cast_slots = sorted({int(v["character_slot"])
+                             for v in cleaned["cast"].values()})
+        max_cast_slot = max(cast_slots) if cast_slots else 0
+        scene_slot = max_cast_slot + 1
+        for slot in cast_slots:
+            bundle = slot_bundles.get(slot)
+            if isinstance(bundle, dict):
+                roster.append(bundle)
+                bundles_for_images.append(bundle)
+        scene_bundle = slot_bundles.get(scene_slot)
+        if isinstance(scene_bundle, dict):
+            roster.append(scene_bundle)
+            bundles_for_images.append(scene_bundle)
+
         # Build the IMAGE batch (None when shapes disagree, like V2).
         import torch
         tensors = []
-        for bundle in bundles:
+        for bundle in bundles_for_images:
             image = bundle.get("image") if isinstance(bundle, dict) else None
             if image is None:
                 continue
@@ -877,7 +974,7 @@ class BuildPlanFromStoryboard(object):
         size_note = ""
         if tensors:
             shapes: dict = {}
-            for t, b in zip(tensors, bundles):
+            for t, b in zip(tensors, bundles_for_images):
                 shapes.setdefault(
                     tuple(t.shape[1:]), []
                 ).append(b.get("name") or "?")
@@ -909,10 +1006,5 @@ class BuildPlanFromStoryboard(object):
             summary_bits.append(size_note)
         summary = "\n".join(summary_bits)
 
-        # The MIE_ASSET_ROSTER contract: characters in slot order, then
-        # scenes in slot order. ``Asset → Slots`` consumes this list
-        # unchanged.
-        assets = list(bundles)
-
         plan_json_str = plan_to_json_string(out["plan"])
-        return (plan_json_str, summary, images, assets)
+        return (plan_json_str, summary, images, roster)

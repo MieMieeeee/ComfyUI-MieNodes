@@ -155,7 +155,10 @@ def golden_storyboard():
 
 def _make_bundles(storyboard):
     """Two-character + one-scene bundles in slot order, mirroring what
-    the V2 generator's ``_build_roster_from_bundles`` would emit."""
+    the V2 generator's ``_build_roster_from_bundles`` would emit.
+
+    Returns a dict keyed by picture number (``character_slot`` for
+    characters, ``max(cast_slots) + 1`` for the scene)."""
     import torch
 
     used_slots = sorted(
@@ -165,9 +168,11 @@ def _make_bundles(storyboard):
     if used_slots != list(range(1, len(used_slots) + 1)):
         raise ValueError("fixture expects character_slots to be 1..N")
 
-    bundles: list[dict] = []
-    for name, info in storyboard["cast"].items():
-        bundles.append({
+    bundles: dict[int, dict | None] = {}
+    for slot, (name, info) in zip(
+        used_slots, storyboard["cast"].items(),
+    ):
+        bundles[slot] = {
             "kind": "character",
             "name": name,
             "description": (
@@ -185,14 +190,15 @@ def _make_bundles(storyboard):
                 "waveform": torch.zeros(1, 1, 1600),
                 "sample_rate": 16000,
             },
-        })
-    bundles.append({
+        }
+    scene_slot = max(used_slots) + 1
+    bundles[scene_slot] = {
         "kind": "scene",
         "name": "客厅",
         "description": "A cozy cottage living room with a sofa against the wall.",
         "ambience": "",
         "image": torch.zeros(1, 8, 8, 3),
-    })
+    }
     return bundles
 
 
@@ -578,7 +584,7 @@ class TestAssemblePlan:
     def test_empty_voice_is_a_hard_error(self, sb_modules, golden_storyboard):
         builder = sb_modules["builder"]
         bundles = _make_bundles(golden_storyboard)
-        bundles[0]["voice"] = ""  # strip 孙女's voice
+        bundles[1]["voice"] = ""  # strip 孙女's voice (slot 1)
         with pytest.raises(ValueError, match="empty voice"):
             builder.assemble_plan(
                 storyboard=golden_storyboard,
@@ -589,7 +595,7 @@ class TestAssemblePlan:
     def test_missing_audio_is_a_hard_error(self, sb_modules, golden_storyboard):
         builder = sb_modules["builder"]
         bundles = _make_bundles(golden_storyboard)
-        bundles[0]["audio"] = None  # strip 孙女's audio
+        bundles[1]["audio"] = None  # strip 孙女's audio (slot 1)
         with pytest.raises(ValueError, match="no audio sample"):
             builder.assemble_plan(
                 storyboard=golden_storyboard,
@@ -601,7 +607,7 @@ class TestAssemblePlan:
         builder = sb_modules["builder"]
         bundles = _make_bundles(golden_storyboard)
         # Drop the second character — its character_slot (2) is empty.
-        bundles = [bundles[0], bundles[2]]
+        del bundles[2]
         with pytest.raises(ValueError, match="character_slot 2"):
             builder.assemble_plan(
                 storyboard=golden_storyboard,
@@ -613,11 +619,76 @@ class TestAssemblePlan:
         builder = sb_modules["builder"]
         bundles = _make_bundles(golden_storyboard)
         # Drop the scene bundle.
-        bundles = bundles[:2]
+        scene_slot = max(bundles.keys())
+        del bundles[scene_slot]
         with pytest.raises(ValueError, match="scene"):
             builder.assemble_plan(
                 storyboard=golden_storyboard,
                 slot_bundles=bundles,
+                seed_base=1,
+            )
+
+    def test_non_contiguous_wiring_raises_loudly(self, sb_modules):
+        """P0 (review 2026-10-19): cast uses slots {1, 2}, user wires
+        only character_1 + character_3 (character_2 empty). The build
+        node MUST raise rather than silently bind slot 2 to whatever is
+        wired at character_3."""
+        builder = sb_modules["builder"]
+        # Reuse _make_bundles to get well-formed character bundles.
+        # Build a storyboard whose cast has slots 1 and 2.
+        sb = {
+            "name": "p0", "version": 1, "language": "en",
+            "camera_discipline": "locked", "pacing": "normal",
+            "seed_policy": "per_scene_increment",
+            "prompt_prefix": "global style.",
+            "cast": {
+                "甲": {"character_slot": 1},
+                "乙": {"character_slot": 2},
+            },
+            "shots": [{"lines": [
+                {"speaker": "甲", "text": "hi 1"},
+                {"speaker": "乙", "text": "hi 2"},
+            ]}],
+        }
+        bundles = _make_bundles(sb)
+        # Force the hole: drop slot 2, keep only slot 1 and the scene.
+        del bundles[2]
+        with pytest.raises(ValueError, match="character_slot 2"):
+            builder.assemble_plan(
+                storyboard=sb,
+                slot_bundles=bundles,
+                seed_base=1,
+            )
+
+    def test_compact_wiring_does_not_misbind_slot(self, sb_modules):
+        """Sanity guard for the P0 fix: even if the user accidentally
+        passes a list of bundles in slot enumeration order (without
+        None padding), the new dict API surfaces the right error
+        instead of silently re-binding."""
+        builder = sb_modules["builder"]
+        sb = {
+            "name": "p0", "version": 1, "language": "en",
+            "camera_discipline": "locked", "pacing": "normal",
+            "seed_policy": "per_scene_increment",
+            "prompt_prefix": "global style.",
+            "cast": {
+                "甲": {"character_slot": 1},
+                "乙": {"character_slot": 2},
+            },
+            "shots": [{"lines": [
+                {"speaker": "甲", "text": "hi 1"},
+                {"speaker": "乙", "text": "hi 2"},
+            ]}],
+        }
+        bundles = _make_bundles(sb)
+        # Caller passes a list — the API is now strict (no list
+        # compaction). Surfaces the API drift loudly rather than
+        # re-introducing the silent misbind.
+        list_bundles = list(bundles.values())
+        with pytest.raises(ValueError, match="dict"):
+            builder.assemble_plan(
+                storyboard=sb,
+                slot_bundles=list_bundles,
                 seed_base=1,
             )
 
@@ -642,11 +713,15 @@ class TestAssemblePlan:
         """§3.2: storyboard ambience > scene ambience > camera-discipline fallback."""
         builder = sb_modules["builder"]
         bundles = _make_bundles(golden_storyboard)
+        # Scene bundle lives at slot max(cast_slots) + 1.
+        scene_slot = max(
+            int(v["character_slot"]) for v in golden_storyboard["cast"].values()
+        ) + 1
 
         # Case 1: storyboard ambience wins.
         sb1 = dict(golden_storyboard)
         bundles1 = _make_bundles(sb1)
-        bundles1[2]["ambience"] = "scene ambience"
+        bundles1[scene_slot]["ambience"] = "scene ambience"
         out1 = builder.assemble_plan(
             storyboard=sb1, slot_bundles=bundles1, seed_base=1,
         )
@@ -655,20 +730,29 @@ class TestAssemblePlan:
         # Case 2: no storyboard ambience, scene ambience wins.
         sb2 = {**golden_storyboard, "ambience": ""}
         bundles2 = _make_bundles(sb2)
-        bundles2[2]["ambience"] = "scene-only tone"
+        bundles2[scene_slot]["ambience"] = "scene-only tone"
         out2 = builder.assemble_plan(
             storyboard=sb2, slot_bundles=bundles2, seed_base=1,
         )
         assert out2["ambience"] == "scene-only tone"
 
-        # Case 3: both empty -> discipline fallback.
+        # Case 3: both empty -> discipline fallback (three distinct
+        # lines — the discipline actually picks).
         sb3 = {**golden_storyboard, "ambience": ""}
         bundles3 = _make_bundles(sb3)
-        bundles3[2]["ambience"] = ""
+        bundles3[scene_slot]["ambience"] = ""
         out3 = builder.assemble_plan(
             storyboard=sb3, slot_bundles=bundles3, seed_base=1,
         )
-        assert out3["ambience"] == "The room tone stays quiet and even throughout."
+        # The "locked" fallback line is now visibly distinct from
+        # no_closeups / auto.
+        assert out3["ambience"] != "no_closeups' line" and \
+            out3["ambience"].startswith("The room tone stays quiet and even")
+        # And the three fallback strings are different from each other.
+        assert builder.AMBIENCE_FALLBACKS["locked"] != \
+            builder.AMBIENCE_FALLBACKS["no_closeups"]
+        assert builder.AMBIENCE_FALLBACKS["locked"] != \
+            builder.AMBIENCE_FALLBACKS["auto"]
 
     def test_summary_mentions_mechanical_source(self, sb_modules, golden_storyboard):
         builder = sb_modules["builder"]

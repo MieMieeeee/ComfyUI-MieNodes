@@ -372,6 +372,39 @@ def validate_spatial_layout(layout, cast):
     return cleaned
 
 
+def validate_lines(raw_lines):
+    """``lines``: a flat list of ``{speaker, text, picture?}`` entries
+    (PLAN §3.1 auto-pack field). Speaker names must be in ``cast``;
+    text is verbatim; picture cue is the same English-only rule as
+    ``shots[].lines[].picture``."""
+    if not isinstance(raw_lines, list) or not raw_lines:
+        raise ValueError(
+            "lines must be a non-empty list of {speaker, text, picture?}"
+        )
+    cleaned: list[dict] = []
+    for idx, raw_entry in enumerate(raw_lines, 1):
+        if not isinstance(raw_entry, dict):
+            raise ValueError(
+                "lines[%d] must be an object, got %s"
+                % (idx, type(raw_entry).__name__)
+            )
+        speaker = raw_entry.get("speaker")
+        text = raw_entry.get("text")
+        if not isinstance(speaker, str) or not speaker.strip():
+            raise ValueError(
+                "lines[%d]: 'speaker' must be a non-empty string" % idx
+            )
+        if not isinstance(text, str) or not text.strip():
+            raise ValueError(
+                "lines[%d]: 'text' must be a non-empty string" % idx
+            )
+        entry = {"speaker": speaker.strip(), "text": text}
+        if "picture" in raw_entry and raw_entry["picture"] not in (None, ""):
+            entry["picture"] = validate_picture_cue(raw_entry["picture"])
+        cleaned.append(entry)
+    return cleaned
+
+
 def validate_storyboard_payload(payload, *, require_shots=False):
     """Shape-check the JSON dict. Returns the cleaned dict.
 
@@ -419,6 +452,12 @@ def validate_storyboard_payload(payload, *, require_shots=False):
     ambience = validate_ambience_line(payload.get("ambience", ""))
 
     raw_shots = payload.get("shots")
+    raw_lines = payload.get("lines")
+    if raw_shots is not None and raw_lines is not None:
+        raise ValueError(
+            "storyboard carries both 'shots' and 'lines'; provide exactly "
+            "one — 'shots' for an authored cut, 'lines' for auto-packing"
+        )
     if raw_shots is None:
         if require_shots:
             raise ValueError(
@@ -428,12 +467,16 @@ def validate_storyboard_payload(payload, *, require_shots=False):
         shots = None
     else:
         shots = validate_shots(raw_shots)
+    if raw_lines is None:
+        lines = None
+    else:
+        lines = validate_lines(raw_lines)
 
     spatial_layout = validate_spatial_layout(
         payload.get("spatial_layout"), cast,
     )
 
-    # Cross-check: every speaker in shots must be in cast.
+    # Cross-check: every speaker in shots or lines must be in cast.
     if shots:
         for shot_idx, shot in enumerate(shots, 1):
             for line_idx, line in enumerate(shot["lines"], 1):
@@ -443,6 +486,13 @@ def validate_storyboard_payload(payload, *, require_shots=False):
                         % (shot_idx, line_idx, line["speaker"],
                            sorted(cast.keys()))
                     )
+    if lines:
+        for idx, line in enumerate(lines, 1):
+            if line["speaker"] not in cast:
+                raise ValueError(
+                    "lines[%d]: speaker %r is not in cast %s"
+                    % (idx, line["speaker"], sorted(cast.keys()))
+                )
 
     cleaned = {
         "name": name,
@@ -457,6 +507,8 @@ def validate_storyboard_payload(payload, *, require_shots=False):
         "shots": shots,
         "spatial_layout": spatial_layout,
     }
+    if lines is not None:
+        cleaned["lines"] = lines
     if ambience:
         cleaned["ambience"] = ambience
     return cleaned
