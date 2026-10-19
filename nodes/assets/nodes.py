@@ -21,8 +21,10 @@ from PIL import Image
 
 try:
     from _mienodes_internal.nodes.assets import library
+    from _mienodes_internal.nodes.assets import storyboard as _storyboard
 except ImportError:
     from . import library
+    from . import storyboard as _storyboard
 
 ASSETS_CATEGORY = "🐑 MieNodes/🐑 Assets"
 
@@ -343,6 +345,16 @@ class SaveAssetV2(object):
         "角色音色的英文一行描述（年龄/性别/音域/语速/质感，≤200 字符）；场景类型忽略本字段。\n"
         "One-line English timbre descriptor for characters (age/gender/register/pace/texture, <=200 chars); ignored for scenes."
     )
+    _AMBIENCE_PLACEHOLDER = (
+        "场景氛围 · Scene ambience（英文一行 EN one line，≤400 字符 chars，仅场景 · scene only，可空）\n"
+        "例 e.g.: quiet room tone with soft indoor air, no music"
+    )
+    _AMBIENCE_TIP = (
+        "场景的氛围句（英文一行，≤400 字符；空 = 保留磁盘值，新场景则不写）。零 LLM 分镜组装节点会"
+        "原样注入 plan。仅场景类型生效。\n"
+        "One-line English ambience (≤400 chars; empty = preserve the on-disk value, leave it "
+        "absent on new scenes). Inserted verbatim by the zero-LLM storyboard assembler. Scene kind only."
+    )
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -365,6 +377,12 @@ class SaveAssetV2(object):
                     "multiline": True,
                     "placeholder": cls._VOICE_PLACEHOLDER,
                     "tooltip": cls._VOICE_TIP,
+                }),
+                "ambience": ("STRING", {
+                    "default": "",
+                    "multiline": True,
+                    "placeholder": cls._AMBIENCE_PLACEHOLDER,
+                    "tooltip": cls._AMBIENCE_TIP,
                 }),
                 "new_name": ("STRING", {"default": "", "placeholder": "新资产的名字 · new asset name"}),
             },
@@ -398,18 +416,26 @@ class SaveAssetV2(object):
 
     def save(self, kind="character", library_dir="", name="", description="",
              voice="", new_name="", image=None, audio=None,
-             image_upload="", audio_upload=""):
+             image_upload="", audio_upload="", ambience=""):
         name = resolve_save_name(name, new_name)
         if image is None and (image_upload or "").strip():
             image = upload_image_to_tensor((image_upload or "").strip())
         if kind == "scene":
             png = None if image is None else image_tensor_to_png_bytes(image)
-            result = library.save_scene("", name, description,
-                                        None if png is None else [png])
+            # Empty widget = "leave the on-disk ambience alone"; non-empty
+            # = write this value. Old code never touched ambience, so old
+            # workflows behave identically.
+            amb_arg = ambience if (ambience or "").strip() else None
+            result = library.save_scene(
+                "", name, description, None if png is None else [png],
+                ambience=amb_arg,
+            )
             picture = png_bytes_list_to_image_tensor(result["png_bytes_list"][:1])
             bundle = {
                 "kind": "scene", "name": result["name"],
-                "description": result["description"], "image": picture,
+                "description": result["description"],
+                "ambience": result.get("ambience") or "",
+                "image": picture,
             }
             return (result["name"], result["description"], "", picture,
                     result["status"], bundle)
@@ -448,6 +474,10 @@ class SaveCharacterAssetV2(SaveAssetV2):
     def INPUT_TYPES(cls):
         base = super().INPUT_TYPES()
         base["required"].pop("kind")
+        # Characters don't carry ambience — drop the widget from the
+        # legacy character node so its widgets_values shape stays
+        # byte-compatible with pre-2026-10-19 saved graphs.
+        base["required"].pop("ambience", None)
         return base
 
     FUNCTION = "save_character"
@@ -507,7 +537,9 @@ class LoadAssetV2(object):
             image = png_bytes_list_to_image_tensor(loaded["png_bytes_list"])
             bundle = {
                 "kind": "scene", "name": loaded["name"],
-                "description": loaded["description"], "image": image,
+                "description": loaded["description"],
+                "ambience": loaded.get("ambience") or "",
+                "image": image,
             }
             return (loaded["name"], loaded["description"], "", image, None,
                     bundle)
@@ -558,7 +590,9 @@ class SaveSceneAssetV2(SaveAssetV2):
     """Legacy per-kind save node — hidden, loads old workflows.
 
     Pops the character-only widgets too (voice / audio / audio_upload) so
-    the widget order matches the pre-merge scene node exactly."""
+    the widget order matches the pre-merge scene node exactly. The legacy
+    scene graph did not carry an ambience widget either, so dropping it
+    here keeps widgets_values byte-compatible."""
 
     CATEGORY = "hidden"
 
@@ -567,6 +601,9 @@ class SaveSceneAssetV2(SaveAssetV2):
         base = super().INPUT_TYPES()
         base["required"].pop("kind")
         base["required"].pop("voice")
+        # No ambience widget on the legacy scene node — strip it so the
+        # widget order matches the pre-2026-10-19 scene shape.
+        base["required"].pop("ambience", None)
         base["optional"].pop("audio")
         base["optional"].pop("audio_upload")
         return base
@@ -892,3 +929,161 @@ class AssetsToRoster(object):
                 % (len(ordered), self.MAX_SLOTS)
             )
         return (ordered,)
+
+
+# --------------------------------------------------------------------------- #
+# Storyboard asset (PLAN_STORYBOARD_ASSET.md §3.1): a hand-written JSON
+# script consumed by the zero-LLM ``BuildPlanFromStoryboard`` node. The
+# on-disk layer lives in ``storyboard.py``; this file owns the node
+# class shells (widget set + bundle shape).
+# --------------------------------------------------------------------------- #
+STORYBOARD_BUNDLE_TYPE = "MIE_STORYBOARD"
+
+STORYBOARD_NAME_PLACEHOLDER = ["（下拉选择分镜）"]
+
+
+class LoadStoryboardAsset(object):
+    """Read one storyboard JSON from ``<root>/storyboards/<name>/``.
+
+    The dropdown lists readable storyboard names (the frontend refreshes
+    it via the existing ``POST /mie_nodes/assets/list`` endpoint extended
+    for the third kind). The output bundle is a plain dict consumed by
+    ``BuildPlanFromStoryboard``; widgets exposed alongside the bundle help
+    callers that want to inspect the raw JSON.
+    """
+
+    CATEGORY = ASSETS_CATEGORY
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "library_dir": ("STRING", {"default": ""}),
+                "name": (list(STORYBOARD_NAME_PLACEHOLDER), {
+                    "default": STORYBOARD_NAME_PLACEHOLDER[0],
+                    "tooltip": (
+                        "分镜名 · Storyboard name：下拉选要加载的分镜；\n"
+                        "改写手头一次保存后请按 R 刷新下拉。"
+                    ),
+                }),
+            },
+        }
+
+    RETURN_TYPES = (STORYBOARD_BUNDLE_TYPE, "STRING")
+    RETURN_NAMES = ("storyboard", "status")
+    FUNCTION = "load"
+
+    @classmethod
+    def IS_CHANGED(cls, library_dir, name):
+        return _storyboard.storyboard_cache_key(library_dir, name)
+
+    @classmethod
+    def VALIDATE_INPUTS(cls, name, **kwargs):
+        return _validate_exempt(name, **kwargs)
+
+    def load(self, library_dir="", name=""):
+        cleaned, path = _storyboard.load_storyboard(library_dir, name)
+        bundle = dict(cleaned)  # pure dict: the builder reads JSON-shaped data
+        bundle["_path"] = path
+        return (bundle, "ok (%s)" % path)
+
+
+class SaveStoryboardAsset(object):
+    """Paste a storyboard JSON and write it to the library.
+
+    Overwrite semantics match Save Asset: pick an existing name = overwrite
+    (``status=overwritten``); type a new name in ``new_name`` = create
+    (``status=created``). Errors carry the absolute JSON path. Empty
+    ``json_text`` is rejected (paste first, then save).
+    """
+
+    CATEGORY = ASSETS_CATEGORY
+
+    _NAME_TIP = (
+        "分镜名：📋 已有分镜 Existing 模式下拉选名字 = 覆盖；✏️ 新建 New "
+        "模式输入名字 = 新建（互斥二选一）。\n"
+        "Storyboard name: 📋 Existing = overwrite, ✏️ New = create."
+    )
+    _JSON_PLACEHOLDER = (
+        "粘贴 storyboard.json 内容（仅英文 prompt_prefix / setting_line / "
+        "picture / ambience；台词可中英按 language 字段；fields 见 docs/"
+        "PLAN_STORYBOARD_ASSET.md §3.1）。\n"
+        "Paste the storyboard.json content here. prompt_prefix, setting_line, "
+        "lines[].picture, and ambience must be English; the line 'text' is "
+        "verbatim and follows the storyboard's 'language'."
+    )
+    _JSON_TIP = (
+        "分镜 JSON：必须含 version=1、language、camera_discipline、pacing、"
+        "seed_policy、prompt_prefix（非空英文 ≥1 行）、cast、shots（≥1 镜，"
+        "每镜 1..2 句；句首词 'speaker' 必须在 cast 中；'text' 锁定逐字）。"
+        "Setting/prefix/picture 含汉字会被拒；空 shots 数组 = 错误。"
+    )
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "library_dir": ("STRING", {"default": ""}),
+                "name": (list(STORYBOARD_NAME_PLACEHOLDER), {
+                    "default": STORYBOARD_NAME_PLACEHOLDER[0],
+                    "tooltip": cls._NAME_TIP,
+                }),
+                "json_text": ("STRING", {
+                    "default": "",
+                    "multiline": True,
+                    "placeholder": cls._JSON_PLACEHOLDER,
+                    "tooltip": cls._JSON_TIP,
+                }),
+                "new_name": ("STRING", {
+                    "default": "",
+                    "placeholder": "新分镜名 · new storyboard name",
+                }),
+            },
+        }
+
+    RETURN_TYPES = ("STRING", STORYBOARD_BUNDLE_TYPE, "STRING")
+    RETURN_NAMES = ("name", "storyboard", "status")
+    FUNCTION = "save"
+    OUTPUT_NODE = True
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        return float("nan")
+
+    @classmethod
+    def VALIDATE_INPUTS(cls, name, new_name="", **kwargs):
+        return _validate_exempt(name, new_name=new_name, **kwargs)
+
+    def save(self, library_dir="", name="", json_text="", new_name=""):
+        name = resolve_save_name(name, new_name)
+        text = (json_text or "").strip()
+        if not text:
+            raise ValueError(
+                "json_text is empty; paste the storyboard JSON before saving"
+            )
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError as e:
+            raise ValueError(
+                "json_text is not valid JSON: %s (line %d, char %d)"
+                % (e.msg, e.lineno, e.colno)
+            ) from e
+        # The payload's name must match the destination name (otherwise a
+    # user could overwrite "Foo" with a JSON that says "Bar" — the
+    # resulting on-disk mismatch is exactly the one the load node
+    # rejects loudly).
+        payload_name = payload.get("name")
+        if not isinstance(payload_name, str) or not payload_name.strip():
+            raise ValueError(
+                "json_text 'name' must be a non-empty string"
+            )
+        if payload_name.strip() != name:
+            raise ValueError(
+                "json_text 'name' is %r but the destination is %r; "
+                "rename the JSON or pick the matching destination name"
+                % (payload_name.strip(), name)
+            )
+        cleaned, path, status = _storyboard.save_storyboard(library_dir, payload)
+        bundle = dict(cleaned)
+        bundle["_path"] = path
+        return (cleaned["name"], bundle, "%s (%s)" % (status, path))

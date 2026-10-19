@@ -15,7 +15,7 @@ from _mienodes_internal.nodes.common import ShowAnythingMie, ShowAndSaveAnything
 from _mienodes_internal.nodes.files import BatchRenameFiles, BatchDeleteFiles, BatchEditTextFiles, BatchSyncImageCaptionFiles, \
     SummaryTextFiles, BatchConvertImageFiles, DedupImageFiles, ModelDownloader, HFRepoDownloader
 from _mienodes_internal.nodes.llm import TextTranslator, PromptGenerator, KontextPromptGenerator, AddUserKontextPreset, RemoveUserKontextPreset, \
-    FrameTransitionPromptGenerator, HunyuanVideoI2VPromptGenerator, HunyuanVideoT2VPromptGenerator, ZImagePromptGenerator, Flux2PromptGenerator, FluxKleinT2VPromptGenerator, LTX2PromptGenerator, BerniniPromptGenerator, Ideogram4PromptGenerator, CustomSystemPromptGenerator, AddCustomSystemPrompt, RemoveCustomSystemPrompt, Scail2PromptGenerator, Krea2PromptGenerator, MiniMaxH3PromptGenerator, LTX25PromptGenerator, MiniMaxH3StoryboardGenerator, MiniMaxH3LoopPromptGenerator, SaveCharacterAssetAutoV2, SaveSceneAssetAutoV2, SaveAssetAutoV2, MiniMaxH3LoopPromptGeneratorV2, MiniMaxH3LoopUserInputEnhancer, QwenImage21PromptGenerator
+    FrameTransitionPromptGenerator, HunyuanVideoI2VPromptGenerator, HunyuanVideoT2VPromptGenerator, ZImagePromptGenerator, Flux2PromptGenerator, FluxKleinT2VPromptGenerator, LTX2PromptGenerator, BerniniPromptGenerator, Ideogram4PromptGenerator, CustomSystemPromptGenerator, AddCustomSystemPrompt, RemoveCustomSystemPrompt, Scail2PromptGenerator, Krea2PromptGenerator, MiniMaxH3PromptGenerator, LTX25PromptGenerator, MiniMaxH3StoryboardGenerator, MiniMaxH3LoopPromptGenerator, SaveCharacterAssetAutoV2, SaveSceneAssetAutoV2, SaveAssetAutoV2, MiniMaxH3LoopPromptGeneratorV2, MiniMaxH3LoopUserInputEnhancer, QwenImage21PromptGenerator, Flux3KleinPromptUpsampler, BuildPlanFromStoryboard
 from _mienodes_internal.services.llm import SetGeneralLLMServiceConnector, SetSiliconFlowLLMServiceConnector, \
     SetZhiPuLLMServiceConnector, SetZhiPuCodeLLMServiceConnector, SetKimiLLMServiceConnector, \
     SetDeepSeekLLMServiceConnector, SetGeminiLLMServiceConnector, SetBailianLLMServiceConnector, \
@@ -39,7 +39,8 @@ from _mienodes_internal.nodes.loop import MieLoopStart, MieLoopResume, MieLoopBo
 from _mienodes_internal.nodes.assets import \
     SaveAssetV2, LoadAssetV2, DeleteAsset, \
     SaveCharacterAssetV2, LoadCharacterAssetV2, SaveSceneAssetV2, LoadSceneAssetV2, \
-    DeleteCharacterAsset, DeleteSceneAsset, AssetToSlots, AssetsToRoster
+    DeleteCharacterAsset, DeleteSceneAsset, AssetToSlots, AssetsToRoster, \
+    LoadStoryboardAsset, SaveStoryboardAsset
 from _mienodes_internal.core.utils import add_suffix, add_emoji
 
 WEB_DIRECTORY = "./js"
@@ -117,6 +118,8 @@ NODE_CLASS_MAPPINGS = {
     add_suffix("MiniMaxH3LoopPromptGeneratorV2"): MiniMaxH3LoopPromptGeneratorV2,
     add_suffix("MiniMaxH3LoopUserInputEnhancer"): MiniMaxH3LoopUserInputEnhancer,
     add_suffix("QwenImage21PromptGenerator"): QwenImage21PromptGenerator,
+    add_suffix("Flux3KleinPromptUpsampler"): Flux3KleinPromptUpsampler,
+    add_suffix("BuildPlanFromStoryboard"): BuildPlanFromStoryboard,
     add_suffix("GetAbsolutePath"): GetAbsolutePath,
     add_suffix("GetFileInfo"): GetFileInfo,
     add_suffix("GetDirectoryFilesInfo"): GetDirectoryFilesInfo,
@@ -161,6 +164,8 @@ NODE_CLASS_MAPPINGS = {
     add_suffix("DeleteSceneAsset"): DeleteSceneAsset,
     add_suffix("AssetToSlots"): AssetToSlots,
     add_suffix("AssetsToRoster"): AssetsToRoster,
+    add_suffix("LoadStoryboardAsset"): LoadStoryboardAsset,
+    add_suffix("SaveStoryboardAsset"): SaveStoryboardAsset,
     add_suffix("SaveAssetAutoV2"): SaveAssetAutoV2,
     add_suffix("SaveCharacterAssetAutoV2"): SaveCharacterAssetAutoV2,
     add_suffix("SaveSceneAssetAutoV2"): SaveSceneAssetAutoV2,
@@ -272,6 +277,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     add_suffix("MiniMaxH3LoopPromptGeneratorV2"): add_emoji("MiniMax H3 Loop Plan Generator V2"),
     add_suffix("MiniMaxH3LoopUserInputEnhancer"): add_emoji("MiniMax H3 Loop User Input Enhancer"),
     add_suffix("QwenImage21PromptGenerator"): add_emoji("Qwen-Image-2.1 Prompt Generator"),
+    add_suffix("Flux3KleinPromptUpsampler"): add_emoji("FLUX.3 Klein Prompt Upsampler"),
+    add_suffix("BuildPlanFromStoryboard"): add_emoji("MiniMax H3 Build Plan From Storyboard (Zero LLM)"),
     add_suffix("GetAbsolutePath"): add_emoji("Get Absolute Path"),
     add_suffix("GetFileInfo"): add_emoji("Get File Info"),
     add_suffix("GetDirectoryFilesInfo"): add_emoji("Get Directory Files Info"),
@@ -316,6 +323,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     add_suffix("DeleteSceneAsset"): add_emoji("Delete Scene Asset"),
     add_suffix("AssetToSlots"): add_emoji("Asset → Slots"),
     add_suffix("AssetsToRoster"): add_emoji("Asset → Assets"),
+    add_suffix("LoadStoryboardAsset"): add_emoji("Load Storyboard Asset"),
+    add_suffix("SaveStoryboardAsset"): add_emoji("Save Storyboard Asset"),
     add_suffix("SaveAssetAutoV2"): add_emoji("Save Asset (Auto)"),
     add_suffix("SaveCharacterAssetAutoV2"): add_emoji("Save Character Asset (Auto)"),
     add_suffix("SaveSceneAssetAutoV2"): add_emoji("Save Scene Asset (Auto)"),

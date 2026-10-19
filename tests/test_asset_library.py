@@ -104,6 +104,76 @@ def test_v2_scene_roundtrip_multi_image(lib_dir):
 
 
 # --------------------------------------------------------------------------- #
+# Scene ambience (zero-LLM assembler reads 1-400 chars of English mood text)
+# --------------------------------------------------------------------------- #
+def test_scene_ambience_roundtrip(lib_dir):
+    png = make_png()
+    res = library.save_scene(
+        str(lib_dir), "Lounge", "warm sofa", [png],
+        ambience="quiet room tone, no music",
+    )
+    assert res["ambience"] == "quiet room tone, no music"
+    loaded = library.load_scene(str(lib_dir), "Lounge")
+    assert loaded["ambience"] == "quiet room tone, no music"
+    json_doc = read_json(lib_dir / "scenes" / "Lounge" / "scene.json")
+    assert json_doc["ambience"] == "quiet room tone, no music"
+
+
+def test_scene_ambience_save_overwrite_preserves_when_omitted(lib_dir):
+    png = make_png()
+    library.save_scene(str(lib_dir), "Lounge", "warm sofa", [png],
+                       ambience="quiet room tone")
+    # Empty ambience on overwrite = keep what was authored (NOT clear).
+    res = library.save_scene(str(lib_dir), "Lounge", "warm sofa v2", [png])
+    assert res["ambience"] == "quiet room tone"
+    loaded = library.load_scene(str(lib_dir), "Lounge")
+    assert loaded["ambience"] == "quiet room tone"
+    assert loaded["description"] == "warm sofa v2"
+
+
+def test_scene_without_ambience_loads_transparently(lib_dir):
+    """Old scene.json (pre-2026-10-19) has no ambience key — load returns
+    ``ambience=""`` so the assembly node's three-sentence palette kicks in."""
+    png = make_png()
+    library.save_scene(str(lib_dir), "OldLounge", "warm sofa", [png])
+    scene_json = (lib_dir / "scenes" / "OldLounge" / "scene.json")
+    raw = json.loads(scene_json.read_text(encoding="utf-8"))
+    raw.pop("ambience", None)
+    scene_json.write_text(json.dumps(raw, ensure_ascii=False) + "\n",
+                          encoding="utf-8")
+    loaded = library.load_scene(str(lib_dir), "OldLounge")
+    assert loaded["ambience"] == ""
+    # A subsequent save WITHOUT ambience keeps it absent on disk (None path).
+    res = library.save_scene(str(lib_dir), "OldLounge", "warm sofa", [png])
+    assert res["ambience"] == ""
+    on_disk = read_json(scene_json)
+    assert "ambience" not in on_disk
+
+
+def test_scene_ambience_rejects_cjk(lib_dir):
+    png = make_png()
+    with pytest.raises(ValueError, match="must be English"):
+        library.save_scene(str(lib_dir), "X", "d", [png],
+                           ambience="客厅里很安静")
+
+
+def test_scene_ambience_rejects_too_long(lib_dir):
+    png = make_png()
+    with pytest.raises(ValueError, match="longer than"):
+        library.save_scene(str(lib_dir), "X", "d", [png],
+                           ambience="a" * (library.AMBIENCE_MAX_CHARS + 1))
+
+
+def test_scene_ambience_none_is_preserve(lib_dir):
+    png = make_png()
+    library.save_scene(str(lib_dir), "X", "d", [png], ambience="hello")
+    res = library.save_scene(str(lib_dir), "X", "d", [png], ambience=None)
+    assert res["ambience"] == "hello"
+    loaded = library.load_scene(str(lib_dir), "X")
+    assert loaded["ambience"] == "hello"
+
+
+# --------------------------------------------------------------------------- #
 # Group replace / keep semantics (acceptance 6)
 # --------------------------------------------------------------------------- #
 def test_keep_media_on_text_only_save(lib_dir):

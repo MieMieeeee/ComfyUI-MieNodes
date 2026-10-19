@@ -14,13 +14,17 @@ Library layout (V2):
     <library_dir>/characters/<name>/audio/02.mp3     .mp3 read as-is (never
                                                      both extensions on one
                                                      index)
-    <library_dir>/scenes/<name>/scene.json           name + description
+    <library_dir>/scenes/<name>/scene.json           name + description + ambience (optional)
     <library_dir>/scenes/<name>/images/01.png        1-8 PNGs
 
 Pre-V2 layouts (portrait.png / voice_sample.* / scene.png / JSON
 ``appearance``) are read transparently as a one-image / one-clip asset; the
 next successful save rewrites the new layout and deletes the superseded
 files, so nothing is ever counted twice. Read-only access never deletes.
+
+``ambience`` is the optional one-line English mood sentence used by the
+zero-LLM storyboard assembler (PLAN_STORYBOARD_ASSET.md §3.2). Old scenes
+without the field load transparently with ``ambience = ''``.
 
 ``description`` and ``voice`` are authored English text inserted into the H3
 prompt verbatim.
@@ -44,6 +48,7 @@ NAME_MAX_CHARS = 40
 APPEARANCE_MAX_CHARS = 800
 VOICE_MAX_CHARS = 200
 DESCRIPTION_MAX_CHARS = 800
+AMBIENCE_MAX_CHARS = 400
 
 CHARACTERS_DIRNAME = "characters"
 SCENES_DIRNAME = "scenes"
@@ -227,6 +232,32 @@ def validate_description(description):
             % (DESCRIPTION_MAX_CHARS, len(d))
         )
     return d
+
+
+def validate_ambience(ambience):
+    """Return the stripped scene ambience (0..400 chars), or raise ValueError.
+
+    Empty / None is legal (the storyboard assembler falls back to its own
+    three-sentence palette). Reject CJK so the zero-LLM assembler can rely
+    on the field being English (it is inserted into the prompt verbatim).
+    """
+    if ambience is None:
+        return ""
+    if not isinstance(ambience, str):
+        raise ValueError(
+            "ambience must be a string, got %s" % type(ambience).__name__
+        )
+    a = ambience.strip()
+    if len(a) > AMBIENCE_MAX_CHARS:
+        raise ValueError(
+            "ambience longer than %d characters (%d given)"
+            % (AMBIENCE_MAX_CHARS, len(a))
+        )
+    if re.search(r"[\u3400-\u9FFF]", a):
+        raise ValueError(
+            "ambience must be English (no CJK characters); got %r" % a
+        )
+    return a
 
 
 def _find_casefold_sibling(parent, wanted):
@@ -812,8 +843,10 @@ def read_asset_meta(library_dir, name, kind, plugin_root=None):
                 "scene %r not found under %s" % (n, root / SCENES_DIRNAME)
             )
         payload = _read_asset_json(target / SCENE_JSON_NAME, ("description",))
+        raw_ambience = payload.get("ambience")
+        ambience = validate_ambience(raw_ambience) if isinstance(raw_ambience, str) else ""
         meta = {"kind": "scene", "name": target.name,
-                "description": payload["description"]}
+                "description": payload["description"], "ambience": ambience}
     else:
         raise ValueError("kind must be 'character' or 'scene', got %r" % kind)
     try:
@@ -857,9 +890,17 @@ def _character_entry_problem(entry):
     return None
 
 
-def save_scene(library_dir, name, description, png_bytes_list=None, plugin_root=None):
+def save_scene(library_dir, name, description, png_bytes_list=None,
+              ambience=None, plugin_root=None):
     """Write one scene in the V2 layout. Same keep/replace commit shape as
-    save_character, minus audio (scenes have none)."""
+    save_character, minus audio (scenes have none).
+
+    ``ambience`` is the optional one-line English mood sentence used by the
+    zero-LLM storyboard assembler (PLAN_STORYBOARD_ASSET.md §3.2). Pass
+    ``None`` to PRESERVE the on-disk value; pass ``""`` (empty) to clear it.
+    On a brand-new scene, ``None`` or ``""`` writes no ambience field; a
+    non-empty string writes it.
+    """
     root = validate_library_dir(library_dir, plugin_root)
     n = validate_name(name)
     d = validate_description(description)
@@ -918,10 +959,31 @@ def save_scene(library_dir, name, description, png_bytes_list=None, plugin_root=
             # only image (same promotion as a character's portrait).
             png_bytes_list = [current_images[0][0].read_bytes()]
 
+    # Resolve the on-disk ambience when None is passed (keep the disc value),
+    # so the save roundtrip never silently drops an authored field.
+    resolved_ambience = None
+    if ambience is None and status == "overwritten":
+        existing_json = target_dir / SCENE_JSON_NAME
+        if existing_json.is_file():
+            try:
+                existing_payload = json.loads(
+                    existing_json.read_text(encoding="utf-8")
+                )
+                if isinstance(existing_payload, dict):
+                    prev = existing_payload.get("ambience")
+                    if isinstance(prev, str):
+                        resolved_ambience = prev
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                pass
+    elif ambience is not None:
+        resolved_ambience = validate_ambience(ambience)
+
     target_dir.mkdir(parents=True, exist_ok=True)
     images_dir = target_dir / IMAGES_DIRNAME
     json_path = target_dir / SCENE_JSON_NAME
     json_payload = {"name": target_dir.name, "description": d}
+    if resolved_ambience:
+        json_payload["ambience"] = resolved_ambience
 
     tmp_files = []
     try:
@@ -956,6 +1018,7 @@ def save_scene(library_dir, name, description, png_bytes_list=None, plugin_root=
     return {
         "name": target_dir.name,
         "description": d,
+        "ambience": resolved_ambience or "",
         "status": status,
         "png_bytes_list": [p.read_bytes() for p, _l in images],
     }
@@ -963,7 +1026,12 @@ def save_scene(library_dir, name, description, png_bytes_list=None, plugin_root=
 
 
 def load_scene(library_dir, name, plugin_root=None):
-    """Read one scene (multi-image, legacy scene.png = image 1)."""
+    """Read one scene (multi-image, legacy scene.png = image 1).
+
+    Returns ``ambience``: the optional one-line English mood sentence
+    authored for the zero-LLM storyboard assembler. Old scenes without the
+    key load transparently with ``ambience = ""``.
+    """
     root = validate_library_dir(library_dir, plugin_root)
     n = validate_name(name)
     scenes_dir = root / SCENES_DIRNAME
@@ -978,6 +1046,8 @@ def load_scene(library_dir, name, plugin_root=None):
             "or fix the JSON so both match"
             % (json_path, payload["name"], target_dir.name)
         )
+    raw_ambience = payload.get("ambience")
+    ambience = validate_ambience(raw_ambience) if isinstance(raw_ambience, str) else ""
     try:
         images = _image_files(target_dir)
         _validate_same_size(images)
@@ -986,6 +1056,7 @@ def load_scene(library_dir, name, plugin_root=None):
     return {
         "name": payload["name"],
         "description": payload["description"],
+        "ambience": ambience,
         "png_bytes_list": [p.read_bytes() for p, _legacy in images],
     }
 

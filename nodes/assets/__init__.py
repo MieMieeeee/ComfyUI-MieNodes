@@ -10,4 +10,6 @@ from .nodes import (
     DeleteSceneAsset,
     AssetToSlots,
     AssetsToRoster,
+    LoadStoryboardAsset,
+    SaveStoryboardAsset,
 )
