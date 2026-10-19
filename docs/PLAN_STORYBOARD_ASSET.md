@@ -168,6 +168,11 @@
 槽位规则和 V2 的 `_slot_bundles` 不同：**不把空洞压紧**。
 `character_slot: 2` 就是第二号插座，也是 `<Picture 2>` 和 `(S2)`。
 中间缺线就报错。没被分镜引用的更高号插座忽略。
+**cast 的 `character_slot` 必须连号 1..N**（不允许 `{1, 3}` 或 `{1, 2, 4}`）：
+非连号的 cast 让 plan 里的绝对 `<Picture N>` / `(Sn)` 编号跟
+`Asset → Slots` 压缩后的 picture_i / audio_i 索引错位——plan 说
+`<Picture 3>` 是乙，实际 ref_image_2 才是乙。校验层和组装节点都在
+两端拒绝，连号在 JSON save 时就失败，不需要等运行时才发现。
 图片顺序是被引用的角色槽从 1 数到 N，然后 `scene_1` 占下一个 Picture。
 第一版只有一个场景，所以角色槽最多 8。
 

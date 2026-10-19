@@ -328,6 +328,25 @@ class TestStoryboardDisk:
                 ]}],
             })
 
+    def test_validate_rejects_gap_cast(self, sb_modules):
+        """§7.2 (R2 2026-10-19): the validator layer also catches
+        non-contiguous casts — a user typing ``{1, 3}`` into the
+        save node gets a loud error BEFORE the JSON hits disk."""
+        storyboard = sb_modules["storyboard"]
+        with pytest.raises(ValueError, match="contiguous"):
+            storyboard.validate_storyboard_payload({
+                "name": "X", "version": 1, "language": "en",
+                "prompt_prefix": "ok",
+                "cast": {
+                    "A": {"character_slot": 1},
+                    "B": {"character_slot": 3},
+                },
+                "shots": [{"lines": [
+                    {"speaker": "A", "text": "hi"},
+                    {"speaker": "B", "text": "ho"},
+                ]}],
+            })
+
     def test_save_load_roundtrip(self, sb_modules, lib_dir, golden_storyboard):
         storyboard = sb_modules["storyboard"]
         cleaned, path, status = storyboard.save_storyboard(
@@ -689,6 +708,137 @@ class TestAssemblePlan:
             builder.assemble_plan(
                 storyboard=sb,
                 slot_bundles=list_bundles,
+                seed_base=1,
+            )
+
+    def test_gap_cast_is_rejected(self, sb_modules):
+        """§7.2 (review R2 2026-10-19): cast uses non-contiguous slots
+        (e.g. {1, 3}) MUST raise at assemble time. Silently producing
+        a plan with absolute ``<Picture 3>`` / ``(S3)`` numbering while
+        ``Asset → Slots`` compresses to picture_2/audio_2 puts the
+        speaker's identity text on the wrong reference image.
+
+        NOTE: the validator layer (``validate_cast``) catches this
+        too — that means the user's storyboard.json cannot even be
+        SAVED with a non-contiguous cast. The assemble-time check
+        here is a defence-in-depth check (a hand-built bundle dict
+        could otherwise sneak the gap past the validator)."""
+        import torch
+        builder = sb_modules["builder"]
+        sb = {
+            "name": "gap", "version": 1, "language": "en",
+            "camera_discipline": "locked", "pacing": "normal",
+            "seed_policy": "per_scene_increment",
+            "prompt_prefix": "global style.",
+            "cast": {
+                "甲": {"character_slot": 1},
+                "乙": {"character_slot": 3},
+            },
+            "shots": [{"lines": [
+                {"speaker": "甲", "text": "hi A"},
+                {"speaker": "乙", "text": "hi C"},
+            ]}],
+        }
+        # Build the slot-keyed bundle dict manually — ``_make_bundles``
+        # itself refuses non-contiguous casts (the validator layer
+        # was the FIRST gate; the assemble-time check is the second).
+        bundles = {
+            1: {
+                "kind": "character", "name": "甲",
+                "description": "Asset A.",
+                "voice": "young female, soft timbre",
+                "image": torch.zeros(1, 8, 8, 3),
+                "audio": {
+                    "waveform": torch.zeros(1, 1, 1600),
+                    "sample_rate": 16000,
+                },
+            },
+            3: {
+                "kind": "character", "name": "丙",
+                "description": "Asset C — the LAMB-DIFFERENT.",
+                "voice": "young female, mid timbre",
+                "image": torch.zeros(1, 8, 8, 3),
+                "audio": {
+                    "waveform": torch.zeros(1, 1, 1600),
+                    "sample_rate": 16000,
+                },
+            },
+            4: {  # scene
+                "kind": "scene", "name": "Room",
+                "description": "A room.",
+                "image": torch.zeros(1, 8, 8, 3),
+            },
+        }
+        with pytest.raises(ValueError, match="contiguous"):
+            builder.assemble_plan(
+                storyboard=sb,
+                slot_bundles=bundles,
+                seed_base=1,
+            )
+
+    def test_higher_slot_gap_is_rejected(self, sb_modules):
+        """Symmetric to test_gap_cast_is_rejected: cast uses {1, 2, 4}
+        with slot 3 unwired. The FIRST two slots are contiguous but
+        the gap at the tail is the same physical problem."""
+        import torch
+        builder = sb_modules["builder"]
+        sb = {
+            "name": "tail-gap", "version": 1, "language": "en",
+            "camera_discipline": "locked", "pacing": "normal",
+            "seed_policy": "per_scene_increment",
+            "prompt_prefix": "global style.",
+            "cast": {
+                "甲": {"character_slot": 1},
+                "乙": {"character_slot": 2},
+                "丙": {"character_slot": 4},
+            },
+            "shots": [{"lines": [
+                {"speaker": "甲", "text": "hi 1"},
+                {"speaker": "乙", "text": "hi 2"},
+                {"speaker": "丙", "text": "hi 4"},
+            ]}],
+        }
+        bundles = {
+            1: {
+                "kind": "character", "name": "甲",
+                "description": "Asset A.",
+                "voice": "young female, soft timbre",
+                "image": torch.zeros(1, 8, 8, 3),
+                "audio": {
+                    "waveform": torch.zeros(1, 1, 1600),
+                    "sample_rate": 16000,
+                },
+            },
+            2: {
+                "kind": "character", "name": "乙",
+                "description": "Asset B.",
+                "voice": "elderly male, low voice",
+                "image": torch.zeros(1, 8, 8, 3),
+                "audio": {
+                    "waveform": torch.zeros(1, 1, 1600),
+                    "sample_rate": 16000,
+                },
+            },
+            4: {
+                "kind": "character", "name": "丙",
+                "description": "Asset C — different again.",
+                "voice": "young female, mid timbre",
+                "image": torch.zeros(1, 8, 8, 3),
+                "audio": {
+                    "waveform": torch.zeros(1, 1, 1600),
+                    "sample_rate": 16000,
+                },
+            },
+            5: {  # scene
+                "kind": "scene", "name": "Room",
+                "description": "A room.",
+                "image": torch.zeros(1, 8, 8, 3),
+            },
+        }
+        with pytest.raises(ValueError, match="contiguous"):
+            builder.assemble_plan(
+                storyboard=sb,
+                slot_bundles=bundles,
                 seed_base=1,
             )
 

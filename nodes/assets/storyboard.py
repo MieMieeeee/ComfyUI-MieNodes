@@ -250,8 +250,15 @@ def validate_seed_policy(value):
 
 def validate_cast(cast):
     """``{speaker_name: {"character_slot": N}}`` — slot 1..MAX_CHARACTER_SLOT,
-    unique across speakers, every speaker name valid by the asset whitelist
-    (no path separators, no dots, max NAME_MAX_CHARS)."""
+    unique across speakers, CONTIGUOUS 1..N, every speaker name valid by
+    the asset whitelist (no path separators, no dots, max NAME_MAX_CHARS).
+
+    Contiguity is enforced here (not just at assemble time) because a
+    non-contiguous cast silently makes the plan's ``<Picture N>`` /
+    ``(Sn)`` numbering diverge from ``Asset → Slots``' compressed
+    picture_i / audio_i indexing — review 2026-10-19 R2 caught this
+    silently producing wrong-character references.
+    """
     if not isinstance(cast, dict) or not cast:
         raise ValueError(
             "cast must be a non-empty dict of speaker → {character_slot: N}"
@@ -283,6 +290,18 @@ def validate_cast(cast):
             )
         used_slots.add(slot)
         cleaned[name] = {"character_slot": slot}
+    sorted_slots = sorted(used_slots)
+    expected = list(range(1, len(sorted_slots) + 1))
+    if sorted_slots != expected:
+        raise ValueError(
+            "cast character_slots must be contiguous 1..N (got %s); "
+            "non-contiguous numbering makes <Picture N> in the plan "
+            "point to a different asset than the Asset → Slots wiring, "
+            "so the speaker's identity text would ride on the wrong "
+            "reference image and the voice on the wrong audio. Re-number "
+            "the cast or fill in the missing slot"
+            % sorted_slots
+        )
     return cleaned
 
 

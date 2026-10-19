@@ -538,11 +538,12 @@ def _picture_cue_sentence(cue: str) -> str:
 # --------------------------------------------------------------------------- #
 # Public assembler
 # --------------------------------------------------------------------------- #
-# Picture-numbering convention: characters occupy slots 1..N in the
-# order they appear in the cast, then the scene occupies the next slot.
-# An EXPLICIT cast character_slot > N would land in a gap (rejected
-# loudly) — see the loop in ``assemble_plan`` that asserts every cast
-# slot is wired and that no wired slot exceeds the cast's max.
+# Picture-numbering convention: characters occupy CONTIGUOUS slots
+# 1..N (validated by ``validate_cast`` + re-checked in ``assemble_plan``);
+# the scene sits at ``max(cast_slots) + 1``. The contiguity rule is
+# enforced at three layers — JSON save, JSON load + assemble, and
+# build-time — so a non-contiguous cast fails fast rather than silently
+# producing wrong-character references (review 2026-10-19 R2).
 SCENE_SLOT_OFFSET = 0  # scene sits at ``max(cast_slots) + 1``.
 
 
@@ -603,6 +604,23 @@ def assemble_plan(
     cast_slots = sorted({int(v["character_slot"]) for v in cast.values()})
     if len(cast_slots) != len(cast):
         raise ValueError("duplicate character_slot values in cast")
+    # Required contiguous 1..N — see review 2026-10-19 R2 (gap-cast
+    # silent mis-binding): a non-contiguous cast makes the plan's
+    # absolute ``<Picture N>`` / ``(Sn)`` numbering diverge from
+    # ``Asset → Slots``' compressed picture_i / audio_i indexing, so
+    # identity text rides on the wrong reference image and voice on
+    # the wrong audio. Refuse at the source.
+    expected_slots = list(range(1, len(cast_slots) + 1))
+    if cast_slots != expected_slots:
+        raise ValueError(
+            "cast character_slots must be contiguous 1..N (got %s); "
+            "non-contiguous numbering makes <Picture N> in the plan "
+            "point to a different asset than the Asset → Slots wiring, "
+            "so the speaker's identity text would ride on the wrong "
+            "reference image and the voice on the wrong audio. Re-number "
+            "the cast or fill in the missing slot"
+            % cast_slots
+        )
     if max(cast_slots) > _storyboard.MAX_CHARACTER_SLOT:
         raise ValueError(
             "cast uses character_slot %d; the upper limit is %d"
