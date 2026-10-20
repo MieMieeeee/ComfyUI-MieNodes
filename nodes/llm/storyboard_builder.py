@@ -269,14 +269,16 @@ def _build_manifest(
 ) -> list[dict]:
     """Build the six-section manifest the prompt helpers expect.
 
-    ``used_slots`` is the sorted list of picture numbers actually
-    occupied by the wired bundles (1..N for characters + scene). Each
-    contributes ``{"slot": "Picture N", "about": <asset description>,
-    "role": "identity" or "environment"}``.
+    ``used_slots`` is the sorted list of PICTURE numbers actually
+    occupied (on-screen characters, then the scene). Each contributes
+    ``{"slot": "Picture N", "about": <asset description>, "role":
+    "identity" or "environment"}``.
 
-    The cast's declared ``character_slot`` values are NOT trusted here
-    — by the time ``_build_manifest`` runs, ``slot_to_bundle`` has
-    already been validated to contain every slot the cast needs.
+    Off-screen speakers are NOT in the manifest: they are never
+    rendered, so they take no picture and no Subject. Their voice — if
+    an asset is wired — is bound through the ``(S<n>)`` / audio channel
+    instead (2026-10-20 ruling: the off-screen asset is optional and
+    contributes its VOICE, not a picture).
     """
     picture_specs: list[tuple[int, dict, str]] = []
     for slot in sorted(used_slots):
@@ -377,6 +379,8 @@ def _assemble_one_shot(
     ambience_line: str,
     absent: Optional[list[str]] = None,
     offscreen_names: Optional[set] = None,
+    speaker_ids: Optional[dict[str, str]] = None,
+    speaker_descriptions: Optional[dict[str, str]] = None,
 ) -> dict:
     """Build one shot's schema, segments, length and seed. No LLM.
 
@@ -404,14 +408,13 @@ def _assemble_one_shot(
          if str(name).strip()}
         | {ln["speaker"] for ln in lines if ln.get("speaker")}
     )
+    # Identity text comes from the ASSET description, not from the
+    # manifest: an off-screen speaker has no picture (so no manifest
+    # entry) but still carries a description — the place where the
+    # "never render me" instruction lives.
+    descs = dict(speaker_descriptions or {})
     speaker_identities = {
-        name: next(
-            (m["about"] for m in manifest
-             if m["role"] == "identity"
-             and m["slot"] == "Picture %d" % speaker_to_slot.get(name, -1)),
-            "",
-        )
-        for name in all_names
+        name: descs.get(name, "") for name in all_names
     }
     prompt_lines = _build_storyboard_shot_body(
         prompt_lines,
@@ -423,6 +426,7 @@ def _assemble_one_shot(
         storyboard=storyboard,
         absent=absent,
         offscreen_names=offscreen,
+        speaker_ids=speaker_ids,
     )
 
     pacing = PACING_PRESETS[storyboard.get("pacing", "normal")]
@@ -447,6 +451,7 @@ def _build_storyboard_shot_body(
     storyboard: dict,
     absent: Optional[list[str]] = None,
     offscreen_names: Optional[set] = None,
+    speaker_ids: Optional[dict[str, str]] = None,
 ) -> list[str]:
     """Compose the six-section shot body. The plan §5 deviation note:
     ``install_shot_speech`` wraps a non-still picture cue as "Silent
@@ -458,10 +463,19 @@ def _build_storyboard_shot_body(
     Presence (PLAN_POV_OFFSCREEN §4): ``offscreen_names`` / ``absent``
     default to empty, and with both empty every branch below collapses to
     the pre-POV path, so a non-POV board assembles to identical bytes.
+
+    ``speaker_ids`` maps a speaker to its ``(S<n>)`` tag. The tag is the
+    AUDIO position (the n-th wired character), not the character_slot:
+    an off-screen speaker's asset is optional (2026-10-20 ruling), and
+    leaving it unwired would otherwise leave a hole in the audio list
+    that H3 renumbers around — which would break the (S<n>) ↔
+    ref_audio_N binding. A speaker with no entry here (an unwired
+    off-screen voice) gets NO tag and NO voice descriptor.
     """
     offscreen = set(offscreen_names or ())
     absent_list = list(absent or ())
     pov_board = bool(offscreen)
+    ids = dict(speaker_ids or {})
 
     # Presence is STRUCTURAL, so the anti-POV scrubber must not assert
     # "all speaking characters are visible" on a board that declared an
@@ -482,9 +496,15 @@ def _build_storyboard_shot_body(
     visible_names = present_names
     # Identity pins / bare-name aliases stay FULL CAST on purpose
     # (§4.3): omitting an identity anchor is the historical defect
-    # source, and the whole reference chain is wired anyway.
-    if all_names:
-        pins = identity_pin_lines(all_names, speaker_identities)
+    # source, and the whole reference chain is wired anyway. An
+    # off-screen speaker WITH an asset keeps his alias — the asset
+    # description is where the "never render me" instruction lives.
+    pin_names = [
+        n for n in all_names
+        if n not in offscreen or speaker_identities.get(n)
+    ]
+    if pin_names:
+        pins = identity_pin_lines(pin_names, speaker_identities)
         if pins:
             prompt_lines = _replace_section_body(
                 prompt_lines, "subject_definitions:", pins
@@ -501,6 +521,7 @@ def _build_storyboard_shot_body(
                 % (speaker, sorted(speaker_to_slot))
             )
         voice = slot_to_voice.get(slot, "")
+        sid = ids.get(speaker, "")
         text = ln["text"]
         # Per-line language override (PLAN_POV_OFFSCREEN §3.3) — the
         # board value is the default, so a board with no ``lang`` keys
@@ -509,14 +530,16 @@ def _build_storyboard_shot_body(
             ln.get("lang") or board_lang, DIALOGUE_TAG[board_lang]
         )
         if speaker in offscreen:
+            # An unwired off-screen voice declares NO voice at all and
+            # lets H3 choose one.
             speech_lines.append(offscreen_speech_line(
-                "S%d" % slot, voice, text, tag,
+                sid, voice if sid else "", text, tag,
                 listener=(present_names[0] if present_names else ""),
                 reaction=(ln.get("picture") or "").strip(),
             ))
         else:
             speech_lines.append(on_screen_speech_line(
-                speaker, "S%d" % slot, voice, text, tag,
+                speaker, sid, voice, text, tag,
                 pov_board=pov_board,
             ))
 
@@ -684,6 +707,15 @@ def _missing_slot_message(
     )
 
 
+def _offscreen_slots(cast: dict) -> set[int]:
+    """The character_slots whose cast member is declared off-screen."""
+    return {
+        int(info["character_slot"])
+        for info in cast.values()
+        if isinstance(info, dict) and info.get("offscreen")
+    }
+
+
 def assemble_plan(
     *,
     storyboard: dict,
@@ -694,19 +726,32 @@ def assemble_plan(
 ) -> dict:
     """Pure function: storyboard JSON + slot→bundle map → plan dict.
 
-    ``slot_bundles`` is keyed by picture number:
+    ``slot_bundles`` is keyed by the storyboard's ``character_slot``:
 
     * ``1..MAX_CHARACTER_SLOT`` → character bundle or ``None``;
     * the scene bundle lives at the FIRST unused slot past the cast's
       max (or ``1`` when there are no characters). The build node
       surfaces the scene bundle at index ``MAX_CHARACTER_SLOT + 1``
       (i.e., socket ``scene_1``) and ``assemble_plan`` relocates it
-      here so the picture-numbering contract (``scene = max(cast) +
-      1``) is enforced uniformly.
+      here so the picture-numbering contract stays coherent.
 
-    Every character slot the cast declares must be filled. Every
-    wired slot must be either a character (1..MAX) or the scene at
-    ``max(cast) + 1``. Any mismatch is a loud error.
+    TWO NUMBERING SPACES, and they are not the same thing any more
+    (2026-10-20 ruling: the off-screen speaker's asset is optional and
+    contributes its VOICE, not a picture):
+
+    * **picture space** — ``<Picture N>`` / ``<Subject K>``: the
+      ON-SCREEN characters in cast-slot order, then the scene. An
+      off-screen speaker never appears here: he is never rendered, and
+      handing H3 a picture of him is exactly the risk the placeholder
+      card was invented to avoid. So a POV board really is one
+      character plus one scene.
+    * **voice space** — ``(S<n>)`` / ``ref_audio_N``: the WIRED
+      characters in cast-slot order. ``(S<n>)`` is the AUDIO position,
+      not the character_slot: leaving an off-screen asset unwired would
+      otherwise punch a hole in the audio list, and H3 renumbers around
+      a hole (so the plan's ``(S2)`` would land on the wrong clip).
+      A board with every cast member wired — every non-POV board —
+      has the two spaces identical, so its bytes do not move.
 
     Returns ``{"plan": {...}, "summary_lines": [...], "ambience": str,
     "size_note": ""}``.
@@ -751,20 +796,30 @@ def assemble_plan(
             % (max(cast_slots), _storyboard.MAX_CHARACTER_SLOT)
         )
 
-    # Resolve the picture-numbering layout (where the scene sits).
-    used_slots, scene_slot = _slot_layout(cast, _storyboard.MAX_CHARACTER_SLOT)
+    # Board-level off-screen declaration (PLAN_POV_OFFSCREEN §3.1).
+    board_offscreen = {
+        name for name, info in cast.items() if info.get("offscreen")
+    }
+    onscreen_slots = [s for s in cast_slots if s not in _offscreen_slots(cast)]
+    offscreen_slots = _offscreen_slots(cast)
+
+    # The scene sits at the first slot past the cast's max — it is a
+    # SOCKET position, not a picture number.
+    scene_slot = (max(cast_slots) if cast_slots else 0) + 1
 
     # Strip a scene bundle out of slot_bundles if the build node
     # placed it at MAX+1 — relocate it to the actual scene slot so
-    # the picture numbering stays coherent.
+    # the socket positions stay coherent.
     scene_bundle_raw = slot_bundles.get(_storyboard.MAX_CHARACTER_SLOT + 1)
     if scene_bundle_raw is not None and scene_bundle_raw.get("kind") == "scene":
         slot_bundles = dict(slot_bundles)
         slot_bundles.pop(_storyboard.MAX_CHARACTER_SLOT + 1, None)
         slot_bundles[scene_slot] = scene_bundle_raw
 
-    # Every cast slot must be wired (HARD ERROR — no compaction).
-    for slot in cast_slots:
+    # Every ON-SCREEN cast slot must be wired (HARD ERROR — no
+    # compaction). An OFF-SCREEN slot is optional: wired means "use
+    # this voice", unwired means "declare no voice and let H3 choose".
+    for slot in onscreen_slots:
         bundle = slot_bundles.get(slot)
         if bundle is None:
             raise ValueError(
@@ -777,16 +832,51 @@ def assemble_plan(
                 )
             )
 
-    # Voice / audio checks per character bundle.
+    # Voice / audio checks per WIRED character bundle. An off-screen
+    # slot with nothing wired is legal and simply contributes no voice.
     slot_to_voice: dict[int, str] = {}
+    wired_character_slots: list[int] = []
     for slot in cast_slots:
-        bundle = slot_bundles[slot]
+        bundle = slot_bundles.get(slot)
+        if bundle is None:
+            if slot in offscreen_slots:
+                continue  # optional: no voice declared, H3 chooses
+            raise ValueError(
+                "character_slot %d expected a character bundle, got nothing"
+                % slot
+            )
         if bundle.get("kind") != "character":
             raise ValueError(
                 "character_slot %d expected a character bundle, got kind=%r"
                 % (slot, bundle.get("kind"))
             )
         slot_to_voice[slot] = _check_character_audio(bundle, slot)
+        wired_character_slots.append(slot)
+
+    # VOICE SPACE: ``(S<n>)`` is the AUDIO position — the n-th WIRED
+    # character in cast-slot order. Leaving an off-screen asset unwired
+    # must not punch a hole in the audio list (H3 renumbers around a
+    # hole, and the plan's ``(S2)`` would land on the wrong clip).
+    speaker_ids: dict[str, str] = {}
+    for i, slot in enumerate(wired_character_slots, 1):
+        for name, info in cast.items():
+            if int(info["character_slot"]) == slot:
+                speaker_ids[name] = "S%d" % i
+
+    # PICTURE SPACE: the ON-SCREEN characters in cast-slot order, then
+    # the scene. An off-screen speaker never takes a picture.
+    picture_slots = list(onscreen_slots)
+    picture_of_slot: dict[int, int] = {
+        slot: i for i, slot in enumerate(picture_slots, 1)
+    }
+    picture_of_slot[scene_slot] = len(picture_slots) + 1
+    # The manifest is indexed by PICTURE number (1..N), so build it
+    # against a picture-numbered view of the bundles.
+    picture_bundles = {
+        picture_of_slot[slot]: slot_bundles[slot] for slot in picture_slots
+    }
+    picture_bundles[picture_of_slot[scene_slot]] = slot_bundles.get(scene_slot)
+    used_slots = list(range(1, len(picture_slots) + 2))
 
     # Scene check: exactly one scene bundle at the scene slot.
     scene_bundle = slot_bundles.get(scene_slot)
@@ -794,11 +884,12 @@ def assemble_plan(
         raise ValueError(
             "the zero-LLM builder needs exactly one scene wire at "
             "Picture %d; got %r"
-            % (scene_slot, scene_bundle.get("kind") if scene_bundle else None)
+            % (picture_of_slot[scene_slot],
+               scene_bundle.get("kind") if scene_bundle else None)
         )
     scene_bundles = [scene_bundle]
 
-    manifest = _build_manifest(storyboard, used_slots, slot_bundles)
+    manifest = _build_manifest(storyboard, used_slots, picture_bundles)
 
     # Spatial layout: from the storyboard; missing speakers are filled
     # in turn-order via the existing helper (PLAN §3.1 "缺的说话人用
@@ -869,6 +960,16 @@ def assemble_plan(
         name for name, info in cast.items() if info.get("offscreen")
     }
 
+    # Identity text per speaker, from the wired bundles. An off-screen
+    # speaker with an asset keeps his description (that is where the
+    # "never render me" instruction lives); an unwired one has none.
+    speaker_descriptions: dict[str, str] = {}
+    for name, info in cast.items():
+        slot = int(info["character_slot"])
+        bundle = slot_bundles.get(slot)
+        if isinstance(bundle, dict):
+            speaker_descriptions[name] = (bundle.get("description") or "").strip()
+
     shot_entries: list[dict] = []
     for shot_idx, sl_lines in enumerate(shots_per_scene, 1):
         shot = _assemble_one_shot(
@@ -882,6 +983,8 @@ def assemble_plan(
             ambience_line=ambience,
             absent=absent_per_scene[shot_idx - 1],
             offscreen_names=offscreen_names,
+            speaker_ids=speaker_ids,
+            speaker_descriptions=speaker_descriptions,
         )
         shot_entries.append(shot)
 
@@ -936,6 +1039,25 @@ def assemble_plan(
             "layout filled by turn order (no entry in spatial_layout for "
             "every cast speaker)"
         )
+    # An unwired off-screen speaker declares no voice at all — that is a
+    # legal state, but it is worth saying out loud, because the voice
+    # then drifts between renders.
+    if out_unwired := [
+        name for name, info in sorted(
+            cast.items(), key=lambda kv: int(kv[1]["character_slot"]),
+        )
+        if info.get("offscreen")
+        and not isinstance(
+            slot_bundles.get(int(info["character_slot"])), dict
+        )
+    ]:
+        summary_lines.append(
+            "Off-screen voice without an asset: %s. No voice descriptor "
+            "and no (S<n>) tag were written for %s, so H3 picks the timbre "
+            "itself and it may differ between renders. Wire an asset into "
+            "that character's socket to pin the voice."
+            % (", ".join(out_unwired), "it" if len(out_unwired) == 1 else "them")
+        )
     # Monologue-scene hint (mirrors the LLM track's `_monologue_scene_hint`).
     cast_size = len(cast)
     mono_lines = _monologue_hint_from_shots(raw_shots, cast_size)
@@ -949,13 +1071,25 @@ def assemble_plan(
         "summary_lines": summary_lines,
         "ambience": ambience,
         "size_note": "",
-        # The resolved picture slots: the cast's contiguous 1..N followed
-        # by the scene at ``max(cast_slots) + 1``. The caller needs this
-        # to emit the roster in the same order — the relocation above
-        # happens on a local copy of the dict, so the caller cannot
-        # re-derive it from its own ``slot_bundles``.
-        "used_slots": used_slots,
+        # The SOCKET positions that make up the roster: the wired
+        # characters in cast-slot order, then the scene. This is the
+        # VOICE space — the off-screen speaker is in it (his audio is
+        # needed) even though he has no picture.
+        "roster_slots": list(wired_character_slots) + [scene_slot],
+        # The PICTURE space: the on-screen characters, then the scene.
+        "picture_slots": list(picture_slots) + [scene_slot],
+        # Socket position -> picture number.
+        "picture_of_slot": picture_of_slot,
         "scene_slot": scene_slot,
+        # The off-screen speakers that were left unwired (their voice
+        # was left to H3) — the run summary says so.
+        "unwired_offscreen": [
+            name for name, info in sorted(
+                cast.items(), key=lambda kv: int(kv[1]["character_slot"]),
+            )
+            if info.get("offscreen")
+            and not isinstance(slot_bundles.get(int(info["character_slot"])), dict)
+        ],
     }
 
 
@@ -1130,17 +1264,25 @@ def assemble_from_sockets(
         _skip_validation=True,  # we just validated above
     )
 
-    # The MIE_ASSET_ROSTER contract: characters in slot order, then the
-    # scene. The resolved slots come back from ``assemble_plan`` (it is
-    # the one place that knows where the scene landed), so empty sockets
-    # stay out of the roster and the picture order matches the plan's
-    # ``<Picture N>`` numbering exactly.
+    # The MIE_ASSET_ROSTER contract: the WIRED characters in cast-slot
+    # order, then the scene. The resolved slots come back from
+    # ``assemble_plan`` (it is the one place that knows which slots
+    # exist), so empty sockets stay out of the roster.
+    #
+    # An off-screen character IS in the roster — his audio is needed —
+    # but his PICTURE is dropped: he is never rendered, and handing H3
+    # a picture of him is the exact risk the placeholder card existed to
+    # avoid. ``Asset → Slots`` skips a picture-less roster entry when
+    # it numbers picture_i, so the picture list stays "on-screen
+    # characters + scene" while the audio list stays "every voiced
+    # character".
     roster: list[dict] = []
     bundles_for_images: list[dict] = []
-    cast_slots = sorted({int(v["character_slot"])
-                         for v in cleaned["cast"].values()})
-    max_cast_slot = max(cast_slots) if cast_slots else 0
-    for slot in out["used_slots"]:
+    offscreen_slots = {
+        int(info["character_slot"])
+        for info in cleaned["cast"].values() if info.get("offscreen")
+    }
+    for slot in out["roster_slots"]:
         bundle = slot_bundles.get(slot)
         if not isinstance(bundle, dict):
             # The scene lives at ``max(cast)+1`` on assemble_plan's
@@ -1153,9 +1295,17 @@ def assemble_from_sockets(
                 ),
                 None,
             )
-        if isinstance(bundle, dict):
-            roster.append(bundle)
-            bundles_for_images.append(bundle)
+        if not isinstance(bundle, dict):
+            continue
+        if slot in offscreen_slots:
+            # Voice only: keep the bundle (and its audio) but drop the
+            # picture.
+            entry = dict(bundle)
+            entry["image"] = None
+            roster.append(entry)
+            continue
+        roster.append(bundle)
+        bundles_for_images.append(bundle)
 
     # Build the IMAGE batch (None when shapes disagree, like V2).
     import torch

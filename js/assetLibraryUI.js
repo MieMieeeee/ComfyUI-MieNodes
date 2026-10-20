@@ -1325,9 +1325,20 @@ function renderPreviewState(node, state) {
             const who = req.kind === "scene"
                 ? "（任意场景 any scene）"
                 : (req.name || "?");
-            const tag = req.offscreen ? "（画外音 off-screen）" : "";
+            let tag = "";
+            if (req.offscreen) {
+                tag = req.required === false
+                    ? "（画外音 off-screen · 可选 optional）"
+                    : "（画外音 off-screen）";
+            }
             r.textContent = "  " + req.socket + " = " + who + tag;
             body.append(r);
+            if (req.note) {
+                const n = document.createElement("div");
+                n.className = "mie-pv-text";
+                n.textContent = "      " + req.note;
+                body.append(n);
+            }
         }
         const extra = document.createElement("div");
         extra.className = "mie-pv-text";

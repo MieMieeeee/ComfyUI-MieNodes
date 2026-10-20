@@ -3573,12 +3573,20 @@ def offscreen_speech_line(
     than embedding it), and a CONCRETE reaction — writing "listening"
     outright was reported to fail, so the default is a physical action
     with the listener's name repeated rather than a pronoun.
+
+    ``sid`` / ``voice`` are OPTIONAL (2026-10-20 user ruling: the
+    off-screen speaker's asset is optional — wired means "use its
+    voice", unwired means "declare no voice and let H3 choose"). An
+    unwired speaker therefore gets no ``(S<n>)`` tag and no timbre
+    descriptor, and the sentence opens with the bare fixed clause.
     """
-    head = (
-        f"An off-screen voice ({sid}), {voice}, says in an off-screen voiceover:"
-        if sid
-        else f"An off-screen voice, {voice}, says in an off-screen voiceover:"
-    )
+    if sid and voice:
+        head = (
+            f"An off-screen voice ({sid}), {voice}, "
+            "says in an off-screen voiceover:"
+        )
+    else:
+        head = "An off-screen voice says in an off-screen voiceover:"
     spoken = f"<d>{tag} {line}</d>"
     clauses: list[str] = []
     if listener:

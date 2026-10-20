@@ -388,22 +388,32 @@ class TestPovFixture:
 
     def test_identity_pins_keep_full_cast(self, mods, pov_plan):
         """Omitting an identity anchor is the historical defect source —
-        the absent character keeps its subject/picture/retention lines."""
+        the ABSENT character keeps its subject/picture/retention lines.
+
+        The off-screen speaker is a different case: he is never rendered,
+        so he has no picture and no Subject (2026-10-20 ruling). What he
+        keeps is the bare-name alias, because that is where the asset
+        description's "never render me" instruction lives."""
         _, out = pov_plan
         plan = json.loads(out[0])
         for shot in plan["shots"]:
             text = "\n".join(shot["prompt"])
-            for k in (1, 2, 3):
+            # On-screen characters keep their Subject + retention lines.
+            for k in (1, 2):
                 assert "<Subject %d>" % k in text, (shot["id"], k)
             assert "fully_preserved" in text, shot["id"]
+            # The off-screen speaker has NO Subject (no picture).
+            assert "<Subject 3>" not in text, shot["id"]
+            # ...but his bare-name alias survives.
+            assert "叙述者:" in text, shot["id"]
 
-    def test_offscreen_speaker_keeps_its_slot_and_voice(self, mods, pov_plan):
-        """Presence changes the SENTENCE FORM, never the slot numbering."""
+    def test_offscreen_speaker_keeps_its_voice(self, mods, pov_plan):
+        """Presence changes the SENTENCE FORM, never the voice binding."""
         _, out = pov_plan
         plan = json.loads(out[0])
         text = "\n".join(plan["shots"][0]["prompt"])
+        # Wired off-screen asset -> its (S<n>) and its timbre descriptor.
         assert "An off-screen voice (S1)" in text
-        # Voice descriptor present on the off-screen line too.
         assert "adult female, calm narrative timbre, even pace" in text
 
 
@@ -591,13 +601,22 @@ class TestOffscreenSuffixParsing:
 # §6.7 — (Sn) / audio slots unaffected by presence
 # --------------------------------------------------------------------------- #
 class TestSlotAlignment:
-    def test_offscreen_keeps_its_character_slot_and_roster_order(self, mods, pov_plan):
+    def test_offscreen_is_in_the_roster_but_has_no_picture(self, mods, pov_plan):
+        """Two spaces, 2026-10-20 ruling:
+
+        * ROSTER / voice space — the off-screen speaker IS there (his
+          audio is needed to be heard at all), first in cast-slot order.
+        * PICTURE space — he is not (he is never rendered), so the
+          pictures are the two on-screen characters + the scene.
+        """
         _, out = pov_plan
         roster = out[4]
         names = [b["name"] for b in roster]
-        # The off-screen speaker occupies slot 1 like anyone else.
         assert names == ["叙述者", "小猫妹妹", "猫爷爷", "客厅"]
-        assert out[3] is not None and out[3].shape[0] == 4
+        # The off-screen entry carries NO picture.
+        assert roster[0]["image"] is None
+        # The images batch holds the three PICTURE-space assets.
+        assert out[3] is not None and out[3].shape[0] == 3
         # audio comes off the same bundles — an off-screen voice still
         # needs its sample to be heard.
         assert all(
@@ -606,12 +625,111 @@ class TestSlotAlignment:
         )
 
     def test_picture_numbering_is_contiguous(self, mods, pov_plan):
+        """Pictures = on-screen characters + scene, numbered 1..3."""
         _, out = pov_plan
         plan = json.loads(out[0])
         for shot in plan["shots"]:
             text = "\n".join(shot["prompt"])
-            for n in (1, 2, 3, 4):
+            for n in (1, 2, 3):
                 assert "<Picture %d>" % n in text, (shot["id"], n)
+            assert "<Picture 4>" not in text, shot["id"]
+
+    def test_offscreen_asset_is_optional(self, mods, pov_plan):
+        """2026-10-20 ruling: the off-screen speaker's asset is OPTIONAL.
+
+        Wired   -> his (S<n>) and his timbre descriptor are used.
+        Unwired -> NO (S<n>), NO descriptor; H3 picks the voice, and the
+        run summary says so.
+        """
+        doc, _ = pov_plan
+        builder = mods["builder"]
+        node = builder.MiniMaxH3LoopPromptGeneratorV3()
+        kwargs = {
+            "character_1": _char(
+                "叙述者", "An unseen narrator.", "adult female, calm timbre",
+            ),
+            "character_2": _char(
+                "小猫妹妹", "A calico kitten.", "young female, soft timbre",
+            ),
+            "character_3": _char(
+                "猫爷爷", "An old tabby.", "elderly male, low voice",
+            ),
+            "scene_1": {
+                "kind": "scene", "name": "客厅", "description": "A room.",
+                "ambience": "", "image": __import__("torch").zeros(1, 8, 8, 3),
+            },
+        }
+        wired_plan, wired_summary, _, _, wired_roster = node.generate_v3(
+            doc, seed=1, **kwargs,
+        )
+        unwired_kwargs = dict(kwargs)
+        del unwired_kwargs["character_1"]
+        open_plan, open_summary, _, _, open_roster = node.generate_v3(
+            doc, seed=1, **unwired_kwargs,
+        )
+
+        # Wired: the voice IS declared.
+        wired_text = "\n".join(json.loads(wired_plan)["shots"][0]["prompt"])
+        assert "An off-screen voice (S1), adult female, calm timbre, says " \
+            "in an off-screen voiceover:" in wired_text
+        # Unwired: NO voice, NO tag.
+        open_text = "\n".join(json.loads(open_plan)["shots"][0]["prompt"])
+        assert "An off-screen voice says in an off-screen voiceover:" in \
+            open_text
+        assert "An off-screen voice (S" not in open_text
+        assert "adult female, calm timbre" not in open_text
+        # ...and the run summary says the voice was left to H3.
+        assert "Off-screen voice without an asset" in open_summary
+        assert "叙述者" in open_summary
+        assert "Off-screen voice without an asset" not in wired_summary
+
+        # The ROSTER differs (the unwired one is not in it), but the
+        # PICTURE count does not: the off-screen speaker never had one.
+        assert len(wired_roster) == 4
+        assert len(open_roster) == 3
+        assert wired_roster[0]["image"] is None
+
+    def test_sn_reindexes_over_the_wired_characters(self, mods, pov_plan):
+        """``(S<n>)`` is the AUDIO position, not the character_slot.
+
+        An unwired off-screen speaker must not punch a hole in the audio
+        list — H3 renumbers around a hole, which would put the plan's
+        ``(S2)`` on the wrong clip. So the tags re-index over the
+        characters that actually have a voice."""
+        doc, _ = pov_plan
+        builder = mods["builder"]
+        node = builder.MiniMaxH3LoopPromptGeneratorV3()
+        kwargs = {
+            "character_1": _char(
+                "叙述者", "An unseen narrator.", "adult female, calm timbre",
+            ),
+            "character_2": _char(
+                "小猫妹妹", "A calico kitten.", "young female, soft timbre",
+            ),
+            "character_3": _char(
+                "猫爷爷", "An old tabby.", "elderly male, low voice",
+            ),
+            "scene_1": {
+                "kind": "scene", "name": "客厅", "description": "A room.",
+                "ambience": "", "image": __import__("torch").zeros(1, 8, 8, 3),
+            },
+        }
+        wired = "\n".join(
+            json.loads(node.generate_v3(doc, seed=1, **kwargs)[0])
+            ["shots"][0]["prompt"]
+        )
+        # 叙述者 is the first wired character -> (S1); 小猫妹妹 (S2).
+        assert "小猫妹妹 speaks as (S2)" in wired
+
+        unwired_kwargs = dict(kwargs)
+        del unwired_kwargs["character_1"]
+        open_ = "\n".join(
+            json.loads(node.generate_v3(doc, seed=1, **unwired_kwargs)[0])
+            ["shots"][0]["prompt"]
+        )
+        # 叙述者 is gone, so 小猫妹妹 becomes the first voiced character.
+        assert "小猫妹妹 speaks as (S1)" in open_
+        assert "小猫妹妹 speaks as (S2)" not in open_
 
     def test_gap_cast_still_rejected_on_a_pov_board(self, mods):
         """Presence must not relax the slot contract: {1,2,4} is a gap."""

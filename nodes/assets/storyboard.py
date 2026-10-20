@@ -878,14 +878,23 @@ def storyboard_requirements(cleaned: dict) -> list[dict]:
         cast.items(), key=lambda kv: int(kv[1]["character_slot"]),
     ):
         slot = int(info["character_slot"])
+        offscreen = bool(info.get("offscreen"))
         out.append({
             "socket": "character_%d" % slot,
             "kind": "character",
             "name": name,
-            "offscreen": bool(info.get("offscreen")),
-            # A cast member that never speaks still needs its asset
-            # wired: it is an identity anchor in the plan.
-            "required": True,
+            "offscreen": offscreen,
+            # An off-screen speaker's asset is OPTIONAL (2026-10-20
+            # ruling): wired means "use this voice", unwired means
+            # "declare no voice and let H3 choose". An on-screen
+            # character is always required — he is in the frame.
+            "required": not offscreen,
+            "note": (
+                "画外音：接上则用他的音色，不接则由 H3 自选 · "
+                "off-screen: wire it to use its voice, or leave it empty "
+                "and H3 chooses"
+                if offscreen else ""
+            ),
         })
     out.append({
         "socket": "scene_1",
@@ -893,6 +902,7 @@ def storyboard_requirements(cleaned: dict) -> list[dict]:
         "name": None,
         "offscreen": False,
         "required": True,
+        "note": "",
     })
     return out
 

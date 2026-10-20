@@ -855,12 +855,25 @@ class AssetToSlots(object):
                 % (len(ordered), self.MAX_SLOTS)
             )
 
-        outs = [len(ordered)]
-        for i in range(1, self.MAX_SLOTS + 1):
-            outs.append(ordered[i - 1]["image"] if i <= len(ordered) else None)
+        # PICTURE space: the roster entries that CARRY a picture. A
+        # voice-only entry (an off-screen speaker — he is heard, never
+        # rendered) is skipped here, so picture_i numbers the on-screen
+        # characters + the scene and matches the plan's <Picture N>.
+        # The LLM track never produces a picture-less entry, so its
+        # numbering is unchanged.
+        pictures = [b for b in ordered if b.get("image") is not None]
 
+        outs = [len(pictures)]
+        for i in range(1, self.MAX_SLOTS + 1):
+            outs.append(pictures[i - 1]["image"] if i <= len(pictures) else None)
+
+        # AUDIO space: every character that has a voice, in roster
+        # order. The numbering here is what the plan's (S<n>) tag
+        # follows, so an unwired off-screen speaker must not leave a
+        # hole (H3 renumbers around a hole).
         characters = [b for b in ordered if b.get("kind") == "character"]
-        audios_out = [b.get("audio") for b in characters[: self.MAX_AUDIOS]]
+        voiced = [b for b in characters if b.get("audio") is not None]
+        audios_out = [b.get("audio") for b in voiced[: self.MAX_AUDIOS]]
         outs.append(sum(1 for a in audios_out if a is not None))
         for i in range(self.MAX_AUDIOS):
             outs.append(audios_out[i] if i < len(audios_out) else None)
