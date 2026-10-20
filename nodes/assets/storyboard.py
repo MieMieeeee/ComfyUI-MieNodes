@@ -841,6 +841,62 @@ def storyboard_cache_key(library_dir, name):
         return _library.MISSING_CACHE_MARKER
 
 
+def storyboard_requirements(cleaned: dict) -> list[dict]:
+    """What the build node needs wired, in SOCKET ORDER.
+
+    The storyboard is a script; the build node's sockets are a fixed
+    1..8 + scene_1 grid, so the author has to know which of those
+    sockets this particular board cares about. Answering that question
+    at LOAD time (the Load node's preview) is the difference between
+    "wire two characters" and "guess and read the error".
+
+    Each entry is::
+
+        {"socket": "character_1", "kind": "character"|"scene",
+         "name": "<cast member>", "offscreen": bool, "required": bool}
+
+    ``required`` is False for a socket the storyboard does not use —
+    the build node ignores unused higher sockets (PLAN_STORYBOARD_ASSET
+    §4.2), so the list distinguishes "must fill this" from "leave it
+    alone".
+    """
+    cast = cleaned.get("cast") or {}
+    shots = cleaned.get("shots") or []
+    lines = cleaned.get("lines") or []
+
+    used: set[str] = set()
+    if shots:
+        for shot in shots:
+            for line in shot.get("lines") or []:
+                used.add(str(line.get("speaker") or ""))
+    elif lines:
+        for line in lines:
+            used.add(str(line.get("speaker") or ""))
+
+    out: list[dict] = []
+    for name, info in sorted(
+        cast.items(), key=lambda kv: int(kv[1]["character_slot"]),
+    ):
+        slot = int(info["character_slot"])
+        out.append({
+            "socket": "character_%d" % slot,
+            "kind": "character",
+            "name": name,
+            "offscreen": bool(info.get("offscreen")),
+            # A cast member that never speaks still needs its asset
+            # wired: it is an identity anchor in the plan.
+            "required": True,
+        })
+    out.append({
+        "socket": "scene_1",
+        "kind": "scene",
+        "name": None,
+        "offscreen": False,
+        "required": True,
+    })
+    return out
+
+
 def read_storyboard_meta(library_dir, name):
     """Frontend preview meta for one storyboard: a text summary + zero
     images (the preview panel renders text-only when image_count == 0).
@@ -853,6 +909,7 @@ def read_storyboard_meta(library_dir, name):
         n for n, v in (cleaned.get("cast") or {}).items()
         if isinstance(v, dict) and v.get("offscreen")
     )
+    requirements = storyboard_requirements(cleaned)
     description = (
         "Storyboard %s: %d shot(s), %d line(s), language=%s%s." % (
             cleaned.get("name", "?"),
@@ -866,6 +923,10 @@ def read_storyboard_meta(library_dir, name):
         "name": cleaned.get("name", name),
         "kind": "storyboard",
         "description": description,
+        # The wiring recipe: which build-node socket needs which cast
+        # member, so the author does not have to open the JSON to find
+        # out how many characters and how many scenes this board wants.
+        "requirements": requirements,
         "image_count": 0,
         "audio_count": None,
         "picture_size": None,

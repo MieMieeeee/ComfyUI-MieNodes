@@ -1312,6 +1312,28 @@ function renderPreviewState(node, state) {
             body.append(v);
         }
     }
+    // 分镜：接线清单。载入时就知道这张分镜要几个角色、几个场景、哪个是
+    // 画外音——不用打开 JSON 猜，也不用等运行时报错才知道少接了。
+    if (Array.isArray(meta.requirements) && meta.requirements.length) {
+        const head = document.createElement("div");
+        head.className = "mie-pv-text";
+        head.textContent = "🔌 需要接线 · needs:";
+        body.append(head);
+        for (const req of meta.requirements) {
+            const r = document.createElement("div");
+            r.className = "mie-pv-text";
+            const who = req.kind === "scene"
+                ? "（任意场景 any scene）"
+                : (req.name || "?");
+            const tag = req.offscreen ? "（画外音 off-screen）" : "";
+            r.textContent = "  " + req.socket + " = " + who + tag;
+            body.append(r);
+        }
+        const extra = document.createElement("div");
+        extra.className = "mie-pv-text";
+        extra.textContent = "  （其余插座留空即可 · leave the rest empty）";
+        body.append(extra);
+    }
     wrap.append(...(img ? [img] : []), body);
     // 内容异步变化后高度变了，让画布重排，避免预览面板压住下方 widget。
     img.addEventListener("load", () => relayoutNode(node));

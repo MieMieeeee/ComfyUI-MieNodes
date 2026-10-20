@@ -633,6 +633,82 @@ class TestSlotAlignment:
 
 
 # --------------------------------------------------------------------------- #
+# The wiring recipe: what a loaded storyboard needs (the "载入分镜时不知道
+# 需要几个角色" complaint).
+# --------------------------------------------------------------------------- #
+class TestWiringRequirements:
+    def test_requirements_are_in_socket_order(self, mods):
+        sb = mods["storyboard"]
+        cleaned = sb.validate_storyboard_payload({
+            "name": "X", "version": 1, "language": "zh",
+            "camera_discipline": "locked", "pacing": "normal",
+            "seed_policy": "per_scene_increment",
+            "prompt_prefix": "p",
+            "cast": {
+                "小D": {"character_slot": 1, "offscreen": True},
+                "Claude": {"character_slot": 2},
+            },
+            "shots": [{"lines": [
+                {"speaker": "小D", "text": "hi", "lang": "en"},
+                {"speaker": "Claude", "text": "yo"},
+            ]}],
+        })
+        reqs = sb.storyboard_requirements(cleaned)
+        assert [r["socket"] for r in reqs] == [
+            "character_1", "character_2", "scene_1",
+        ]
+        assert [r["name"] for r in reqs] == ["小D", "Claude", None]
+        assert reqs[0]["offscreen"] is True
+        assert reqs[1]["offscreen"] is False
+        assert reqs[-1]["kind"] == "scene"
+
+    def test_meta_carries_the_requirements(self, mods, tmp_path):
+        sb = mods["storyboard"]
+        payload = {
+            "name": "ReqDemo", "version": 1, "language": "en",
+            "camera_discipline": "locked", "pacing": "normal",
+            "seed_policy": "per_scene_increment",
+            "prompt_prefix": "p",
+            "cast": {"A": {"character_slot": 1}},
+            "shots": [{"lines": [{"speaker": "A", "text": "hi"}]}],
+        }
+        sb.save_storyboard(str(tmp_path), payload)
+        meta = sb.read_storyboard_meta(str(tmp_path), "ReqDemo")
+        assert [r["socket"] for r in meta["requirements"]] == [
+            "character_1", "scene_1",
+        ]
+        assert meta["requirements"][0]["name"] == "A"
+        # The legacy text summary is unchanged (the JS preview keeps
+        # showing it alongside the new list).
+        assert "1 shot(s)" in meta["description"]
+
+    def test_requirements_survive_a_save_load_roundtrip(self, mods, tmp_path):
+        sb = mods["storyboard"]
+        payload = {
+            "name": "RoundTrip", "version": 1, "language": "zh",
+            "camera_discipline": "locked", "pacing": "normal",
+            "seed_policy": "per_scene_increment",
+            "prompt_prefix": "p",
+            "cast": {
+                "叙述者": {"character_slot": 1, "offscreen": True},
+                "小猫妹妹": {"character_slot": 2},
+            },
+            "shots": [{"lines": [
+                {"speaker": "叙述者", "text": "hi", "lang": "en"},
+                {"speaker": "小猫妹妹", "text": "yo"},
+            ]}],
+        }
+        sb.save_storyboard(str(tmp_path), payload)
+        meta = sb.read_storyboard_meta(str(tmp_path), "RoundTrip")
+        offscreen = [
+            r for r in meta["requirements"] if r["offscreen"]
+        ]
+        assert len(offscreen) == 1
+        assert offscreen[0]["name"] == "叙述者"
+        assert offscreen[0]["socket"] == "character_1"
+
+
+# --------------------------------------------------------------------------- #
 # §4.6 — the addendum contract and the re-roll advice
 # --------------------------------------------------------------------------- #
 class TestAddendumAndAdvice:

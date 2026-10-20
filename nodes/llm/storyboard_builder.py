@@ -642,8 +642,15 @@ def _missing_slot_message(
             (n for n, i in cast.items() if int(i["character_slot"]) == s),
             "?",
         )
+        offscreen = next(
+            (bool(i.get("offscreen")) for n, i in cast.items()
+             if int(i["character_slot"]) == s),
+            False,
+        )
         mark = "  <-- MISSING" if s == slot else ""
-        table.append("character_%d = %s%s" % (s, who, mark))
+        table.append("character_%d = %s%s%s" % (
+            s, who, "（画外音 off-screen）" if offscreen else "", mark,
+        ))
     table.append("character_%d = (scene)" % scene_slot)
     wired = []
     for s in sorted(slot_bundles):
@@ -663,6 +670,8 @@ def _missing_slot_message(
         "Wire the matching asset into 'character_%d' (the socket number IS "
         "the storyboard's character_slot — an asset in the wrong socket is "
         "a different character), or drop that slot from the cast. "
+        "Only the sockets listed above are used; every other character "
+        "socket may stay empty. "
         "Empty slots are a hard error on purpose (PLAN_STORYBOARD_ASSET "
         "§4.2 — silently re-binding would put a character's identity "
         "text and voice on the wrong <Picture N>)."

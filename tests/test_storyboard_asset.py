@@ -722,13 +722,15 @@ class TestAssemblePlan:
         msg = str(exc.value)
         # Slot order, not alphabetical order.
         assert msg.index("character_1 = 小D") < msg.index("character_2 = Claude")
-        assert "character_1 = 小D; character_2 = Claude" in msg
+        assert "character_1 = 小D（画外音 off-screen）; character_2 = Claude" in msg
         # The missing socket is marked, and its owner is named.
         assert "character_2 = Claude  <-- MISSING" in msg
         assert "character_slot 2 (Claude)" in msg
         # What IS wired is listed, so an asset sitting in the wrong
         # socket is visible at a glance.
         assert "Currently wired: character_1 = Claude娘" in msg
+        # And the unused sockets are declared optional.
+        assert "every other character socket may stay empty" in msg
 
     def test_compact_wiring_does_not_misbind_slot(self, sb_modules):
         """Sanity guard for the P0 fix: even if the user accidentally
