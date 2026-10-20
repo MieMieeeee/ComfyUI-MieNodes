@@ -248,10 +248,82 @@ def validate_seed_policy(value):
     return p
 
 
+def validate_line_lang(value, *, where):
+    """``lines[].lang`` — the per-line dialogue-language override
+    (PLAN_POV_OFFSCREEN §3.3).
+
+    Absent / ``None`` means "inherit the board's ``language``"; the
+    cleaned payload then omits the key entirely so a board that never
+    used a per-line override round-trips byte-identically. An explicit
+    value must be one of ``LANGUAGE_CHOICES`` — the same two codes the
+    board-level field accepts, because the ``<d>`` tag is derived from
+    exactly this pair."""
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError(
+            "%s.lang must be a string, got %s" % (where, type(value).__name__)
+        )
+    lang = value.strip().lower()
+    if lang not in LANGUAGE_CHOICES:
+        raise ValueError(
+            "%s.lang must be one of %s, got %r" % (where, LANGUAGE_CHOICES, value)
+        )
+    return lang
+
+
+def validate_absent(raw_absent, cast, offscreen_names):
+    """``shots[].absent`` — who is NOT in the frame for this shot
+    (PLAN_POV_OFFSCREEN §3.2).
+
+    Every name must be a cast member, and an ``offscreen`` speaker may
+    never be listed (an off-screen voice is not "absent" — it is heard;
+    the two are different declarations and conflating them would drop the
+    speaker's own speech line). Returns a sorted list; ``[]`` when the
+    key is absent or empty (the common case, which keeps the cleaned
+    payload byte-identical to a non-POV board)."""
+    if raw_absent is None:
+        return []
+    if not isinstance(raw_absent, list):
+        raise ValueError(
+            "shots[].absent must be a list of cast names, got %s"
+            % type(raw_absent).__name__
+        )
+    out: list[str] = []
+    for entry in raw_absent:
+        if not isinstance(entry, str) or not entry.strip():
+            raise ValueError(
+                "shots[].absent entries must be non-empty strings, got %r" % (entry,)
+            )
+        name = _library.validate_name(entry)
+        if name not in cast:
+            raise ValueError(
+                "shots[].absent contains %r, which is not in cast %s"
+                % (name, sorted(cast.keys()))
+            )
+        if name in offscreen_names:
+            raise ValueError(
+                "shots[].absent contains %r, which is an offscreen speaker; "
+                "an off-screen voice is HEARD, not absent — drop it from "
+                "'absent' (the cast's 'offscreen': true already says it "
+                "is not seen)" % (name,)
+            )
+        if name not in out:
+            out.append(name)
+    return out
+
+
 def validate_cast(cast):
-    """``{speaker_name: {"character_slot": N}}`` — slot 1..MAX_CHARACTER_SLOT,
-    unique across speakers, CONTIGUOUS 1..N, every speaker name valid by
-    the asset whitelist (no path separators, no dots, max NAME_MAX_CHARS).
+    """``{speaker_name: {"character_slot": N, "offscreen": bool?}}``.
+
+    ``character_slot``: 1..MAX_CHARACTER_SLOT, unique across speakers,
+    CONTIGUOUS 1..N, every speaker name valid by the asset whitelist (no
+    path separators, no dots, max NAME_MAX_CHARS).
+
+    ``offscreen`` (PLAN_POV_OFFSCREEN §3.1, default False): the speaker is
+    heard but never seen — first-person POV dialogue. It is a DECLARATION,
+    never inferred: presence is structural data, and the semantic-facts
+    extractor / the prose enhancer never guess it.
 
     Contiguity is enforced here (not just at assemble time) because a
     non-contiguous cast silently makes the plan's ``<Picture N>`` /
@@ -289,7 +361,18 @@ def validate_cast(cast):
                 "every slot must be unique" % (raw_name, slot)
             )
         used_slots.add(slot)
-        cleaned[name] = {"character_slot": slot}
+        offscreen = raw_info.get("offscreen", False)
+        if not isinstance(offscreen, bool):
+            raise ValueError(
+                "cast[%r].offscreen must be a bool, got %r" % (raw_name, offscreen)
+            )
+        entry = {"character_slot": slot}
+        if offscreen:
+            # Stored only when true so a cleaned payload is byte-identical
+            # to a board that never used POV (byte-stability red line,
+            # PLAN_POV_OFFSCREEN §2).
+            entry["offscreen"] = True
+        cleaned[name] = entry
     sorted_slots = sorted(used_slots)
     expected = list(range(1, len(sorted_slots) + 1))
     if sorted_slots != expected:
@@ -305,12 +388,24 @@ def validate_cast(cast):
     return cleaned
 
 
-def validate_shots(shots):
+def validate_shots(shots, cast=None, offscreen_names=frozenset()):
     """Each shot is a dict with ``lines`` (1..MAX_SHOT_LINES entries).
     Every speaker must be in ``cast``; every line carries text (verbatim,
     no CJK ban — dialogue language is the storyboard's ``language`` and
     characters can speak CJK in a ``zh`` board). Each line MAY carry
-    ``picture`` (English action sentence, validated separately)."""
+    ``picture`` (English action sentence) and ``lang`` (per-line
+    dialogue-language override, PLAN_POV_OFFSCREEN §3.3).
+
+    Each shot MAY carry ``absent`` (who is not in frame this shot,
+    PLAN_POV_OFFSCREEN §3.2). The key is dropped from the cleaned output
+    when it is absent/empty so a non-POV board round-trips byte-identically.
+
+    ``cast`` / ``offscreen_names`` are optional so the pure shape check
+    still works standalone; when a cast IS supplied, every shot must
+    leave at least one on-screen character in frame (an all-empty shot is
+    the known empty-room render defect, so it is refused at authoring
+    time rather than discovered in the video).
+    """
     if not isinstance(shots, list):
         raise ValueError(
             "shots must be a list, got %s" % type(shots).__name__
@@ -320,6 +415,8 @@ def validate_shots(shots):
             "shots: [] is empty; omit 'shots' to auto-pack instead of "
             "passing an empty array"
         )
+    cast = cast or {}
+    offscreen_names = offscreen_names or frozenset()
     cleaned: list[dict] = []
     for shot_idx, raw_shot in enumerate(shots, 1):
         if not isinstance(raw_shot, dict):
@@ -359,8 +456,32 @@ def validate_shots(shots):
             line = {"speaker": speaker.strip(), "text": text}
             if "picture" in raw_line and raw_line["picture"] not in (None, ""):
                 line["picture"] = validate_picture_cue(raw_line["picture"])
+            line_lang = validate_line_lang(
+                raw_line.get("lang"),
+                where="shot %d line %d" % (shot_idx, line_idx),
+            )
+            if line_lang:
+                line["lang"] = line_lang
             cleaned_lines.append(line)
-        cleaned.append({"lines": cleaned_lines})
+        shot = {"lines": cleaned_lines}
+        absent = validate_absent(raw_shot.get("absent"), cast, offscreen_names)
+        if absent:
+            shot["absent"] = absent
+            # Every shot keeps at least one on-screen character. H3
+            # renders an all-off-screen shot as an empty room plate
+            # (2026-10-18 LAN forensics), so we refuse the board here.
+            on_screen = [
+                n for n in cast
+                if n not in absent and n not in offscreen_names
+            ]
+            if cast and not on_screen:
+                raise ValueError(
+                    "shot %d marks %s absent, leaving no on-screen "
+                    "character; a shot with nobody in frame renders as an "
+                    "empty room plate — keep at least one cast member "
+                    "visible" % (shot_idx, absent)
+                )
+        cleaned.append(shot)
     return cleaned
 
 
@@ -420,6 +541,11 @@ def validate_lines(raw_lines):
         entry = {"speaker": speaker.strip(), "text": text}
         if "picture" in raw_entry and raw_entry["picture"] not in (None, ""):
             entry["picture"] = validate_picture_cue(raw_entry["picture"])
+        entry_lang = validate_line_lang(
+            raw_entry.get("lang"), where="lines[%d]" % idx,
+        )
+        if entry_lang:
+            entry["lang"] = entry_lang
         cleaned.append(entry)
     return cleaned
 
@@ -467,6 +593,9 @@ def validate_storyboard_payload(payload, *, require_shots=False):
         )
 
     cast = validate_cast(payload.get("cast", {}))
+    offscreen_names = {
+        name for name, info in cast.items() if info.get("offscreen")
+    }
     setting_line = validate_setting_line(payload.get("setting_line", ""))
     ambience = validate_ambience_line(payload.get("ambience", ""))
 
@@ -485,7 +614,7 @@ def validate_storyboard_payload(payload, *, require_shots=False):
             )
         shots = None
     else:
-        shots = validate_shots(raw_shots)
+        shots = validate_shots(raw_shots, cast, offscreen_names)
     if raw_lines is None:
         lines = None
     else:
@@ -494,6 +623,18 @@ def validate_storyboard_payload(payload, *, require_shots=False):
     spatial_layout = validate_spatial_layout(
         payload.get("spatial_layout"), cast,
     )
+    # An off-screen speaker has no place in the frame, so a spatial pin
+    # for one is a contradiction — the pin is exactly the instruction
+    # "this character is visible at <position>". (Loop var deliberately
+    # NOT named ``name``: that holds the storyboard's own name.)
+    for pinned_name in (spatial_layout or {}):
+        if pinned_name in offscreen_names:
+            raise ValueError(
+                "spatial_layout pins %r, which is an offscreen speaker; an "
+                "off-screen voice is not in frame, so it cannot have a "
+                "frame position — drop it from spatial_layout"
+                % (pinned_name,)
+            )
 
     # Cross-check: every speaker in shots or lines must be in cast.
     if shots:
@@ -512,6 +653,16 @@ def validate_storyboard_payload(payload, *, require_shots=False):
                     "lines[%d]: speaker %r is not in cast %s"
                     % (idx, line["speaker"], sorted(cast.keys()))
                 )
+
+    # A POV board needs at least one on-screen character SOMEWHERE on the
+    # board. With every cast member offscreen there is nobody to face the
+    # lens in any shot, which is the empty-room defect again.
+    if cast and offscreen_names and len(offscreen_names) == len(cast):
+        raise ValueError(
+            "every cast member is offscreen (%s); a first-person POV board "
+            "needs at least one character in frame to face the camera — "
+            "un-mark at least one cast entry" % sorted(offscreen_names)
+        )
 
     cleaned = {
         "name": name,

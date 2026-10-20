@@ -111,3 +111,23 @@ non_diegetic_music:
   F0 + frame check: the back half of a long line slid from the
   speaker's register into the co-speaker's — 46% of voiced frames —
   and the wrong character's mouth opened mid-line).
+- First-person POV voiceover contract (applies only when the user has
+  DECLARED an off-screen speaker, e.g. `小D（画外）：`; never invent one):
+  write the off-screen line as
+  `An off-screen voice (S<n>), <descriptor>, says in an off-screen
+  voiceover: <d>[…] …</d> while <on-screen name>'s lips remain
+  completely closed; <concrete reaction>.` All three parts are load
+  bearing: the FIXED PHRASE, the embedded `while … lips remain
+  completely closed` clause (a standalone trailing instruction is
+  less reliable than embedding it on the line), and a CONCRETE
+  physical reaction — writing "listening" outright fails; name the
+  motion ("lowers her ears", "keeps both paws folded on the table").
+  Never let the off-screen voice put words in an on-screen mouth.
+  An on-screen speaker in the SAME clip keeps the ordinary form plus a
+  positive lip sentence (`<name>'s lips move naturally with the
+  line.`) so the two forms cannot bleed into each other.
+  Leave one beat of separation between an off-screen line and the
+  on-screen lines around it — the timeline offset is what keeps the
+  renderer from animating the listener's mouth during the voiceover.
+  The `(S<n>)` tag of an off-screen speaker stays the same in every
+  clip where that speaker is heard.

@@ -3340,13 +3340,27 @@ _VISIBLE_CAST = (
 )
 
 
-def neutralize_offscreen_claims(prompt_lines: list[str]) -> list[str]:
+def neutralize_offscreen_claims(
+    prompt_lines: list[str],
+    declared_offscreen: bool = False,
+) -> list[str]:
     """Drop lines that hide a speaker or make them the camera.
 
     The 11:57 render made 白猫 the lens, so her lines had no mouth.
     Replacing the word ``POV`` with ``in frame`` left
     "First-person in frame" and "serve as the camera", which the
     12:49 plan still used. The whole line goes. Speech lines stay.
+
+    ``declared_offscreen`` (PLAN_POV_OFFSCREEN §4.5) separates two
+    different defects. A prose CLAIM that a speaker is off-screen is
+    still a defect — presence is structural data and the model's guess
+    about it is exactly what this function exists to delete. But when
+    the board has DECLARED an off-screen speaker, the replacement
+    sentence it used to inject ("All speaking characters are visible in
+    the frame. None of them is the camera.") contradicts the
+    declaration, so the assertion is suppressed while the prose
+    scrubbing continues. ``False`` (the default, i.e. every non-POV
+    board) keeps the old behaviour byte for byte.
     """
     out: list[str] = []
     noted = False
@@ -3358,7 +3372,8 @@ def neutralize_offscreen_claims(prompt_lines: list[str]) -> list[str]:
             continue
         if _HIDE_SPEAKER_RE.search(line):
             if not noted:
-                out.append(_VISIBLE_CAST)
+                if not declared_offscreen:
+                    out.append(_VISIBLE_CAST)
                 noted = True
             continue
         out.append(line)
@@ -3452,6 +3467,188 @@ def _shot1_coverage(speakers: list[str], *, voiceover: bool) -> str:
         f"only one eye fully clear on each face, eyes on each other and not on the lens. "
         f"The reference picture is a front-facing portrait; that head angle is not used. "
         f"The camera holds still inside this shot."
+    )
+
+
+# --------------------------------------------------------------------------- #
+# First-person POV / per-shot presence (PLAN_POV_OFFSCREEN §4).
+#
+# Every function here is INERT unless the board declares presence, so a
+# non-POV board assembles to exactly the bytes it did before
+# (§2 byte-stability red line). The three line forms:
+#
+#   on-screen  {name} speaks as (S{n}) {voice} <d>[lang] {line}</d>
+#              {name}'s lips move naturally with the line.
+#   off-screen An off-screen voice (S{n}), {voice}, says in an off-screen
+#              voiceover: <d>[lang] {line}</d> while {listener}'s lips
+#              remain completely closed; {reaction}.
+#   all-narrator freeze  the existing _shot1_coverage voiceover branch,
+#              unchanged (its tests pin the bytes).
+# --------------------------------------------------------------------------- #
+
+# The de-gendered default reaction. The name is repeated rather than
+# replaced with a pronoun: we never infer gender, and "she" in the plan
+# body would bind to the wrong character the moment two are on screen.
+DEFAULT_LISTEN_REACTION = "{name} only listens with a slight nod"
+
+
+def pov_shot1_coverage(on_screen_names: list[str]) -> str:
+    """The POV ``[Shot 1]`` opener (PLAN_POV_OFFSCREEN §4.4).
+
+    Replaces the two-person template on a board that has declared an
+    off-screen speaker: the lens now sits where the unseen speaker is,
+    and whoever is in frame addresses it. This is a DECLARED POV, which
+    is why it does not conflict with the historical anti-POV scrubbing —
+    ``neutralize_offscreen_claims`` drops the model's *guesses*, and the
+    declared form never passes through that path as prose.
+    """
+    names = _unique_names(on_screen_names)
+    who = " and ".join(names) if names else "The on-screen character"
+    verb = "faces" if len(names) == 1 else "face"
+    return (
+        "[Shot 1] First-person point of view: the lens sits where the "
+        "off-screen speaker is. "
+        f"{who} {verb} the camera at a stable conversational distance, "
+        "eyes on the lens, speaking to the unseen speaker. "
+        "The camera holds still."
+    )
+
+
+def absent_declarations(absent_names: list[str]) -> list[str]:
+    """One explicit "not in this shot" line per absent character
+    (PLAN_POV_OFFSCREEN §4.3).
+
+    Stating the absence is strictly better than omitting the character:
+    the monologue-drop defect (2026-10-18 LAN forensics) is what happens
+    when H3 is left to infer who is present. Note that bare-name
+    aliases, ``<Picture>`` bindings and the retention lines keep naming
+    everyone — the identity anchors and the whole reference chain stay
+    intact; only the per-shot prose, spatial pin and summary narrow.
+    """
+    return [
+        f"{name} is not in the frame in this shot." for name in absent_names
+    ]
+
+
+def on_screen_speech_line(
+    speaker: str,
+    sid: str,
+    voice: str,
+    line: str,
+    tag: str,
+    *,
+    pov_board: bool = False,
+) -> str:
+    """Form 1 — a character in frame speaks.
+
+    ``pov_board`` appends the positive lip-sync sentence. It is gated on
+    the board, not on the line: on a POV board an on-screen speaker who
+    also has off-screen lines in the same shot needs the positive form to
+    win against the adjacent "lips remain completely closed" clause.
+    Off POV boards omit it entirely (adding it would change every golden
+    plan's bytes).
+    """
+    head = f"{speaker} speaks as ({sid}) {voice}" if sid else f"{speaker} speaks, {voice}"
+    base = f"{head} <d>{tag} {line}</d>"
+    if pov_board:
+        return f"{base} {speaker}'s lips move naturally with the line."
+    return base
+
+
+def offscreen_speech_line(
+    sid: str,
+    voice: str,
+    line: str,
+    tag: str,
+    *,
+    listener: str = "",
+    reaction: str = "",
+) -> str:
+    """Form 2 — a voice with no body in the shot.
+
+    Uses the community-verified three-part phrasing
+    (PLAN_POV_OFFSCREEN §1): the fixed ``says in an off-screen
+    voiceover`` clause, the ``while … lips remain completely closed``
+    embedded clause (a standalone trailing instruction was less reliable
+    than embedding it), and a CONCRETE reaction — writing "listening"
+    outright was reported to fail, so the default is a physical action
+    with the listener's name repeated rather than a pronoun.
+    """
+    head = (
+        f"An off-screen voice ({sid}), {voice}, says in an off-screen voiceover:"
+        if sid
+        else f"An off-screen voice, {voice}, says in an off-screen voiceover:"
+    )
+    spoken = f"<d>{tag} {line}</d>"
+    clauses: list[str] = []
+    if listener:
+        clauses.append(f"while {listener}'s lips remain completely closed")
+    move = (reaction or "").strip()
+    if not move and listener:
+        move = DEFAULT_LISTEN_REACTION.format(name=listener)
+    if move:
+        # Authored cues usually end in their own period; the sentence
+        # terminator is ours, so drop theirs rather than emit "…down.."
+        move = move.rstrip(" .")
+        if move:
+            clauses.append(move)
+    if not clauses:
+        return f"{head} {spoken}"
+    return f"{head} {spoken} {'; '.join(clauses)}."
+
+
+def presence_summary(
+    *,
+    on_screen_names: list[str],
+    speaking_names: list[str],
+    offscreen_names: list[str],
+) -> str:
+    """The ``[reference generation]`` sentence for a presence-aware shot
+    (PLAN_POV_OFFSCREEN §4.2).
+
+    Three branches, decided by who is actually speaking in frame:
+    mixed (someone in frame talks), pure-listen (nobody in frame talks,
+    only the off-screen voice), and the no-off-screen case which keeps
+    the historical wording. Absent characters are already excluded from
+    ``on_screen_names`` by the caller.
+    """
+    vis = _unique_names(on_screen_names)
+    off = _unique_names(offscreen_names)
+    speaking = _unique_names(speaking_names)
+    vis_phrase = " and ".join(vis) if vis else "nobody"
+    vis_verb = "is" if len(vis) == 1 else "are"
+    off_phrase = " and ".join(off) if off else ""
+    if not off:
+        # No declaration on this board — the historical sentence, byte
+        # for byte, so non-POV plans are untouched.
+        if set(speaking) >= set(vis):
+            who = ", ".join(speaking) if speaking else "The subjects"
+            return (
+                "[reference generation] "
+                f"{who} are visible and speaking. "
+                "The spoken words are not restated here."
+            )
+        spk = ", ".join(speaking) if speaking else "nobody"
+        spk_verb = "is" if len(speaking) == 1 else "are"
+        return (
+            "[reference generation] "
+            f"{vis_phrase} {vis_verb} visible in the frame; "
+            f"{spk} {spk_verb} speaking. "
+            "The spoken words are not restated here."
+        )
+    off_clause = f"{off_phrase}'s voice is off-screen"
+    if speaking:
+        spk = ", ".join(speaking)
+        spk_verb = "is" if len(speaking) == 1 else "are"
+        return (
+            "[reference generation] "
+            f"{vis_phrase} {vis_verb} visible in the frame and speaking; "
+            f"{off_clause}. The spoken words are not restated here."
+        )
+    return (
+        "[reference generation] "
+        f"{vis_phrase} {vis_verb} visible in the frame, listening; "
+        f"{off_clause}. The spoken words are not restated here."
     )
 
 

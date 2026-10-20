@@ -86,6 +86,11 @@ class DialogueTurn:
     lines: list[str] = field(default_factory=list)
     start: int = 0
     end: int = 0
+    # PLAN_POV_OFFSCREEN §3.1: the speaker is HEARD but never SEEN.
+    # A declaration parsed from the input syntax (``小D（画外）：``),
+    # never a guess. Defaults to False so every existing construction
+    # site keeps its old value.
+    offscreen: bool = False
 
     @property
     def line_count(self) -> int:
@@ -304,6 +309,64 @@ def normalize_speaker_token(token: str) -> str:
     return text or token
 
 
+# The off-screen marker whitelist (PLAN_POV_OFFSCREEN §3.1). This is
+# INPUT-SYNTAX vocabulary — the same class of thing as the ``名：行``
+# speaker prefix itself — not a keyword branch on user prose: the marker
+# is stripped from the speaker label and becomes STRUCTURAL presence.
+# Matching is whitelist-only so a mood parenthetical that happens to sit
+# in a name (小猫妹妹（嫌弃）, 小D（医生）) is never mistaken for
+# presence. Half-width and full-width brackets both accepted.
+OFFSCREEN_MARKERS = frozenset({
+    "画外", "画外音", "画外声", "画外人声",
+    "off-screen", "off screen", "offscreen", "off screen voice",
+    "voiceover", "voice-over",
+})
+
+
+def split_offscreen_marker(token: str) -> tuple[str, bool]:
+    """Split a speaker label into ``(bare name, is_offscreen)``.
+
+    ``小D（画外）：`` and ``小D(offscreen):`` both yield ``("小D", True)``.
+    A label with no recognised marker yields ``(label, False)`` — the
+    mood parenthetical is stripped separately by
+    ``normalize_speaker_token``.
+
+    Only the WHITELISTED markers above count, so ``小猫妹妹（嫌弃）`` stays
+    a plain on-screen speaker: guessing presence from free text is
+    exactly what §3.1 forbids.
+    """
+    text = str(token or "").strip()
+    if not text:
+        return text, False
+    match = _speaker_suffix_re().search(text)
+    if not match:
+        return text, False
+    inner = match.group(0)[1:-1].strip().lower()
+    if inner in OFFSCREEN_MARKERS:
+        bare = text[: match.start()].strip()
+        return (bare or text), True
+    return text, False
+
+
+def normalize_speaker_with_presence(token: str) -> tuple[str, bool]:
+    """``normalize_speaker_token`` + off-screen detection, in that order.
+
+    The verbal attribution is stripped FIRST because it can sit AFTER the
+    marker (``小猫妹妹（画外）哭着说``): the marker is only trailing once
+    the attribution is gone. Then the marker is consumed (it is a
+    trailing parenthetical like any other), then the remaining mood
+    parenthetical. Returns ``(speaker, is_offscreen)``.
+    """
+    text = str(token or "").strip()
+    if not text:
+        return text, False
+    stripped = _verbal_attribution_re().sub("", text).strip()
+    if stripped:
+        text = stripped
+    bare, offscreen = split_offscreen_marker(text)
+    return normalize_speaker_token(bare), offscreen
+
+
 def _structured_line_re():
     global _STRUCTURED_LINE_RE
     if _STRUCTURED_LINE_RE is None:
@@ -407,14 +470,25 @@ def parse_structured_dialogue_turns(
         # Strip parenthetical moods AND verbal attributions
         # (小猫妹妹（嫌弃）/ 小猫妹妹哭着说 -> 小猫妹妹): one character
         # must map to ONE speaker tag, or the speaker-ID map splits her
-        # into multiple (S) voices.
-        speaker = normalize_speaker_token(speaker)
-        if turns and turns[-1].speaker == speaker and start >= turns[-1].end:
+        # into multiple (S) voices. The off-screen marker
+        # (小D（画外）) is consumed by the same strip and becomes
+        # structural presence instead of staying in the name.
+        speaker, offscreen = normalize_speaker_with_presence(speaker)
+        if (
+            turns and turns[-1].speaker == speaker
+            and start >= turns[-1].end
+        ):
             turns[-1].lines.append(text)
             turns[-1].end = end
+            # Adjacent lines by the same speaker keep that speaker's
+            # declared presence; a conflict is impossible because the
+            # marker is part of the label being matched here.
             continue
         turns.append(
-            DialogueTurn(speaker=speaker, lines=[text], start=start, end=end)
+            DialogueTurn(
+                speaker=speaker, lines=[text], start=start, end=end,
+                offscreen=offscreen,
+            )
         )
     if not turns:
         return None, ""

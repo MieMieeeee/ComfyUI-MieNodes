@@ -72,13 +72,18 @@ try:
         _replace_section_body,
         _shot1_coverage,
         annotate_retention_pose,
+        absent_declarations,
         build_fallback_shot_lines,
         build_plan,
         build_spatial_layout_directive,
         complete_layout_from_turn_order,
         identity_pin_lines,
         neutralize_offscreen_claims,
+        offscreen_speech_line,
+        on_screen_speech_line,
         plan_to_json_string,
+        pov_shot1_coverage,
+        presence_summary,
         replace_description_body,
         validate_dialogue_invariantity,
         validate_label_policy,
@@ -106,13 +111,18 @@ except ImportError:  # pragma: no cover
         _replace_section_body,
         _shot1_coverage,
         annotate_retention_pose,
+        absent_declarations,
         build_fallback_shot_lines,
         build_plan,
         build_spatial_layout_directive,
         complete_layout_from_turn_order,
         identity_pin_lines,
         neutralize_offscreen_claims,
+        offscreen_speech_line,
+        on_screen_speech_line,
         plan_to_json_string,
+        pov_shot1_coverage,
+        presence_summary,
         replace_description_body,
         validate_dialogue_invariantity,
         validate_label_policy,
@@ -365,6 +375,8 @@ def _assemble_one_shot(
     storyboard: dict,
     manifest: list[dict],
     ambience_line: str,
+    absent: Optional[list[str]] = None,
+    offscreen_names: Optional[set] = None,
 ) -> dict:
     """Build one shot's schema, segments, length and seed. No LLM.
 
@@ -386,7 +398,8 @@ def _assemble_one_shot(
         prompt_lines, "overall_soundscape:", [ambience_line],
     )
 
-    visible_names = sorted(
+    offscreen = set(offscreen_names or ())
+    all_names = sorted(
         {str(name).strip() for name in spatial_layout
          if str(name).strip()}
         | {ln["speaker"] for ln in lines if ln.get("speaker")}
@@ -398,7 +411,7 @@ def _assemble_one_shot(
              and m["slot"] == "Picture %d" % speaker_to_slot.get(name, -1)),
             "",
         )
-        for name in visible_names
+        for name in all_names
     }
     prompt_lines = _build_storyboard_shot_body(
         prompt_lines,
@@ -408,6 +421,8 @@ def _assemble_one_shot(
         spatial_layout=spatial_layout,
         speaker_identities=speaker_identities,
         storyboard=storyboard,
+        absent=absent,
+        offscreen_names=offscreen,
     )
 
     pacing = PACING_PRESETS[storyboard.get("pacing", "normal")]
@@ -430,29 +445,52 @@ def _build_storyboard_shot_body(
     spatial_layout: dict[str, str],
     speaker_identities: dict[str, str],
     storyboard: dict,
+    absent: Optional[list[str]] = None,
+    offscreen_names: Optional[set] = None,
 ) -> list[str]:
     """Compose the six-section shot body. The plan §5 deviation note:
     ``install_shot_speech`` wraps a non-still picture cue as "Silent
     picture only. Mouths stay closed and nobody speaks.", which
     contradicts the upcoming speaking line. This helper mirrors
     ``install_shot_speech``'s ref2va path but emits the picture cue
-    as a plain descriptive sentence."""
-    prompt_lines = neutralize_offscreen_claims(prompt_lines)
+    as a plain descriptive sentence.
 
-    visible_names = sorted(
+    Presence (PLAN_POV_OFFSCREEN §4): ``offscreen_names`` / ``absent``
+    default to empty, and with both empty every branch below collapses to
+    the pre-POV path, so a non-POV board assembles to identical bytes.
+    """
+    offscreen = set(offscreen_names or ())
+    absent_list = list(absent or ())
+    pov_board = bool(offscreen)
+
+    # Presence is STRUCTURAL, so the anti-POV scrubber must not assert
+    # "all speaking characters are visible" on a board that declared an
+    # off-screen voice (§4.5).
+    prompt_lines = neutralize_offscreen_claims(
+        prompt_lines, declared_offscreen=pov_board,
+    )
+
+    # Per-shot presence set = cast members neither absent nor off-screen.
+    all_names = sorted(
         {str(n).strip() for n in spatial_layout if str(n).strip()}
         | {ln["speaker"] for ln in lines if ln.get("speaker")}
     )
-    if visible_names:
-        pins = identity_pin_lines(visible_names, speaker_identities)
+    present_names = [
+        n for n in all_names
+        if n not in set(absent_list) and n not in offscreen
+    ]
+    visible_names = present_names
+    # Identity pins / bare-name aliases stay FULL CAST on purpose
+    # (§4.3): omitting an identity anchor is the historical defect
+    # source, and the whole reference chain is wired anyway.
+    if all_names:
+        pins = identity_pin_lines(all_names, speaker_identities)
         if pins:
             prompt_lines = _replace_section_body(
                 prompt_lines, "subject_definitions:", pins
             )
 
-    dialogue_tag = DIALOGUE_TAG.get(
-        storyboard.get("language", "en"), DIALOGUE_TAG["en"]
-    )
+    board_lang = storyboard.get("language", "en")
     speech_lines: list[str] = []
     for ln in lines:
         speaker = ln["speaker"]
@@ -464,20 +502,46 @@ def _build_storyboard_shot_body(
             )
         voice = slot_to_voice.get(slot, "")
         text = ln["text"]
-        head = "%s speaks as (S%d) %s" % (speaker, slot, voice)
-        spoken = "<d>%s %s</d>" % (dialogue_tag, text)
-        speech_lines.append("%s %s" % (head, spoken))
+        # Per-line language override (PLAN_POV_OFFSCREEN §3.3) — the
+        # board value is the default, so a board with no ``lang`` keys
+        # produces exactly the tag it always did.
+        tag = DIALOGUE_TAG.get(
+            ln.get("lang") or board_lang, DIALOGUE_TAG[board_lang]
+        )
+        if speaker in offscreen:
+            speech_lines.append(offscreen_speech_line(
+                "S%d" % slot, voice, text, tag,
+                listener=(present_names[0] if present_names else ""),
+                reaction=(ln.get("picture") or "").strip(),
+            ))
+        else:
+            speech_lines.append(on_screen_speech_line(
+                speaker, "S%d" % slot, voice, text, tag,
+                pov_board=pov_board,
+            ))
 
-    body: list[str] = [_shot1_coverage(visible_names, voiceover=False)]
-    spatial = build_spatial_layout_directive(spatial_layout)
+    if pov_board:
+        body: list[str] = [pov_shot1_coverage(present_names)]
+    else:
+        body = [_shot1_coverage(visible_names, voiceover=False)]
+    # Absent declarations sit immediately after the [Shot 1] line.
+    body.extend(absent_declarations(absent_list))
+    # The spatial pin only names people who are actually in frame.
+    shot_layout = {
+        n: pos for n, pos in (spatial_layout or {}).items()
+        if n in set(present_names)
+    }
+    spatial = build_spatial_layout_directive(shot_layout)
     if spatial and not spatial.startswith("(no spatial"):
         body.append(spatial)
     if storyboard.get("setting_line"):
         body.append("Setting: " + storyboard["setting_line"])
-    # Inline each line's picture cue as a plain descriptive sentence.
+    # On a POV board the picture cue IS the off-screen reaction (it is
+    # baked into the sentence by offscreen_speech_line); emitting it
+    # again as a standalone line would double it.
     for ln, speech in zip(lines, speech_lines):
         cue = (ln.get("picture") or "").strip()
-        if cue:
+        if cue and not (pov_board and ln["speaker"] in offscreen):
             body.append(_picture_cue_sentence(cue))
         body.append(speech)
 
@@ -485,27 +549,17 @@ def _build_storyboard_shot_body(
         prompt_lines, body, schema=SCHEMA_SIX,
     )
 
-    # Reference-generation summary (mirrors install_shot_speech's
-    # SCHEMA_SIX branch).
-    speaking = sorted({ln["speaker"] for ln in lines if ln.get("speaker")})
-    if set(speaking) >= set(visible_names):
-        who = ", ".join(speaking) if speaking else "The subjects"
-        summary = (
-            "[reference generation] "
-            f"{who} are visible and speaking. "
-            "The spoken words are not restated here."
-        )
-    else:
-        vis = " and ".join(visible_names) if visible_names else "the subjects"
-        vis_verb = "is" if len(visible_names) == 1 else "are"
-        spk = ", ".join(speaking) if speaking else "nobody"
-        spk_verb = "is" if len(speaking) == 1 else "are"
-        summary = (
-            "[reference generation] "
-            f"{vis} {vis_verb} visible in the frame; "
-            f"{spk} {spk_verb} speaking. "
-            "The spoken words are not restated here."
-        )
+    summary = presence_summary(
+        on_screen_names=present_names,
+        speaking_names=sorted(
+            {ln["speaker"] for ln in lines
+             if ln.get("speaker") and ln["speaker"] not in offscreen}
+        ),
+        offscreen_names=sorted(
+            {ln["speaker"] for ln in lines
+             if ln.get("speaker") and ln["speaker"] in offscreen}
+        ),
+    )
     prompt_lines = _replace_section_body(prompt_lines, "summary:", [summary, ""])
     prompt_lines = annotate_retention_pose(prompt_lines)
     return prompt_lines
@@ -679,13 +733,26 @@ def assemble_plan(
     # Spatial layout: from the storyboard; missing speakers are filled
     # in turn-order via the existing helper (PLAN §3.1 "缺的说话人用
     # complete_layout_from_turn_order 补左/右/中").
+    #
+    # Off-screen speakers are EXCLUDED from completion (PLAN_POV_OFFSCREEN
+    # §3.1): a frame pin is the instruction "this character is visible at
+    # <position>", which is exactly what an off-screen voice contradicts.
+    # The validator already refuses a hand-written pin for one; skipping
+    # completion closes the same hole on the automatic path.
+    board_offscreen = {
+        name for name, info in cast.items() if info.get("offscreen")
+    }
     turn_speaker_order: list[str] = []
     for sl in storyboard.get("shots") or storyboard.get("lines") or []:
         lines_in = sl.get("lines") if "lines" in sl else [sl]
         for ln in lines_in:
-            if ln["speaker"] not in turn_speaker_order:
+            if (ln["speaker"] not in turn_speaker_order
+                    and ln["speaker"] not in board_offscreen):
                 turn_speaker_order.append(ln["speaker"])
-    declared = storyboard.get("spatial_layout") or {}
+    declared = {
+        n: pos for n, pos in (storyboard.get("spatial_layout") or {}).items()
+        if n not in board_offscreen
+    }
     completed_layout = complete_layout_from_turn_order(
         turn_speaker_order, declared,
     )
@@ -714,13 +781,23 @@ def assemble_plan(
         )
     if raw_shots_in is not None:
         shots_per_scene = [list(shot["lines"]) for shot in raw_shots_in]
+        absent_per_scene = [
+            list(shot.get("absent") or []) for shot in raw_shots_in
+        ]
         raw_shots = raw_shots_in
     else:
         # Auto-pack path. We still need a raw_shots view for the dialogue
         # invariantity check downstream — synthesise it from the packed
-        # scenes.
+        # scenes. Per-shot ``absent`` is an authored field with no
+        # auto-pack equivalent, so every packed scene is fully present.
         shots_per_scene = _auto_pack_flat_lines(flat_lines_in, storyboard)
         raw_shots = [{"lines": s} for s in shots_per_scene]
+        absent_per_scene = [[] for _ in shots_per_scene]
+
+    # Board-level off-screen declaration (PLAN_POV_OFFSCREEN §3.1).
+    offscreen_names = {
+        name for name, info in cast.items() if info.get("offscreen")
+    }
 
     shot_entries: list[dict] = []
     for shot_idx, sl_lines in enumerate(shots_per_scene, 1):
@@ -733,6 +810,8 @@ def assemble_plan(
             storyboard={**storyboard, "seed_base": seed_base},
             manifest=manifest,
             ambience_line=ambience,
+            absent=absent_per_scene[shot_idx - 1],
+            offscreen_names=offscreen_names,
         )
         shot_entries.append(shot)
 

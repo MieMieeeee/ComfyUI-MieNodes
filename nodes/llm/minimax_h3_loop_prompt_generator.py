@@ -1503,6 +1503,37 @@ def _monologue_scene_hint(shots: list, cast_size: int) -> list[str]:
     ]
 
 
+def _pov_offscreen_advice(turns) -> list[str]:
+    """Timeline-offset advice for a board with a DECLARED off-screen
+    speaker (PLAN_POV_OFFSCREEN §4.6).
+
+    The off-screen line and the on-screen lines around it must not
+    overlap on the timeline: when the renderer animates the listener's
+    mouth during a voiceover, the offset is what was lost. This channel
+    carries the re-roll recipe for that case. It deliberately does NOT
+    touch the packing algorithm — the cut budget stays the user's call,
+    and an extra advisory line costs no behaviour on any other board.
+    """
+    off_turns = [t for t in (turns or []) if getattr(t, "offscreen", False)]
+    if not off_turns:
+        return []
+    listed = ", ".join(
+        "%s (%d line(s) off-screen)"
+        % (t.speaker, len(t.lines))
+        for t in off_turns
+    )
+    return [
+        "First-person POV (off-screen voice) in " + listed + ". These lines "
+        "are spoken with nobody in frame; the on-screen character's mouth "
+        "must stay closed for their whole duration. If a scene renders "
+        "the listener's lips moving during an off-screen line, re-roll "
+        "just that scene (change its seed in the plan JSON and point Loop "
+        "Start's scene_range at it) — this is the timeline offset being "
+        "lost, not a wording problem, so editing the prompt text will not "
+        "help."
+    ]
+
+
 def _cut_budget_advice(
     *,
     turns: list,
@@ -1909,7 +1940,16 @@ class H3LoopPromptEnhancer:
         "bindings = the picture-slot-to-character assignments the "
         "text explicitly makes: 图1的黑猫 / 参考图 2 → 白猫 / Picture 3 "
         "-> the kitten all yield {\"picture\": N, \"name\": <bare "
-        "character name>} (黑猫, never 黑猫是爸爸). No guesses.\n\n"
+        "character name>} (黑猫, never 黑猫是爸爸). No guesses.\n"
+        "Off-screen presence: when the concept DECLARES a speaker as "
+        "off-screen with a trailing marker — 小D（画外）, "
+        "小D(offscreen), 小D（画外音）, Narrator(voiceover) — copy that "
+        "marker into the \"speaker\" field VERBATIM (小D（画外）, not "
+        "小D) so the parser turns it into structural presence. Only "
+        "these whitelisted markers count: a mood parenthetical "
+        "(（嫌弃）, （医生）) is NOT an off-screen marker, so copy it "
+        "into \"speaker\" as written and let the existing mood strip "
+        "handle it. Never infer off-screen presence from the prose.\n\n"
         "HARD RULES — violation of any rule invalidates the reply:\n"
         "  1. ``text`` MUST be the spoken words only. Do NOT include "
         "the lead verb (said, 问, 说), the surrounding quotes, or "
@@ -4499,6 +4539,10 @@ class H3LoopPromptEnhancer:
                     plan["shots"], cast_size=len(speaker_id_map)
                 )
             )
+            # POV / off-screen presence (PLAN_POV_OFFSCREEN §4.6): the
+            # timeline-offset re-roll recipe. Advisory only — it never
+            # changes the packing.
+            summary_lines.extend(_pov_offscreen_advice(turns))
         if enhance_header is not None:
             # Auto-enhance ran: surface the rewrite after the fact so
             # the intermediate stays inspectable without the two-node

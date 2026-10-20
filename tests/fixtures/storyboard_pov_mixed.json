@@ -1,0 +1,69 @@
+{
+  "name": "画外音测试",
+  "version": 1,
+  "language": "zh",
+  "camera_discipline": "locked",
+  "pacing": "normal",
+  "seed_policy": "per_scene_increment",
+  "prompt_prefix": "A cozy living room in polished 3D CG animation with warm indoor lighting. The camera stays locked off.",
+  "cast": {
+    "叙述者": {
+      "character_slot": 1,
+      "offscreen": true
+    },
+    "小猫妹妹": {
+      "character_slot": 2
+    },
+    "猫爷爷": {
+      "character_slot": 3
+    }
+  },
+  "setting_line": "The kitten girl sits at the table while an unseen voice speaks to her.",
+  "spatial_layout": {
+    "小猫妹妹": "left of frame",
+    "猫爷爷": "right of frame"
+  },
+  "ambience": "Quiet room tone with soft indoor air.",
+  "shots": [
+    {
+      "lines": [
+        {
+          "speaker": "叙述者",
+          "text": "Before you were even in primary school.",
+          "picture": "The kitten girl lowers her ears and glances down.",
+          "lang": "en"
+        },
+        {
+          "speaker": "小猫妹妹",
+          "text": "我那时候还不认识字呢。"
+        }
+      ]
+    },
+    {
+      "lines": [
+        {
+          "speaker": "叙述者",
+          "text": "There were a few hedgehogs in the yard at home."
+        },
+        {
+          "speaker": "小猫妹妹",
+          "text": "嗯，院子里是有几只小刺猬。"
+        }
+      ]
+    },
+    {
+      "absent": ["猫爷爷"],
+      "lines": [
+        {
+          "speaker": "叙述者",
+          "text": "And then you walked over and stepped on them one by one.",
+          "picture": "The kitten girl keeps both paws folded on the table."
+        },
+        {
+          "speaker": "小猫妹妹",
+          "text": "我不敢再看它们了。"
+        }
+      ]
+    }
+  ]
+}
