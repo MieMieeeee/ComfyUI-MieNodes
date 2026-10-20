@@ -378,6 +378,21 @@ def _structured_line_re():
     return _STRUCTURED_LINE_RE
 
 
+def declared_offscreen_names(concept: str) -> set[str]:
+    """Read explicit speaker-label declarations, even among stage prose."""
+    names = set()
+    # Unlike the turn parser this also accepts labels containing a space
+    # inside '(off screen)'. It never examines the dialogue or stage prose.
+    import re
+    for line in (concept or "").splitlines():
+        match = re.match(r"^\s*([^：:]{1,64})[：:]\s*\S", line)
+        if match:
+            name, offscreen = normalize_speaker_with_presence(match.group(1))
+            if offscreen:
+                names.add(name)
+    return names
+
+
 def parse_structured_dialogue_turns(
     concept: str,
     *,
@@ -463,7 +478,9 @@ def parse_structured_dialogue_turns(
             else:
                 prologue_lines.append(stripped)
         offset = next_offset
-    if len(matches) < 2 and not lenient:
+    if len(matches) < 2 and not lenient and not (
+        matches and normalize_speaker_with_presence(matches[0][2])[1]
+    ):
         return None, ""
     turns: list[DialogueTurn] = []
     for start, end, speaker, text in matches:
@@ -480,9 +497,7 @@ def parse_structured_dialogue_turns(
         ):
             turns[-1].lines.append(text)
             turns[-1].end = end
-            # Adjacent lines by the same speaker keep that speaker's
-            # declared presence; a conflict is impossible because the
-            # marker is part of the label being matched here.
+            turns[-1].offscreen = turns[-1].offscreen or offscreen
             continue
         turns.append(
             DialogueTurn(

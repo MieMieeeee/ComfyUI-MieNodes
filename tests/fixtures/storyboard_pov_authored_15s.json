@@ -1,0 +1,57 @@
+{
+  "name": "Claude原文复现-15秒",
+  "version": 1,
+  "assembly_mode": "authored",
+  "audio_mode": "generated",
+  "language": "zh",
+  "camera_perspective": "first_person",
+  "camera_discipline": "locked",
+  "prompt_prefix": [],
+  "cast": {
+    "Narrator": {
+      "character_slot": 1,
+      "offscreen": true
+    },
+    "Cloud": {
+      "character_slot": 2
+    }
+  },
+  "shots": [
+    {
+      "duration_seconds": 15,
+      "lines": [
+        {
+          "speaker": "Narrator",
+          "lang": "en",
+          "text": "Cloud, help me resolve this document."
+        },
+        {
+          "speaker": "Cloud",
+          "lang": "zh",
+          "text": "其实，你可以和我直接用中文交流的，我不会介意的。"
+        },
+        {
+          "speaker": "Narrator",
+          "lang": "en",
+          "text": "wait, i'm not Chinese."
+        },
+        {
+          "speaker": "Cloud",
+          "lang": "zh",
+          "text": "哎呀，我都上架中文了，相信我，好吗。"
+        },
+        {
+          "speaker": "Narrator",
+          "lang": "zh",
+          "text": "真，真的吗？"
+        },
+        {
+          "speaker": "Cloud",
+          "lang": "zh",
+          "text": "哼哼，你的账号已被封禁。"
+        }
+      ],
+      "prompt": "integrated_multimodal_description: [Shot 1] First-person POV, medium close-up of Cloud facing the camera, natural indoor lighting, static camera.\nCloud looks toward the camera with a calm expression.\nAn off-screen male voice (S1) says in an off-screen voiceover: <d>[English] Cloud, help me resolve this document.</d> while Cloud’s lips remain completely closed; she only listens with a slight tilt of the head.\n\nCloud then smiles slightly and replies with a soft, playful voice (S2): <d>[Chinese] 其实，你可以和我直接用中文交流的，我不会介意的。</d> Her lips move naturally with the line.\n\nImmediately after, the off-screen male voice (S1) says in an off-screen voiceover: <d>[English] wait, i'm not Chinese.</d> while Cloud’s lips stay completely closed; she raises her eyebrows in mild surprise.\n\nCloud leans in a little and continues with the same playful voice (S2): <d>[Chinese] 哎呀，我都上架中文了，相信我，好吗。</d> Her mouth moves in sync.\n\nThe off-screen male voice (S1) then says hesitantly in an off-screen voiceover: <d>[Chinese] 真，真的吗？</d> while Cloud’s lips remain completely closed; she just watches with an amused expression.\n\nFinally Cloud smirks and says with a teasing tone (S2): <d>[Chinese] 哼哼，你的账号已被封禁。</d> Her lips move clearly with the words, then settle closed as she looks at the camera.\n\noverall_soundscape: Quiet indoor room tone, soft fabric movement, natural breathing.\nnon_diegetic_music: N/A\n"
+    }
+  ]
+}

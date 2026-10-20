@@ -81,6 +81,7 @@ try:
         identity_pin_lines,
         neutralize_offscreen_claims,
         offscreen_speech_line,
+        install_presence_speech,
         on_screen_speech_line,
         plan_to_json_string,
         pov_shot1_coverage,
@@ -121,6 +122,7 @@ except ImportError:  # pragma: no cover
         identity_pin_lines,
         neutralize_offscreen_claims,
         offscreen_speech_line,
+        install_presence_speech,
         on_screen_speech_line,
         plan_to_json_string,
         pov_shot1_coverage,
@@ -387,8 +389,8 @@ def _assemble_one_shot(
     """Build one shot's schema, segments, length and seed. No LLM.
 
     The body is composed by ``_build_storyboard_shot_body`` (this
-    function is a thin wrapper). We deliberately bypass
-    ``install_shot_speech`` because its cue branch wraps a non-still
+    function is a thin wrapper). Presence boards use the shared
+    ``install_presence_speech``. The legacy installer's cue branch wraps a non-still
     cue as "Silent picture only. Mouths stay closed and nobody
     speaks." — a contradiction when the cue is on a SPEAKING line.
     See PLAN_STORYBOARD_ASSET §5 (deviation note) for the rationale.
@@ -405,11 +407,7 @@ def _assemble_one_shot(
     )
 
     offscreen = set(offscreen_names or ())
-    all_names = sorted(
-        {str(name).strip() for name in spatial_layout
-         if str(name).strip()}
-        | {ln["speaker"] for ln in lines if ln.get("speaker")}
-    )
+    all_names = sorted(speaker_to_slot)
     # Identity text comes from the ASSET description, not from the
     # manifest: an off-screen speaker has no picture (so no manifest
     # entry) but still carries a description — the place where the
@@ -487,10 +485,7 @@ def _build_storyboard_shot_body(
     )
 
     # Per-shot presence set = cast members neither absent nor off-screen.
-    all_names = sorted(
-        {str(n).strip() for n in spatial_layout if str(n).strip()}
-        | {ln["speaker"] for ln in lines if ln.get("speaker")}
-    )
+    all_names = sorted(speaker_to_slot)
     present_names = [
         n for n in all_names
         if n not in set(absent_list) and n not in offscreen
@@ -505,7 +500,7 @@ def _build_storyboard_shot_body(
         n for n in all_names
         if n not in offscreen or speaker_identities.get(n)
     ]
-    if pin_names:
+    if pin_names and not (offscreen or absent_list):
         pins = identity_pin_lines(pin_names, speaker_identities)
         if pins:
             # APPEND the pins, never REPLACE the section body. The body's
@@ -548,6 +543,7 @@ def _build_storyboard_shot_body(
                 sid, voice if sid else "", text, tag,
                 listener=(present_names[0] if present_names else ""),
                 reaction=(ln.get("picture") or "").strip(),
+                listeners=present_names,
             ))
         else:
             speech_lines.append(on_screen_speech_line(
@@ -555,12 +551,17 @@ def _build_storyboard_shot_body(
                 pov_board=pov_board,
             ))
 
-    if pov_board:
-        body: list[str] = [pov_shot1_coverage(present_names)]
-    else:
-        body = [_shot1_coverage(visible_names, voiceover=False)]
-    # Absent declarations sit immediately after the [Shot 1] line.
-    body.extend(absent_declarations(absent_list))
+    if offscreen or absent_list:
+        return install_presence_speech(
+            prompt_lines, speech_lines, cast_names=all_names,
+            line_speakers=[ln["speaker"] for ln in lines],
+            offscreen_names=offscreen, absent=absent_list,
+            spatial_layout=spatial_layout, speaker_identities=speaker_identities,
+            camera_perspective=storyboard.get("camera_perspective", "observer"),
+            picture_cues=[(ln.get("picture") or "").strip() for ln in lines],
+            opening_setting=[storyboard["setting_line"]] if storyboard.get("setting_line") else [],
+        )
+    body = [_shot1_coverage(visible_names, voiceover=False)]
     # The spatial pin only names people who are actually in frame.
     shot_layout = {
         n: pos for n, pos in (spatial_layout or {}).items()
@@ -571,12 +572,9 @@ def _build_storyboard_shot_body(
         body.append(spatial)
     if storyboard.get("setting_line"):
         body.append("Setting: " + storyboard["setting_line"])
-    # On a POV board the picture cue IS the off-screen reaction (it is
-    # baked into the sentence by offscreen_speech_line); emitting it
-    # again as a standalone line would double it.
     for ln, speech in zip(lines, speech_lines):
         cue = (ln.get("picture") or "").strip()
-        if cue and not (pov_board and ln["speaker"] in offscreen):
+        if cue:
             body.append(_picture_cue_sentence(cue))
         body.append(speech)
 
@@ -728,6 +726,95 @@ def _offscreen_slots(cast: dict) -> set[int]:
     }
 
 
+def _assemble_authored_plan(storyboard: dict, slot_bundles: dict) -> dict:
+    """Keep an authored H3 prompt intact; references are an independent choice."""
+    cast = storyboard["cast"]
+    if not cast:
+        raise ValueError("authored storyboard requires a cast")
+    ordered = sorted(cast.items(), key=lambda item: int(item[1]["character_slot"]))
+    roster_slots, picture_slots = [], []
+    generated = storyboard["audio_mode"] == "generated"
+    for name, info in ordered:
+        slot = int(info["character_slot"])
+        bundle = slot_bundles.get(slot)
+        if bundle is None and info.get("offscreen"):
+            continue
+        if not isinstance(bundle, dict) or bundle.get("kind") != "character":
+            raise ValueError("character_%d (%s) requires a character asset" % (slot, name))
+        if not info.get("offscreen") and bundle.get("image") is None:
+            raise ValueError("character_%d (%s) requires an image" % (slot, name))
+        if not generated:
+            _check_character_audio(bundle, slot)
+        roster_slots.append(slot)
+        if not info.get("offscreen"):
+            picture_slots.append(slot)
+    scene = slot_bundles.get(_storyboard.MAX_CHARACTER_SLOT + 1)
+    scene_slot = None
+    if scene is not None:
+        if not isinstance(scene, dict) or scene.get("kind") != "scene" or scene.get("image") is None:
+            raise ValueError("scene_1 requires a scene asset with an image")
+        scene_slot = _storyboard.MAX_CHARACTER_SLOT + 1
+        roster_slots.append(scene_slot)
+        picture_slots.append(scene_slot)
+    reference_context = []
+    summary_lines = ["authored prompt preserved; audio mode: " + storyboard["audio_mode"]]
+    if scene_slot is not None:
+        scene_picture = len(picture_slots)
+        character_pictures = ", ".join(
+            "<Picture %d>" % index
+            for index, slot in enumerate(picture_slots, 1) if slot != scene_slot
+        )
+        reference_context = [
+            "Use %s for the characters' identities and appearance only; "
+            "do not use their backgrounds." % character_pictures,
+        ]
+        for name, info in ordered:
+            slot = int(info["character_slot"])
+            if info.get("offscreen"):
+                continue
+            picture = picture_slots.index(slot) + 1
+            reference_context.append(
+                "%s is the on-screen character shown in <Picture %d>; "
+                "use <Picture %d> for %s's identity and appearance throughout."
+                % (name, picture, picture, name)
+            )
+        # A source-image caption may describe a wide establishing view. Keep
+        # its camera/framing instructions out of the authored shot; H3 gets
+        # the environment from the scene image itself.
+        reference_context.append(
+            "Scene reference: <Picture %d> provides only the environment, "
+            "materials and lighting. It does not define camera position, "
+            "shot size or character blocking." % scene_picture
+        )
+        reference_context.append(
+            "Start immediately with the on-screen characters from %s already inside "
+            "the environment from <Picture %d>, "
+            "in the authored framing. Keep them continuously visible from the first frame "
+            "through the end of the shot."
+            % (character_pictures, scene_picture)
+        )
+        summary_lines.append(
+            "optional scene %r -> <Picture %d>; character portrait backgrounds excluded"
+            % (scene.get("name") or "?", scene_picture)
+        )
+    shots = []
+    for index, shot in enumerate(storyboard["shots"], 1):
+        # H3's temporal grid is 17*k+5 at 24 fps; nearest representable duration.
+        frames = max(5, 17 * round((shot["duration_seconds"] * 24 - 5) / 17) + 5)
+        shots.append({"id": "scene_%02d" % index, "prompt": shot["prompt"].split("\n"),
+                      "length": frames, "seed": _seed_for(storyboard, index)})
+    return {
+        "plan": {"shots": shots, "prompt_prefix": reference_context},
+        "summary_lines": summary_lines,
+        "ambience": storyboard.get("ambience", ""), "size_note": "",
+        "roster_slots": roster_slots, "picture_slots": picture_slots,
+        "picture_of_slot": {slot: i for i, slot in enumerate(picture_slots, 1)},
+        "scene_slot": scene_slot,
+        "unwired_offscreen": [name for name, info in ordered
+                               if info.get("offscreen") and slot_bundles.get(int(info["character_slot"])) is None],
+    }
+
+
 def assemble_plan(
     *,
     storyboard: dict,
@@ -774,6 +861,8 @@ def assemble_plan(
         raise ValueError("slot_bundles must be a dict keyed by picture number")
     if not _skip_validation:
         storyboard = _storyboard.validate_storyboard_payload(storyboard)
+    if storyboard.get("assembly_mode") == "authored":
+        return _assemble_authored_plan(storyboard, slot_bundles)
 
     cast = storyboard.get("cast") or {}
     if not cast:
@@ -922,6 +1011,10 @@ def assemble_plan(
             if (ln["speaker"] not in turn_speaker_order
                     and ln["speaker"] not in board_offscreen):
                 turn_speaker_order.append(ln["speaker"])
+    # A silent cast member is still present unless explicitly absent.
+    for name in cast:
+        if name not in board_offscreen and name not in turn_speaker_order:
+            turn_speaker_order.append(name)
     declared = {
         n: pos for n, pos in (storyboard.get("spatial_layout") or {}).items()
         if n not in board_offscreen
@@ -1000,22 +1093,10 @@ def assemble_plan(
         )
         shot_entries.append(shot)
 
-    # Language-separation check for POV shots (2026-10-20 live finding).
-    #
-    # H3 synthesizes the speech ITSELF from the <d> blocks and the
-    # reference audio, and it renders a line in the LANGUAGE OF THE
-    # REFERENCE VOICE it picks. Live-verified 2026-10-20: 小D's
-    # reference sample is Chinese, so his English lines came back in
-    # Chinese ("Please help me resolve this document." -> "请帮我帮忙把
-    # 这些文件解决"), and a line leading with the VISIBLE character's
-    # name degraded further ("Claude, help me resolve this document."
-    # -> "Claude, let me ask you about the origin of this payment").
-    #
-    # So the off-screen speaker's lines should be in a DIFFERENT
-    # language from the visible character's, and each speaker needs a
-    # reference sample in the language of their own lines. This is a
-    # warning, not an error: the board may be fine on other stacks, and
-    # the author may want the same language on purpose.
+    # Local trials showed misattributed lines. This is a diagnostic risk,
+    # not proof of a language-based speaker assignment rule: audio inputs,
+    # model sampling and ASR have not been isolated. Never demand a
+    # bilingual rewrite or change the authored words as a workaround.
     language_warnings: list[str] = []
     if offscreen_names:
         board_lang = storyboard.get("language", "en")
@@ -1037,14 +1118,10 @@ def assemble_plan(
                 language_warnings.append(
                     "scene_%02d: the off-screen line(s) of %s use the same "
                     "language (%s) as the on-screen character's line(s). H3 "
-                    "assigns a voice to a <d> line by LANGUAGE and speaks it "
-                    "in that voice's language, so with two voices in one "
-                    "language the off-screen line risks being attributed to "
-                    "the visible character (and she is the one whose mouth "
-                    "animates). Give the off-screen speaker a different "
-                    "'lang' on that line (the community recipe is EN/ZH "
-                    "alternation) and a reference audio sample in that "
-                    "language."
+                    "has misattributed same-language lines in local trials; "
+                    "this is an observed risk, not a language restriction. "
+                    "Keep the authored dialogue and verify every line's "
+                    "words, voice attribution and visible mouth movement."
                     % (shot_idx, ", ".join(names), ", ".join(shared))
                 )
             # A NAME-VOCATIVE for the visible character at the head of an
@@ -1131,6 +1208,12 @@ def assemble_plan(
             "every cast speaker)"
         )
     summary_lines.extend(language_warnings)
+    if offscreen_names:
+        summary_lines.append(
+            "Reference audio language and voice attribution are not verified "
+            "by the asset schema. Check every rendered line against the "
+            "authored text and its intended speaker."
+        )
     # An unwired off-screen speaker declares no voice at all — that is a
     # legal state, but it is worth saying out loud, because the voice
     # then drifts between renders.
@@ -1275,7 +1358,7 @@ def _storyboard_optional_slots(max_slots: int) -> dict:
             "场景槽位 · scene slot 1：接 Load Scene Asset 的 asset 输出；"
             "排在角色 Picture 之后。\n"
             "Wire a Load Scene Asset's asset output; scenes come after "
-            "all characters."
+            "all characters. Optional for assembly_mode=authored."
         )},
     )
     return optional
@@ -1288,7 +1371,9 @@ def _storyboard_required_inputs() -> dict:
             "MIE_STORYBOARD",
             {"tooltip": (
                 "接 Load Storyboard Asset 的 storyboard 输出。\n"
-                "Wire the Load Storyboard Asset's storyboard output."
+                "Wire the Load Storyboard Asset's storyboard output. "
+                "assembly_mode=authored preserves the complete shot prompt; "
+                "audio_mode=generated sends images without reference audio."
             )},
         ),
         "seed": ("INT", {
@@ -1389,6 +1474,8 @@ def assemble_from_sockets(
             )
         if not isinstance(bundle, dict):
             continue
+        if cleaned.get("audio_mode") == "generated":
+            bundle = dict(bundle, audio=None)
         if slot in offscreen_slots:
             # Voice only: keep the bundle (and its audio) but drop the
             # picture.

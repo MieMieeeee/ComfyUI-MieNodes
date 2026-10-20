@@ -3370,6 +3370,8 @@ def neutralize_offscreen_claims(
         if "<d>" in line or key in header_set:
             out.append(line)
             continue
+        if declared_offscreen and "all speaking characters are visible in the frame" in key:
+            continue
         if _HIDE_SPEAKER_RE.search(line):
             if not noted:
                 if not declared_offscreen:
@@ -3492,7 +3494,9 @@ def _shot1_coverage(speakers: list[str], *, voiceover: bool) -> str:
 DEFAULT_LISTEN_REACTION = "{name} only listens with a slight nod"
 
 
-def pov_shot1_coverage(on_screen_names: list[str]) -> str:
+def pov_shot1_coverage(
+    on_screen_names: list[str], *, speaking_names: Optional[list[str]] = None,
+) -> str:
     """The POV ``[Shot 1]`` opener (PLAN_POV_OFFSCREEN §4.4).
 
     Replaces the two-person template on a board that has declared an
@@ -3505,11 +3509,16 @@ def pov_shot1_coverage(on_screen_names: list[str]) -> str:
     names = _unique_names(on_screen_names)
     who = " and ".join(names) if names else "The on-screen character"
     verb = "faces" if len(names) == 1 else "face"
+    activity = (
+        "listening to the unseen speaker"
+        if speaking_names is not None and not speaking_names
+        else "speaking to the unseen speaker"
+    )
     return (
         "[Shot 1] First-person point of view: the lens sits where the "
         "off-screen speaker is. "
         f"{who} {verb} the camera at a stable conversational distance, "
-        "eyes on the lens, speaking to the unseen speaker. "
+        f"eyes on the lens, {activity}. "
         "The camera holds still."
     )
 
@@ -3563,6 +3572,7 @@ def offscreen_speech_line(
     *,
     listener: str = "",
     reaction: str = "",
+    listeners: Optional[list[str]] = None,
 ) -> str:
     """Form 2 — a voice with no body in the shot.
 
@@ -3589,8 +3599,12 @@ def offscreen_speech_line(
         head = "An off-screen voice says in an off-screen voiceover:"
     spoken = f"<d>{tag} {line}</d>"
     clauses: list[str] = []
-    if listener:
-        clauses.append(f"while {listener}'s lips remain completely closed")
+    listening = _unique_names(listeners if listeners is not None else [listener])
+    if listening:
+        clauses.append("while " + " and ".join(
+            f"{name}'s lips remain completely closed" for name in listening
+        ))
+    listener = listening[0] if listening else ""
     move = (reaction or "").strip()
     if not move and listener:
         move = DEFAULT_LISTEN_REACTION.format(name=listener)
@@ -3826,6 +3840,68 @@ def assign_stage_cues(concept: str, shots: list[dict]) -> None:
         for shot in shots or []:
             if not shot.get("_opening_setting"):
                 shot["_opening_setting"] = list(opening)
+
+
+def install_presence_speech(
+    prompt_lines: list[str], speech_lines: list[str], *,
+    cast_names: list[str], line_speakers: list[str], offscreen_names: set,
+    spatial_layout: Optional[dict] = None, speaker_identities: Optional[dict] = None,
+    absent: Optional[list[str]] = None, camera_perspective: str = "observer",
+    picture_cues: Optional[list[str]] = None, opening_setting: Optional[list[str]] = None,
+    schema: str = SCHEMA_SIX,
+) -> list[str]:
+    """Shared V2/V3 presence assembly; speech is already locked as data."""
+    off = set(offscreen_names)
+    missing = set(absent or ())
+    visible = [n for n in _unique_names(cast_names) if n not in off | missing]
+    speaking = _unique_names([n for n in line_speakers if n not in off])
+    if set(speaking) & missing:
+        raise ValueError("absent speakers still have dialogue: " + ", ".join(sorted(set(speaking) & missing)))
+    lines = neutralize_offscreen_claims(prompt_lines, declared_offscreen=bool(off))
+    identities = speaker_identities or {}
+    pins = identity_pin_lines(
+        [n for n in _unique_names(cast_names) if n not in off or identities.get(n)],
+        identities,
+    )
+    if schema == SCHEMA_SIX:
+        lines = _insert_section_suffix(lines, "subject_definitions:", pins)
+    if camera_perspective == "first_person":
+        coverage = pov_shot1_coverage(visible, speaking_names=speaking)
+    else:
+        who = " and ".join(visible) or "The scene"
+        verb = "is" if len(visible) <= 1 else "are"
+        coverage = (
+            f"[Shot 1] {who} {verb} visible from an observer's viewpoint. "
+            "The camera is separate from the off-screen voice. "
+            + ("Only the named on-screen speaker moves their lips during their own line. "
+               if speaking else "Everyone in frame listens without speaking. ")
+            + "The camera holds still."
+        )
+    body = [coverage] + absent_declarations(list(absent or ()))
+    layout = {n: pos for n, pos in (spatial_layout or {}).items() if n in visible}
+    spatial = build_spatial_layout_directive(layout)
+    if spatial and not spatial.startswith("(no spatial"):
+        body.append(spatial)
+    if schema != SCHEMA_SIX:
+        body.extend(pins)
+    body.extend("Setting: " + str(s).strip() for s in opening_setting or () if str(s).strip())
+    cues = list(picture_cues or ())
+    for index, speech in enumerate(speech_lines):
+        if index and line_speakers[index] != line_speakers[index - 1]:
+            body.append("The previous line finishes completely. After one silent beat, the next speaker begins.")
+        cue = cues[index].strip() if index < len(cues) else ""
+        if cue and line_speakers[index] not in off:
+            body.append(cue.rstrip(" .") + ".")
+        body.append(speech)
+    lines = replace_description_body(lines, body, schema=schema)
+    if schema == SCHEMA_SIX:
+        summary = presence_summary(
+            on_screen_names=visible, speaking_names=speaking,
+            offscreen_names=[n for n in _unique_names(line_speakers) if n in off],
+        )
+        lines = _replace_section_body(lines, "summary:", [summary, ""])
+        lines = annotate_retention_pose(lines)
+    return lines
 
 
 def install_shot_speech(

@@ -3,6 +3,7 @@
   "version": 1,
   "language": "zh",
   "camera_discipline": "locked",
+  "camera_perspective": "first_person",
   "pacing": "normal",
   "seed_policy": "per_scene_increment",
   "prompt_prefix": "A cozy living room in polished 3D CG animation with warm indoor lighting. The camera stays locked off.",

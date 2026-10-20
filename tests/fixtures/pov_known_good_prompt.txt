@@ -1,0 +1,16 @@
+integrated_multimodal_description: [Shot 1] First-person POV, medium close-up of Cloud facing the camera, natural indoor lighting, static camera.
+Cloud looks toward the camera with a calm expression.
+An off-screen male voice (S1) says in an off-screen voiceover: <d>[English] Cloud, help me resolve this document.</d> while Cloud’s lips remain completely closed; she only listens with a slight tilt of the head.
+
+Cloud then smiles slightly and replies with a soft, playful voice (S2): <d>[Chinese] 其实，你可以和我直接用中文交流的，我不会介意的。</d> Her lips move naturally with the line.
+
+Immediately after, the off-screen male voice (S1) says in an off-screen voiceover: <d>[English] wait, i'm not Chinese.</d> while Cloud’s lips stay completely closed; she raises her eyebrows in mild surprise.
+
+Cloud leans in a little and continues with the same playful voice (S2): <d>[Chinese] 哎呀，我都上架中文了，相信我，好吗。</d> Her mouth moves in sync.
+
+The off-screen male voice (S1) then says hesitantly in an off-screen voiceover: <d>[Chinese] 真，真的吗？</d> while Cloud’s lips remain completely closed; she just watches with an amused expression.
+
+Finally Cloud smirks and says with a teasing tone (S2): <d>[Chinese] 哼哼，你的账号已被封禁。</d> Her lips move clearly with the words, then settle closed as she looks at the camera.
+
+overall_soundscape: Quiet indoor room tone, soft fabric movement, natural breathing.
+non_diegetic_music: N/A

@@ -320,7 +320,8 @@ class TestPovFixture:
             "An off-screen voice (S1), adult female, calm narrative timbre, "
             "even pace, says in an off-screen voiceover: <d>[English] "
             "Before you were even in primary school.</d> while 小猫妹妹's lips "
-            "remain completely closed; The kitten girl lowers her ears and "
+            "remain completely closed and 猫爷爷's lips remain completely closed; "
+            "The kitten girl lowers her ears and "
             "glances down." in shot1
         )
         # On-screen form with the positive lip sentence.
@@ -1070,7 +1071,7 @@ class TestClaude001CommunityRecipe:
         assert "off-screen voice (S1)" in full
         assert "Claude speaks as (S2)" in full
         # 小D speaks EN twice then ZH; Claude is ZH throughout
-        assert "<d>[English] Claude, help me resolve this document.</d>" in full
+        assert "<d>[English] Please help me resolve this document.</d>" in full
         assert "<d>[English] wait, i'm not Chinese.</d>" in full
         assert "[Chinese] 真，真的吗？</d>" in full
 

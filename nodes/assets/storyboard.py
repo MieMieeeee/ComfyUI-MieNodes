@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import re
 from pathlib import Path
@@ -321,7 +322,7 @@ def validate_cast(cast):
     path separators, no dots, max NAME_MAX_CHARS).
 
     ``offscreen`` (PLAN_POV_OFFSCREEN §3.1, default False): the speaker is
-    heard but never seen — first-person POV dialogue. It is a DECLARATION,
+    heard but never seen. Camera perspective is a separate DECLARATION,
     never inferred: presence is structural data, and the semantic-facts
     extractor / the prose enhancer never guess it.
 
@@ -388,7 +389,7 @@ def validate_cast(cast):
     return cleaned
 
 
-def validate_shots(shots, cast=None, offscreen_names=frozenset()):
+def validate_shots(shots, cast=None, offscreen_names=frozenset(), *, authored=False, language="zh"):
     """Each shot is a dict with ``lines`` (1..MAX_SHOT_LINES entries).
     Every speaker must be in ``cast``; every line carries text (verbatim,
     no CJK ban — dialogue language is the storyboard's ``language`` and
@@ -429,10 +430,11 @@ def validate_shots(shots, cast=None, offscreen_names=frozenset()):
             raise ValueError(
                 "shot %d.lines must be a non-empty list" % shot_idx
             )
-        if len(raw_lines) > MAX_SHOT_LINES:
+        line_cap = 32 if authored else MAX_SHOT_LINES
+        if len(raw_lines) > line_cap:
             raise ValueError(
                 "shot %d has %d lines; per-shot cap is %d"
-                % (shot_idx, len(raw_lines), MAX_SHOT_LINES)
+                % (shot_idx, len(raw_lines), line_cap)
             )
         cleaned_lines = []
         for line_idx, raw_line in enumerate(raw_lines, 1):
@@ -464,6 +466,23 @@ def validate_shots(shots, cast=None, offscreen_names=frozenset()):
                 line["lang"] = line_lang
             cleaned_lines.append(line)
         shot = {"lines": cleaned_lines}
+        if authored:
+            prompt = raw_shot.get("prompt")
+            if not isinstance(prompt, str) or not prompt.strip():
+                raise ValueError("authored shot %d requires a complete prompt" % shot_idx)
+            duration = raw_shot.get("duration_seconds")
+            if (isinstance(duration, bool) or not isinstance(duration, (int, float))
+                    or not math.isfinite(duration) or not 0 < duration <= 30):
+                raise ValueError("authored shot %d requires duration_seconds in (0, 30]" % shot_idx)
+            tags = re.findall(r"<d>\s*\[([^\]]+)\]\s*(.*?)</d>", prompt, re.DOTALL)
+            languages = {"en": "English", "zh": "Chinese"}
+            expected = [(languages.get(ln.get("lang", language), ln.get("lang", language)),
+                         ln["text"]) for ln in cleaned_lines]
+            if (len(re.findall(r"<d>", prompt)) != len(expected)
+                    or [(lang, text.strip()) for lang, text in tags] != expected):
+                raise ValueError("authored shot %d prompt dialogue/language must match lines verbatim and in order" % shot_idx)
+            shot["prompt"] = prompt
+            shot["duration_seconds"] = duration
         absent = validate_absent(raw_shot.get("absent"), cast, offscreen_names)
         if absent:
             shot["absent"] = absent
@@ -480,6 +499,13 @@ def validate_shots(shots, cast=None, offscreen_names=frozenset()):
                     "character; a shot with nobody in frame renders as an "
                     "empty room plate — keep at least one cast member "
                     "visible" % (shot_idx, absent)
+                )
+            speaking_absent = sorted({ln["speaker"] for ln in cleaned_lines} & set(absent))
+            if speaking_absent:
+                raise ValueError(
+                    "shot %d: absent speaker(s) %s still have lines; remove their "
+                    "lines or declare a board-level offscreen speaker"
+                    % (shot_idx, ", ".join(speaking_absent))
                 )
         cleaned.append(shot)
     return cleaned
@@ -576,9 +602,19 @@ def validate_storyboard_payload(payload, *, require_shots=False):
     name = _library.validate_name(name)
 
     language = validate_language(payload.get("language", "zh"))
+    assembly_mode = payload.get("assembly_mode", "template")
+    if assembly_mode not in ("template", "authored"):
+        raise ValueError("assembly_mode must be 'template' or 'authored'")
+    authored = assembly_mode == "authored"
+    audio_mode = payload.get("audio_mode", "generated" if authored else "reference")
+    if audio_mode not in ("generated", "reference") or (not authored and audio_mode != "reference"):
+        raise ValueError("audio_mode 'generated' requires assembly_mode 'authored'")
     camera_discipline = validate_camera_discipline(
         payload.get("camera_discipline", "locked")
     )
+    perspective = payload.get("camera_perspective", "observer")
+    if perspective not in ("observer", "first_person"):
+        raise ValueError("camera_perspective must be 'observer' or 'first_person'")
     pacing = validate_pacing(payload.get("pacing", "normal"))
     seed_policy = validate_seed_policy(
         payload.get("seed_policy", "per_scene_increment")
@@ -586,7 +622,7 @@ def validate_storyboard_payload(payload, *, require_shots=False):
     prompt_prefix = validate_prompt_prefix(
         payload.get("prompt_prefix", "")
     )
-    if not prompt_prefix:
+    if not prompt_prefix and not authored:
         raise ValueError(
             "prompt_prefix is required and must contain at least one "
             "non-empty English line (the global visual style sentence)"
@@ -596,6 +632,8 @@ def validate_storyboard_payload(payload, *, require_shots=False):
     offscreen_names = {
         name for name, info in cast.items() if info.get("offscreen")
     }
+    if perspective == "first_person" and not offscreen_names:
+        raise ValueError("camera_perspective 'first_person' requires an offscreen speaker")
     setting_line = validate_setting_line(payload.get("setting_line", ""))
     ambience = validate_ambience_line(payload.get("ambience", ""))
 
@@ -614,7 +652,9 @@ def validate_storyboard_payload(payload, *, require_shots=False):
             )
         shots = None
     else:
-        shots = validate_shots(raw_shots, cast, offscreen_names)
+        shots = validate_shots(raw_shots, cast, offscreen_names, authored=authored, language=language)
+    if authored and not shots:
+        raise ValueError("authored assembly requires explicit shots")
     if raw_lines is None:
         lines = None
     else:
@@ -681,6 +721,13 @@ def validate_storyboard_payload(payload, *, require_shots=False):
         cleaned["lines"] = lines
     if ambience:
         cleaned["ambience"] = ambience
+    if "camera_perspective" in payload:
+        cleaned["camera_perspective"] = perspective
+    if authored:
+        if prompt_prefix:
+            raise ValueError("authored assembly stores the complete prompt per shot; prompt_prefix must be empty")
+        cleaned["assembly_mode"] = assembly_mode
+        cleaned["audio_mode"] = audio_mode
     return cleaned
 
 
@@ -890,6 +937,8 @@ def storyboard_requirements(cleaned: dict) -> list[dict]:
             # character is always required — he is in the frame.
             "required": not offscreen,
             "note": (
+                "H3 generated voices; no reference audio is sent"
+                if cleaned.get("audio_mode") == "generated" else
                 "画外音：接上则用他的音色，不接则由 H3 自选 · "
                 "off-screen: wire it to use its voice, or leave it empty "
                 "and H3 chooses"
@@ -901,7 +950,7 @@ def storyboard_requirements(cleaned: dict) -> list[dict]:
         "kind": "scene",
         "name": None,
         "offscreen": False,
-        "required": True,
+        "required": cleaned.get("assembly_mode") != "authored",
         "note": "",
     })
     return out

@@ -1,57 +1,21 @@
 # -*- coding: utf-8 -*-
-"""Verify a first-person POV render: the on-screen character must keep
-their mouth STILL during the off-screen line, and move it during their
-own line.
+"""Complete, line-by-line POV acceptance against an explicit storyboard.
 
-This is the PLAN_POV_OFFSCREEN §10 acceptance harness.
-
-Method — a geometric measurement, not a "does the mouth look open"
-heuristic:
-  1. the mp4's audio -> word timestamps (faster-whisper);
-  2. the words are grouped into runs by SCRIPT and mapped onto the
-     board's lines IN ORDER. The board declares ``lang`` per line, so
-     run k == line k. An off-screen line and an on-screen line can
-     share a script (a Chinese off-screen line next to Chinese
-     on-screen lines), so the ORDER is what separates the speakers —
-     script alone cannot;
-  3. a run that merges an on-screen and an off-screen line is
-     EXCLUDED and reported, rather than silently diluting the
-     measurement;
-  4. the mouth aperture is measured per frame with MediaPipe's
-     FaceLandmarker: the distance between landmark 13 (upper inner
-     lip) and landmark 14 (lower inner lip), normalised by the face
-     height (chin 152 -> forehead 10).
-
-USAGE
-    python scripts/verify_pov_lip_sync.py VIDEO.mp4
-    python scripts/verify_pov_lip_sync.py            # newest under output/live_pov
-
-    # to score a different board, edit LINE_SPEAKER (the board's line
-    # order: "off" / "on" per line).
+Usage: python scripts/verify_pov_lip_sync.py VIDEO --storyboard BOARD --report REPORT
+Voice attribution and visible identity need per-line review evidence; missing
+or uncertain evidence produces a nonzero exit status. No transcript runs are skipped.
 """
 from __future__ import annotations
-
 import argparse
-import glob
+import json
 import pathlib
-import re
 import subprocess
 import sys
 import tempfile
 import urllib.request
 
-import cv2
-import numpy as np
-
-COMFY_OUTPUT = pathlib.Path(
-    r"C:\PP\V9\V9-Large\ComfyUI_Mie_2026_V9.0_Large\ComfyUI\output"
-)
-LANDMARKER_URL = (
-    "https://storage.googleapis.com/mediapipe-models/face_landmarker"
-    "/face_landmarker/float16/1/face_landmarker.task"
-)
-CJK = re.compile(r"[\u4e00-\u9fff]")
-
+COMFY_OUTPUT = pathlib.Path(r"C:\PP\V9\V9-Large\ComfyUI_Mie_2026_V9.0_Large\ComfyUI\output")
+LANDMARKER_URL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task"
 
 def find_ffmpeg():
     for cand in (
@@ -64,42 +28,139 @@ def find_ffmpeg():
     return shutil.which("ffmpeg")
 
 
-def transcript_runs(mp4: pathlib.Path):
-    """-> (runs, ) where each run is (is_cjk, (start, end, text))."""
-    from faster_whisper import WhisperModel
+def _normalized(text):
+    import unicodedata
+    return "".join(c for c in unicodedata.normalize("NFKC", str(text)).casefold() if c.isalnum())
 
+
+def align_lines(lines, words):
+    """Strict, ordered text alignment. Missing/extra speech never disappears.
+
+    ASR mismatches require listening to confirm; they cannot be a PASS.
+    A word shared by two lines cannot supply a trustworthy speaker boundary.
+    """
+    from difflib import SequenceMatcher
+    expected_parts = [_normalized(line["text"]) for line in lines]
+    expected = "".join(expected_parts)
+    observed, owners = "", []
+    errors, invalid_words = [], set()
+    previous_start = -1.0
+    for index, word in enumerate(words):
+        start, end = float(word["start"]), float(word["end"])
+        if start < previous_start or start < 0 or end <= start:
+            errors.append("invalid transcript timestamp at word %d" % index)
+            invalid_words.add(index)
+        previous_start = start
+        token = _normalized(word.get("text", word.get("word", "")))
+        observed += token
+        owners.extend([index] * len(token))
+    mapping = {}
+    for block in SequenceMatcher(None, expected, observed, autojunk=False).get_matching_blocks():
+        mapping.update((block.a + j, block.b + j) for j in range(block.size))
+    if expected != observed:
+        errors.append("transcript differs from the storyboard: missing, changed or extra speech; listen to confirm")
+    result, offset = [], 0
+    for index, (line, token) in enumerate(zip(lines, expected_parts)):
+        positions = [mapping.get(i) for i in range(offset, offset + len(token))]
+        exact = bool(token) and all(i is not None for i in positions)
+        if exact:
+            exact = positions == list(range(positions[0], positions[0] + len(token)))
+        word_ids = sorted({owners[i] for i in positions if i is not None})
+        entry = dict(line, id=line.get("id", "line_%02d" % (index + 1)), text_ok=exact,
+                     start=None, end=None, boundary_ok=not bool(set(word_ids) & invalid_words))
+        if exact:
+            entry.update(start=float(words[word_ids[0]]["start"]), end=float(words[word_ids[-1]]["end"]))
+        result.append(entry)
+        offset += len(token)
+    for left, right in zip(result, result[1:]):
+        if left["end"] is not None and right["start"] is not None and left["end"] > right["start"]:
+            left["boundary_ok"] = right["boundary_ok"] = False
+            errors.append("speaker boundary overlaps an ASR word: %s / %s" % (left["id"], right["id"]))
+    return {"ok": not errors and bool(result) and all(x["text_ok"] for x in result),
+            "errors": errors, "lines": result, "observed_text": observed}
+
+
+def evaluate_lines(lines, words, apertures_by_name, fps, review=None,
+                   max_closed_aperture=0.02, max_closed_motion=0.015,
+                   min_speaking_motion=0.015, min_face_coverage=0.9):
+    """Measure EVERY line and listener. Voice/identity require separate evidence."""
+    import math
+    if fps <= 0:
+        raise ValueError("fps must be positive")
+    alignment = align_lines(lines, words)
+    reviews = review or {}
+    for entry in alignment["lines"]:
+        visible = entry.get("visible_speakers", list(apertures_by_name))
+        entry["mouths"] = {}
+        timed = entry["text_ok"] and entry["boundary_ok"] and entry["start"] is not None
+        for name in visible:
+            values = apertures_by_name.get(name, [])
+            start = math.ceil(entry["start"] * fps - 1e-8) if timed else 0
+            end = math.ceil(entry["end"] * fps - 1e-8) if timed else 0
+            expected_count = max(0, end - start)
+            samples = [x for x in values[start:end] if x is not None and math.isfinite(x)]
+            coverage = len(samples) / expected_count if expected_count else 0.0
+            span = max(samples) - min(samples) if samples else None
+            peak = max(samples) if samples else None
+            speaking = not entry.get("offscreen", False) and name == entry["speaker"]
+            measured = timed and len(samples) >= 3 and coverage >= min_face_coverage
+            ok = bool(measured and (span >= min_speaking_motion if speaking else
+                      peak <= max_closed_aperture and span <= max_closed_motion))
+            entry["mouths"][name] = {"ok": ok, "coverage": coverage, "samples": len(samples),
+                                     "peak": peak, "motion": span, "speaking": speaking}
+        entry["mouth_ok"] = bool(visible) and all(x["ok"] for x in entry["mouths"].values())
+        evidence = reviews.get(entry["id"], {})
+        entry["voice_ok"] = evidence.get("voice_speaker") == entry["speaker"]
+        entry["visual_ok"] = sorted(evidence.get("visible_speakers", [])) == sorted(visible) and bool(visible)
+        entry["ok"] = bool(timed and entry["mouth_ok"] and entry["voice_ok"] and entry["visual_ok"])
+    return {"ok": alignment["ok"] and all(x["ok"] for x in alignment["lines"]),
+            "errors": alignment["errors"], "lines": alignment["lines"],
+            "thresholds": {"max_closed_aperture": max_closed_aperture,
+                           "max_closed_motion": max_closed_motion,
+                           "min_speaking_motion": min_speaking_motion,
+                           "min_face_coverage": min_face_coverage},
+            "notes": ["ASR mismatches need listening confirmation.",
+                      "Unreviewed voice attribution or visible identities cannot pass.",
+                      "Mouth thresholds are explicit geometric checks, not a perceptual guarantee."]}
+
+
+def storyboard_lines(board):
+    cast = board["cast"]
+    shots = board.get("shots")
+    if not shots:
+        raise ValueError("acceptance requires explicit storyboard shots matching the rendered plan")
+    result = []
+    for shot_index, shot in enumerate(shots, 1):
+        visible = [n for n, info in cast.items() if not info.get("offscreen") and n not in shot.get("absent", [])]
+        for line_index, line in enumerate(shot["lines"], 1):
+            result.append(dict(line, id="scene_%02d.line_%02d" % (shot_index, line_index),
+                               offscreen=bool(cast[line["speaker"]].get("offscreen")), visible_speakers=visible))
+    return result
+
+
+def transcribe_words(mp4, model_name="small"):
+    from faster_whisper import WhisperModel
+    import inspect
     ffmpeg = find_ffmpeg()
-    if ffmpeg is None:
-        raise SystemExit("no ffmpeg — cannot segment by speech")
-    with tempfile.TemporaryDirectory() as td:
-        wav = pathlib.Path(td) / "a.wav"
-        subprocess.run(
-            [ffmpeg, "-y", "-i", str(mp4), "-vn", "-ac", "1", "-ar", "16000",
-             str(wav)],
-            check=True, capture_output=True,
-        )
-        model = WhisperModel("small", device="cpu", compute_type="int8")
-        segments, _ = model.transcribe(
-            str(wav), word_timestamps=True, language=None, vad_filter=True,
-        )
-        words = []
-        for seg in segments:
-            for w in (seg.words or []):
-                t = w.word.strip()
-                if t:
-                    words.append((w.start, w.end, t))
-    runs = []
-    for start, end, word in words:
-        is_cjk = bool(CJK.search(word))
-        if runs and runs[-1][0] == is_cjk:
-            runs[-1][1].append((start, end, word))
-        else:
-            runs.append([is_cjk, [(start, end, word)]])
-    return runs
+    if not ffmpeg:
+        raise ValueError("ffmpeg is required")
+    with tempfile.TemporaryDirectory() as directory:
+        wav = pathlib.Path(directory) / "speech.wav"
+        subprocess.run([ffmpeg, "-y", "-i", str(mp4), "-vn", "-ac", "1", "-ar", "16000", str(wav)],
+                       check=True, capture_output=True)
+        model = WhisperModel(model_name, device="cpu", compute_type="int8")
+        options = dict(word_timestamps=True, language=None, vad_filter=True, task="transcribe")
+        if "multilingual" in inspect.signature(model.transcribe).parameters:
+            options["multilingual"] = True
+        segments, _ = model.transcribe(str(wav), **options)
+        return [{"text": word.word, "start": word.start, "end": word.end}
+                for segment in segments for word in segment.words or [] if word.word.strip()]
 
 
 def apertures(mp4: pathlib.Path):
     """-> (list of aperture|None per frame, fps, frame count)."""
+    import cv2
+    import numpy as np
     import mediapipe as mp
     from mediapipe.tasks.python import vision
 
@@ -122,7 +183,7 @@ def apertures(mp4: pathlib.Path):
     options = vision.FaceLandmarkerOptions(
         base_options=mp.tasks.BaseOptions(model_asset_path=str(cache)),
         running_mode=vision.RunningMode.VIDEO,
-        num_faces=1,
+        num_faces=2,
     )
     out = []
     with vision.FaceLandmarker.create_from_options(options) as landmarker:
@@ -132,7 +193,7 @@ def apertures(mp4: pathlib.Path):
                 mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb),
                 int(i * 1000 / fps),
             )
-            if not res.face_landmarks:
+            if len(res.face_landmarks) != 1:
                 out.append(None)
                 continue
             lm = res.face_landmarks[0]
@@ -145,129 +206,60 @@ def apertures(mp4: pathlib.Path):
 
 
 def main(argv=None):
-    p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("video", nargs="?", default=None,
-                   help="the rendered mp4 (default: newest under output/live_pov)")
-    p.add_argument(
-        "--line-order", default=None,
-        help=(
-            "comma-separated speaker per transcript run, e.g. "
-            "'off,on,off,on,off,on' for a board whose lines alternate "
-            "off-screen / on-screen. Default: assume the same order, "
-            "skipping any run that would mix the two."
-        ),
-    )
-    args = p.parse_args(argv)
-
-    if args.video:
-        mp4 = pathlib.Path(args.video)
+    import hashlib
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("video", type=pathlib.Path)
+    parser.add_argument("--storyboard", type=pathlib.Path, required=True)
+    parser.add_argument("--report", type=pathlib.Path, required=True)
+    parser.add_argument("--transcript", type=pathlib.Path, help="JSON words with text/start/end")
+    parser.add_argument("--mouth-data", type=pathlib.Path, help="JSON fps and named face tracks")
+    parser.add_argument("--review", type=pathlib.Path, help="JSON keyed by scene_XX.line_XX: voice_speaker/visible_speakers")
+    parser.add_argument("--model", default="small")
+    args = parser.parse_args(argv)
+    board = json.loads(args.storyboard.read_text(encoding="utf-8"))
+    lines = storyboard_lines(board)
+    words = json.loads(args.transcript.read_text(encoding="utf-8")) if args.transcript else transcribe_words(args.video, args.model)
+    if isinstance(words, dict):
+        words = words["words"]
+    args.report.parent.mkdir(parents=True, exist_ok=True)
+    args.report.with_suffix(".words.json").write_text(json.dumps(words, ensure_ascii=False, indent=2), encoding="utf-8")
+    extraction_errors = []
+    if args.mouth_data:
+        data = json.loads(args.mouth_data.read_text(encoding="utf-8"))
+        tracks, fps = data["faces"], data["fps"]
     else:
-        cands = sorted(
-            glob.glob(str(COMFY_OUTPUT / "live_pov" / "*.mp4")),
-            key=lambda q: pathlib.Path(q).stat().st_mtime,
-        )
-        if not cands:
-            raise SystemExit("no mp4 under", COMFY_OUTPUT / "live_pov")
-        mp4 = pathlib.Path(cands[-1])
-    print("mp4:", mp4, "(%.1f MB)" % (mp4.stat().st_size / 1e6))
-
-    runs = transcript_runs(mp4)
-    print("script runs: %d" % len(runs))
-    for i, (is_cjk, ws) in enumerate(runs, 1):
-        span = (min(s for s, _, _ in ws), max(e for _, e, _ in ws))
-        print("  run %d %-4s %5.2f-%5.2fs  %s"
-              % (i, "ZH" if is_cjk else "EN", span[0], span[1],
-                 " ".join(x[2] for x in ws)[:56]))
-
-    aps, fps, nframes = apertures(mp4)
-    found = sum(1 for a in aps if a is not None)
-    print("frames: %d (%.1fs @ %.2f fps)  faces in %d"
-          % (nframes, nframes / fps, fps, found))
-    if found < 30:
-        raise SystemExit("too few faces detected — cannot measure")
-
-    # Which run is which speaker. The board's line order decides it: a
-    # run can merge an on-screen and an off-screen line (whisper merges
-    # same-script neighbours), so the order must be given explicitly
-    # when the board has more than three runs.
-    if args.line_order:
-        order = [x.strip().lower() for x in args.line_order.split(",")
-                 if x.strip()]
-        if len(order) != len(runs):
-            print("  !! --line-order has %d entries but the transcript has "
-                  "%d runs — falling back to the alternating assumption"
-                  % (len(order), len(runs)))
-            order = None
-    else:
-        order = None
-
-    off_windows, on_windows = [], []
-    for i, (_is_cjk, ws) in enumerate(runs):
-        span = (min(s for s, _, _ in ws), max(e for _, e, _ in ws))
-        if order is not None:
-            tag = order[i]
-            if tag not in ("off", "on"):
-                print("  (run %d skipped: unknown tag %r)" % (i + 1, tag))
-                continue
+        names = list(dict.fromkeys(n for line in lines for n in line["visible_speakers"]))
+        if len(names) == 1:
+            values, fps, _ = apertures(args.video)
+            tracks = {names[0]: values}
         else:
-            # Without an explicit order, only the runs that cannot mix
-            # the two speakers are trustworthy: whisper merges
-            # same-script neighbours, so a run past the third may hold
-            # both an off-screen and an on-screen line.
-            if i >= 3:
-                print("  (run %d EXCLUDED: may mix an on-screen and an "
-                      "off-screen line — pass --line-order to score it)"
-                      % (i + 1))
-                continue
-            tag = "off" if i % 2 == 0 else "on"
-        (off_windows if tag == "off" else on_windows).append(span)
-
-    def stats(span):
-        lo, hi = span
-        idx = [i for i in range(nframes)
-               if lo <= i / fps <= hi and aps[i] is not None]
-        if not idx:
-            return None
-        arr = np.array([aps[i] for i in idx])
-        return {"n": len(arr), "mean": float(arr.mean()),
-                "max": float(arr.max())}
-
-    off = [s for s in (stats(sp) for sp in off_windows) if s]
-    on = [s for s in (stats(sp) for sp in on_windows) if s]
-    print()
-    print("  window                n      mean       max")
-    for label, group in (("off-screen", off), ("on-screen", on)):
-        for k, s in enumerate(group, 1):
-            print("  %-18s %-4d %8.4f %9.4f"
-                  % ("%s %d" % (label, k), s["n"], s["mean"], s["max"]))
-    if not off or not on:
-        raise SystemExit("not enough windows to compare")
-
-    off_mean = float(np.mean([s["mean"] for s in off]))
-    on_mean = float(np.mean([s["mean"] for s in on]))
-    off_max = float(np.max([s["max"] for s in off]))
-    on_max = float(np.max([s["max"] for s in on]))
-    print()
-    print("  mean mouth aperture: off-screen=%.4f  on-screen=%.4f  (%.1fx)"
-          % (off_mean, on_mean, on_mean / max(off_mean, 1e-9)))
-    print("  peak mouth aperture: off-screen=%.4f  on-screen=%.4f"
-          % (off_max, on_max))
-    print()
-    ok = True
-    for label, cond in (
-        ("the mouth stays SHUT through the off-screen line",
-         off_mean < 0.60 * on_mean),
-        ("the mouth never WIDENS past the on-screen peak",
-         off_max <= on_max * 1.10),
-        ("the mouth OPENS during the character's own line",
-         on_mean > off_mean * 1.5),
-    ):
-        print("  [%s] %s" % ("PASS" if cond else "FAIL", label))
-        ok = ok and cond
-    print()
-    print("RESULT:", "PASS - the off-screen line did not move the mouth"
-          if ok else "FAIL - the mouth moved during the off-screen line")
-    return 0 if ok else 1
+            tracks, fps = {}, 24.0
+            extraction_errors.append("multiple visible identities: supply --mouth-data with identified face tracks; automatic single-face measurements cannot prove this board")
+    with args.video.open("rb") as video_file:
+        video_hash = hashlib.file_digest(video_file, "sha256").hexdigest()
+    storyboard_hash = hashlib.sha256(args.storyboard.read_bytes()).hexdigest()
+    review = {}
+    if args.review:
+        evidence = json.loads(args.review.read_text(encoding="utf-8"))
+        if evidence.get("video_sha256") != video_hash or evidence.get("storyboard_sha256") != storyboard_hash:
+            extraction_errors.append("review hash mismatch: evidence must identify this exact video and storyboard")
+        else:
+            review = evidence.get("lines", {})
+    args.report.with_suffix(".mouths.json").write_text(
+        json.dumps({"faces": tracks, "fps": fps}, indent=2), encoding="utf-8")
+    result = evaluate_lines(lines, words, tracks, fps, review=review)
+    result["errors"].extend(extraction_errors)
+    result["ok"] = result["ok"] and not extraction_errors
+    result.update(video=str(args.video.resolve()), storyboard=str(args.storyboard.resolve()),
+                  storyboard_sha256=storyboard_hash, words=words,
+                  video_sha256=video_hash)
+    args.report.parent.mkdir(parents=True, exist_ok=True)
+    args.report.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+    for line in result["lines"]:
+        print("%s text=%s mouth=%s voice=%s visual=%s" %
+              (line["id"], line["text_ok"], line["mouth_ok"], line["voice_ok"], line["visual_ok"]))
+    print("RESULT:", "PASS" if result["ok"] else "FAIL / NEEDS REVIEW", str(args.report))
+    return 0 if result["ok"] else 1
 
 
 if __name__ == "__main__":

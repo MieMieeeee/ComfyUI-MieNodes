@@ -146,6 +146,10 @@ try:
         build_cast_sheet_text,
         extract_role_bindings,
         install_shot_speech,
+        install_presence_speech,
+        offscreen_speech_line,
+        on_screen_speech_line,
+        _detect_dialogue_language,
         assign_stage_cues,
         extract_spatial_layout,
         complete_layout_from_turn_order,
@@ -214,6 +218,7 @@ try:
         parse_structured_dialogue_turns as _dlg_parse_structured_dialogue_turns,
         parse_voiceover_lines as _dlg_parse_voiceover_lines,
         normalize_speaker_token as _dlg_normalize_speaker_token,
+        declared_offscreen_names as _dlg_declared_offscreen_names,
         MAX_SPOKEN_LINES_PER_SCENE as _DLG_MAX_SPOKEN_LINES,
         scene_raw_seconds as _dlg_scene_raw_seconds,
         group_budgets_into_scenes as _dlg_group_budgets_into_scenes,
@@ -252,6 +257,10 @@ except ImportError:
         build_cast_sheet_text,
         extract_role_bindings,
         install_shot_speech,
+        install_presence_speech,
+        offscreen_speech_line,
+        on_screen_speech_line,
+        _detect_dialogue_language,
         assign_stage_cues,
         extract_spatial_layout,
         complete_layout_from_turn_order,
@@ -319,6 +328,7 @@ except ImportError:
         parse_structured_dialogue_turns as _dlg_parse_structured_dialogue_turns,
         parse_voiceover_lines as _dlg_parse_voiceover_lines,
         normalize_speaker_token as _dlg_normalize_speaker_token,
+        declared_offscreen_names as _dlg_declared_offscreen_names,
         MAX_SPOKEN_LINES_PER_SCENE as _DLG_MAX_SPOKEN_LINES,
         scene_raw_seconds as _dlg_scene_raw_seconds,
         group_budgets_into_scenes as _dlg_group_budgets_into_scenes,
@@ -1196,11 +1206,13 @@ def _normalize_turn_speakers(
         ):
             out[-1].lines.extend(t.lines)
             out[-1].end = max(out[-1].end, t.end)
+            out[-1].offscreen = out[-1].offscreen or getattr(t, "offscreen", False)
             continue
         out.append(
             _DLG_DialogueTurn(
                 speaker=new, lines=list(t.lines),
                 start=t.start, end=t.end,
+                offscreen=getattr(t, "offscreen", False),
             )
         )
     if renames:
@@ -2887,6 +2899,36 @@ class H3LoopPromptEnhancer:
                 + ")"
             )
             lines_out = scrubbed_text.split("\n")
+        offscreen = set(getattr(self, "_declared_offscreen", ()))
+        if offscreen:
+            per_line = list(line_speakers or [turn_speaker] * len(dialogue_lines))
+            cast_names = list(getattr(self, "_presence_cast_names", ())) or list(dict.fromkeys(
+                list((spatial_layout or {}).keys()) + list(speaker_id_map or {}) + per_line
+            ))
+            visible = [n for n in cast_names if n not in offscreen]
+            cue_groups = list(shot.get("_stage_cues") or ())
+            cues = [" ".join(str(c) for c in group) if isinstance(group, list) else str(group)
+                    for group in cue_groups]
+            cues += [""] * (len(dialogue_lines) - len(cues))
+            blocks = []
+            for index, (name, text) in enumerate(zip(per_line, dialogue_lines)):
+                sid = (speaker_id_map or {}).get(name, "")
+                voice = (speaker_voices or {}).get(name, "")
+                # The locked line owns its language, just as on the old path.
+                tag = _detect_dialogue_language(text)
+                if name in offscreen:
+                    blocks.append(offscreen_speech_line(
+                        sid, voice if sid else "", text, tag,
+                        listeners=visible, reaction=cues[index],
+                    ))
+                else:
+                    blocks.append(on_screen_speech_line(name, sid, voice, text, tag, pov_board=True))
+            return install_presence_speech(
+                lines_out, blocks, cast_names=cast_names, line_speakers=per_line,
+                offscreen_names=offscreen, spatial_layout=spatial_layout,
+                speaker_identities=speaker_identities, picture_cues=cues,
+                opening_setting=shot.get("_opening_setting"), schema=schema,
+            )
         voiceover = _speakers_are_voiceover(
             list(line_speakers or []) or [turn_speaker or ""]
         )
@@ -3262,6 +3304,20 @@ class H3LoopPromptEnhancer:
                     spk_per_line = list(shot.get("_line_speakers") or [])
                     if len(spk_per_line) != len(dl):
                         spk_per_line = [speaker] * len(dl)
+                    if getattr(self, "_declared_offscreen", None):
+                        result[shot_id] = self._apply_locked_speech(
+                            result[shot_id], dialogue_lines=list(dl), line_speakers=spk_per_line,
+                            turn_speaker=speaker, speaker_id_map=speaker_id_map,
+                            speaker_identities=speaker_identities,
+                            first_appearance_speakers=set(spk_per_line) - seen_firsts,
+                            speaker_voices=speaker_voices, concept=concept,
+                            spatial_layout=spatial_layout, role_bindings=role_bindings,
+                            schema=SCHEMA_THREE, shot=shot,
+                            duration_seconds=float(shot.get("duration_seconds") or 0.0),
+                            clip_index=shots.index(shot) + 1,
+                        )
+                        seen_firsts.update(spk_per_line)
+                        continue
                     scrubbed, scrub_notes = scrub_dialogue_from_prompt_text(
                         "\n".join(result[shot_id]), list(dl)
                     )
@@ -3403,6 +3459,8 @@ class H3LoopPromptEnhancer:
         asset_roster: str = "",
         roster_manifest=None,
         camera_discipline: str = "auto",
+        offscreen_names=None,
+        speaker_references=None,
     ) -> dict:
         warnings: list[str] = []
         self._shot_fallback_notes = []
@@ -3415,6 +3473,8 @@ class H3LoopPromptEnhancer:
                 "connect a full LLMServiceConnector"
             )
         raw_input = (user_input or "").strip()
+        self._declared_offscreen = set(offscreen_names or ()) | _dlg_declared_offscreen_names(raw_input)
+        self._speaker_references = speaker_references
         # Camera discipline (2026-10-10 ruling): the storyboard LLM's
         # standing SHOT-SIZE VARIETY rule actively fights a user-stated
         # locked camera, and Chinese camera prose is only softly honored.
@@ -3755,12 +3815,18 @@ class H3LoopPromptEnhancer:
                 len(turns) == 1 and turns[0].speaker == "(narrator)"
             )
             if turns and not is_narrator_fallback:
+                for turn in turns:
+                    turn.offscreen = (
+                        turn.speaker in self._declared_offscreen
+                        or _dlg_normalize_speaker_token(turn.speaker) in self._declared_offscreen
+                    )
                 turns = _normalize_turn_speakers(
                     turns,
                     [e["name"] for e in roster_entries
                      if e.get("kind") == "character"],
                     roster_entries=roster_entries,
                 )
+                self._declared_offscreen.update(t.speaker for t in turns if t.offscreen)
             # Dialogue board + category "none": the spoken-scene
             # cinematography contract (shot/reverse-shot, no subtitles)
             # is what the user expects once lines are extracted — the
@@ -4279,8 +4345,30 @@ class H3LoopPromptEnhancer:
         if not spatial_layout:
             spatial_layout = extract_spatial_layout(idea)
             layout_source = "regex fallback"
+        if self._declared_offscreen:
+            warnings.append(
+                "Reference audio language and voice attribution are unverified; "
+                "check every rendered line against its authored text and speaker."
+            )
+            spatial_layout = {n: pos for n, pos in spatial_layout.items() if n not in self._declared_offscreen}
+            self._presence_cast_names = list(dict.fromkeys(
+                list(speaker_id_map) + [e["name"] for e in roster_entries if e.get("kind") == "character"]
+            ))
+            references = self._speaker_references
+            if references is not None:
+                speaker_id_map = {n: r["sid"] for n, r in references.items() if r.get("sid")}
+                for name, ref in references.items():
+                    if ref.get("voice"):
+                        speaker_voices[name] = ref["voice"]
+                    if ref.get("description"):
+                        cast[name] = ref["description"]
+            else:
+                speaker_id_map = {n: sid for n, sid in speaker_id_map.items() if n not in self._declared_offscreen}
+            layout_names = [n for n in self._presence_cast_names if n not in self._declared_offscreen]
+        else:
+            layout_names = list(speaker_id_map)
         completed = complete_layout_from_turn_order(
-            list(speaker_id_map), spatial_layout
+            layout_names, spatial_layout
         )
         if completed != spatial_layout and completed:
             layout_source = (
@@ -5142,12 +5230,14 @@ class MiniMaxH3LoopPromptGeneratorV2(MiniMaxH3LoopPromptGenerator):
         return bundles
 
     @classmethod
-    def _build_roster_from_bundles(cls, characters, scenes):
+    def _build_roster_from_bundles(cls, characters, scenes, offscreen_names=None):
         """Assemble everything the enhancer needs from the wired bundles:
         roster JSON (same shape the retired batch node emitted) + a preset
         manifest (about = authored description, role = identity /
         environment) + the picture batch for the images output."""
-        if len(characters) + len(scenes) > 9:
+        offscreen = set(offscreen_names or ())
+        visible_characters = [b for b in characters if b["name"] not in offscreen]
+        if len(visible_characters) + len(scenes) > 9:
             raise RuntimeError(
                 "wired slots give %d pictures (characters + scenes); the H3 "
                 "manifest supports at most 9" % (len(characters) + len(scenes))
@@ -5164,7 +5254,7 @@ class MiniMaxH3LoopPromptGeneratorV2(MiniMaxH3LoopPromptGenerator):
         manifest = []
         tensors = []
         slot = 0
-        for bundle in characters:
+        for bundle in visible_characters:
             slot += 1
             roster.append({
                 "name": bundle["name"], "kind": "character", "slot": slot,
@@ -5235,6 +5325,18 @@ class MiniMaxH3LoopPromptGeneratorV2(MiniMaxH3LoopPromptGenerator):
     ):
         characters = self._slot_bundles(kwargs, "character", "character")
         scenes = self._slot_bundles(kwargs, "scene", "scene")
+        offscreen = _dlg_declared_offscreen_names(kwargs.get("user_input", ""))
+        speaker_references = None
+        if offscreen:
+            speaker_references = {}
+            audio_index = 0
+            for bundle in characters:
+                if bundle.get("audio") is not None:
+                    audio_index += 1
+                    speaker_references[bundle["name"]] = {
+                        "sid": "S%d" % audio_index, "voice": bundle.get("voice", ""),
+                        "description": bundle.get("description", ""),
+                    }
         # The slot sockets are consumed HERE; they must not leak into the
         # enhancer's keyword contract.
         for key in [k for k in list(kwargs)
@@ -5247,7 +5349,7 @@ class MiniMaxH3LoopPromptGeneratorV2(MiniMaxH3LoopPromptGenerator):
         size_note = ""
         if characters or scenes:
             roster_arg, roster_manifest, images_out, size_note = (
-                self._build_roster_from_bundles(characters, scenes)
+                self._build_roster_from_bundles(characters, scenes, offscreen_names=offscreen)
             )
             if size_note:
                 # generate_v2 has no warnings list of its own — fold the
@@ -5256,7 +5358,7 @@ class MiniMaxH3LoopPromptGeneratorV2(MiniMaxH3LoopPromptGenerator):
                 log_pipeline("asset slots: " + size_note)
             # The wired bundles, aggregated in slot order — what Asset →
             # Slots splits back into picture/audio slots downstream.
-            assets_out = characters + scenes
+            assets_out = [dict(b, image=None) if b["name"] in offscreen else b for b in characters] + scenes
             kwargs.pop("images", None)  # the images socket is not consulted
 
         enhancer = H3LoopPromptEnhancer(
@@ -5268,6 +5370,8 @@ class MiniMaxH3LoopPromptGeneratorV2(MiniMaxH3LoopPromptGenerator):
         out = enhancer(
             asset_roster=roster_arg,
             roster_manifest=roster_manifest,
+            offscreen_names=offscreen,
+            speaker_references=speaker_references,
             enhance_user_input=parse_enhance_user_input(enhance_user_input),
             camera_discipline=kwargs.pop("camera_discipline", CAMERA_DISCIPLINES[0]),
             **kwargs,
