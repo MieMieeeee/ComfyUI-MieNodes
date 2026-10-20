@@ -210,6 +210,52 @@ class TestThreeFormTemplates:
 # §6.2 — byte-stability red line (VETO)
 # --------------------------------------------------------------------------- #
 class TestByteStabilityRedLine:
+    def test_subject_definitions_keeps_the_manifest_lines(self, mods):
+        """The manifest lines must SURVIVE the identity-pin insertion.
+
+        Live render 2026-10-20 found this: the pins were inserted with
+        ``_replace_section_body``, which REPLACED the whole
+        subject_definitions body. That silently dropped
+        ``<Subject K> -> <Picture M>: <description>`` AND
+        ``<Picture N>: <scene description>`` — so H3 never saw which
+        reference image is which character, nor what the room is. The
+        render invented a room and followed the prose instead of the
+        reference image.
+
+        The digest test below cannot catch this on its own (it would
+        happily lock in the broken bytes), so this test pins the
+        CONTENT that must be present."""
+        import torch
+        builder = mods["builder"]
+        node = builder.MiniMaxH3LoopPromptGeneratorV3()
+        doc = json.loads(
+            (FIXTURES / "storyboard_banli_zh.json").read_text(encoding="utf-8"),
+        )
+        plan_json = node.generate_v3(
+            doc, seed=1,
+            character_1=_char("小猫妹妹", "A calico kitten girl.", "young female, soft timbre"),
+            character_2=_char("猫爷爷", "An old tabby.", "elderly male, low voice"),
+            scene_1={
+                "kind": "scene", "name": "客厅",
+                "description": "A cozy cottage living room with a cream loveseat.",
+                "ambience": "", "image": torch.zeros(1, 8, 8, 3),
+            },
+        )[0]
+        prompt = json.loads(plan_json)["shots"][0]["prompt"]
+        body = "\n".join(
+            prompt[prompt.index("subject_definitions:") + 1:
+                   prompt.index("summary:")]
+        )
+        # The subject -> picture bindings (the identity anchors).
+        assert "<Subject 1> -> <Picture 1>: A calico kitten girl." in body
+        assert "<Subject 2> -> <Picture 2>: An old tabby." in body
+        # The SCENE's description — without it H3 invents the room.
+        assert ("<Picture 3>: A cozy cottage living room with a cream "
+                "loveseat.") in body
+        # ...and the bare-name aliases ride alongside.
+        assert "小猫妹妹: A calico kitten girl." in body
+        assert "猫爷爷: An old tabby." in body
+
     def test_banli_fixtures_assemble_to_the_recorded_bytes(self, mods):
         """The two shipped storyboards were captured BEFORE this feature
         landed. If presence plumbing leaks into a non-POV board, these
@@ -244,10 +290,10 @@ class TestByteStabilityRedLine:
         }
         # Recorded from the pre-POV implementation.
         expected = {
-            ("storyboard_banli_en.json", 0): "c5cdb234bccb3f75",
-            ("storyboard_banli_en.json", 611937399731): "7af1a721ae5f24ba",
-            ("storyboard_banli_zh.json", 0): "dc4e36c5cc0bc70d",
-            ("storyboard_banli_zh.json", 611937399731): "9dd8410e08b4c487",
+            ("storyboard_banli_en.json", 0): "222fc08725da3255",
+            ("storyboard_banli_en.json", 611937399731): "bc8d5f12ae3faacb",
+            ("storyboard_banli_zh.json", 0): "e8da158cc321712a",
+            ("storyboard_banli_zh.json", 611937399731): "97d0f64d4056f54a",
         }
         for (fx, seed), want in expected.items():
             doc = json.loads(

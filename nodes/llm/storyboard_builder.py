@@ -69,6 +69,7 @@ try:
         SECTION_DETAIL,
         SECTION_SOUND,
         SECTION_MUSIC,
+        _insert_section_suffix,
         _replace_section_body,
         _shot1_coverage,
         annotate_retention_pose,
@@ -108,6 +109,7 @@ except ImportError:  # pragma: no cover
         SECTION_DETAIL,
         SECTION_SOUND,
         SECTION_MUSIC,
+        _insert_section_suffix,
         _replace_section_body,
         _shot1_coverage,
         annotate_retention_pose,
@@ -506,7 +508,17 @@ def _build_storyboard_shot_body(
     if pin_names:
         pins = identity_pin_lines(pin_names, speaker_identities)
         if pins:
-            prompt_lines = _replace_section_body(
+            # APPEND the pins, never REPLACE the section body. The body's
+            # manifest lines are the identity anchors —
+            # ``<Subject K> -> <Picture M>: <description>`` and
+            # ``<Picture N>: <scene description>`` — and they are what
+            # tells H3 which reference image is which character and what
+            # the room is. Replacing the body dropped both, so H3 had
+            # no room description at all (it invented one) and no
+            # subject→picture binding (it followed the prose instead of
+            # the reference image). This is the same append the LLM
+            # track does in ``install_shot_speech``.
+            prompt_lines = _insert_section_suffix(
                 prompt_lines, "subject_definitions:", pins
             )
 
