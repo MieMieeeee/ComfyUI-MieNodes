@@ -1067,3 +1067,61 @@ class TestExtractedVerifier:
                 "cast": {"A": {"character_slot": 1}},
                 "shots": [{"lines": [{"speaker": "A", "text": "hi"}]}],
             })
+
+# --------------------------------------------------------------------------- #
+# Frontend payload unification (2026-10-20): the storyboard Load/Save nodes
+# ride the SAME dropdown/refresh pipeline as characters/scenes — the server
+# joins the third kind into /mie_nodes/assets/list and /meta.
+# --------------------------------------------------------------------------- #
+class TestAssetsPayloadUnification:
+    def test_augment_adds_storyboards_key(self, tmp_path):
+        import json as _json
+        sb_mod = self._sb()
+        (tmp_path / "storyboards" / "s1").mkdir(parents=True)
+        _json.dump(
+            {"name": "s1", "version": 1, "language": "zh",
+             "prompt_prefix": ["A line."],
+             "cast": {"甲": {"character_slot": 1}},
+             "shots": [{"lines": [{"speaker": "甲", "text": "一。"}]}]},
+            open(tmp_path / "storyboards" / "s1" / "storyboard.json",
+                 "w", encoding="utf-8"), ensure_ascii=False)
+        payload = {"ok": True, "characters": [{"name": "a"}], "scenes": []}
+        out = sb_mod.augment_assets_payload(payload, str(tmp_path))
+        assert out is payload
+        assert out["storyboards"] == [{"name": "s1"}]
+        assert out["characters"] == [{"name": "a"}]  # untouched
+
+    def test_augment_on_empty_library(self, tmp_path):
+        out = self._sb().augment_assets_payload({"ok": True}, str(tmp_path))
+        assert out["storyboards"] == []
+
+    def test_read_storyboard_meta_is_text_only(self, tmp_path):
+        import json as _json
+        sb_mod = self._sb()
+        (tmp_path / "storyboards" / "br").mkdir(parents=True)
+        _json.dump(
+            {"name": "br", "version": 1, "language": "zh",
+             "prompt_prefix": ["A line."],
+             "cast": {"旁白": {"character_slot": 1, "offscreen": True},
+                      "小猫妹妹": {"character_slot": 2}},
+             "shots": [{"lines": [
+                 {"speaker": "旁白", "text": "一。"},
+                 {"speaker": "小猫妹妹", "text": "二。"}]}]},
+            open(tmp_path / "storyboards" / "br" / "storyboard.json",
+                 "w", encoding="utf-8"), ensure_ascii=False)
+        meta = sb_mod.read_storyboard_meta(str(tmp_path), "br")
+        assert meta["kind"] == "storyboard"
+        assert meta["image_count"] == 0
+        assert meta["audio_count"] is None
+        assert meta["picture_size"] is None
+        assert "1 shot(s), 2 line(s)" in meta["description"]
+        assert "off-screen: 旁白" in meta["description"]
+
+    @staticmethod
+    def _sb():
+        import sys
+        mod = sys.modules.get("nodes.assets.storyboard")
+        if mod is None:
+            import importlib
+            mod = importlib.import_module("nodes.assets.storyboard")
+        return mod

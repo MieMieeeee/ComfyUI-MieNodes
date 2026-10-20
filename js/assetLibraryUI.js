@@ -24,6 +24,7 @@ const NEW_NAME = "（✏️ 新名字…）";
 const PLACEHOLDER = "（下拉选择资产）";
 const KIND_CHAR = "角色 Char";
 const KIND_SCENE = "场景 Scene";
+const KIND_STORY = "分镜 Storyboard";
 
 // nodeData.name（含 |Mie 后缀）-> 行为配置
 const NODES = {
@@ -53,6 +54,11 @@ const NODES = {
     "MiniMaxH3LoopPromptGeneratorV3|Mie": { generatorSockets: true },
     // 裸组装节点同样吃这套插座生长（storyboard 轨道入口）。
     "BuildPlanFromStoryboard|Mie": { generatorSockets: true },
+    // 分镜资产与角色/场景同一套下拉体验：/mie_nodes/assets/list 的
+    // storyboards 键 + 🔄 刷新 + 保存节点的 存在=覆盖/新名=创建 语义。
+    // 分镜没有图，preview 面板走文本兜底（image_count === 0 时不建 <img>）。
+    "LoadStoryboardAsset|Mie": { kinds: ["storyboards"] },
+    "SaveStoryboardAsset|Mie": { kinds: ["storyboards"], save: "storyboard" },
     // asset → assets：不用生成器 V2 的链路，把 Load 出来的资产包汇成
     // MIE_ASSET_ROSTER 喂给 Asset → Slots（插座同样自动生长）。
     "AssetsToRoster|Mie": { socketGrow: true },
@@ -126,6 +132,8 @@ function bareEntries(payload, kinds) {
     const out = [];
     if (kinds.includes("characters")) for (const c of charEntries(payload)) out.push(c.name);
     if (kinds.includes("scenes")) for (const s of sceneEntries(payload)) out.push(s.name);
+    if (kinds.includes("storyboards"))
+        for (const s of payload?.storyboards || []) out.push(s.name);
     return out;
 }
 function setComboOptions(widget, values) {
@@ -1255,22 +1263,28 @@ function renderPreviewState(node, state) {
         return;
     }
     const meta = state.meta;
-    const img = document.createElement("img");
+    // 无图资产（分镜）：不建 <img>，标题 + 正文即预览。
+    const hasPicture = (meta.image_count || 0) > 0;
+    const img = hasPicture ? document.createElement("img") : null;
     // 缓存键用图片自己的内容戳（meta.picture_*），不用扫描时间戳：保存
     // 换图后 stamp 必变、URL 必变，浏览器缓存里的旧图不可能再出现。
     const stamp =
         meta.picture_size != null
             ? meta.picture_size + "-" + meta.picture_mtime_ns
             : ts;
-    img.src = thumbUrl(meta.name, kind, stamp);
-    img.alt = meta.name;
+    if (img) {
+        img.src = thumbUrl(meta.name, kind, stamp);
+        img.alt = meta.name;
+    }
     const body = document.createElement("div");
     body.className = "mie-pv-body";
     const title = document.createElement("div");
     title.className = "mie-pv-title";
     title.textContent = kindName(kind) + " " + meta.name +
-        "（" + meta.image_count + " 张图 imgs" +
-        (meta.audio_count != null ? "，" + meta.audio_count + " 条音频 audio" : "") + "）";
+        (hasPicture
+            ? "（" + meta.image_count + " 张图 imgs" +
+              (meta.audio_count != null ? "，" + meta.audio_count + " 条音频 audio" : "") + "）"
+            : "（无图 no picture）");
     body.append(title);
 
     if (state.readonly) {
@@ -1298,14 +1312,16 @@ function renderPreviewState(node, state) {
             body.append(v);
         }
     }
-    wrap.append(img, body);
+    wrap.append(...(img ? [img] : []), body);
     // 内容异步变化后高度变了，让画布重排，避免预览面板压住下方 widget。
     img.addEventListener("load", () => relayoutNode(node));
     relayoutNode(node);
 }
 
 function kindName(kind) {
-    return kind === "scene" ? KIND_SCENE : KIND_CHAR;
+    if (kind === "scene") return KIND_SCENE;
+    if (kind === "storyboard") return KIND_STORY;
+    return KIND_CHAR;
 }
 
 // 内容异步变化（图片加载、正文回填、控件创建）后重排。前端 1.53/1.55 的

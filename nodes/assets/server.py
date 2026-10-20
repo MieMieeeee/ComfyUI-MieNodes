@@ -20,8 +20,10 @@ from __future__ import annotations
 
 try:
     from _mienodes_internal.nodes.assets import library
+    from _mienodes_internal.nodes.assets import storyboard
 except ImportError:
     from . import library
+    from . import storyboard
 
 try:
     from aiohttp import web
@@ -55,7 +57,11 @@ def _register() -> None:
     @routes.post("/mie_nodes/assets/list")
     async def list_assets(request):  # noqa: ANN001 - aiohttp handler
         # The location is fixed per machine; the body is ignored entirely.
-        payload = library.list_assets_payload("")
+        # Storyboards join here (server-side): library.py cannot import
+        # storyboard.py (circular — storyboard reuses its validators).
+        payload = storyboard.augment_assets_payload(
+            library.list_assets_payload(""), ""
+        )
         return web.json_response(payload)
 
     @routes.get("/mie_nodes/assets/upload_files")
@@ -197,10 +203,20 @@ def _register() -> None:
     async def asset_meta(request):  # noqa: ANN001 - aiohttp handler
         q = request.rel_url.query
         try:
-            meta = library.read_asset_meta("", q.get("name", ""), q.get("kind", ""))
+            if q.get("kind") == "storyboard":
+                meta = dict(
+                    storyboard.read_storyboard_meta(
+                        "", q.get("name", "")
+                    )
+                )
+            else:
+                meta = dict(
+                    library.read_asset_meta(
+                        "", q.get("name", ""), q.get("kind", "")
+                    )
+                )
         except (ValueError, FileNotFoundError) as e:
             return web.json_response({"ok": False, "error": str(e)}, status=404)
-        meta = dict(meta)
         meta["ok"] = True
         return web.json_response(meta)
 

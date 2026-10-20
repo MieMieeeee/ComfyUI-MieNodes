@@ -839,3 +839,46 @@ def storyboard_cache_key(library_dir, name):
         return digest.hexdigest()
     except Exception:
         return _library.MISSING_CACHE_MARKER
+
+
+def read_storyboard_meta(library_dir, name):
+    """Frontend preview meta for one storyboard: a text summary + zero
+    images (the preview panel renders text-only when image_count == 0).
+    Raises ValueError on unknown names, FileNotFoundError when the
+    storyboards directory is absent — same contract as
+    ``library.read_asset_meta``."""
+    cleaned, path = load_storyboard(library_dir, name)
+    lines = sum(len(shot.get("lines") or []) for shot in cleaned.get("shots") or [])
+    offscreen = sorted(
+        n for n, v in (cleaned.get("cast") or {}).items()
+        if isinstance(v, dict) and v.get("offscreen")
+    )
+    description = (
+        "Storyboard %s: %d shot(s), %d line(s), language=%s%s." % (
+            cleaned.get("name", "?"),
+            len(cleaned.get("shots") or []),
+            lines,
+            cleaned.get("language", "?"),
+            (", off-screen: " + ", ".join(offscreen)) if offscreen else "",
+        )
+    )
+    return {
+        "name": cleaned.get("name", name),
+        "kind": "storyboard",
+        "description": description,
+        "image_count": 0,
+        "audio_count": None,
+        "picture_size": None,
+        "picture_mtime_ns": None,
+    }
+
+
+def augment_assets_payload(payload, library_dir):
+    """Add the ``storyboards`` key to a ``library.list_assets_payload``
+    result (the server joins the two modules; library.py must not import
+    this module — storyboard.py imports library validators, the reverse
+    would be circular)."""
+    listing = list_storyboards(library_dir)
+    names = [n for n in listing.get("names", "").splitlines() if n]
+    payload["storyboards"] = [{"name": n} for n in names]
+    return payload
