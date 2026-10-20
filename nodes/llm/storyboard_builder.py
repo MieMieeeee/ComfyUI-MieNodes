@@ -1014,6 +1014,9 @@ def assemble_plan(
     language_warnings: list[str] = []
     if offscreen_names:
         board_lang = storyboard.get("language", "en")
+        on_screen_names = {
+            name for name in cast if name not in offscreen_names
+        }
         for shot_idx, sl_lines in enumerate(shots_per_scene, 1):
             off_langs, on_langs = set(), set()
             for ln in sl_lines:
@@ -1038,6 +1041,36 @@ def assemble_plan(
                     "reference audio sample in that language."
                     % (shot_idx, ", ".join(names), ", ".join(shared))
                 )
+            # A NAME-VOCATIVE for the visible character at the head of an
+            # off-screen line: H3 has the visible character in the scene,
+            # so a leading name can be resolved as the SPEAKER. Live
+            # 2026-10-20: "Claude, help me resolve this document." came
+            # back as "Claude, let me ask you about the origin of this
+            # payment" (the name kept, the content invented), while the
+            # two off-screen lines WITHOUT a leading name transcribed
+            # cleanly.
+            for ln in sl_lines:
+                if ln["speaker"] not in offscreen_names:
+                    continue
+                first = str(ln.get("text") or "").strip()
+                for name in on_screen_names:
+                    if first.startswith(name) and first[len(name):len(name) + 1] in (
+                        ",", "，", " ", ":", "：", "!", "？", "?"
+                    ):
+                        language_warnings.append(
+                            "scene_%02d: the off-screen line of %s starts "
+                            "with the visible character's name %r. H3 may "
+                            "resolve that name as the SPEAKER and then "
+                            "invent the rest of the sentence (live "
+                            "2026-10-20: \"Claude, help me resolve this "
+                            "document.\" came back as \"Claude, let me ask "
+                            "you about the origin of this payment\"). "
+                            "Reword so the line does not lead with her "
+                            "name, or give the off-screen speaker a "
+                            "reference audio in the line's language."
+                            % (shot_idx, ln["speaker"], name)
+                        )
+                        break
 
     prefix_lines = list(storyboard.get("prompt_prefix") or [])
 

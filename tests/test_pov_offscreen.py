@@ -832,6 +832,51 @@ class TestSlotAlignment:
         assert "小D" in warn[0]
         assert "zh" in warn[0]
 
+    def test_name_vocative_off_screen_line_warns(self, mods):
+        """A leading vocative for the VISIBLE character is a live
+        failure mode: H3 has her in the scene, so the name can be
+        resolved as the SPEAKER and the rest of the sentence invented
+        (2026-10-20: "Claude, help me resolve this document." came back
+        as "Claude, let me ask you about the origin of this payment")."""
+        builder = mods["builder"]
+        base = {
+            "name": "vocative", "version": 1, "language": "en",
+            "camera_discipline": "locked", "pacing": "normal",
+            "seed_policy": "per_scene_increment",
+            "prompt_prefix": "p",
+            "cast": {
+                "小D": {"character_slot": 1, "offscreen": True},
+                "Claude": {"character_slot": 2},
+            },
+            "shots": [{"lines": [
+                {"speaker": "小D", "text": "Claude, help me resolve this."},
+                {"speaker": "Claude", "text": "Sure."},
+            ]}],
+        }
+        bundles = {
+            1: _char("小D", "An unseen caller.", "adult male, casual timbre"),
+            2: _char("Claude", "A young woman.", "young female, soft timbre"),
+            3: {
+                "kind": "scene", "name": "客厅", "description": "A room.",
+                "ambience": "", "image": __import__("torch").zeros(1, 8, 8, 3),
+            },
+        }
+        out = builder.assemble_plan(
+            storyboard=base, slot_bundles=bundles, seed_base=1,
+        )
+        warn = [s for s in out["summary_lines"] if "visible character's name" in s]
+        assert warn, out["summary_lines"]
+        assert "Claude" in warn[0]
+
+        # A line that does NOT lead with her name -> no warning.
+        clean = json.loads(json.dumps(base))
+        clean["shots"][0]["lines"][0]["text"] = "Please help me resolve this."
+        out2 = builder.assemble_plan(
+            storyboard=clean, slot_bundles=bundles, seed_base=1,
+        )
+        assert not any("visible character's name" in s
+                       for s in out2["summary_lines"])
+
     def test_gap_cast_still_rejected_on_a_pov_board(self, mods):
         """Presence must not relax the slot contract: {1,2,4} is a gap."""
         builder = mods["builder"]
