@@ -15,7 +15,7 @@ from _mienodes_internal.nodes.common import ShowAnythingMie, ShowAndSaveAnything
 from _mienodes_internal.nodes.files import BatchRenameFiles, BatchDeleteFiles, BatchEditTextFiles, BatchSyncImageCaptionFiles, \
     SummaryTextFiles, BatchConvertImageFiles, DedupImageFiles, ModelDownloader, HFRepoDownloader
 from _mienodes_internal.nodes.llm import TextTranslator, PromptGenerator, KontextPromptGenerator, AddUserKontextPreset, RemoveUserKontextPreset, \
-    FrameTransitionPromptGenerator, HunyuanVideoI2VPromptGenerator, HunyuanVideoT2VPromptGenerator, ZImagePromptGenerator, Flux2PromptGenerator, FluxKleinT2VPromptGenerator, LTX2PromptGenerator, BerniniPromptGenerator, Ideogram4PromptGenerator, CustomSystemPromptGenerator, AddCustomSystemPrompt, RemoveCustomSystemPrompt, Scail2PromptGenerator, Krea2PromptGenerator, MiniMaxH3PromptGenerator, LTX25PromptGenerator, MiniMaxH3StoryboardGenerator, MiniMaxH3LoopPromptGenerator, SaveCharacterAssetAutoV2, SaveSceneAssetAutoV2, SaveAssetAutoV2, MiniMaxH3LoopPromptGeneratorV2, MiniMaxH3LoopUserInputEnhancer, QwenImage21PromptGenerator, Flux3KleinPromptUpsampler, BuildPlanFromStoryboard
+    FrameTransitionPromptGenerator, HunyuanVideoI2VPromptGenerator, HunyuanVideoT2VPromptGenerator, ZImagePromptGenerator, Flux2PromptGenerator, FluxKleinT2VPromptGenerator, LTX2PromptGenerator, BerniniPromptGenerator, Ideogram4PromptGenerator, CustomSystemPromptGenerator, AddCustomSystemPrompt, RemoveCustomSystemPrompt, Scail2PromptGenerator, Krea2PromptGenerator, MiniMaxH3PromptGenerator, LTX25PromptGenerator, MiniMaxH3StoryboardGenerator, MiniMaxH3LoopPromptGenerator, SaveCharacterAssetAutoV2, SaveSceneAssetAutoV2, SaveAssetAutoV2, MiniMaxH3LoopPromptGeneratorV2, MiniMaxH3LoopUserInputEnhancer, QwenImage21PromptGenerator, Flux3KleinPromptUpsampler, BuildPlanFromStoryboard, MiniMaxH3LoopPromptGeneratorV3
 from _mienodes_internal.services.llm import SetGeneralLLMServiceConnector, SetSiliconFlowLLMServiceConnector, \
     SetZhiPuLLMServiceConnector, SetZhiPuCodeLLMServiceConnector, SetKimiLLMServiceConnector, \
     SetDeepSeekLLMServiceConnector, SetGeminiLLMServiceConnector, SetBailianLLMServiceConnector, \
@@ -116,6 +116,7 @@ NODE_CLASS_MAPPINGS = {
     add_suffix("MiniMaxH3StoryboardGenerator"): MiniMaxH3StoryboardGenerator,
     add_suffix("MiniMaxH3LoopPromptGenerator"): MiniMaxH3LoopPromptGenerator,
     add_suffix("MiniMaxH3LoopPromptGeneratorV2"): MiniMaxH3LoopPromptGeneratorV2,
+    add_suffix("MiniMaxH3LoopPromptGeneratorV3"): MiniMaxH3LoopPromptGeneratorV3,
     add_suffix("MiniMaxH3LoopUserInputEnhancer"): MiniMaxH3LoopUserInputEnhancer,
     add_suffix("QwenImage21PromptGenerator"): QwenImage21PromptGenerator,
     add_suffix("Flux3KleinPromptUpsampler"): Flux3KleinPromptUpsampler,
@@ -275,6 +276,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     add_suffix("MiniMaxH3StoryboardGenerator"): add_emoji("MiniMax H3 Storyboard Generator"),
     add_suffix("MiniMaxH3LoopPromptGenerator"): add_emoji("MiniMax H3 Loop Plan Generator"),
     add_suffix("MiniMaxH3LoopPromptGeneratorV2"): add_emoji("MiniMax H3 Loop Plan Generator V2"),
+    add_suffix("MiniMaxH3LoopPromptGeneratorV3"): add_emoji("零 LLM 分镜生成器 V3 · Loop Plan Generator V3 (Zero LLM)"),
     add_suffix("MiniMaxH3LoopUserInputEnhancer"): add_emoji("MiniMax H3 Loop User Input Enhancer"),
     add_suffix("QwenImage21PromptGenerator"): add_emoji("Qwen-Image-2.1 Prompt Generator"),
     add_suffix("Flux3KleinPromptUpsampler"): add_emoji("FLUX.3 Klein Prompt Upsampler"),

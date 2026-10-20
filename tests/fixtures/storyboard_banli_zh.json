@@ -1,0 +1,69 @@
+{
+  "name": "板栗对话-ZH",
+  "version": 1,
+  "language": "zh",
+  "camera_discipline": "locked",
+  "pacing": "normal",
+  "seed_policy": "per_scene_increment",
+  "prompt_prefix": "A cozy cottage living room is rendered in polished 3D CG animation with soft warm lighting, cream, olive, and muted floral tones, and natural room ambience. The camera remains locked off in one consistent medium two-shot, with no reframing, cut-ins, or camera movement. Use a natural real-time conversational pace, allowing each beat to land clearly without rushing.\nNo decorative on-screen text, logos, watermarks, extra people, or non-diegetic music.",
+  "cast": {
+    "小猫妹妹": {
+      "character_slot": 1
+    },
+    "猫爷爷": {
+      "character_slot": 2
+    }
+  },
+  "setting_line": "Grandpa and the kitten girl sit on the living-room sofa, talking.",
+  "spatial_layout": {
+    "小猫妹妹": "left of frame",
+    "猫爷爷": "right of frame"
+  },
+  "ambience": "The cozy room tone continues with soft indoor air, faint fabric movement, and the distant ambience of the cottage.",
+  "shots": [
+    {
+      "lines": [
+        {
+          "speaker": "小猫妹妹",
+          "text": "爷爷，我有个心理阴影。"
+        },
+        {
+          "speaker": "猫爷爷",
+          "text": "是什么呢。"
+        }
+      ]
+    },
+    {
+      "lines": [
+        {
+          "speaker": "小猫妹妹",
+          "text": "小时候我还没上小学。"
+        },
+        {
+          "speaker": "小猫妹妹",
+          "text": "院子里有几只小刺猬。"
+        }
+      ]
+    },
+    {
+      "lines": [
+        {
+          "speaker": "小猫妹妹",
+          "text": "我喂了剩饭，它们不吃也不跑。"
+        }
+      ]
+    },
+    {
+      "lines": [
+        {
+          "speaker": "小猫妹妹",
+          "text": "但是你走过来，用脚一只一只踩死了。"
+        },
+        {
+          "speaker": "猫爷爷",
+          "text": "孙女，那是板栗。"
+        }
+      ]
+    }
+  ]
+}

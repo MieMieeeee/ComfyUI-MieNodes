@@ -1,0 +1,69 @@
+{
+  "name": "板栗对话-EN",
+  "version": 1,
+  "language": "en",
+  "camera_discipline": "locked",
+  "pacing": "normal",
+  "seed_policy": "per_scene_increment",
+  "prompt_prefix": "A cozy cottage living room is rendered in polished 3D CG animation with soft warm lighting, cream, olive, and muted floral tones, and natural room ambience. The camera remains locked off in one consistent medium two-shot, with no reframing, cut-ins, or camera movement. Use a natural real-time conversational pace, allowing each beat to land clearly without rushing.\nNo decorative on-screen text, logos, watermarks, extra people, or non-diegetic music.",
+  "cast": {
+    "小猫妹妹": {
+      "character_slot": 1
+    },
+    "猫爷爷": {
+      "character_slot": 2
+    }
+  },
+  "setting_line": "Grandpa and the kitten girl sit on the living-room sofa, talking.",
+  "spatial_layout": {
+    "小猫妹妹": "left of frame",
+    "猫爷爷": "right of frame"
+  },
+  "ambience": "The cozy room tone continues with soft indoor air, faint fabric movement, and the distant ambience of the cottage.",
+  "shots": [
+    {
+      "lines": [
+        {
+          "speaker": "小猫妹妹",
+          "text": "Grandpa, I have had a psychological shadow since I was little."
+        },
+        {
+          "speaker": "猫爷爷",
+          "text": "What is it?"
+        }
+      ]
+    },
+    {
+      "lines": [
+        {
+          "speaker": "小猫妹妹",
+          "text": "I had not started primary school yet."
+        },
+        {
+          "speaker": "小猫妹妹",
+          "text": "There were a few hedgehogs in the yard at home."
+        }
+      ]
+    },
+    {
+      "lines": [
+        {
+          "speaker": "小猫妹妹",
+          "text": "I gave them some leftover food, and they neither ate nor ran away."
+        }
+      ]
+    },
+    {
+      "lines": [
+        {
+          "speaker": "小猫妹妹",
+          "text": "But then you walked over and stomped them to death one by one. I remember their guts coming out."
+        },
+        {
+          "speaker": "猫爷爷",
+          "text": "Silly child, those were chestnuts."
+        }
+      ]
+    }
+  ]
+}

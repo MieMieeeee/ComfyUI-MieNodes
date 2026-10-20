@@ -800,6 +800,13 @@ def assemble_plan(
         "summary_lines": summary_lines,
         "ambience": ambience,
         "size_note": "",
+        # The resolved picture slots: the cast's contiguous 1..N followed
+        # by the scene at ``max(cast_slots) + 1``. The caller needs this
+        # to emit the roster in the same order — the relocation above
+        # happens on a local copy of the dict, so the caller cannot
+        # re-derive it from its own ``slot_bundles``.
+        "used_slots": used_slots,
+        "scene_slot": scene_slot,
     }
 
 
@@ -864,7 +871,212 @@ CATEGORY = "🐑 MieNodes/🐑 Prompt Generator"
 
 # The scene bundle is parked at MAX + 1 inside the socket dict. The
 # ``assemble_plan`` caller relocates it to ``max(cast_slots) + 1``.
-SCENE_SOCKET_INDEX = 0  # placeholder; actual value set on the class.
+
+MAX_CHARACTER_SLOTS = 8  # 8 characters + 1 scene = the H3 9-picture cap
+# Board kinds the zero-LLM track emits. Storyboard v1 is dialogue-only
+# (PLAN_STORYBOARD_FIRST_ASSET_V3 §4.1); the literal exists so a
+# downstream consumer sees a stable string rather than a missing key.
+BOARD_KIND_DIALOGUE = "dialogue"
+
+
+def _storyboard_optional_slots(max_slots: int) -> dict:
+    """The ``character_1..N`` + ``scene_1`` socket block, shared verbatim
+    by ``BuildPlanFromStoryboard`` and ``MiniMaxH3LoopPromptGeneratorV3``
+    so the two nodes are wire-compatible."""
+    optional: dict = {}
+    for i in range(1, max_slots + 1):
+        optional["character_%d" % i] = (
+            ASSET_BUNDLE_TYPE,
+            {"tooltip": (
+                "角色槽位 %d：接 Load Character Asset 的 asset 输出；"
+                "character_slot 字段决定它是哪个 Picture。\n"
+                "Character slot %d. The storyboard's character_slot "
+                "field decides which Picture it is." % (i, i)
+            )},
+        )
+    optional["scene_1"] = (
+        ASSET_BUNDLE_TYPE,
+        {"tooltip": (
+            "场景槽位 · scene slot 1：接 Load Scene Asset 的 asset 输出；"
+            "排在角色 Picture 之后。\n"
+            "Wire a Load Scene Asset's asset output; scenes come after "
+            "all characters."
+        )},
+    )
+    return optional
+
+
+def _storyboard_required_inputs() -> dict:
+    """``storyboard`` + ``seed``. Shared by both node classes."""
+    return {
+        "storyboard": (
+            "MIE_STORYBOARD",
+            {"tooltip": (
+                "接 Load Storyboard Asset 的 storyboard 输出。\n"
+                "Wire the Load Storyboard Asset's storyboard output."
+            )},
+        ),
+        "seed": ("INT", {
+            "default": 0,
+            "min": 0,
+            "max": 0xFFFFFFFFFFFFFFFF,
+            "tooltip": (
+                "整数种子；per_scene_increment 模式下第 i 场 = seed+i，"
+                "same_across_scenes 模式下每场都用 seed。\n"
+                "Integer seed; per_scene_increment = seed + i "
+                "(scene i); same_across_scenes = seed every scene."
+            ),
+        }),
+    }
+
+
+def collect_slot_bundles(kwargs: dict, max_slots: int) -> dict[int, dict | None]:
+    """Build the slot-keyed bundle dict from the node's socket kwargs.
+
+    Empty sockets are PRESERVED as ``None`` — ``assemble_plan`` raises
+    when a cast-declared slot is unwired (PLAN §4.2 「不把空洞压紧」),
+    so a gap in the middle is a loud error, never a silent re-bind. The
+    scene bundle is parked at ``max_slots + 1``; ``assemble_plan``
+    relocates it to ``max(cast_slots) + 1`` once it knows the cast.
+    """
+    slot_bundles: dict[int, dict | None] = {}
+    for i in range(1, max_slots + 1):
+        slot_bundles[i] = kwargs.get("character_%d" % i)
+    slot_bundles[max_slots + 1] = kwargs.get("scene_1")
+    return slot_bundles
+
+
+def assemble_from_sockets(
+    *,
+    storyboard: dict,
+    kwargs: dict,
+    seed: int,
+    max_slots: int,
+) -> dict:
+    """The shared body of both zero-LLM nodes (PLAN §4.2 / V3 §4.2).
+
+    Wraps ``assemble_plan`` and the deterministic tail — roster in slot
+    order, the IMAGE batch (with the mixed-size caveat), and the run
+    summary. Returns::
+
+        {"plan_json": str, "summary": str, "images": Tensor|None,
+         "assets": list, "storyboard": cleaned_dict}
+
+    Both ``BuildPlanFromStoryboard`` and ``MiniMaxH3LoopPromptGeneratorV3``
+    call this, which is what makes their ``plan_json`` byte-identical for
+    the same inputs (V3 §6.2).
+    """
+    slot_bundles = collect_slot_bundles(kwargs, max_slots)
+
+    # Validate the storyboard bundle. The load node already ran
+    # validation, but a stray hand-edited bundle is not unusual.
+    cleaned = _storyboard.validate_storyboard_payload(storyboard)
+    # Inject the integer seed so per_scene_increment picks it up.
+    cleaned = {**cleaned, "seed_base": int(seed)}
+
+    out = assemble_plan(
+        storyboard=cleaned,
+        slot_bundles=slot_bundles,
+        seed_base=int(seed),
+        _skip_validation=True,  # we just validated above
+    )
+
+    # The MIE_ASSET_ROSTER contract: characters in slot order, then the
+    # scene. The resolved slots come back from ``assemble_plan`` (it is
+    # the one place that knows where the scene landed), so empty sockets
+    # stay out of the roster and the picture order matches the plan's
+    # ``<Picture N>`` numbering exactly.
+    roster: list[dict] = []
+    bundles_for_images: list[dict] = []
+    cast_slots = sorted({int(v["character_slot"])
+                         for v in cleaned["cast"].values()})
+    max_cast_slot = max(cast_slots) if cast_slots else 0
+    for slot in out["used_slots"]:
+        bundle = slot_bundles.get(slot)
+        if not isinstance(bundle, dict):
+            # The scene lives at ``max(cast)+1`` on assemble_plan's
+            # internal copy; on OUR copy it is still parked at
+            # ``max_slots + 1``. Resolve it by kind.
+            bundle = next(
+                (
+                    b for b in slot_bundles.values()
+                    if isinstance(b, dict) and b.get("kind") == "scene"
+                ),
+                None,
+            )
+        if isinstance(bundle, dict):
+            roster.append(bundle)
+            bundles_for_images.append(bundle)
+
+    # Build the IMAGE batch (None when shapes disagree, like V2).
+    import torch
+    tensors = []
+    for bundle in bundles_for_images:
+        image = bundle.get("image") if isinstance(bundle, dict) else None
+        if image is None:
+            continue
+        tensors.append(image)
+    images = None
+    size_note = ""
+    if tensors:
+        shapes: dict = {}
+        for t, b in zip(tensors, bundles_for_images):
+            shapes.setdefault(
+                tuple(t.shape[1:]), []
+            ).append(b.get("name") or "?")
+        if len(shapes) > 1:
+            detail = "; ".join(
+                "%dx%d: %s" % (w, h, ", ".join(ns))
+                for (h, w, _c), ns in sorted(shapes.items())
+            )
+            size_note = (
+                "picture sizes differ (%s): the images batch output is "
+                "off for this run — wire Asset → Slots picture_1..N to "
+                "ref_image_0..N-1; H3 resizes each reference "
+                "independently" % detail
+            )
+        else:
+            images = torch.cat(tensors, dim=0)
+
+    # Compose the human-readable summary. `mechanical` only ever appears
+    # in this STRING, never in the plan text (PLAN §2).
+    summary_bits: list[str] = [
+        "mechanical · zero-LLM assembly from storyboard %r"
+        % cleaned.get("name"),
+        "ambience: " + out["ambience"],
+    ]
+    summary_bits.extend(out["summary_lines"])
+    if size_note:
+        summary_bits.append(size_note)
+    summary = "\n".join(summary_bits)
+
+    return {
+        "plan_json": plan_to_json_string(out["plan"]),
+        "summary": summary,
+        "images": images,
+        "assets": roster,
+        "storyboard": cleaned,
+    }
+
+
+def storyboard_cache_key(storyboard: dict) -> str:
+    """Content hash of a storyboard BUNDLE for ``IS_CHANGED``.
+
+    The bundle is a plain dict, so the canonical JSON form is stable
+    (sorted keys, no whitespace) — editing a widget on the Load node
+    without touching the file does not bust the cache, but any change to
+    the storyboard's actual content does.
+    """
+    import hashlib
+    import json as _json
+    try:
+        payload = _json.dumps(
+            storyboard, ensure_ascii=False, sort_keys=True,
+            separators=(",", ":"), default=str,
+        )
+    except Exception:
+        return _library.MISSING_CACHE_MARKER
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 class BuildPlanFromStoryboard(object):
@@ -882,52 +1094,13 @@ class BuildPlanFromStoryboard(object):
     splits it into ``picture_i`` / ``audio_i`` for the H3 chain.
     """
 
-    MAX_SLOTS = 8  # 8 character slots + 1 scene = 9 picture cap
+    MAX_SLOTS = MAX_CHARACTER_SLOTS
 
     @classmethod
     def INPUT_TYPES(cls):
-        optional: dict = {}
-        for i in range(1, cls.MAX_SLOTS + 1):
-            optional["character_%d" % i] = (
-                ASSET_BUNDLE_TYPE,
-                {"tooltip": (
-                    "角色槽位 %d：接 Load Character Asset 的 asset 输出；"
-                    "character_slot 字段决定它是哪个 Picture。\n"
-                    "Character slot %d. The storyboard's character_slot "
-                    "field decides which Picture it is." % (i, i)
-                )},
-            )
-        optional["scene_1"] = (
-            ASSET_BUNDLE_TYPE,
-            {"tooltip": (
-                "场景槽位 · scene slot 1：接 Load Scene Asset 的 asset 输出；"
-                "排在角色 Picture 之后。\n"
-                "Wire a Load Scene Asset's asset output; scenes come after "
-                "all characters."
-            )},
-        )
         return {
-            "required": {
-                "storyboard": (
-                    "MIE_STORYBOARD",
-                    {"tooltip": (
-                        "接 Load Storyboard Asset 的 storyboard 输出。\n"
-                        "Wire the Load Storyboard Asset's storyboard output."
-                    )},
-                ),
-                "seed": ("INT", {
-                    "default": 0,
-                    "min": 0,
-                    "max": 0xFFFFFFFFFFFFFFFF,
-                    "tooltip": (
-                        "整数种子；per_scene_increment 模式下第 i 场 = seed+i，"
-                        "same_across_scenes 模式下每场都用 seed。\n"
-                        "Integer seed; per_scene_increment = seed + i "
-                        "(scene i); same_across_scenes = seed every scene."
-                    ),
-                }),
-            },
-            "optional": optional,
+            "required": _storyboard_required_inputs(),
+            "optional": _storyboard_optional_slots(cls.MAX_SLOTS),
         }
 
     RETURN_TYPES = ("STRING", "STRING", "IMAGE", ASSET_ROSTER_TYPE)
@@ -937,92 +1110,105 @@ class BuildPlanFromStoryboard(object):
     CATEGORY = CATEGORY
 
     def build(self, storyboard, seed=0, **kwargs):
-        # Collect the wired bundles into a slot-keyed dict. Empty
-        # sockets are PRESERVED as None — ``assemble_plan`` raises when
-        # a cast slot is empty (PLAN §4.2 "不把空洞压紧"); non-empty
-        # sockets keep their character_slot identity.
-        slot_bundles: dict[int, dict | None] = {}
-        for i in range(1, self.MAX_SLOTS + 1):
-            slot_bundles[i] = kwargs.get("character_%d" % i)
-        # Park the scene bundle at MAX + 1; ``assemble_plan`` relocates
-        # it to ``max(cast_slots) + 1`` once it knows the cast.
-        slot_bundles[self.MAX_SLOTS + 1] = kwargs.get("scene_1")
-
-        # Validate the storyboard bundle. The load node already ran
-        # validation, but a stray hand-edited bundle is not unusual.
-        cleaned = _storyboard.validate_storyboard_payload(storyboard)
-        # Inject the integer seed so per_scene_increment picks it up.
-        cleaned = {**cleaned, "seed_base": int(seed)}
-
-        out = assemble_plan(
-            storyboard=cleaned,
-            slot_bundles=slot_bundles,
-            seed_base=int(seed),
-            _skip_validation=True,  # we just validated above
+        out = assemble_from_sockets(
+            storyboard=storyboard,
+            kwargs=kwargs,
+            seed=int(seed),
+            max_slots=self.MAX_SLOTS,
+        )
+        return (
+            out["plan_json"],
+            out["summary"],
+            out["images"],
+            out["assets"],
         )
 
-        # The MIE_ASSET_ROSTER contract: characters in slot order, then
-        # the scene. We walk the resolved slot dict (so empty sockets
-        # stay out of the roster) and emit one entry per occupied slot.
-        roster: list[dict] = []
-        bundles_for_images: list[dict] = []
-        cast_slots = sorted({int(v["character_slot"])
-                             for v in cleaned["cast"].values()})
-        max_cast_slot = max(cast_slots) if cast_slots else 0
-        scene_slot = max_cast_slot + 1
-        for slot in cast_slots:
-            bundle = slot_bundles.get(slot)
-            if isinstance(bundle, dict):
-                roster.append(bundle)
-                bundles_for_images.append(bundle)
-        scene_bundle = slot_bundles.get(scene_slot)
-        if isinstance(scene_bundle, dict):
-            roster.append(scene_bundle)
-            bundles_for_images.append(scene_bundle)
 
-        # Build the IMAGE batch (None when shapes disagree, like V2).
-        import torch
-        tensors = []
-        for bundle in bundles_for_images:
-            image = bundle.get("image") if isinstance(bundle, dict) else None
-            if image is None:
-                continue
-            tensors.append(image)
-        images = None
-        size_note = ""
-        if tensors:
-            shapes: dict = {}
-            for t, b in zip(tensors, bundles_for_images):
-                shapes.setdefault(
-                    tuple(t.shape[1:]), []
-                ).append(b.get("name") or "?")
-            if len(shapes) > 1:
-                detail = "; ".join(
-                    "%dx%d: %s" % (w, h, ", ".join(ns))
-                    for (h, w, _c), ns in sorted(shapes.items())
-                )
-                size_note = (
-                    "picture sizes differ (%s): the images batch output is "
-                    "off for this run — wire Asset → Slots picture_1..N to "
-                    "ref_image_0..N-1; H3 resizes each reference "
-                    "independently" % detail
-                )
-            else:
-                images = torch.cat(tensors, dim=0)
+class MiniMaxH3LoopPromptGeneratorV3(object):
+    """V3 generator facade over the zero-LLM storyboard track
+    (docs/PLAN_STORYBOARD_FIRST_ASSET_V3.md §4).
 
-        # Compose the human-readable summary. The "summary:" section
-        # already says "mechanical · no LLM" implicitly via the
-        # node-name; we surface the layout-fill note, the size-note,
-        # and the monologue hint here.
-        summary_bits: list[str] = [
-            "mechanical · zero-LLM assembly from storyboard %r"
-            % cleaned.get("name"),
-            "ambience: " + out["ambience"],
-        ]
-        summary_bits.extend(out["summary_lines"])
-        if size_note:
-            summary_bits.append(size_note)
-        summary = "\n".join(summary_bits)
+    Shape-compatible with ``MiniMaxH3LoopPromptGeneratorV2``: same five
+    outputs in the same order and types (``plan_json``, ``summary``,
+    ``board_kind``, ``images``, ``assets``), same CATEGORY, same
+    self-growing ``character_N`` sockets. The difference is that V3 has
+    NO LLM connector and no prose — the storyboard asset IS the script,
+    so swapping a V2 node for a V3 node (rewiring only the ``storyboard``
+    line) moves a workflow onto the storyboard track without touching
+    anything downstream of ``plan_json``.
 
-        plan_json_str = plan_to_json_string(out["plan"])
-        return (plan_json_str, summary, images, roster)
+    ``board_kind`` is the stable ``"dialogue"`` literal (storyboard v1 is
+    dialogue-only). It exists so downstream wiring written against V2's
+    five-output shape keeps working unchanged.
+    """
+
+    MAX_SLOTS = MAX_CHARACTER_SLOTS
+    CATEGORY = CATEGORY
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": _storyboard_required_inputs(),
+            "optional": _storyboard_optional_slots(cls.MAX_SLOTS),
+        }
+
+    RETURN_TYPES = ("STRING", "STRING", "STRING", "IMAGE", ASSET_ROSTER_TYPE)
+    RETURN_NAMES = ("plan_json", "summary", "board_kind", "images", "assets")
+
+    FUNCTION = "generate_v3"
+
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        """Storyboard content hash + every wired asset bundle's content.
+
+        A Load-storyboard node already hashes its file, so re-queueing
+        after an edit re-runs that side; this side additionally covers a
+        user re-picking a DIFFERENT asset into an already-wired slot
+        (the asset's own Load node hashes its files too, but the roster
+        it feeds is a bundle, so hashing the bundle here keeps the
+        generator honest when someone rewires from the canvas).
+        """
+        storyboard = kwargs.get("storyboard")
+        parts = [storyboard_cache_key(storyboard)]
+        for i in range(1, cls.MAX_SLOTS + 1):
+            parts.append(_bundle_fingerprint(kwargs.get("character_%d" % i)))
+        parts.append(_bundle_fingerprint(kwargs.get("scene_1")))
+        return "|".join(parts)
+
+    def generate_v3(self, storyboard, seed=0, **kwargs):
+        out = assemble_from_sockets(
+            storyboard=storyboard,
+            kwargs=kwargs,
+            seed=int(seed),
+            max_slots=self.MAX_SLOTS,
+        )
+        return (
+            out["plan_json"],
+            out["summary"],
+            BOARD_KIND_DIALOGUE,
+            out["images"],
+            out["assets"],
+        )
+
+
+def _bundle_fingerprint(bundle) -> str:
+    """Stable identity of one wired asset bundle for IS_CHANGED.
+
+    The text fields (name / description / voice / ambience) decide what
+    lands in the plan; the tensors are deliberately excluded — a re-render
+    of the same portrait changes pixels without changing a single word of
+    ``plan_json``, and busting the cache on pixels would re-run the
+    assembler for nothing.
+    """
+    if bundle is None:
+        return "-"
+    if not isinstance(bundle, dict):
+        return _library.MISSING_CACHE_MARKER
+    return "\x1f".join([
+        str(bundle.get("kind") or ""),
+        str(bundle.get("name") or ""),
+        str(bundle.get("description") or ""),
+        str(bundle.get("voice") or ""),
+        str(bundle.get("ambience") or ""),
+        "audio" if bundle.get("audio") is not None else "-",
+    ])

@@ -47,6 +47,12 @@ const NODES = {
     "SaveSceneAssetAutoV2|Mie": { kinds: ["scenes"], save: "scene" },
     // 生成器：角色/场景插座自动生长（无选择控件）。
     "MiniMaxH3LoopPromptGeneratorV2|Mie": { generatorSockets: true },
+    // V3 = 零 LLM 分镜轨道门面，插座形状与 V2 完全一致（见
+    // PLAN_STORYBOARD_FIRST_ASSET_V3 §4.2）。漏了这条 V3 的插座不会
+    // 自动长出 —— 与 V2 共用同一个 generatorSockets 分支。
+    "MiniMaxH3LoopPromptGeneratorV3|Mie": { generatorSockets: true },
+    // 裸组装节点同样吃这套插座生长（storyboard 轨道入口）。
+    "BuildPlanFromStoryboard|Mie": { generatorSockets: true },
     // asset → assets：不用生成器 V2 的链路，把 Load 出来的资产包汇成
     // MIE_ASSET_ROSTER 喂给 Asset → Slots（插座同样自动生长）。
     "AssetsToRoster|Mie": { socketGrow: true },
