@@ -419,7 +419,9 @@ class TestZhStoryboard:
         first = node.generate_v3(zh_storyboard, seed=1, **kwargs)[0]
         second = node.generate_v3(zh_storyboard, seed=1, **kwargs)[0]
         assert first == second
-        assert "爷爷，我有个心理阴影。" in first
+        assert "爷爷，我一直有个心理阴影。" in first
+        assert "但是你走过来，用脚一只一只踩死了，我记得内脏都出来了。" in first
+        assert "傻孩子，那是板栗呀" in first
 
 
 # --------------------------------------------------------------------------- #
