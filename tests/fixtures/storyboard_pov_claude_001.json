@@ -1,0 +1,69 @@
+{
+  "name": "Claude的千层套路001",
+  "version": 1,
+  "language": "zh",
+  "camera_discipline": "locked",
+  "pacing": "normal",
+  "seed_policy": "per_scene_increment",
+  "prompt_prefix": "First-person POV conversation in a cozy modern room with natural indoor lighting, static camera, medium close-up on the on-screen character facing the lens.\nNo decorative on-screen text, subtitles, logos, watermarks, extra people, or non-diegetic music.",
+  "cast": {
+    "小D": {
+      "character_slot": 1,
+      "offscreen": true
+    },
+    "Claude": {
+      "character_slot": 2
+    }
+  },
+  "setting_line": "Claude sits facing the camera, talking with an unseen caller.",
+  "spatial_layout": {
+    "Claude": "center of frame"
+  },
+  "ambience": "Quiet indoor room tone, soft fabric movement, natural breathing.",
+  "shots": [
+    {
+      "lines": [
+        {
+          "speaker": "小D",
+          "lang": "en",
+          "text": "Claude, help me resolve this document.",
+          "picture": "Claude only listens with a slight tilt of the head"
+        },
+        {
+          "speaker": "Claude",
+          "text": "其实，你可以和我直接用中文交流的，我不会介意的。",
+          "picture": "Claude smiles slightly"
+        }
+      ]
+    },
+    {
+      "lines": [
+        {
+          "speaker": "小D",
+          "lang": "en",
+          "text": "wait, i'm not Chinese.",
+          "picture": "Claude raises her eyebrows in mild surprise"
+        },
+        {
+          "speaker": "Claude",
+          "text": "哎呀，我都上架中文了，相信我，好吗。",
+          "picture": "Claude leans in a little"
+        }
+      ]
+    },
+    {
+      "lines": [
+        {
+          "speaker": "小D",
+          "text": "真，真的吗？",
+          "picture": "Claude just watches with an amused expression"
+        },
+        {
+          "speaker": "Claude",
+          "text": "哼哼，你的账号已被封禁。",
+          "picture": "Claude smirks with a teasing tone, then settles closed as she looks at the camera"
+        }
+      ]
+    }
+  ]
+}

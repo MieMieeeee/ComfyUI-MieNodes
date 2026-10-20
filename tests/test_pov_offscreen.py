@@ -673,16 +673,16 @@ class TestAddendumAndAdvice:
 
 
 # --------------------------------------------------------------------------- #
-# Community-recipe equivalence fixture: the 小D/Cloud first-person prompt
+# Community-recipe equivalence fixture: the 小D/Claude first-person prompt
 # (2026-10-20 user validation) — pins that our assembler reproduces the
 # community-verified POV dialogue shape from a storyboard asset.
 # --------------------------------------------------------------------------- #
-XIAOD_CLOUD_FIXTURE = FIXTURES / "storyboard_pov_xiaod_cloud.json"
+CLAUDE_001_FIXTURE = FIXTURES / "storyboard_pov_claude_001.json"
 
 
 @pytest.fixture(scope="module")
-def xiaod_cloud_plan(mods):
-    doc = json.loads(XIAOD_CLOUD_FIXTURE.read_text(encoding="utf-8"))
+def claude_001_plan(mods):
+    doc = json.loads(CLAUDE_001_FIXTURE.read_text(encoding="utf-8"))
     node = mods["builder"].MiniMaxH3LoopPromptGeneratorV3()
     out = node.generate_v3(
         doc,
@@ -692,7 +692,7 @@ def xiaod_cloud_plan(mods):
             "adult male, casual and clear timbre, mid register",
         ),
         character_2=_char(
-            "Cloud", "A calm young woman with long dark hair, seated facing the camera.",
+            "Claude", "A calm young woman with long dark hair, seated facing the camera.",
             "adult female, soft and playful timbre, mid-high register",
         ),
         scene_1={
@@ -704,15 +704,15 @@ def xiaod_cloud_plan(mods):
     return doc, out
 
 
-class TestXiaoDCloudCommunityRecipe:
-    def test_six_lines_three_scenes(self, xiaod_cloud_plan):
-        _doc, out = xiaod_cloud_plan
+class TestClaude001CommunityRecipe:
+    def test_six_lines_three_scenes(self, claude_001_plan):
+        _doc, out = claude_001_plan
         full = "\n".join("\n".join(s["prompt"]) for s in json.loads(out[0])["shots"])
         assert full.count("<d>") == 6
         assert len(json.loads(out[0])["shots"]) == 3
 
-    def test_community_three_part_offscreen_form(self, xiaod_cloud_plan):
-        _doc, out = xiaod_cloud_plan
+    def test_community_three_part_offscreen_form(self, claude_001_plan):
+        _doc, out = claude_001_plan
         full = "\n".join("\n".join(s["prompt"]) for s in json.loads(out[0])["shots"])
         # fixed phrase + embedded mute clause, three times
         assert full.count("says in an off-screen voiceover:") == 3
@@ -724,25 +724,25 @@ class TestXiaoDCloudCommunityRecipe:
         # on-screen lines carry the positive lip sentence
         assert full.count("lips move naturally with the line.") == 3
 
-    def test_speaker_ids_and_languages(self, xiaod_cloud_plan):
-        _doc, out = xiaod_cloud_plan
+    def test_speaker_ids_and_languages(self, claude_001_plan):
+        _doc, out = claude_001_plan
         full = "\n".join("\n".join(s["prompt"]) for s in json.loads(out[0])["shots"])
         assert "off-screen voice (S1)" in full
-        assert "Cloud speaks as (S2)" in full
-        # 小D speaks EN twice then ZH; Cloud is ZH throughout
-        assert "<d>[English] Cloud, help me resolve this document.</d>" in full
+        assert "Claude speaks as (S2)" in full
+        # 小D speaks EN twice then ZH; Claude is ZH throughout
+        assert "<d>[English] Claude, help me resolve this document.</d>" in full
         assert "<d>[English] wait, i'm not Chinese.</d>" in full
         assert "[Chinese] 真，真的吗？</d>" in full
 
-    def test_offscreen_speaker_has_no_frame_pin(self, xiaod_cloud_plan):
-        _doc, out = xiaod_cloud_plan
+    def test_offscreen_speaker_has_no_frame_pin(self, claude_001_plan):
+        _doc, out = claude_001_plan
         full = "\n".join("\n".join(s["prompt"]) for s in json.loads(out[0])["shots"])
         assert "小D stays" not in full
-        assert full.count("Cloud stays at center of frame") == 3
-        assert "小D: " in full and "Cloud: " in full  # aliases keep full cast
+        assert full.count("Claude stays at center of frame") == 3
+        assert "小D: " in full and "Claude: " in full  # aliases keep full cast
 
-    def test_pov_opener_and_community_soundscape(self, xiaod_cloud_plan):
-        _doc, out = xiaod_cloud_plan
+    def test_pov_opener_and_community_soundscape(self, claude_001_plan):
+        _doc, out = claude_001_plan
         full = "\n".join("\n".join(s["prompt"]) for s in json.loads(out[0])["shots"])
         assert full.count("First-person point of view") == 3
         assert "Quiet indoor room tone, soft fabric movement, natural breathing." in full
