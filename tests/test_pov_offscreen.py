@@ -670,3 +670,79 @@ class TestAddendumAndAdvice:
         assert len(out) == 1
         assert "re-roll" in out[0]
         assert "scene_range" in out[0]
+
+
+# --------------------------------------------------------------------------- #
+# Community-recipe equivalence fixture: the 小D/Cloud first-person prompt
+# (2026-10-20 user validation) — pins that our assembler reproduces the
+# community-verified POV dialogue shape from a storyboard asset.
+# --------------------------------------------------------------------------- #
+XIAOD_CLOUD_FIXTURE = FIXTURES / "storyboard_pov_xiaod_cloud.json"
+
+
+@pytest.fixture(scope="module")
+def xiaod_cloud_plan(mods):
+    doc = json.loads(XIAOD_CLOUD_FIXTURE.read_text(encoding="utf-8"))
+    node = mods["builder"].MiniMaxH3LoopPromptGeneratorV3()
+    out = node.generate_v3(
+        doc,
+        seed=20261020,
+        character_1=_char(
+            "小D", "An off-screen male caller with no on-screen body.",
+            "adult male, casual and clear timbre, mid register",
+        ),
+        character_2=_char(
+            "Cloud", "A calm young woman with long dark hair, seated facing the camera.",
+            "adult female, soft and playful timbre, mid-high register",
+        ),
+        scene_1={
+            "kind": "scene", "name": "室内",
+            "description": "A cozy modern room with natural indoor lighting.",
+            "ambience": "", "image": __import__("torch").zeros(1, 8, 8, 3),
+        },
+    )
+    return doc, out
+
+
+class TestXiaoDCloudCommunityRecipe:
+    def test_six_lines_three_scenes(self, xiaod_cloud_plan):
+        _doc, out = xiaod_cloud_plan
+        full = "\n".join("\n".join(s["prompt"]) for s in json.loads(out[0])["shots"])
+        assert full.count("<d>") == 6
+        assert len(json.loads(out[0])["shots"]) == 3
+
+    def test_community_three_part_offscreen_form(self, xiaod_cloud_plan):
+        _doc, out = xiaod_cloud_plan
+        full = "\n".join("\n".join(s["prompt"]) for s in json.loads(out[0])["shots"])
+        # fixed phrase + embedded mute clause, three times
+        assert full.count("says in an off-screen voiceover:") == 3
+        assert full.count("lips remain completely closed") == 3
+        # reactions are the authored picture cues, not the default
+        assert "slight tilt of the head" in full
+        assert "eyebrows in mild surprise" in full
+        assert "amused expression" in full
+        # on-screen lines carry the positive lip sentence
+        assert full.count("lips move naturally with the line.") == 3
+
+    def test_speaker_ids_and_languages(self, xiaod_cloud_plan):
+        _doc, out = xiaod_cloud_plan
+        full = "\n".join("\n".join(s["prompt"]) for s in json.loads(out[0])["shots"])
+        assert "off-screen voice (S1)" in full
+        assert "Cloud speaks as (S2)" in full
+        # 小D speaks EN twice then ZH; Cloud is ZH throughout
+        assert "<d>[English] Cloud, help me resolve this document.</d>" in full
+        assert "<d>[English] wait, i'm not Chinese.</d>" in full
+        assert "[Chinese] 真，真的吗？</d>" in full
+
+    def test_offscreen_speaker_has_no_frame_pin(self, xiaod_cloud_plan):
+        _doc, out = xiaod_cloud_plan
+        full = "\n".join("\n".join(s["prompt"]) for s in json.loads(out[0])["shots"])
+        assert "小D stays" not in full
+        assert full.count("Cloud stays at center of frame") == 3
+        assert "小D: " in full and "Cloud: " in full  # aliases keep full cast
+
+    def test_pov_opener_and_community_soundscape(self, xiaod_cloud_plan):
+        _doc, out = xiaod_cloud_plan
+        full = "\n".join("\n".join(s["prompt"]) for s in json.loads(out[0])["shots"])
+        assert full.count("First-person point of view") == 3
+        assert "Quiet indoor room tone, soft fabric movement, natural breathing." in full
