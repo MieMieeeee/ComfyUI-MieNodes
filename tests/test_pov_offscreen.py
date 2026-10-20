@@ -287,12 +287,45 @@ class TestPovFixture:
     def test_per_line_lang_override(self, mods, pov_plan):
         _, out = pov_plan
         plan = json.loads(out[0])
-        # scene_01 line 1 declares lang=en; the board default is zh.
+        # Every narration line in this fixture is English, so each one must
+        # declare lang=en explicitly — the board default is zh.
         assert "<d>[English] Before you were even in primary school.</d>" in \
             "\n".join(plan["shots"][0]["prompt"])
-        # scene_02 line 1 declares no lang -> board default [Chinese].
-        assert "<d>[Chinese] There were a few hedgehogs in the yard at home.</d>" in \
-            "\n".join(plan["shots"][1]["prompt"])
+        assert ("<d>[English] There were a few hedgehogs in the yard at "
+                "home.</d>") in "\n".join(plan["shots"][1]["prompt"])
+        assert ("<d>[English] And then you walked over and stepped on them "
+                "one by one.</d>") in "\n".join(plan["shots"][2]["prompt"])
+        # The kitten's Chinese lines still inherit the board default.
+        assert "<d>[Chinese] 我那时候还不认识字呢。</d>" in \
+            "\n".join(plan["shots"][0]["prompt"])
+
+    def test_every_line_tag_matches_its_declared_language(self, pov_plan):
+        """Fixture-level integrity check.
+
+        ``lang`` is DECLARED, never detected — the assembler copies it
+        verbatim (that ruling is what makes the plan byte-stable), so a
+        mistyped fixture produces a confidently wrong <d> tag. Catching
+        that here is the fixture test's job, not the assembler's: no
+        language probing belongs in the assembly path.
+
+        Every narration line in this fixture is English and the kitten's
+        are Chinese, so the expectation is exact rather than heuristic.
+        """
+        import re
+        doc, out = pov_plan
+        plan = json.loads(out[0])
+        cjk = re.compile(r"[\u4e00-\u9fff]")
+        for shot_out, shot_in in zip(plan["shots"], doc["shots"]):
+            text = "\n".join(shot_out["prompt"])
+            for line_in in shot_in["lines"]:
+                declared = line_in.get("lang") or doc["language"]
+                tag = "[Chinese]" if declared == "zh" else "[English]"
+                assert "<d>%s %s</d>" % (tag, line_in["text"]) in text, (
+                    "line %r declared %s but text is %s; a mistyped fixture "
+                    "yields a confidently wrong <d> tag"
+                    % (line_in["text"], declared,
+                       "CJK" if cjk.search(line_in["text"]) else "latin")
+                )
 
     def test_pov_shot1_replaces_the_two_person_template(self, mods, pov_plan):
         _, out = pov_plan

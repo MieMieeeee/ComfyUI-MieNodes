@@ -43,7 +43,8 @@
       "lines": [
         {
           "speaker": "叙述者",
-          "text": "There were a few hedgehogs in the yard at home."
+          "text": "There were a few hedgehogs in the yard at home.",
+          "lang": "en"
         },
         {
           "speaker": "小猫妹妹",
@@ -57,7 +58,8 @@
         {
           "speaker": "叙述者",
           "text": "And then you walked over and stepped on them one by one.",
-          "picture": "The kitten girl keeps both paws folded on the table."
+          "picture": "The kitten girl keeps both paws folded on the table.",
+          "lang": "en"
         },
         {
           "speaker": "小猫妹妹",
