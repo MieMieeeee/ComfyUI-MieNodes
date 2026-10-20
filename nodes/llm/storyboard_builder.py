@@ -1000,6 +1000,45 @@ def assemble_plan(
         )
         shot_entries.append(shot)
 
+    # Language-separation check for POV shots (2026-10-20 live finding).
+    #
+    # H3 synthesizes the speech ITSELF from the <d> blocks and the
+    # reference audio, and it separates two voices in one clip BY
+    # LANGUAGE. Live-verified: with an off-screen line in a DIFFERENT
+    # language from the visible character, her mouth stayed shut
+    # (aperture 0.0056 / 0.0108); with the off-screen line in the SAME
+    # language, H3 attributed it to her and her mouth moved (0.0457 —
+    # the on-screen range). So a same-language off-screen line is a
+    # warning, not a build error: the board may still be fine on other
+    # stacks, and the author may want it anyway.
+    language_warnings: list[str] = []
+    if offscreen_names:
+        board_lang = storyboard.get("language", "en")
+        for shot_idx, sl_lines in enumerate(shots_per_scene, 1):
+            off_langs, on_langs = set(), set()
+            for ln in sl_lines:
+                lang = ln.get("lang") or board_lang
+                (off_langs if ln["speaker"] in offscreen_names
+                 else on_langs).add(lang)
+            shared = sorted(off_langs & on_langs)
+            if shared:
+                names = sorted(
+                    {ln["speaker"] for ln in sl_lines
+                     if ln["speaker"] in offscreen_names}
+                )
+                language_warnings.append(
+                    "scene_%02d: the off-screen line(s) of %s use the same "
+                    "language (%s) as the on-screen character's line(s). H3 "
+                    "separates the two voices in one clip BY LANGUAGE, so it "
+                    "will likely attribute the off-screen line to the "
+                    "visible character and animate HER mouth (live-verified "
+                    "2026-10-20: mouth aperture 0.046 = the on-screen range). "
+                    "Give the off-screen speaker a different 'lang' on that "
+                    "line (the community recipe is EN/ZH alternation) and a "
+                    "reference audio sample in that language."
+                    % (shot_idx, ", ".join(names), ", ".join(shared))
+                )
+
     prefix_lines = list(storyboard.get("prompt_prefix") or [])
 
     plan = build_plan(shot_entries, prefix_lines)
@@ -1051,6 +1090,7 @@ def assemble_plan(
             "layout filled by turn order (no entry in spatial_layout for "
             "every cast speaker)"
         )
+    summary_lines.extend(language_warnings)
     # An unwired off-screen speaker declares no voice at all — that is a
     # legal state, but it is worth saying out loud, because the voice
     # then drifts between renders.

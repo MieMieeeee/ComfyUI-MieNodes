@@ -777,6 +777,61 @@ class TestSlotAlignment:
         assert "小猫妹妹 speaks as (S1)" in open_
         assert "小猫妹妹 speaks as (S2)" not in open_
 
+    def test_same_language_off_screen_line_warns(self, mods):
+        """H3 separates the two voices in a clip BY LANGUAGE.
+
+        Live-verified 2026-10-20: with the off-screen line in a
+        DIFFERENT language from the visible character, her mouth stayed
+        shut (aperture 0.0056 / 0.0108); with the SAME language, H3
+        attributed the line to her and her mouth moved (0.0457 — the
+        on-screen range). The builder therefore warns when an
+        off-screen line shares a language with an on-screen line in the
+        same shot.
+
+        The warning compares DECLARED values (the storyboard's per-line
+        ``lang`` and the board language) — no language detection."""
+        builder = mods["builder"]
+        base = {
+            "name": "langwarn", "version": 1, "language": "zh",
+            "camera_discipline": "locked", "pacing": "normal",
+            "seed_policy": "per_scene_increment",
+            "prompt_prefix": "p",
+            "cast": {
+                "小D": {"character_slot": 1, "offscreen": True},
+                "Claude": {"character_slot": 2},
+            },
+            "shots": [{"lines": [
+                {"speaker": "小D", "text": "Really?", "lang": "en"},
+                {"speaker": "Claude", "text": "哼。"},
+            ]}],
+        }
+        bundles = {
+            1: _char("小D", "An unseen caller.", "adult male, casual timbre"),
+            2: _char("Claude", "A young woman.", "young female, soft timbre"),
+            3: {
+                "kind": "scene", "name": "客厅", "description": "A room.",
+                "ambience": "", "image": __import__("torch").zeros(1, 8, 8, 3),
+            },
+        }
+        # Different languages -> no warning.
+        out = builder.assemble_plan(
+            storyboard=base, slot_bundles=bundles, seed_base=1,
+        )
+        assert not any("same language" in s for s in out["summary_lines"])
+
+        # Same language (the off-screen line loses its en override) ->
+        # the warning fires and names the scene.
+        same = json.loads(json.dumps(base))
+        del same["shots"][0]["lines"][0]["lang"]
+        out2 = builder.assemble_plan(
+            storyboard=same, slot_bundles=bundles, seed_base=1,
+        )
+        warn = [s for s in out2["summary_lines"] if "same language" in s]
+        assert warn, out2["summary_lines"]
+        assert "scene_01" in warn[0]
+        assert "小D" in warn[0]
+        assert "zh" in warn[0]
+
     def test_gap_cast_still_rejected_on_a_pov_board(self, mods):
         """Presence must not relax the slot contract: {1,2,4} is a gap."""
         builder = mods["builder"]
