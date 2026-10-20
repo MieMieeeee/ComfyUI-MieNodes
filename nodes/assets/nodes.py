@@ -378,13 +378,18 @@ class SaveAssetV2(object):
                     "placeholder": cls._VOICE_PLACEHOLDER,
                     "tooltip": cls._VOICE_TIP,
                 }),
+                "new_name": ("STRING", {"default": "", "placeholder": "新资产的名字 · new asset name"}),
+                # Tail placement ONLY (2026-10-20 compat audit): widget
+                # order is positional in saved workflows — inserting in the
+                # middle shifts every older widget's value by one. New
+                # widgets go at the END of required; old arrays come up
+                # short and the widget keeps its default.
                 "ambience": ("STRING", {
                     "default": "",
                     "multiline": True,
                     "placeholder": cls._AMBIENCE_PLACEHOLDER,
                     "tooltip": cls._AMBIENCE_TIP,
                 }),
-                "new_name": ("STRING", {"default": "", "placeholder": "新资产的名字 · new asset name"}),
             },
             "optional": {
                 "image": ("IMAGE",),
