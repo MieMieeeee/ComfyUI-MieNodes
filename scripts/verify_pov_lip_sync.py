@@ -148,6 +148,15 @@ def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("video", nargs="?", default=None,
                    help="the rendered mp4 (default: newest under output/live_pov)")
+    p.add_argument(
+        "--line-order", default=None,
+        help=(
+            "comma-separated speaker per transcript run, e.g. "
+            "'off,on,off,on,off,on' for a board whose lines alternate "
+            "off-screen / on-screen. Default: assume the same order, "
+            "skipping any run that would mix the two."
+        ),
+    )
     args = p.parse_args(argv)
 
     if args.video:
@@ -168,7 +177,7 @@ def main(argv=None):
         span = (min(s for s, _, _ in ws), max(e for _, e, _ in ws))
         print("  run %d %-4s %5.2f-%5.2fs  %s"
               % (i, "ZH" if is_cjk else "EN", span[0], span[1],
-                 " ".join(w for _, _, w in ws)[:56]))
+                 " ".join(x[2] for x in ws)[:56]))
 
     aps, fps, nframes = apertures(mp4)
     found = sum(1 for a in aps if a is not None)
@@ -177,16 +186,41 @@ def main(argv=None):
     if found < 30:
         raise SystemExit("too few faces detected — cannot measure")
 
-    # The board's line order decides which run is which speaker. A run
-    # that MERGES an on-screen and an off-screen line is excluded.
+    # Which run is which speaker. The board's line order decides it: a
+    # run can merge an on-screen and an off-screen line (whisper merges
+    # same-script neighbours), so the order must be given explicitly
+    # when the board has more than three runs.
+    if args.line_order:
+        order = [x.strip().lower() for x in args.line_order.split(",")
+                 if x.strip()]
+        if len(order) != len(runs):
+            print("  !! --line-order has %d entries but the transcript has "
+                  "%d runs — falling back to the alternating assumption"
+                  % (len(order), len(runs)))
+            order = None
+    else:
+        order = None
+
     off_windows, on_windows = [], []
     for i, (_is_cjk, ws) in enumerate(runs):
-        if i >= 3:
-            print("  (run %d EXCLUDED: mixes an on-screen and an off-screen "
-                  "line)" % (i + 1))
-            continue
         span = (min(s for s, _, _ in ws), max(e for _, e, _ in ws))
-        (off_windows if i % 2 == 0 else on_windows).append(span)
+        if order is not None:
+            tag = order[i]
+            if tag not in ("off", "on"):
+                print("  (run %d skipped: unknown tag %r)" % (i + 1, tag))
+                continue
+        else:
+            # Without an explicit order, only the runs that cannot mix
+            # the two speakers are trustworthy: whisper merges
+            # same-script neighbours, so a run past the third may hold
+            # both an off-screen and an on-screen line.
+            if i >= 3:
+                print("  (run %d EXCLUDED: may mix an on-screen and an "
+                      "off-screen line — pass --line-order to score it)"
+                      % (i + 1))
+                continue
+            tag = "off" if i % 2 == 0 else "on"
+        (off_windows if tag == "off" else on_windows).append(span)
 
     def stats(span):
         lo, hi = span

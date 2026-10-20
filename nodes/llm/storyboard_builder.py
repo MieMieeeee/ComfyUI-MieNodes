@@ -1003,14 +1003,19 @@ def assemble_plan(
     # Language-separation check for POV shots (2026-10-20 live finding).
     #
     # H3 synthesizes the speech ITSELF from the <d> blocks and the
-    # reference audio, and it separates two voices in one clip BY
-    # LANGUAGE. Live-verified: with an off-screen line in a DIFFERENT
-    # language from the visible character, her mouth stayed shut
-    # (aperture 0.0056 / 0.0108); with the off-screen line in the SAME
-    # language, H3 attributed it to her and her mouth moved (0.0457 —
-    # the on-screen range). So a same-language off-screen line is a
-    # warning, not a build error: the board may still be fine on other
-    # stacks, and the author may want it anyway.
+    # reference audio, and it renders a line in the LANGUAGE OF THE
+    # REFERENCE VOICE it picks. Live-verified 2026-10-20: 小D's
+    # reference sample is Chinese, so his English lines came back in
+    # Chinese ("Please help me resolve this document." -> "请帮我帮忙把
+    # 这些文件解决"), and a line leading with the VISIBLE character's
+    # name degraded further ("Claude, help me resolve this document."
+    # -> "Claude, let me ask you about the origin of this payment").
+    #
+    # So the off-screen speaker's lines should be in a DIFFERENT
+    # language from the visible character's, and each speaker needs a
+    # reference sample in the language of their own lines. This is a
+    # warning, not an error: the board may be fine on other stacks, and
+    # the author may want the same language on purpose.
     language_warnings: list[str] = []
     if offscreen_names:
         board_lang = storyboard.get("language", "en")
@@ -1032,23 +1037,25 @@ def assemble_plan(
                 language_warnings.append(
                     "scene_%02d: the off-screen line(s) of %s use the same "
                     "language (%s) as the on-screen character's line(s). H3 "
-                    "separates the two voices in one clip BY LANGUAGE, so it "
-                    "will likely attribute the off-screen line to the "
-                    "visible character and animate HER mouth (live-verified "
-                    "2026-10-20: mouth aperture 0.046 = the on-screen range). "
-                    "Give the off-screen speaker a different 'lang' on that "
-                    "line (the community recipe is EN/ZH alternation) and a "
-                    "reference audio sample in that language."
+                    "assigns a voice to a <d> line by LANGUAGE and speaks it "
+                    "in that voice's language, so with two voices in one "
+                    "language the off-screen line risks being attributed to "
+                    "the visible character (and she is the one whose mouth "
+                    "animates). Give the off-screen speaker a different "
+                    "'lang' on that line (the community recipe is EN/ZH "
+                    "alternation) and a reference audio sample in that "
+                    "language."
                     % (shot_idx, ", ".join(names), ", ".join(shared))
                 )
             # A NAME-VOCATIVE for the visible character at the head of an
             # off-screen line: H3 has the visible character in the scene,
             # so a leading name can be resolved as the SPEAKER. Live
-            # 2026-10-20: "Claude, help me resolve this document." came
-            # back as "Claude, let me ask you about the origin of this
-            # payment" (the name kept, the content invented), while the
-            # two off-screen lines WITHOUT a leading name transcribed
-            # cleanly.
+            # 2026-10-20: with the vocative the line degraded to
+            # invented English ("Claude, let me ask you about the origin
+            # of this payment"); without it H3 produced the right
+            # content in the voice's language. Rewording helps, but the
+            # real requirement is a reference sample in the line's
+            # language.
             for ln in sl_lines:
                 if ln["speaker"] not in offscreen_names:
                     continue
@@ -1064,10 +1071,10 @@ def assemble_plan(
                             "invent the rest of the sentence (live "
                             "2026-10-20: \"Claude, help me resolve this "
                             "document.\" came back as \"Claude, let me ask "
-                            "you about the origin of this payment\"). "
-                            "Reword so the line does not lead with her "
-                            "name, or give the off-screen speaker a "
-                            "reference audio in the line's language."
+                            "you about the origin of this payment\", while "
+                            "the same line without the name came back "
+                            "correct in the voice's language). Reword so the "
+                            "line does not lead with her name."
                             % (shot_idx, ln["speaker"], name)
                         )
                         break
