@@ -679,6 +679,57 @@ class TestAssemblePlan:
                 seed_base=1,
             )
 
+    def test_missing_slot_message_shows_slot_order_not_alphabetical(
+        self, sb_modules,
+    ):
+        """The message's only job is "put this asset in this socket".
+
+        It must therefore print the cast in SLOT ORDER. A sorted name
+        list reads as a slot order that the storyboard does not declare
+        — with cast {小D: 1, Claude: 2} an alphabetical list shows
+        "['Claude', '小D']", which tells the reader the exact opposite
+        of the truth.
+        """
+        builder = sb_modules["builder"]
+        sb = {
+            "name": "pov", "version": 1, "language": "zh",
+            "camera_discipline": "locked", "pacing": "normal",
+            "seed_policy": "per_scene_increment",
+            "prompt_prefix": "global style.",
+            "cast": {
+                "小D": {"character_slot": 1, "offscreen": True},
+                "Claude": {"character_slot": 2},
+            },
+            "shots": [{"lines": [
+                {"speaker": "小D", "text": "hi", "lang": "en"},
+                {"speaker": "Claude", "text": "yo"},
+            ]}],
+        }
+        import torch
+        claude = {
+            "kind": "character", "name": "Claude娘",
+            "description": "d", "voice": "v",
+            "image": torch.zeros(1, 8, 8, 3),
+            "audio": {"waveform": torch.zeros(1, 1, 1600),
+                      "sample_rate": 16000},
+        }
+        with pytest.raises(ValueError) as exc:
+            builder.assemble_plan(
+                storyboard=sb,
+                slot_bundles={1: claude, 3: None},
+                seed_base=1,
+            )
+        msg = str(exc.value)
+        # Slot order, not alphabetical order.
+        assert msg.index("character_1 = 小D") < msg.index("character_2 = Claude")
+        assert "character_1 = 小D; character_2 = Claude" in msg
+        # The missing socket is marked, and its owner is named.
+        assert "character_2 = Claude  <-- MISSING" in msg
+        assert "character_slot 2 (Claude)" in msg
+        # What IS wired is listed, so an asset sitting in the wrong
+        # socket is visible at a glance.
+        assert "Currently wired: character_1 = Claude娘" in msg
+
     def test_compact_wiring_does_not_misbind_slot(self, sb_modules):
         """Sanity guard for the P0 fix: even if the user accidentally
         passes a list of bundles in slot enumeration order (without

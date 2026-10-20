@@ -614,6 +614,67 @@ def _slot_layout(
     return used, scene_slot
 
 
+def _missing_slot_message(
+    *,
+    slot: int,
+    cast: dict,
+    cast_slots: list[int],
+    slot_bundles: dict,
+    scene_slot: int,
+) -> str:
+    """The error for a cast slot with no asset wired (PLAN §4.2).
+
+    It must show the SLOT ORDER, never an alphabetical name list: the
+    whole point of the message is "put this asset in this socket", and a
+    sorted list of names reads as a slot order that is not the one the
+    storyboard declares. It also lists what IS currently wired, because
+    the usual cause is an asset sitting in the wrong socket (the author
+    re-ordered the cast and moved one wire but not the other).
+    """
+    owner = next(
+        (name for name, info in cast.items()
+         if int(info["character_slot"]) == slot),
+        "?",
+    )
+    table = []
+    for s in sorted(cast_slots):
+        who = next(
+            (n for n, i in cast.items() if int(i["character_slot"]) == s),
+            "?",
+        )
+        mark = "  <-- MISSING" if s == slot else ""
+        table.append("character_%d = %s%s" % (s, who, mark))
+    table.append("character_%d = (scene)" % scene_slot)
+    wired = []
+    for s in sorted(slot_bundles):
+        bundle = slot_bundles[s]
+        if not isinstance(bundle, dict):
+            continue
+        if s == scene_slot:
+            wired.append("character_%d = %s (scene)" % (
+                s, bundle.get("name") or "?",
+            ))
+        else:
+            wired.append("character_%d = %s" % (s, bundle.get("name") or "?"))
+    return (
+        "character_slot %d (%s) is declared by the storyboard's cast, but "
+        "no asset is wired into socket 'character_%d' on the build node. "
+        "The storyboard's cast, in SLOT ORDER, is: %s. Currently wired: %s. "
+        "Wire the matching asset into 'character_%d' (the socket number IS "
+        "the storyboard's character_slot — an asset in the wrong socket is "
+        "a different character), or drop that slot from the cast. "
+        "Empty slots are a hard error on purpose (PLAN_STORYBOARD_ASSET "
+        "§4.2 — silently re-binding would put a character's identity "
+        "text and voice on the wrong <Picture N>)."
+        % (
+            slot, owner, slot,
+            "; ".join(table),
+            ("; ".join(wired) if wired else "(nothing wired)"),
+            slot,
+        )
+    )
+
+
 def assemble_plan(
     *,
     storyboard: dict,
@@ -698,13 +759,13 @@ def assemble_plan(
         bundle = slot_bundles.get(slot)
         if bundle is None:
             raise ValueError(
-                "character_slot %d is declared by cast (%s) but no asset "
-                "is wired into socket 'character_%d' on the build node; "
-                "either wire the asset, or remove the slot from the cast. "
-                "Empty slots in the middle of a wiring are a hard error "
-                "(PLAN_STORYBOARD_ASSET §4.2 — silent re-binding would "
-                "produce wrong-character <Picture N> tags)"
-                % (slot, sorted(cast.keys()), slot)
+                _missing_slot_message(
+                    slot=slot,
+                    cast=cast,
+                    cast_slots=cast_slots,
+                    slot_bundles=slot_bundles,
+                    scene_slot=scene_slot,
+                )
             )
 
     # Voice / audio checks per character bundle.
