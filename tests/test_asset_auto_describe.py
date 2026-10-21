@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Tests for the Save-based LLM auto-describe nodes."""
 import importlib.util
+import inspect
 import json
 import sys
 import types
@@ -152,6 +153,27 @@ def test_scene_auto_drafts_description_only(tmp_library):
     assert "雨夜霓虹" in blob
     assert "LLM drafted description" in status
     assert (tmp_library / "scenes" / "小巷" / "scene.json").exists()
+
+
+def test_auto_save_input_contract_matches_function_signatures():
+    mod = _load_node_module()
+    for cls in (mod.SaveAssetAutoV2, mod.SaveCharacterAssetAutoV2,
+                mod.SaveSceneAssetAutoV2):
+        declared = set(cls.INPUT_TYPES().get("required", {}))
+        declared.update(cls.INPUT_TYPES().get("optional", {}))
+        accepted = set(inspect.signature(getattr(cls, cls.FUNCTION)).parameters)
+        assert declared <= accepted, "%s misses %s" % (cls.__name__, declared - accepted)
+
+
+def test_scene_auto_preserves_declared_ambience(tmp_library):
+    mod = _load_node_module()
+    node = mod.SaveSceneAssetAutoV2()
+    out = node.save_auto(
+        _Conn([]), name="安静室内", description="A quiet indoor room.",
+        ambience="quiet room tone with soft indoor air",
+        image=png_bytes_list_to_image_tensor([make_png((7, 8, 9))]),
+    )
+    assert out[4]["ambience"] == "quiet room tone with soft indoor air"
 
 
 def test_no_picture_and_empty_description_is_loud(tmp_library):

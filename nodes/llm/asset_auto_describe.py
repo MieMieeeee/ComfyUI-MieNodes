@@ -236,7 +236,8 @@ class SaveAssetAutoV2(SaveAssetV2):
     def save_auto(self, llm_service_connector, kind="character",
                   library_dir="", name="", description="", voice="",
                   new_name="", image=None, audio=None, image_upload="",
-                  audio_upload="", image_prompt="", voice_prompt=""):
+                  audio_upload="", image_prompt="", voice_prompt="",
+                  ambience=""):
         _check_connector(llm_service_connector)
         # Media priority mirrors the Save nodes exactly (socket > upload);
         # resolving once here also feeds the captioner when drafting.
@@ -272,6 +273,7 @@ class SaveAssetAutoV2(SaveAssetV2):
             kind=kind, library_dir=library_dir, name=name,
             description=description, voice=voice, new_name=new_name,
             image=eff_image, audio=eff_audio,
+            ambience=ambience,
         )
         if drafted:
             note = (
@@ -300,13 +302,14 @@ class SaveCharacterAssetAutoV2(SaveAssetAutoV2):
     def save_auto(self, llm_service_connector, library_dir="", name="",
                   description="", voice="", new_name="", image=None,
                   audio=None, image_upload="", audio_upload="",
-                  image_prompt="", voice_prompt=""):
+                  image_prompt="", voice_prompt="", ambience=""):
         return super().save_auto(
             llm_service_connector, "character", library_dir=library_dir,
             name=name, description=description, voice=voice,
             new_name=new_name, image=image, audio=audio,
             image_upload=image_upload, audio_upload=audio_upload,
             image_prompt=image_prompt, voice_prompt=voice_prompt,
+            ambience=ambience,
         )
 
 
@@ -334,10 +337,11 @@ class SaveSceneAssetAutoV2(SaveAssetAutoV2):
 
     def save_auto(self, llm_service_connector, library_dir="", name="",
                   description="", new_name="", image=None, image_upload="",
-                  image_prompt=""):
+                  image_prompt="", ambience=""):
         out = super().save_auto(
             llm_service_connector, "scene", library_dir=library_dir,
             name=name, description=description, new_name=new_name,
             image=image, image_upload=image_upload, image_prompt=image_prompt,
+            ambience=ambience,
         )
         return (out[0], out[1], out[3], out[4], out[5])
