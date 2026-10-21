@@ -93,6 +93,20 @@ def test_kontext_has_cjk_keys(loader):
     assert any(ord(c) > 0x7F for c in keys)  # Chinese preset names preserved
 
 
+# The FLUX.3 Klein packs are verbatim upstream artifacts, far too large to also
+# hold as in-code constants, so they get a loader + key-order snapshot here.
+# Their per-prompt fidelity is pinned by digest and character count in
+# tests/test_flux3_klein_prompt_generator.py.
+@pytest.mark.parametrize(
+    "logical_name",
+    ["flux3_klein/system_prompts", "flux3_klein/pup_prompts_external_vlm"],
+)
+def test_flux3_klein_packs_load_with_upstream_key_order(loader, logical_name):
+    data = loader.load_prompt_dict(logical_name)
+    assert list(data) == ["t2i", "i2i", "t2i_bbox", "i2i_bbox"]  # order = dropdown default
+    assert all(isinstance(v, str) and v for v in data.values())
+
+
 def test_bernini_templates_format_without_keyerror(loader):
     cases = {
         "bernini/r2v": {"image_num": 1, "original_text": "x"},
