@@ -304,3 +304,34 @@ def test_storyboard_warnings_flag_a_shot_pinned_below_one_pause_unit(mods):
     warnings = contract.storyboard_warnings(raw)
     assert any(w.startswith("scene_02") and "预算贴地" in w for w in warnings)
     assert not any(w.startswith("scene_01") for w in warnings)
+
+
+def test_voice_trailing_punctuation_is_normalized_before_splicing(mods):
+    from importlib import import_module
+    contract = import_module(mods["storyboard"].__package__ + ".storyboard_contract")
+    raw = apple()
+    raw["roles"][0]["voice"] = "adult male, calm professional tenor."
+    raw["execution"]["voices"]["character_1"] = "adult male, calm professional tenor."
+    clean = mods["storyboard"].validate_storyboard_payload(raw)
+    assert clean["roles"][0]["voice"] == "adult male, calm professional tenor"
+    runtime = contract.to_runtime(raw)
+    spoken = " ".join(line for line in runtime["shots"][0]["prompt"].splitlines() if "speaks as" in line)
+    assert "tenor: <d>" in spoken
+    assert "tenor.: <d>" not in spoken
+
+
+def test_both_storyboard_system_prompts_carry_the_render_review_rules():
+    root = Path(__file__).parents[1]
+    docs_prompt = (root / "docs" / "storyboard_asset_system_prompt.txt").read_text(encoding="utf-8")
+    node_prompt = (root / "nodes/llm/prompts/h3_storyboard/system_asset.txt").read_text(encoding="utf-8")
+    shared = [
+        "FEWEST",
+        "first_person",
+        "vertical relation",
+        "only phone in the room",
+        "bare phrase with no trailing punctuation",
+        "setting TEXT overrides the wired scene image",
+    ]
+    for rule in shared:
+        assert rule in docs_prompt, "docs prompt missing: " + rule
+        assert rule in node_prompt, "node prompt missing: " + rule

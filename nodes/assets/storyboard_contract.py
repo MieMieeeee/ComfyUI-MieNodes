@@ -15,6 +15,17 @@ EVENT_TYPES = ("dialogue", "action", "enter", "exit")
 LANGUAGES = ("zh", "en")
 
 
+def _bare_phrase(value):
+    """Drop trailing sentence punctuation from a spliced phrase.
+
+    ``voice`` is spliced into the H3 prompt as ``<voice>: <d>…``; a
+    trailing period therefore produces a broken line ("…pace.: <d>…").
+    Normalizing here keeps the fix mechanical instead of asking every
+    author to remember the rule.
+    """
+    return value.rstrip(" .。、,，;；!！?？").strip()
+
+
 def _text(value, label, *, empty=False, maximum=12000):
     if not isinstance(value, str) or (not empty and not value.strip()) or len(value) > maximum:
         raise ValueError("%s must be %sa string of at most %d characters" %
@@ -134,7 +145,7 @@ def validate_v2(payload, *, _check_timing=True, _check_execution=True):
             raise ValueError("role position must be left/right/center/none")
         if role["presence"] == "off_screen" and role["position"] != "none":
             raise ValueError("off_screen role position must be none")
-        role["voice"] = _text(role.get("voice", ""), "role voice", empty=True, maximum=300)
+        role["voice"] = _bare_phrase(_text(role.get("voice", ""), "role voice", empty=True, maximum=300))
     if not any(r["presence"] == "on_screen" for r in roles):
         raise ValueError("at least one on_screen role is required")
     camera = out.get("camera")
@@ -223,7 +234,8 @@ def _validate_execution(asset, events):
     if not isinstance(voices, dict) or set(voices) != {r["id"] for r in asset["roles"]}:
         raise ValueError("execution.voices must map every numbered role exactly once")
     for role in asset["roles"]:
-        voices[role["id"]] = _english(voices[role["id"]], "execution voice", empty=not bool(role["voice"]))
+        voices[role["id"]] = _bare_phrase(
+            _english(voices[role["id"]], "execution voice", empty=not bool(role["voice"])))
     directions = execution["directions"]
     required = {event["id"] for event in events if event["type"] != "dialogue"}
     if not isinstance(directions, dict) or set(directions) != required:
