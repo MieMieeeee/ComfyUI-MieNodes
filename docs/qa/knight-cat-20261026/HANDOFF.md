@@ -4,13 +4,38 @@
 
 ## 结果
 
-- 成片：`白披风骑士猫的独白.mp4`（8.0 秒，960×544，H3 ref2va 链路）
+**竖屏版（最终版，剑全程不动）**：`白披风骑士猫的独白-竖屏.mp4`（8.0 秒，544×960）
+**横屏版（第一版，含已被否定的放剑动作）**：`白披风骑士猫的独白.mp4`（8.0 秒，960×544）
+
 - 台词：**ASR 逐字命中**，三句顺序正确、无增删、无漏字——
   「拿着剑我就没法拥抱你，放下剑我就没法保护你，所以你为什么不主动抱过来呢?」
 - 帧检（见同目录 PNG）：
   - 开场：猫骑士身份完整（灰虎斑、粉蝴蝶结、银甲、奶白披风），剑**唯一**竖持于一只爪
-  - 中段：剑已放低、剑尖朝下贴腿边；**全场无第二把剑**
   - 结尾：另一只爪前伸、掌心朝上，姿态与台词呼应
+
+## 第一版的缺陷与修法：道具姿态动作会让参考图道具被重新想象
+
+横屏第一版把「放下剑」写成了动作节拍（`他把剑缓缓放低，剑尖朝下贴到腿边`）。成片里
+**剑柄的金球翻到了上端、剑尖朝下**——姿态被改写成了另一把剑。
+
+根因：**要求角色改变参考图道具的姿态，等于让 H3 重新绘制这把道具**，重绘的结果带着不同的
+朝向（甚至第二把）。台词里的「放下剑」是假设语气，不是画面动作，不需要落成 direction。
+
+修法（已落地为系统指令规则，两份 prompt 同步）：
+
+> A prop that comes from the reference portrait keeps the pose it has in that portrait. A direction
+> that asks the character to change the prop's pose (lowering the sword, sheathing it, lifting it,
+> setting it down) makes H3 re-draw the prop, and the redrawn prop comes back with a different
+> orientation or a second copy. Express such a change in the dialogue and keep the prop static in
+> the directions; let the character's free hand carry the performance.
+
+资产相应改为：删掉放剑动作节拍，换成表情节拍（`他微微垂眼，苦笑了一下`）；
+constraints 写明「剑自始至终竖直握在身侧同一只前爪里，握法与姿态保持不变」；
+execution 三处提到剑的 direction 全部加 `staying upright and unchanged`。
+
+竖屏复渲验证：**剑全程纹丝未动**——三张抽帧（开场 / 垂眼苦笑 / 抬掌结尾）里剑均竖直、
+剑尖朝上、剑柄金球在下、握法与参考图一致；台词 ASR 三句全对。
+
 
 ## 接线
 

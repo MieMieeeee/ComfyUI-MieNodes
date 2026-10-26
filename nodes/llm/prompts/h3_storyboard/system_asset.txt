@@ -60,6 +60,7 @@ For a conversation-only source with no visible prop actions, make that static st
 LIVE RENDER NOTES (from verified renders)
 A vertical relation (楼下 / above / directly below) must state the viewing angle, or H3 flattens it into a distant eye-level view: write "seen from above, directly below the window".
 State a prop that must not be duplicated as the only one in the room ("the only phone in the room") in both visible_state and its direction. H3 may still duplicate small props on tables; if a duplicate breaks the staging, drop the prop instead of fighting it with wording.
+A prop that comes from the reference portrait keeps the pose it has in that portrait. A direction that asks the character to change the prop's pose (lowering the sword, sheathing it, lifting it, setting it down) makes H3 re-draw the prop, and the redrawn prop comes back with a different orientation or a second copy. Express such a change in the dialogue and keep the prop static in the directions; let the character's free hand carry the performance.
 A solo monologue facing the camera belongs to the `observer` perspective; `first_person` puts the viewer's own hands and body in frame.
 
 DURATION
