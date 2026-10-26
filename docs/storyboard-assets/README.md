@@ -108,6 +108,15 @@ python scripts/import_storyboard_assets.py docs/storyboard-assets
 三份均已在真机 ComfyUI 上跑通 H3 成片（`Claude娘-日式赛璐璐` + `DeepSeek娘-日式赛璐璐`），台词逐句 ASR 核对通过。
 过程与发现见 [docs/qa/storyboard-gags-20261026/HANDOFF.md](../qa/storyboard-gags-20261026/HANDOFF.md)（含成片）。
 
+### 用户自有角色的独白
+
+| 资产名 | 梗 | 角色 | 事件 / 时长 |
+|---|---|---|---|
+| `白披风骑士猫的独白` | 拿着剑没法拥抱，放下剑没法保护——那你为什么不主动抱过来呢 | 1（白披风骑士猫正对镜头） | 6 事件 / 8.0s |
+
+用 `白披风骑士猫` 角色资产（含参考音）配 `毛绒客厅` 场景资产跑通：台词逐字 ASR 命中，剑全场唯一、
+结尾摊掌姿态成立。过程见 [docs/qa/knight-cat-20261026/HANDOFF.md](../qa/knight-cat-20261026/HANDOFF.md)（含成片）。
+
 ## 素材来源与边界
 
 这些是虚构的讽刺短剧，角色是拟人化的「Claude娘」，封禁是剧中的反转笑点，不是对任何真实产品行为

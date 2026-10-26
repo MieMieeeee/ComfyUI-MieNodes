@@ -1,0 +1,89 @@
+{
+  "version": 2,
+  "name": "白披风骑士猫的独白",
+  "language": "zh",
+  "roles": [
+    {
+      "id": "character_1",
+      "name": "白披风骑士猫",
+      "presence": "on_screen",
+      "initially_visible": true,
+      "position": "center",
+      "voice": "young female, soft sweet voice, mid register, light nasal warmth, slow and clear, warm and clingy"
+    }
+  ],
+  "camera": {
+    "framing": "medium_shot",
+    "movement": "locked",
+    "perspective": "observer"
+  },
+  "look": "写实奇幻风格，柔和暖色调，细腻毛发与金属质感，浅景深，人物居中的电影感构图。",
+  "setting": "午后柔和的自然光从画面一侧斜照进来，混着暖色的环境补光，画面整体明亮温暖。角色1站在画面中间，面向镜头说话。",
+  "constraints": "全片一个生成片段，机位固定，角色1始终居中面向镜头，姿态不挪位。角色1按顺序说出三句台词，每句独立成拍，句间留短暂停顿，语气从平静的自述转为温柔恳求。剑是全场唯一的一把，全程属于握着剑的那只前爪：先竖直持在身侧，再缓缓放低到腿边，剑尖朝下。另一只空手在第三句台词之前抬起，掌心朝上伸向镜头，最后保持这个摊开的掌心姿势。画面中只有角色1一个角色，环境中任何可见文字都是中文。",
+  "target_duration_seconds": 8.0,
+  "continuation_overlap_frames": 22,
+  "source_script": "角色1：拿着剑，我就没法拥抱你。\n角色1动作：他把剑缓缓放低，剑尖朝下贴到腿边。\n角色1：放下剑，我就没法保护你。\n角色1动作：他抬起空着的那只手，掌心朝上伸向镜头。\n角色1：所以，你为什么不主动抱过来呢？\n角色1动作：说完他保持摊开的掌心，目光温柔地看向镜头。",
+  "shots": [
+    {
+      "id": "scene_01",
+      "duration_seconds": 8.0,
+      "events": [
+        {
+          "id": "event_001",
+          "type": "dialogue",
+          "character": "character_1",
+          "text": "拿着剑，我就没法拥抱你。",
+          "language": "zh"
+        },
+        {
+          "id": "event_002",
+          "type": "action",
+          "character": "character_1",
+          "text": "他把剑缓缓放低，剑尖朝下贴到腿边。",
+          "language": "zh"
+        },
+        {
+          "id": "event_003",
+          "type": "dialogue",
+          "character": "character_1",
+          "text": "放下剑，我就没法保护你。",
+          "language": "zh"
+        },
+        {
+          "id": "event_004",
+          "type": "action",
+          "character": "character_1",
+          "text": "他抬起空着的那只手，掌心朝上伸向镜头。",
+          "language": "zh"
+        },
+        {
+          "id": "event_005",
+          "type": "dialogue",
+          "character": "character_1",
+          "text": "所以，你为什么不主动抱过来呢？",
+          "language": "zh"
+        },
+        {
+          "id": "event_006",
+          "type": "action",
+          "character": "character_1",
+          "text": "说完他保持摊开的掌心，目光温柔地看向镜头。",
+          "language": "zh"
+        }
+      ]
+    }
+  ],
+  "execution": {
+    "look": "A photorealistic fantasy style with a soft warm palette, fine fur and metal textures, shallow depth of field, and a cinematic composition with the character in the center.",
+    "setting": "Soft afternoon daylight falls in from one side of the frame together with warm ambient fill, keeping the whole image bright and warm. Character 1 stands in the middle of frame facing the camera and speaks.",
+    "visible_state": "Soft afternoon daylight comes from one side together with warm ambient fill, keeping the frame bright and warm. Character 1 stands in the middle of frame facing the camera, holding the only sword in the scene upright in one paw, the other paw resting at the side, with a calm and steady expression.",
+    "voices": {
+      "character_1": "young female, soft sweet voice, mid register, light nasal warmth, slow and clear, warm and clingy"
+    },
+    "directions": {
+      "event_002": "Character 1 lowers the only sword in the scene in one paw until the blade points down beside the leg, while the other paw stays resting at the side.",
+      "event_004": "Character 1 raises the free paw with the palm turned upward toward the camera in an open inviting palm, while the sword paw keeps the lowered sword.",
+      "event_006": "Character 1 holds the open palm toward the camera and looks at the camera with a gentle, slightly wistful gaze, the sword staying lowered in the other paw."
+    }
+  }
+}
