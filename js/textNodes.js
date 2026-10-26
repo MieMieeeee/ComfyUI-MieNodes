@@ -10,6 +10,8 @@
  * SimpleText: drawn on the LiteGraph Canvas with `draw(ctx)`, called
  *             from a global LGraphCanvas.drawNode hook so the LiteGraph
  *             shell stays transparent. Mirrors rgthree-comfy`s Label.
+ *             In ComfyUI's "Nodes 2.0" renderer the text is rendered by a
+ *             DOM widget instead (see the Nodes 2.0 section below).
  * RichText:   injected as an HTML DOM widget so we can render full Markdown
  *             (via `marked`) sanitized with `DOMPurify` and auto-grow the
  *             node height to fit the rendered content.
@@ -44,6 +46,137 @@ function roundRect(ctx, x, y, w, h, r) {
   ctx.lineTo(x, y + r);
   ctx.quadraticCurveTo(x, y, x + r, y);
   ctx.closePath();
+}
+
+// ---------------------------------------------------------------------------
+// Shared: Nodes 2.0 (Vue node renderer) compatibility
+// ---------------------------------------------------------------------------
+// ComfyUI's "Nodes 2.0" mode — the setting `Comfy.VueNodes.Enabled`, labelled
+// "Nodes 2.0" in the settings UI — replaces the LiteGraph canvas chrome with
+// Vue DOM components (renderer/extensions/vueNodes). Two things change for
+// our annotation nodes:
+//
+//  1. Interaction. LiteGraph never calls `node.onDblClick` in that mode: the
+//     pointer events are consumed by the DOM node element, so the modal
+//     editor would never open. The browser still delivers a native
+//     `dblclick`, and it bubbles up to the document — so we listen once on
+//     the document (capture phase), resolve the Vue node the event happened
+//     in, and open its editor. The classic frontend keeps using
+//     `node.onDblClick`; the bridge stays inert there.
+//
+//  2. Layout. The Vue node is sized from its DOM content, and it renders a
+//     footer row holding the frontend's node badge ("#12 comfyui_mienodes")
+//     pinned to the BOTTOM of the node body. Canvas-drawn content therefore
+//     does not work there: the box would not grow with the text and the
+//     badge would land on top of it. So in Nodes 2.0 the annotation content
+//     is rendered as a DOM widget (which the node box is sized from) and the
+//     canvas copy is hidden. The classic frontend keeps the canvas
+//     rendering exactly as it is today.
+
+function isVueNodesMode() {
+  return !!(typeof window !== "undefined" && window.LiteGraph && window.LiteGraph.vueNodesMode);
+}
+
+// Node types whose double-click opens an editor modal.
+const MIE_EDITABLE_NODE_TYPES = new Set([
+  "SimpleTextNode|Mie",
+  "RichTextNode|Mie",
+]);
+
+// All annotation node types (they share the Nodes 2.0 handling).
+const MIE_ANNOTATION_NODE_TYPES = new Set([
+  "SimpleTextNode|Mie",
+  "RichTextNode|Mie",
+  "AboutAuthorNode|Mie",
+  "AboutAuthorNodeEn|Mie",
+]);
+
+// Visit every annotation node in the current graph.
+function forEachAnnotationNode(fn) {
+  const graphs = [];
+  if (app?.canvas?.graph) graphs.push(app.canvas.graph);
+  if (app?.graph) graphs.push(app.graph);
+  const seen = new Set();
+  for (const graph of graphs) {
+    for (const node of graph?._nodes || []) {
+      if (seen.has(node)) continue;
+      seen.add(node);
+      if (MIE_ANNOTATION_NODE_TYPES.has(node.type)) fn(node);
+    }
+  }
+}
+
+// The user can switch between the classic frontend and Nodes 2.0 at any
+// time, and the frontend does not notify extensions about it. The canvas
+// does not necessarily repaint on the switch either, so we watch the mode
+// flag and re-render the annotation nodes when it flips — otherwise a node
+// could keep the presentation of the other renderer (e.g. a hidden DOM
+// copy in Nodes 2.0, which would make the node look empty).
+function installRendererModeWatcher() {
+  if (typeof window === "undefined") return;
+  if (window.__mieRendererModeWatcher) return;
+  window.__mieRendererModeWatcher = true;
+  let last = isVueNodesMode();
+  setInterval(() => {
+    const vue = isVueNodesMode();
+    if (vue === last) return;
+    last = vue;
+    forEachAnnotationNode((node) => {
+      try {
+        node._onRendererModeChanged?.();
+        node.setDirtyCanvas?.(true, true);
+      } catch (e) {
+        console.warn("[MieText] renderer mode switch failed:", e);
+      }
+    });
+  }, 500);
+}
+
+// Map a Vue node element's `data-node-id` back to its LiteGraph node.
+// Subgraph nodes are addressed as "<graphId>:<nodeId>", so compare the last
+// segment only.
+function findGraphNodeByDomId(rawId) {
+  if (!rawId) return null;
+  const id = String(rawId).split(":").pop();
+  const graphs = [];
+  if (app?.canvas?.graph) graphs.push(app.canvas.graph);
+  if (app?.graph) graphs.push(app.graph);
+  for (const graph of graphs) {
+    if (!graph) continue;
+    try {
+      if (typeof graph.getNodeById === "function") {
+        const node = graph.getNodeById(id);
+        if (node) return node;
+      }
+    } catch (_) {
+      // fall through to the manual scan below
+    }
+    const hit = (graph._nodes || []).find((n) => String(n.id) === id);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+function installVueDblClickBridge() {
+  if (typeof document === "undefined" || typeof window === "undefined") return;
+  if (window.__mieVueDblClickBridge) return;
+  window.__mieVueDblClickBridge = true;
+  document.addEventListener(
+    "dblclick",
+    (event) => {
+      // Classic frontend: LiteGraph calls node.onDblClick itself.
+      if (!isVueNodesMode()) return;
+      const target = event.target;
+      if (!target || typeof target.closest !== "function") return;
+      const host = target.closest("[data-node-id]");
+      if (!host) return;
+      const node = findGraphNodeByDomId(host.getAttribute("data-node-id"));
+      if (!node || !MIE_EDITABLE_NODE_TYPES.has(node.type)) return;
+      if (typeof node.openEditor !== "function") return;
+      node.openEditor();
+    },
+    true,
+  );
 }
 
 let _editorStylesInjected = false;
@@ -647,6 +780,8 @@ function installSimpleTextBehavior(nodeType) {
     if (!this.size || this.size[0] < 80 || this.size[1] < 40) {
       this.size = [220, 80];
     }
+    this._ensureSimpleElement();
+    this._renderSimpleText();
   };
 
   // COLOR_PRESETS is hoisted to module scope (above installSimpleTextBehavior)
@@ -693,6 +828,9 @@ function installSimpleTextBehavior(nodeType) {
     this.properties.padding = Math.max(0, Math.min(48, Number(v.padding) || 0));
     this.properties.border_radius = Math.max(0, Math.min(32, Number(v.border_radius) || 0));
     this.properties.bg_color = v.bg_transparent ? "transparent" : v.bg_color;
+    // Re-render the DOM copy right away: in Nodes 2.0 the DOM is what is
+    // on screen, and the canvas may not repaint on its own.
+    this._renderSimpleText();
     this.setDirtyCanvas?.(true, true);
   };
 
@@ -701,7 +839,117 @@ function installSimpleTextBehavior(nodeType) {
   };
 
   nodeType.prototype.onPropertyChanged = function () {
+    this._renderSimpleText();
     this.setDirtyCanvas?.(true, true);
+  };
+
+  // Called when the user switches between the classic frontend and
+  // Nodes 2.0: the DOM copy has to follow the renderer.
+  nodeType.prototype._onRendererModeChanged = function () {
+    this._renderSimpleText();
+  };
+
+  // -------------------------------------------------------------------------
+  // Nodes 2.0: the text lives in a DOM widget instead of on the canvas.
+  //
+  // In Nodes 2.0 the node box is sized by the Vue layout from the node's DOM
+  // content, and the frontend renders its node badge ("#12 comfyui_mienodes")
+  // in a footer row at the bottom of the node body. A canvas-drawn text can
+  // do neither: the box would not grow with the text and the badge would sit
+  // on top of it. So the text is mounted as a DOM widget there, and the
+  // canvas copy is hidden. In the classic frontend nothing changes: the
+  // canvas still paints the text and the DOM widget stays hidden.
+  // -------------------------------------------------------------------------
+  nodeType.prototype._ensureSimpleElement = function () {
+    if (this._mieSimpleEl) return this._mieSimpleEl;
+
+    const frame = document.createElement("div");
+    frame.className = "mie-simple-frame";
+    const text = document.createElement("div");
+    text.className = "mie-simple-text";
+    frame.appendChild(text);
+    this._mieSimpleEl = frame;
+    this._mieSimpleTextEl = text;
+
+    if (typeof this.addDOMWidget === "function") {
+      try {
+        this._mieSimpleWidget = this.addDOMWidget("mie_simple", "MIE_SIMPLE", frame, {
+          serialize: false, hideOnZoom: false,
+        });
+      } catch (e) {
+        console.warn("[MieText] addDOMWidget failed, using stub:", e);
+        this._mieSimpleWidget = { element: frame };
+      }
+    } else {
+      this._mieSimpleWidget = { element: frame };
+    }
+
+    // Collapse the auto-created .dom-widget wrapper height (same fix as
+    // RichText) so the widget's height never stacks under the title bar.
+    const w = this._mieSimpleWidget;
+    if (w && !w.computeSize) {
+      w.computeSize = function () { return [0, 0]; };
+    }
+
+    return frame;
+  };
+
+  nodeType.prototype._renderSimpleText = function () {
+    const frame = this._ensureSimpleElement();
+    const textEl = this._mieSimpleTextEl;
+    if (!textEl) return;
+
+    const vue = isVueNodesMode();
+    const raw = String(this.properties.text ?? "");
+    const fontSize = Math.max(Number(this.properties.font_size) || 14, 6);
+    const padding = Math.max(Number(this.properties.padding) || 0, 0);
+    const fontColor = this.properties.font_color || "#ffffff";
+    const bgColor = this.properties.bg_color || "transparent";
+    const align = this.properties.align || "left";
+    const fontFamily = this.properties.font_family || "sans-serif";
+    const fontWeight = this.properties.font_weight === "bold" ? "bold" : "normal";
+    const fontStyle = this.properties.font_style === "italic" ? "italic" : "normal";
+    const radius = Math.max(Number(this.properties.border_radius) || 0, 0);
+    const isEmpty = raw.trim() === "";
+
+    // Skip the DOM writes when nothing changed — draw() runs on every
+    // canvas repaint.
+    const sig = [
+      vue, raw, fontSize, padding, fontColor, bgColor, align, fontFamily,
+      fontWeight, fontStyle, radius, isEmpty,
+    ].join("\u0000");
+    if (this._mieSimpleSig === sig) return;
+    this._mieSimpleSig = sig;
+
+    // Hidden in the classic frontend (the canvas paints the text there),
+    // visible in Nodes 2.0 where the DOM is the only renderer that works.
+    frame.style.display = vue ? "flex" : "none";
+    frame.style.flexDirection = "column";
+    frame.style.justifyContent = "center";
+    frame.style.boxSizing = "border-box";
+    frame.style.width = "100%";
+    // Content-driven height in Nodes 2.0 so the node box grows with the
+    // text and the badge row ends up BELOW it instead of on top of it.
+    frame.style.height = "auto";
+    frame.style.padding = `${padding}px`;
+    frame.style.background = bgColor === "transparent" ? "transparent" : bgColor;
+    frame.style.borderRadius = `${radius}px`;
+    frame.style.overflow = "hidden";
+    frame.style.pointerEvents = "none";
+
+    textEl.style.whiteSpace = "pre-wrap";
+    textEl.style.wordBreak = "break-word";
+    textEl.style.fontFamily = fontFamily;
+    textEl.style.lineHeight = "1.45";
+    textEl.style.textAlign = align;
+    textEl.style.fontSize = isEmpty ? "13px" : `${fontSize}px`;
+    textEl.style.fontWeight = isEmpty ? "normal" : fontWeight;
+    textEl.style.fontStyle = isEmpty ? "italic" : fontStyle;
+    textEl.style.color = fontColor;
+    textEl.style.opacity = isEmpty ? "0.45" : "1";
+    textEl.textContent = isEmpty
+      ? "\uD83D\uDC11  \u53CC\u51FB\u8282\u70B9\u7F16\u8F91\u5185\u5BB9  \uD83D\uDC11"
+      : raw.replace(/\\n/g, "\n");
   };
 
   // Right-click menu: prepend an "Edit" item so the user has a fallback
@@ -716,7 +964,8 @@ function installSimpleTextBehavior(nodeType) {
     ];
   };
 
-  nodeType.prototype.computeSize = function () {
+  // Natural size of the text itself.
+  nodeType.prototype._contentSize = function () {
     const text = String(this.properties.text ?? "").replace(/\\n/g, "\n").replace(/\n+$/, "");
     const lines = text === "" ? [""] : text.split("\n");
     const fontSize = Math.max(Number(this.properties.font_size) || 14, 6);
@@ -737,6 +986,10 @@ function installSimpleTextBehavior(nodeType) {
     ];
   };
 
+  nodeType.prototype.computeSize = function () {
+    return this._contentSize();
+  };
+
   nodeType.prototype.draw = function (ctx) {
     // Belt-and-suspenders: even though the global drawNode hook forces
     // these to "transparent" right before LiteGraph paints the shell,
@@ -749,6 +1002,18 @@ function installSimpleTextBehavior(nodeType) {
     ctx.save();
     try {
       if (this.flags?.collapsed) return;
+
+      // Keep the DOM copy in sync with the current renderer mode — the user
+      // can switch between the classic frontend and Nodes 2.0 at any time,
+      // and the DOM element survives the switch.
+      this._renderSimpleText();
+
+      // Nodes 2.0: the text is rendered by the DOM widget (see
+      // _renderSimpleText) because the node box there is sized from the
+      // DOM content — canvas text would neither grow the box nor dodge the
+      // frontend's node badge.
+      if (isVueNodesMode()) return;
+
       const raw = String(this.properties.text ?? "");
     const fontSize = Math.max(Number(this.properties.font_size) || 14, 6);
     const padding = Math.max(Number(this.properties.padding) || 0, 0);
@@ -1010,6 +1275,12 @@ function installRichTextBehavior(nodeType) {
     this.setDirtyCanvas?.(true, true);
   };
 
+  // Called when the user switches between the classic frontend and
+  // Nodes 2.0: the DOM copy has to follow the renderer.
+  nodeType.prototype._onRendererModeChanged = function () {
+    this._renderContent();
+  };
+
   // Right-click menu: prepend an "Edit" item so the user has a fallback
   // discoverability path alongside double-click.
   const _origGetMenuOptions_R = nodeType.prototype.getMenuOptions;
@@ -1090,22 +1361,40 @@ function installRichTextBehavior(nodeType) {
     return el;
   };
 
+  // Sync the outer flex frame to the node: size, background and padding.
+  //
+  // In the classic frontend the frame is pinned to the node size (the
+  // Canvas paints the background, the frame only carries the content). In
+  // Nodes 2.0 the frame is content-driven instead — the node box is sized
+  // from the DOM — so the background moves into the frame and the height is
+  // left to the content. That way the box grows with the Markdown and the
+  // frontend's node badge row ends up BELOW it.
+  nodeType.prototype._syncFrameStyle = function () {
+    const el = this._mieContentEl;
+    if (!el) return;
+    const vue = isVueNodesMode();
+    const bgColor = this.properties.bg_color || "transparent";
+    const radius = Math.max(Number(this.properties.border_radius) || 0, 0);
+    const padding = Math.max(Number(this.properties.padding) || 0, 0);
+    el.style.width = vue ? "100%" : `${this.size[0]}px`;
+    el.style.height = vue ? "auto" : `${this.size[1]}px`;
+    el.style.background = vue ? (bgColor === "transparent" ? "transparent" : bgColor) : "transparent";
+    el.style.borderRadius = vue ? `${radius}px` : "0px";
+    el.style.padding = `${padding}px`;
+  };
+
   nodeType.prototype._renderContent = function () {
     const el = this._ensureContentElement();
     const inner = this._mieInnerEl;
     const raw = String(this.properties.text ?? "");
     const fontSize = Math.max(Number(this.properties.font_size) || 14, 6);
-    const padding = Math.max(Number(this.properties.padding) || 0, 0);
-    // Padding lives on the outer flex frame so flex centering accounts
-    // for it. Typography lives on the inner block so scrollHeight gives
-    // us the natural content height without padding being mixed in.
-    el.style.padding = `${padding}px`;
     inner.style.fontSize = `${fontSize}px`;
     inner.style.color = this.properties.font_color || "#e5e7eb";
 
     if (raw.trim() === "") {
       inner.classList.add("mie-rich-empty");
       inner.innerHTML = '<div class="mie-anno-empty-hint">\uD83D\uDC11  \u53CC\u51FB\u8282\u70B9\u7F16\u8F91 Markdown  \uD83D\uDC11</div>';
+      this._syncFrameStyle();
       return;
     }
     inner.classList.remove("mie-rich-empty");
@@ -1113,12 +1402,14 @@ function installRichTextBehavior(nodeType) {
       try {
         const html = _mdLibs.marked.parse(raw, { breaks: true, gfm: true });
         inner.innerHTML = _mdLibs.DOMPurify.sanitize(html);
+        this._syncFrameStyle();
         return;
       } catch (e) {
         // fall through to plain text
       }
     }
     inner.textContent = raw;
+    this._syncFrameStyle();
   };
 
   nodeType.prototype._measureHeight = function () {
@@ -1142,14 +1433,20 @@ function installRichTextBehavior(nodeType) {
     try {
       if (this.flags?.collapsed) return;
 
-      // Background (drawn on Canvas; the Markdown content sits on top via DOM)
-    const bgColor = this.properties.bg_color || "transparent";
-    const radius = Math.max(Number(this.properties.border_radius) || 0, 0);
-    if (bgColor !== "transparent") {
-      ctx.fillStyle = bgColor;
-      roundRect(ctx, 0, 0, this.size[0], this.size[1], radius);
-      ctx.fill();
-    }
+      const vue = isVueNodesMode();
+      const bgColor = this.properties.bg_color || "transparent";
+      const radius = Math.max(Number(this.properties.border_radius) || 0, 0);
+      const padding = Math.max(Number(this.properties.padding) || 0, 0);
+
+      // Background. In the classic frontend the Canvas paints it and the
+      // Markdown content sits on top via DOM; in Nodes 2.0 the DOM element
+      // paints it, because the node box there is sized from the DOM content
+      // and the Canvas region would not match it.
+      if (!vue && bgColor !== "transparent") {
+        ctx.fillStyle = bgColor;
+        roundRect(ctx, 0, 0, this.size[0], this.size[1], radius);
+        ctx.fill();
+      }
 
     // Lazy-load the markdown libs the first time we actually need them.
     if (!this.properties.text) {
@@ -1167,29 +1464,26 @@ function installRichTextBehavior(nodeType) {
       });
     }
 
-    // Sync the outer flex frame's height to the node height so flex
-    // centering can put the inner content in the middle of any extra
-    // space the user added by dragging the node taller. We set it
-    // explicitly (rather than via CSS height: 100%) because the widget
-    // container's intrinsic height would otherwise be driven by the
-    // content, defeating the purpose of vertical centering.
+    // Sync the outer flex frame to the node so flex centering can put the
+    // inner content in the middle of any extra space the user added by
+    // dragging the node taller. In Nodes 2.0 the frame is content-driven
+    // instead, so the box grows with the Markdown and the frontend's node
+    // badge row lands BELOW it instead of on top of it.
+    this._syncFrameStyle();
     const el = this._mieContentEl;
-    if (el) {
-      el.style.width = `${this.size[0]}px`;
-      el.style.height = `${this.size[1]}px`;
-    }
 
-    // Auto-fit is "grow only": never shrink below the natural content
-    // height (content + 2*padding) so the user can drag the node taller
-    // and have the content vertically centered via flex. The previous
-    // behavior (always reset to contentH + padding) made manual resize
-    // impossible and broke vertical centering for RichText.
-    const padding = Math.max(Number(this.properties.padding) || 0, 0);
-    const contentH = this._measureHeight();
-    const minH = contentH + padding * 2;
-    if (this.size[1] < minH) {
-      this.size[1] = minH;
-      if (el) el.style.height = `${this.size[1]}px`;
+    if (!vue) {
+      // Auto-fit is "grow only": never shrink below the natural content
+      // height (content + 2*padding) so the user can drag the node taller
+      // and have the content vertically centered via flex. The previous
+      // behavior (always reset to contentH + padding) made manual resize
+      // impossible and broke vertical centering for RichText.
+      const contentH = this._measureHeight();
+      const minH = contentH + padding * 2;
+      if (this.size[1] < minH) {
+        this.size[1] = minH;
+        if (el) el.style.height = `${this.size[1]}px`;
+      }
     }
     } finally {
       ctx.restore();
@@ -1745,6 +2039,14 @@ function installAboutAuthorBehavior(nodeType, profileUrl) {
       }
       card.appendChild(list);
     }
+
+    // Nodes 2.0: the card has to sit in the normal flow with a
+    // content-driven height, so the node box grows with the card and the
+    // frontend's node badge row ends up BELOW it.
+    if (isVueNodesMode()) {
+      card.style.position = "relative";
+      card.style.height = "auto";
+    }
   };
 
   // Measure the natural height of the rendered card so draw() can grow the
@@ -1760,6 +2062,13 @@ function installAboutAuthorBehavior(nodeType, profileUrl) {
   nodeType.prototype.onPropertyChanged = function () {
     this._renderAuthorCard();
     this.setDirtyCanvas?.(true, true);
+  };
+
+  // Called when the user switches between the classic frontend and
+  // Nodes 2.0: the card has to follow the renderer (in Nodes 2.0 it sits in
+  // the normal flow so the node box grows with it).
+  nodeType.prototype._onRendererModeChanged = function () {
+    this._renderAuthorCard();
   };
 
   // Theme switcher via right-click menu. This is the only per-instance write.
@@ -1819,6 +2128,7 @@ function installAboutAuthorBehavior(nodeType, profileUrl) {
       const cardW = 260;
 
       const card = this._mieAuthorCard;
+      const vue = isVueNodesMode();
       if (card) {
         // Measure the natural height at the wrapper's current width, then
         // grow the node vertically to fit. Width stays driven by CSS (100%).
@@ -1826,11 +2136,26 @@ function installAboutAuthorBehavior(nodeType, profileUrl) {
         void card.offsetWidth;              // force sync reflow at wrapper width
         const naturalH = card.scrollHeight;
         if (this.size[0] < cardW) this.size[0] = cardW;
-        if (this.size[1] < naturalH) this.size[1] = naturalH;
-        card.style.height = `${this.size[1]}px`;
+        if (vue) {
+          // Nodes 2.0: the card keeps its natural height so the node box
+          // grows with it and the frontend's node badge row ends up BELOW
+          // the card instead of on top of it. It also has to sit in the
+          // normal flow — an absolutely positioned card would not make the
+          // node box grow at all.
+          card.style.position = "relative";
+          card.style.height = "auto";
+        } else {
+          if (this.size[1] < naturalH) this.size[1] = naturalH;
+          card.style.position = "absolute";
+          card.style.height = `${this.size[1]}px`;
+        }
       }
 
-      if (bgColor) {
+      // In the classic frontend the Canvas paints the themed backdrop under
+      // the card; in Nodes 2.0 the card itself carries the themed
+      // background (see .mie-author-card) because the node box there is
+      // sized from the DOM content.
+      if (!vue && bgColor) {
         ctx.fillStyle = bgColor;
         roundRect(ctx, 0, 0, this.size[0], this.size[1], radius);
         ctx.fill();
@@ -1844,6 +2169,13 @@ function installAboutAuthorBehavior(nodeType, profileUrl) {
 // ---------------------------------------------------------------------------
 // Register the extension
 // ---------------------------------------------------------------------------
+
+// Nodes 2.0 never calls node.onDblClick, so the editor is opened through a
+// document-level dblclick bridge instead (see the Nodes 2.0 section above).
+installVueDblClickBridge();
+// The frontend does not announce a switch between the classic frontend and
+// Nodes 2.0, so the annotation nodes are re-rendered when the mode flips.
+installRendererModeWatcher();
 
 app.registerExtension({
   name: "MieTextAnnotations",
