@@ -590,6 +590,9 @@ def validate_storyboard_payload(payload, *, require_shots=False):
             % type(payload).__name__
         )
     version = payload.get("version")
+    if version == 2:
+        from .storyboard_contract import validate_v2
+        return validate_v2(payload)
     if version != STORYBOARD_VERSION:
         raise ValueError(
             "storyboard.json version must be %d, got %r; this node does "
@@ -907,6 +910,9 @@ def storyboard_requirements(cleaned: dict) -> list[dict]:
     §4.2), so the list distinguishes "must fill this" from "leave it
     alone".
     """
+    if cleaned.get("version") == 2:
+        from .storyboard_contract import to_runtime
+        cleaned = to_runtime(cleaned)
     cast = cleaned.get("cast") or {}
     shots = cleaned.get("shots") or []
     lines = cleaned.get("lines") or []
@@ -935,8 +941,10 @@ def storyboard_requirements(cleaned: dict) -> list[dict]:
             # ruling): wired means "use this voice", unwired means
             # "declare no voice and let H3 choose". An on-screen
             # character is always required — he is in the frame.
-            "required": not offscreen,
+            "required": not offscreen or bool(cleaned.get("_structured_events") and cleaned.get("audio_mode") == "reference"),
             "note": (
+                "Reference voice: wire this character asset with audio; off-screen images are excluded"
+                if cleaned.get("_structured_events") and cleaned.get("audio_mode") == "reference" else
                 "H3 generated voices; no reference audio is sent"
                 if cleaned.get("audio_mode") == "generated" else
                 "画外音：接上则用他的音色，不接则由 H3 自选 · "
@@ -963,6 +971,9 @@ def read_storyboard_meta(library_dir, name):
     storyboards directory is absent — same contract as
     ``library.read_asset_meta``."""
     cleaned, path = load_storyboard(library_dir, name)
+    if cleaned.get("version") == 2:
+        from .storyboard_contract import to_runtime
+        cleaned = to_runtime(cleaned)
     lines = sum(len(shot.get("lines") or []) for shot in cleaned.get("shots") or [])
     offscreen = sorted(
         n for n, v in (cleaned.get("cast") or {}).items()

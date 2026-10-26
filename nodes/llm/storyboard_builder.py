@@ -737,7 +737,7 @@ def _assemble_authored_plan(storyboard: dict, slot_bundles: dict) -> dict:
     for name, info in ordered:
         slot = int(info["character_slot"])
         bundle = slot_bundles.get(slot)
-        if bundle is None and info.get("offscreen"):
+        if bundle is None and info.get("offscreen") and (generated or not storyboard.get("_structured_events")):
             continue
         if not isinstance(bundle, dict) or bundle.get("kind") != "character":
             raise ValueError("character_%d (%s) requires a character asset" % (slot, name))
@@ -758,13 +758,18 @@ def _assemble_authored_plan(storyboard: dict, slot_bundles: dict) -> dict:
         picture_slots.append(scene_slot)
     reference_context = []
     summary_lines = ["authored prompt preserved; audio mode: " + storyboard["audio_mode"]]
+    if not generated and storyboard.get("_structured_events"):
+        reference_context.extend(
+            "Voice casting: (S%d) uses the voice identity from <Audio %d> only; the reference words are not dialogue."
+            % (index, index) for index in range(1, len(ordered) + 1)
+        )
     if scene_slot is not None:
         scene_picture = len(picture_slots)
         character_pictures = ", ".join(
             "<Picture %d>" % index
             for index, slot in enumerate(picture_slots, 1) if slot != scene_slot
         )
-        reference_context = [
+        reference_context += [
             "Use %s for the characters' identities and appearance only; "
             "do not use their backgrounds." % character_pictures,
         ]
@@ -786,13 +791,14 @@ def _assemble_authored_plan(storyboard: dict, slot_bundles: dict) -> dict:
             "materials and lighting. It does not define camera position, "
             "shot size or character blocking." % scene_picture
         )
-        reference_context.append(
-            "Start immediately with the on-screen characters from %s already inside "
-            "the environment from <Picture %d>, "
-            "in the authored framing. Keep them continuously visible from the first frame "
-            "through the end of the shot."
-            % (character_pictures, scene_picture)
-        )
+        if not storyboard.get("_structured_events"):
+            reference_context.append(
+                "Start immediately with the on-screen characters from %s already inside "
+                "the environment from <Picture %d>, "
+                "in the authored framing. Keep them continuously visible from the first frame "
+                "through the end of the shot."
+                % (character_pictures, scene_picture)
+            )
         summary_lines.append(
             "optional scene %r -> <Picture %d>; character portrait backgrounds excluded"
             % (scene.get("name") or "?", scene_picture)
@@ -860,7 +866,10 @@ def assemble_plan(
     if not isinstance(slot_bundles, dict):
         raise ValueError("slot_bundles must be a dict keyed by picture number")
     if not _skip_validation:
-        storyboard = _storyboard.validate_storyboard_payload(storyboard)
+        storyboard = _validate_storyboard_bundle(storyboard)
+    if storyboard.get("version") == 2:
+        from ..assets.storyboard_contract import to_runtime
+        storyboard = to_runtime(storyboard)
     if storyboard.get("assembly_mode") == "authored":
         return _assemble_authored_plan(storyboard, slot_bundles)
 
@@ -1406,6 +1415,14 @@ def collect_slot_bundles(kwargs: dict, max_slots: int) -> dict[int, dict | None]
     return slot_bundles
 
 
+def _validate_storyboard_bundle(bundle):
+    # Load/Save nodes attach a local path to their socket value. It is
+    # transport metadata, never part of the portable JSON contract.
+    if isinstance(bundle, dict) and "_path" in bundle:
+        bundle = {key: value for key, value in bundle.items() if key != "_path"}
+    return _storyboard.validate_storyboard_payload(bundle)
+
+
 def assemble_from_sockets(
     *,
     storyboard: dict,
@@ -1430,7 +1447,10 @@ def assemble_from_sockets(
 
     # Validate the storyboard bundle. The load node already ran
     # validation, but a stray hand-edited bundle is not unusual.
-    cleaned = _storyboard.validate_storyboard_payload(storyboard)
+    cleaned = _validate_storyboard_bundle(storyboard)
+    if cleaned.get("version") == 2:
+        from ..assets.storyboard_contract import to_runtime
+        cleaned = to_runtime(cleaned)
     # Inject the integer seed so per_scene_increment picks it up.
     cleaned = {**cleaned, "seed_base": int(seed)}
 

@@ -131,14 +131,15 @@ class _FakeConnector:
     def get_state(self) -> str:
         return "fake-state"
 
-    def invoke(self, messages, *, seed=None, temperature=None, max_tokens=None):
+    def invoke(self, messages, **kwargs):
         self.calls.append(
             {
                 "messages": messages,
-                "seed": seed,
-                "temperature": temperature,
-                "max_tokens": max_tokens,
+                "seed": kwargs.get("seed"),
+                "temperature": kwargs.get("temperature"),
+                "max_tokens": kwargs.get("max_tokens"),
                 "timeout": self.timeout,
+                "kwargs": kwargs,
             }
         )
         return self._replies.pop(0) if self._replies else ""
@@ -324,6 +325,36 @@ def test_i2i_ignores_canvas(helpers):
     )
 
 
+def test_canvas_ratio_is_read_from_the_preview(helpers, mod):
+    """The aspect ratio comes from the canvas, never from a typed field."""
+    class _Canvas:
+        def __init__(self, h, w):
+            self.shape = (1, h, w, 3)
+
+    assert mod._canvas_ratio(_Canvas(576, 1024)) == "1024:576"
+    assert mod._canvas_ratio(_Canvas(1024, 1024)) == "1024:1024"
+    assert mod._canvas_ratio(None) == ""
+    assert mod._canvas_ratio(object()) == ""
+
+
+def test_t2i_sends_the_canvas_line_from_the_preview(helpers, mod):
+    """The official t2i prompts steer composition by the canvas ratio."""
+    class _Canvas:
+        shape = (1, 576, 1024, 3)
+
+    conn = _FakeConnector(
+        ['A caption. [{"id":"obj_1","bbox":[300,400,700,600],"desc":"a bench"}]']
+    )
+    node = mod.Flux3KleinPromptUpsampler()
+    node.upsample(
+        conn, helpers.MODES[2], helpers.PROMPT_PACKS[0], "a bench",
+        elements=[{"type": "obj", "bbox": [300, 400, 700, 600], "desc": "a bench"}],
+        canvas_preview=_Canvas(),
+    )
+    content = conn.calls[0]["messages"][1]["content"]
+    assert content.splitlines()[0] == "TARGET CANVAS: 1024:576"
+
+
 def test_bbox_modes_close_with_their_own_instruction(helpers):
     t2i = helpers.build_user_message("t2i_bbox", "silhouette")
     assert t2i.splitlines()[-1] == "Output the caption and the table."
@@ -331,45 +362,253 @@ def test_bbox_modes_close_with_their_own_instruction(helpers):
     assert i2i.splitlines()[-1] == "Output the caption."
 
 
-def test_bbox_modes_pass_the_table_through_verbatim(helpers):
-    table = '[{"id":"cup_1","from":"ref_image_0","src_bbox":[1,2,3,4],"tgt_bbox":[5,6,7,8],"desc":"A white ceramic cup."}]'
-    got = helpers.build_user_message("i2i_bbox", "move the cup", bbox_json=table)
+def test_bbox_modes_pass_the_canvas_rows_through(helpers):
+    """The marked rows reach the model as the table."""
+    rows = [{"id": "obj_1", "bbox": [1, 2, 3, 4], "desc": "A white ceramic cup."}]
+    got = helpers.build_user_message("i2i_bbox", "move the cup", rows=rows)
     lines = got.splitlines()
     assert lines[2] == "Bounding boxes (optional):"
-    assert lines[3] == table, "user-supplied table must survive untouched"
+    assert json.loads(lines[3]) == rows
     assert lines[4] == "Output the caption."
 
 
 def test_t2i_bbox_uses_its_own_table_header(helpers):
-    got = helpers.build_user_message("t2i_bbox", "x", bbox_json="[{}]")
+    got = helpers.build_user_message("t2i_bbox", "x", rows=[{"id": "obj_1", "bbox": [1, 2, 3, 4], "desc": ""}])
     assert "Bounding boxes (optional, keep exactly if provided):" in got
 
 
-def test_bbox_modes_accept_a_canvas(helpers):
-    got = helpers.build_user_message("t2i_bbox", "silhouette", target_canvas="1:1")
-    assert got.splitlines()[0] == "TARGET CANVAS: 1:1"
+def test_bbox_modes_run_on_the_table_alone(helpers):
+    """A marked region already describes the scene, so no prose is needed."""
+    rows = [{"id": "obj_1", "bbox": [1, 2, 3, 4], "desc": "A white ceramic cup."}]
+    got = helpers.build_user_message("i2i_bbox", "", rows=rows)
+    lines = got.splitlines()
+    assert lines[1].startswith("User request: ")
+    assert "A white ceramic cup." in lines[1]
 
 
-def test_empty_prompt_raises(helpers):
-    for blank in ("", "   ", None):
+def test_bbox_modes_still_need_either_prompt_or_table(helpers):
+    """No prose and no marked region is nothing to upsample."""
+    for mode in ("t2i_bbox", "i2i_bbox"):
         with pytest.raises(ValueError):
-            helpers.build_user_message("t2i", blank)
-
-
-@pytest.mark.parametrize("bad", ['{"id":"a"}', "not json at all", "[1, 2"])
-def test_malformed_bbox_json_rejected(helpers, bad):
+            helpers.build_user_message(mode, "")
+    # A row with no desc yields no usable request either.
     with pytest.raises(ValueError):
-        helpers.build_user_message("t2i_bbox", "x", bbox_json=bad)
+        helpers.build_user_message("t2i_bbox", "", rows=[{"id": "obj_1", "bbox": [1, 2, 3, 4], "desc": ""}])
 
 
-def test_empty_bbox_json_omits_the_table_section(helpers):
-    got = helpers.build_user_message("t2i_bbox", "x", bbox_json="   ")
-    assert "Bounding boxes" not in got
+def test_table_only_request_is_composed_from_descs_not_invented(helpers):
+    rows = [{"id": "obj_1", "bbox": [1, 2, 3, 4], "desc": 'A sign reading "Nice Day".'},
+            {"id": "obj_2", "bbox": [5, 6, 7, 8], "desc": "A tabby cat."}]
+    request = helpers.build_user_message("t2i_bbox", "", rows=rows).splitlines()[0]
+    assert request == (
+        'User request: a scene containing: A sign reading "Nice Day".; A tabby cat.'
+    )
 
 
-def test_bbox_json_must_be_an_array(helpers):
+# --------------------------------------------------------------------------- #
+# 3b. CreateBoundingBoxes elements -> official table
+# --------------------------------------------------------------------------- #
+def test_elements_to_table_matches_flux3_layout_prompt(helpers):
+    """The adapter must reproduce ComfyUI's own Flux3LayoutPrompt row build.
+
+    ``Flux3LayoutPrompt.execute`` emits ``{"id": f"obj_{i+1}", "bbox":
+    el["bbox"], "desc": desc}`` with the text quoted into the desc. Matching it
+    exactly is the point: the boxes drawn on the canvas then reach the model in
+    the same form the native node would have produced.
+    """
+    elements = [
+        {"type": "obj", "bbox": [416, 64, 960, 352], "desc": "a cat"},
+        {"type": "text", "bbox": [94, 594, 281, 1000], "desc": "", "text": "Nice Day"},
+    ]
+    assert helpers.elements_to_table(elements) == [
+        {"id": "obj_1", "bbox": [416, 64, 960, 352], "desc": "a cat"},
+        {"id": "obj_2", "bbox": [94, 594, 281, 1000], "desc": '"Nice Day"'},
+    ]
+
+
+def test_elements_to_table_appends_quoted_text_to_a_desc(helpers):
+    rows = helpers.elements_to_table([
+        {"type": "text", "bbox": [0, 0, 100, 100], "desc": "A shop sign", "text": "OPEN"},
+    ])
+    assert rows[0]["desc"] == 'A shop sign "OPEN"'
+
+
+def test_elements_to_table_preserves_the_official_grid(helpers):
+    """Boxes pass through untouched — the canvas already normalized them."""
+    bbox = [64, 416, 608, 352]
+    rows = helpers.elements_to_table([{"type": "obj", "bbox": bbox, "desc": "x"}])
+    assert rows[0]["bbox"] == bbox
+
+
+def test_elements_to_table_drops_palettes(helpers):
+    """Upstream says colour palettes are not used; colours belong in desc."""
+    rows = helpers.elements_to_table([
+        {"type": "obj", "bbox": [0, 0, 10, 10], "desc": "a cat", "color_palette": ["#fff"]},
+    ])
+    assert "color_palette" not in rows[0]
+
+
+@pytest.mark.parametrize("bad", [[], None, "not a list", [42]])
+def test_elements_to_table_rejects_unusable_input(helpers, bad):
     with pytest.raises(ValueError):
-        helpers.build_user_message("t2i_bbox", "x", bbox_json='{"id": "a_1"}')
+        helpers.elements_to_table(bad)
+
+
+def test_elements_to_table_rejects_a_row_without_a_box(helpers):
+    with pytest.raises(ValueError):
+        helpers.elements_to_table([{"type": "obj", "desc": "a cat"}])
+    with pytest.raises(ValueError):
+        helpers.elements_to_table([{"type": "obj", "bbox": [1, 2], "desc": "x"}])
+
+
+def test_node_accepts_elements_instead_of_hand_written_json(helpers, mod):
+    conn = _FakeConnector(['A caption. [{"id":"obj_1","bbox":[1,2,3,4],"desc":"a cat"}]'])
+    node = mod.Flux3KleinPromptUpsampler()
+    node.upsample(
+        conn, helpers.MODES[2], helpers.PROMPT_PACKS[0], "in the forest",
+        elements=[{"type": "obj", "bbox": [1, 2, 3, 4], "desc": "a cat"}],
+    )
+    sent = conn.calls[0]["messages"][1]["content"]
+    assert '{"id": "obj_1", "bbox": [1, 2, 3, 4], "desc": "a cat"}' in sent
+
+
+def test_elements_are_accepted_in_i2i_bbox(helpers, mod):
+    """Canvas rows are transported as drawn; the model converts them.
+
+    The official i2i_bbox system prompt is the annotation system that turns
+    "a marked region plus an instruction" into src/tgt rows, and the native
+    ComfyUI flow does exactly this -- Flux3LayoutPrompt hands the
+    generation-shaped rows over and the model produces the edit-shaped table.
+    Refusing the canvas would make that path impossible.
+    """
+    conn = _FakeConnector([
+        'Move the cup. [{"id": "cup_1", "from": "ref_image_0", '
+        '"src_bbox": [1, 2, 3, 4], "tgt_bbox": [1, 2, 3, 4], "desc": "a cup"}]'
+    ])
+    node = mod.Flux3KleinPromptUpsampler()
+    full, caption, table_json = node.upsample(
+        conn, helpers.MODES[3], helpers.PROMPT_PACKS[0], "move the cup",
+        elements=[{"type": "obj", "bbox": [1, 2, 3, 4], "desc": "a cup"}],
+            reference_images=_FakeImageBatch(1),
+    )
+    content = conn.calls[0]["messages"][1]["content"]
+    text = content if isinstance(content, str) else "".join(
+        part.get("text", "") for part in content if part.get("type") == "text"
+    )
+    assert '"bbox": [1, 2, 3, 4]' in text, "the marked region must reach the model"
+    assert json.loads(table_json)[0]["id"] == "cup_1"
+
+
+def test_generation_shaped_table_allows_the_model_to_add_rows(helpers, mod):
+    """The row shape must change; only the coordinates are held."""
+    conn = _FakeConnector([
+        'Changed. [{"id": "cup_1", "from": "ref_image_0", "src_bbox": [1, 2, 3, 4], '
+        '"tgt_bbox": [1, 2, 3, 4], "desc": "a cup"}, '
+        '{"id": "table_1", "from": "ref_image_0", "src_bbox": [5, 6, 7, 8], '
+        '"tgt_bbox": [5, 6, 7, 8], "desc": "a table"}]'
+    ])
+    node = mod.Flux3KleinPromptUpsampler()
+    # the model added a second row for the table -- but every box is one the
+    # user marked, so it must be accepted.
+    node.upsample(
+        conn, helpers.MODES[3], helpers.PROMPT_PACKS[0], "x",
+        elements=[
+            {"type": "obj", "bbox": [1, 2, 3, 4], "desc": "a cup"},
+            {"type": "obj", "bbox": [5, 6, 7, 8], "desc": "a table"},
+        ],
+        reference_images=_FakeImageBatch(1),
+    )
+
+
+def test_generation_shaped_table_rejects_a_dropped_region(helpers, mod):
+    """A reply that ignores the marked region is the failure worth catching."""
+    bad = ('Changed. [{"id": "cup_1", "from": "target", "src_bbox": null, '
+           '"tgt_bbox": [900, 900, 950, 950], "desc": "a cup"}]')
+    conn = _FakeConnector([bad, bad])
+    node = mod.Flux3KleinPromptUpsampler()
+    with pytest.raises(ValueError) as err:
+        node.upsample(
+            conn, helpers.MODES[3], helpers.PROMPT_PACKS[0], "x",
+            elements=[{"type": "obj", "bbox": [1, 2, 3, 4], "desc": "a cup"}],
+            reference_images=_FakeImageBatch(1),
+        )
+    assert "does not account for the marked regions" in str(err.value)
+
+
+def test_generation_shaped_table_allows_the_model_to_tighten_a_box(helpers, mod):
+    """The official annotation system tightens a marked box onto the object.
+
+    A hand-drawn region is usually larger than what it marks; upstream's own
+    behaviour is to refine it (a marked [438, 31, 688, 188] comes back as
+    [572, 34, 681, 181]). Holding the reply to byte equality would forbid
+    exactly the refinement that makes an edit land on the object.
+    """
+    refined = ('Changed. [{"id": "cup_1", "from": "ref_image_0", '
+               '"src_bbox": [572, 34, 681, 181], "tgt_bbox": [550, 42, 688, 181], '
+               '"desc": "a cup"}]')
+    conn = _FakeConnector([refined])
+    node = mod.Flux3KleinPromptUpsampler()
+    node.upsample(
+        conn, helpers.MODES[3], helpers.PROMPT_PACKS[0], "x",
+        elements=[{"type": "obj", "bbox": [438, 31, 688, 188], "desc": "a cup"}],
+        reference_images=_FakeImageBatch(1),
+    )
+
+
+def test_there_is_only_one_table_source(helpers, mod):
+    """The canvas is the only source; a hand-written JSON slot no longer exists."""
+    spec = mod.Flux3KleinPromptUpsampler.INPUT_TYPES()
+    assert "bboxes_json" not in spec["optional"]
+    assert "bboxes_json" not in spec["required"]
+    assert "elements" in spec["optional"]
+
+
+def test_connected_but_empty_elements_is_an_error(helpers, mod):
+    """A connected-but-empty socket must not silently plan an unasked layout."""
+    node = mod.Flux3KleinPromptUpsampler()
+    with pytest.raises(ValueError) as err:
+        node.upsample(
+            _FakeConnector(), helpers.MODES[2], helpers.PROMPT_PACKS[0], "x",
+            elements=[],
+        )
+    assert "silently ignored" in str(err.value)
+
+
+def test_elements_none_means_no_table(helpers, mod):
+    """An absent socket means the model plans the layout itself."""
+    conn = _FakeConnector(['A caption. [{"id":"a_1","bbox":[1,2,3,4],"desc":"d"}]'])
+    node = mod.Flux3KleinPromptUpsampler()
+    node.upsample(
+        conn, helpers.MODES[2], helpers.PROMPT_PACKS[0], "x", elements=None,
+    )
+    content = conn.calls[0]["messages"][1]["content"]
+    assert "Bounding boxes" not in content, "no table means no table section"
+    assert "a_1" not in content, "no table means the model plans the layout"
+
+
+def test_elements_are_ignored_outside_bbox_modes(helpers, mod):
+    conn = _FakeConnector(["a caption"])
+    node = mod.Flux3KleinPromptUpsampler()
+    node.upsample(
+        conn, helpers.MODES[0], helpers.PROMPT_PACKS[0], "x",
+        elements=[{"type": "obj", "bbox": [1, 2, 3, 4], "desc": "a cat"}],
+    )
+    assert conn.calls[0]["messages"][1]["content"] == "x"
+
+
+def test_is_changed_tracks_canvas_edits(helpers, mod):
+    """Moving a box on the canvas changes no widget, so it must still bust."""
+    node = mod.Flux3KleinPromptUpsampler()
+    conn = _FakeConnector()
+    moved = [
+        {"type": "obj", "bbox": [1, 2, 3, 4], "desc": "a cat"},
+        {"type": "obj", "bbox": [5, 6, 7, 8], "desc": "an apple"},
+    ]
+    edited = list(moved)
+    edited[1] = {"type": "obj", "bbox": [50, 60, 70, 80], "desc": "an apple"}
+    a = _changed(node, conn, elements=moved)
+    b = _changed(node, conn, elements=edited)
+    assert a != b, "a canvas edit must invalidate the cached caption"
 
 
 # --------------------------------------------------------------------------- #
@@ -456,6 +695,23 @@ def test_split_bbox_output_strips_think_first(helpers):
     raw = '<think>plan</think>Caption here. [{"id":"a_1","bbox":[0,0,1,1],"desc":"d"}]'
     caption, _json_out, _table = helpers.split_bbox_output(raw, mode="t2i_bbox")
     assert caption == "Caption here."
+
+
+def test_split_bbox_output_survives_a_markdown_fence(helpers):
+    """Models habitually fence JSON; the fence must not break the contract."""
+    raw = (
+        '```json\nCaption here. [{"id":"a_1","bbox":[0,0,1,1],"desc":"d"}]\n```'
+    )
+    caption, table_json, _table = helpers.split_bbox_output(raw, mode="t2i_bbox")
+    assert caption == "Caption here."
+    assert json.loads(table_json)[0]["id"] == "a_1"
+
+
+def test_split_bbox_failure_reports_the_reply_tail(helpers):
+    """An opaque failure is unreproducible from the UI; name the tail."""
+    with pytest.raises(ValueError) as err:
+        helpers.split_bbox_output("no table here at all", mode="t2i_bbox")
+    assert "no table here at all" in str(err.value)
 
 
 # --------------------------------------------------------------------------- #
@@ -564,23 +820,77 @@ def test_empty_llm_reply_raises_with_a_token_hint(helpers, mod):
         )
 
 
-def test_bad_bbox_json_is_rejected_before_any_llm_call(helpers, mod):
-    conn = _FakeConnector()
+def test_node_refuses_the_reasoning_fallback(helpers, mod):
+    """A provider that returns only reasoning must not pass as a caption."""
+    seen = {}
+
+    class _Recorder(_FakeConnector):
+        def invoke(self, messages, **kwargs):
+            seen.update(kwargs)
+            return super().invoke(messages, **kwargs)
+
+    node = mod.Flux3KleinPromptUpsampler()
+    node.upsample(_Recorder(["a caption"]), helpers.MODES[0], helpers.PROMPT_PACKS[0], "x")
+    assert seen.get("allow_reasoning_fallback") is False
+
+
+def test_node_logs_the_reply_when_the_bbox_split_fails(helpers, mod):
+    """Without the log line this failure is undiagnosable from the UI."""
+    logged: list[str] = []
+    original = mod.mie_log
+    mod.mie_log = lambda msg: logged.append(msg)
+    try:
+        node = mod.Flux3KleinPromptUpsampler()
+        with pytest.raises(ValueError):
+            node.upsample(
+                _FakeConnector(["a caption with no table", "still no table"]),
+                helpers.MODES[2], helpers.PROMPT_PACKS[0], "x",
+            )
+    finally:
+        mod.mie_log = original
+    assert any("no parseable" in m and "a caption with no table" in m for m in logged)
+
+
+def test_bbox_split_is_resampled_once_before_failing(helpers, mod):
+    """A loose ``id [coords] desc`` row is resampled, not fatal on first sight."""
+    good = 'A caption. [{"id":"obj_1","bbox":[1,2,3,4],"desc":"a cat"}]'
+    conn = _FakeConnector(['En_Text_1 [525, 295, 690, 705] "HELLO!" set in bold.', good])
+    node = mod.Flux3KleinPromptUpsampler()
+    full, caption, table_json = node.upsample(
+        conn, helpers.MODES[2], helpers.PROMPT_PACKS[0], "a poster",
+    )
+    assert len(conn.calls) == 2, "the malformed reply must trigger one resample"
+    assert caption == "A caption."
+    assert json.loads(table_json)[0]["id"] == "obj_1"
+    assert full == good
+
+
+def test_bbox_split_gives_up_after_the_configured_attempts(helpers, mod):
+    conn = _FakeConnector(["no table here", "still no table"])
     node = mod.Flux3KleinPromptUpsampler()
     with pytest.raises(ValueError):
+        node.upsample(conn, helpers.MODES[2], helpers.PROMPT_PACKS[0], "x")
+    assert len(conn.calls) == mod._TABLE_PARSE_ATTEMPTS
+
+
+def test_empty_canvas_is_rejected_before_any_llm_call(helpers, mod):
+    """A connected-but-empty canvas must fail loudly, not spend tokens."""
+    conn = _FakeConnector()
+    node = mod.Flux3KleinPromptUpsampler()
+    with pytest.raises(ValueError, match="empty"):
         node.upsample(
-            conn, helpers.MODES[2], helpers.PROMPT_PACKS[0], "x", bboxes_json="{oops"
+            conn, helpers.MODES[2], helpers.PROMPT_PACKS[0], "x", elements=[],
         )
-    assert conn.calls == [], "no tokens may be spent on an invalid table"
+    assert conn.calls == [], "no tokens may be spent on an empty table"
 
 
 def test_bbox_table_only_reaches_bbox_modes(helpers, mod):
-    """A stray table in t2i mode is ignored rather than smuggled into the prompt."""
+    """A stray canvas in t2i mode is ignored rather than smuggled into the prompt."""
     conn = _FakeConnector(["a caption"])
     node = mod.Flux3KleinPromptUpsampler()
     node.upsample(
         conn, helpers.MODES[0], helpers.PROMPT_PACKS[0], "x",
-        bboxes_json='[{"id":"a_1"}]',
+        elements=[{"type": "obj", "bbox": [1, 2, 3, 4], "desc": "a cat"}],
     )
     assert conn.calls[0]["messages"][1]["content"] == "x"
 
@@ -604,11 +914,13 @@ def test_input_types_shape(helpers, mod):
         "llm_service_connector", "mode", "prompt_pack", "prompt", "seed",
     }
     assert set(spec["optional"]) == {
-        "reference_images", "target_canvas", "bboxes_json",
+        "reference_images", "elements", "canvas_preview",
         "temperature", "max_tokens", "timeout",
     }
     assert spec["required"]["llm_service_connector"] == ("LLMServiceConnector",)
     assert spec["optional"]["reference_images"][0] == "IMAGE"
+    assert spec["optional"]["elements"][0] == "ARRAY"
+    assert spec["optional"]["canvas_preview"][0] == "IMAGE"
     assert spec["required"]["mode"][0] == list(helpers.MODES)
     assert spec["required"]["prompt_pack"][0] == list(helpers.PROMPT_PACKS)
     assert spec["required"]["prompt"][1]["multiline"] is True
@@ -636,8 +948,8 @@ def test_node_is_registered_in_the_plugin():
 def _changed(node, conn, **overrides):
     kwargs = dict(
         llm_service_connector=conn, mode="t2i", prompt_pack="short",
-        prompt="a cat", seed=0, reference_images=None, target_canvas="",
-        bboxes_json="", temperature=0.2, max_tokens=16384, timeout=300,
+        prompt="a cat", seed=0, reference_images=None, elements=None,
+        canvas_preview=None, temperature=0.2, max_tokens=16384, timeout=300,
     )
     kwargs.update(overrides)
     return node.is_changed(**kwargs)
@@ -652,12 +964,12 @@ def test_is_changed_is_stable_and_sensitive(helpers, mod):
         ("prompt", "a dog"),
         ("mode", "i2i - 图生图编辑(需参考图)"),
         ("prompt_pack", "long"),
-        ("target_canvas", "16:9"),
+        ("canvas_preview", _FakeImageBatch(1)),
         ("seed", 7),
         ("temperature", 0.9),
         ("max_tokens", 4096),
         ("timeout", 60),
-        ("bboxes_json", '[{"id":"a_1"}]'),
+        ("elements", [{"type": "obj", "bbox": [1, 2, 3, 4], "desc": "a cat"}]),
     ]:
         assert _changed(node, conn, **{field: value}) != base, f"{field} is ignored"
 
@@ -675,3 +987,52 @@ def test_is_changed_tracks_the_reference_images(helpers, mod):
     bright = _changed(node, conn, reference_images=_FakeImageBatch(1, fill=1.0))
     assert dark != bright, "swapped reference pixels must invalidate the cache"
     assert dark == _changed(node, conn, reference_images=_FakeImageBatch(1, fill=0.0))
+
+@pytest.mark.parametrize("mode_index", [2, 3])
+def test_supplied_table_drift_is_retried_before_returning(helpers, mod, mode_index):
+    """A reply that drops the marked region is retried once."""
+    canvas = [{"type": "obj", "bbox": [100, 200, 300, 400], "desc": "a cup"}]
+    bad = ("Move the cup <cup_1>. "
+           + json.dumps([{"id": "cup_1", "from": "target", "src_bbox": None,
+                          "tgt_bbox": [900, 900, 950, 950], "desc": "a cup"}]))
+    good = ("Move the cup <cup_1>. "
+            + json.dumps([{"id": "cup_1", "from": "target", "src_bbox": None,
+                           "tgt_bbox": [120, 220, 290, 380], "desc": "a cup"}]))
+    conn = _FakeConnector([bad, good])
+    full, caption, table = mod.Flux3KleinPromptUpsampler().upsample(
+        conn, helpers.MODES[mode_index], helpers.PROMPT_PACKS[0], "move the cup",
+        elements=canvas,
+        reference_images=_FakeImageBatch(1),
+    )
+    assert json.loads(table)[0]["id"] == "cup_1"
+    assert full == good
+    assert len(conn.calls) == 2
+
+
+def test_repeated_supplied_table_drift_is_an_error(helpers, mod):
+    """A reply that keeps dropping the marked region fails the run."""
+    canvas = [{"type": "obj", "bbox": [100, 200, 300, 400], "desc": "a cup"}]
+    bad = ("A cup <cup_1>. "
+           + json.dumps([{"id": "cup_1", "from": "target", "src_bbox": None,
+                          "tgt_bbox": [900, 900, 950, 950], "desc": "a cup"}]))
+    conn = _FakeConnector([bad, bad])
+    with pytest.raises(ValueError, match="does not account for the marked regions"):
+        mod.Flux3KleinPromptUpsampler().upsample(
+            conn, helpers.MODES[2], helpers.PROMPT_PACKS[0], "a cup", elements=canvas,
+        )
+    assert len(conn.calls) == mod._TABLE_PARSE_ATTEMPTS
+
+
+def test_generation_shaped_drift_is_an_error(helpers, mod):
+    """Canvas rows may be reshaped, but not dropped entirely."""
+    canvas = [{"type": "obj", "bbox": [100, 200, 300, 400], "desc": "a cup"}]
+    bad = ("A cup <cup_1>. "
+           + json.dumps([{"id": "cup_1", "bbox": [1, 2, 3, 4], "desc": "a cup"}]))
+    conn = _FakeConnector([bad, bad])
+    with pytest.raises(ValueError, match="does not account for the marked regions"):
+        mod.Flux3KleinPromptUpsampler().upsample(
+            conn, helpers.MODES[2], helpers.PROMPT_PACKS[0], "a cup", elements=canvas,
+        )
+    assert len(conn.calls) == mod._TABLE_PARSE_ATTEMPTS
+
+

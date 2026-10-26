@@ -226,7 +226,7 @@ class TestStoryboardDisk:
         storyboard = sb_modules["storyboard"]
         with pytest.raises(ValueError, match="version"):
             storyboard.validate_storyboard_payload({
-                "name": "X", "version": 2, "prompt_prefix": "p",
+                "name": "X", "version": 999, "prompt_prefix": "p",
                 "cast": {"A": {"character_slot": 1}},
                 "shots": [{"lines": [{"speaker": "A", "text": "hi"}]}],
             })

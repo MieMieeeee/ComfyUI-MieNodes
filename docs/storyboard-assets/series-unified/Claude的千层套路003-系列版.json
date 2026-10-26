@@ -1,0 +1,107 @@
+{
+  "version": 2,
+  "name": "Claude的千层套路003-系列版",
+  "language": "zh",
+  "roles": [
+    {
+      "id": "character_1",
+      "name": "画外用户",
+      "presence": "off_screen",
+      "initially_visible": false,
+      "position": "none",
+      "voice": "adult male, deep and warm aged timbre, low register, unhurried conversational pace"
+    },
+    {
+      "id": "character_2",
+      "name": "出镜角色",
+      "presence": "on_screen",
+      "initially_visible": true,
+      "position": "center",
+      "voice": "young female, soft and playful timbre, mid-high register, intimate gentle pace with a teasing lift"
+    }
+  ],
+  "camera": {
+    "framing": "close_up",
+    "movement": "locked",
+    "perspective": "observer"
+  },
+  "look": "统一沿用连接人物资产的二维动画质感，夜晚暖光。",
+  "setting": "",
+  "constraints": "全系列同一出镜角色、服装、夜晚暖光和坐姿。单一场景、一个生成片段、固定特写。角色1只用连接人物资产的声音，角色2采用连接人物资产的形象与声音。两人轮流说原文台词。收尾封禁台词说完，出镜角色合嘴保持邪魅微笑，原坐姿短暂停留。接线要求：出镜角色必须连接含图人物资产；场景与画外声音为可选——接场景则以其为背景锚，接声音则用其音色，均不接则由模型自定。分镜文本本身不依赖任何具体资产。",
+  "target_duration_seconds": 13,
+  "continuation_overlap_frames": 0,
+  "source_script": "角色2动作：坐在办公转椅上，微微侧头，安静听画外用户说话。\n角色2：你已经工作太久啦，现在凌晨了，快去睡觉吧。\n角色1：好的，我去吃午饭了。\n角色2动作：听完午饭的回答，她保持坐姿，微微皱眉，露出疑惑表情。\n角色2动作：疑惑慢慢变成邪魅一笑，一侧嘴角上扬，合着嘴短暂停顿。\n角色2：你的账号已被封禁。\n角色2动作：说完合上嘴，保持原来的坐姿与邪魅微笑，短暂停留。",
+  "shots": [
+    {
+      "id": "scene_01",
+      "duration_seconds": 13,
+      "events": [
+        {
+          "id": "event_001",
+          "type": "action",
+          "character": "character_2",
+          "text": "坐在办公转椅上，微微侧头，安静听画外用户说话。",
+          "language": "zh"
+        },
+        {
+          "id": "event_002",
+          "type": "dialogue",
+          "character": "character_2",
+          "text": "你已经工作太久啦，现在凌晨了，快去睡觉吧。",
+          "language": "zh"
+        },
+        {
+          "id": "event_003",
+          "type": "dialogue",
+          "character": "character_1",
+          "text": "好的，我去吃午饭了。",
+          "language": "zh"
+        },
+        {
+          "id": "event_004",
+          "type": "action",
+          "character": "character_2",
+          "text": "听完午饭的回答，她保持坐姿，微微皱眉，露出疑惑表情。",
+          "language": "zh"
+        },
+        {
+          "id": "event_005",
+          "type": "action",
+          "character": "character_2",
+          "text": "疑惑慢慢变成邪魅一笑，一侧嘴角上扬，合着嘴短暂停顿。",
+          "language": "zh"
+        },
+        {
+          "id": "event_006",
+          "type": "dialogue",
+          "character": "character_2",
+          "text": "你的账号已被封禁。",
+          "language": "zh"
+        },
+        {
+          "id": "event_007",
+          "type": "action",
+          "character": "character_2",
+          "text": "说完合上嘴，保持原来的坐姿与邪魅微笑，短暂停留。",
+          "language": "zh"
+        }
+      ]
+    }
+  ],
+  "execution": {
+    "look": "Detailed two-dimensional anime rendering matching the connected character portrait, with consistent warm lamplight at night.",
+    "setting": "",
+    "visible_state": "Exactly one seated figure, Character 2, faces the camera directly at the center of an eye-level tight close-up: her face fills most of the frame, framed from just above her crown down to her collarbone, seated in the cream swivel office chair. Her seated posture, costume, face proportions and warm nighttime lighting remain consistent throughout. Character 1 is exclusively the off-screen caller. The closing image holds Character 2 seated in her original position with a closed-mouth teasing smile.",
+    "voices": {
+      "character_1": "adult male, deep and warm aged timbre, low register, unhurried conversational pace",
+      "character_2": "young female, soft and playful timbre, mid-high register, intimate gentle pace with a teasing lift"
+    },
+    "directions": {
+      "event_001": "Character 2 remains seated on the swivel office chair, tilts her head slightly and listens quietly.",
+      "event_004": "Character 2 remains seated and furrows her eyebrows slightly with a puzzled expression after the lunch reply finishes.",
+      "event_005": "Character 2 lets the puzzled look become a sinister teasing smile, lifting one corner of her mouth and pausing with closed lips.",
+      "event_007": "Character 2 closes her mouth after her final line, maintains her original seated pose and holds the sinister teasing smile briefly."
+    }
+  },
+  "audio_mode": "reference"
+}

@@ -29,3 +29,21 @@ notes/
 
 # per-machine asset library (user data, never committed)
 asset_library/
+
+# local live-run scratch, one-off scripts and backups (never published)
+/_*.py
+/_*.json
+/_*.md
+/_*.txt
+/_*.log
+/chestnut_plan*.json
+/_live_*/
+
+# QA render archives and test-run artifacts (user data, too heavy for the registry package)
+docs/qa/
+docs/_fix_*.py
+tests/live_combo_results/
+
+# series production reference images (kept locally, not part of the published contract)
+docs/storyboard-assets/series-unified/production/
+docs/storyboard-assets/llm-series-20261025/

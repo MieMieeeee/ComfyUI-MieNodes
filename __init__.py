@@ -15,7 +15,7 @@ from _mienodes_internal.nodes.common import ShowAnythingMie, ShowAndSaveAnything
 from _mienodes_internal.nodes.files import BatchRenameFiles, BatchDeleteFiles, BatchEditTextFiles, BatchSyncImageCaptionFiles, \
     SummaryTextFiles, BatchConvertImageFiles, DedupImageFiles, ModelDownloader, HFRepoDownloader
 from _mienodes_internal.nodes.llm import TextTranslator, PromptGenerator, KontextPromptGenerator, AddUserKontextPreset, RemoveUserKontextPreset, \
-    FrameTransitionPromptGenerator, HunyuanVideoI2VPromptGenerator, HunyuanVideoT2VPromptGenerator, ZImagePromptGenerator, Flux2PromptGenerator, FluxKleinT2VPromptGenerator, LTX2PromptGenerator, BerniniPromptGenerator, Ideogram4PromptGenerator, CustomSystemPromptGenerator, AddCustomSystemPrompt, RemoveCustomSystemPrompt, Scail2PromptGenerator, Krea2PromptGenerator, MiniMaxH3PromptGenerator, LTX25PromptGenerator, MiniMaxH3StoryboardGenerator, MiniMaxH3LoopPromptGenerator, SaveCharacterAssetAutoV2, SaveSceneAssetAutoV2, SaveAssetAutoV2, MiniMaxH3LoopPromptGeneratorV2, MiniMaxH3LoopUserInputEnhancer, QwenImage21PromptGenerator, Flux3KleinPromptUpsampler, BuildPlanFromStoryboard, MiniMaxH3LoopPromptGeneratorV3
+    FrameTransitionPromptGenerator, HunyuanVideoI2VPromptGenerator, HunyuanVideoT2VPromptGenerator, ZImagePromptGenerator, Flux2PromptGenerator, FluxKleinT2VPromptGenerator, LTX2PromptGenerator, BerniniPromptGenerator, Ideogram4PromptGenerator, CustomSystemPromptGenerator, AddCustomSystemPrompt, RemoveCustomSystemPrompt, Scail2PromptGenerator, Krea2PromptGenerator, MiniMaxH3PromptGenerator, LTX25PromptGenerator, MiniMaxH3StoryboardGenerator, MiniMaxH3LoopPromptGenerator, SaveCharacterAssetAutoV2, SaveSceneAssetAutoV2, SaveAssetAutoV2, MiniMaxH3LoopPromptGeneratorV2, MiniMaxH3LoopUserInputEnhancer, QwenImage21PromptGenerator, Flux3KleinPromptUpsampler, MossImagePromptUpsampler, BuildPlanFromStoryboard, MiniMaxH3LoopPromptGeneratorV3
 from _mienodes_internal.services.llm import SetGeneralLLMServiceConnector, SetSiliconFlowLLMServiceConnector, \
     SetZhiPuLLMServiceConnector, SetZhiPuCodeLLMServiceConnector, SetKimiLLMServiceConnector, \
     SetDeepSeekLLMServiceConnector, SetGeminiLLMServiceConnector, SetBailianLLMServiceConnector, \
@@ -120,6 +120,7 @@ NODE_CLASS_MAPPINGS = {
     add_suffix("MiniMaxH3LoopUserInputEnhancer"): MiniMaxH3LoopUserInputEnhancer,
     add_suffix("QwenImage21PromptGenerator"): QwenImage21PromptGenerator,
     add_suffix("Flux3KleinPromptUpsampler"): Flux3KleinPromptUpsampler,
+    add_suffix("MossImagePromptUpsampler"): MossImagePromptUpsampler,
     add_suffix("BuildPlanFromStoryboard"): BuildPlanFromStoryboard,
     add_suffix("GetAbsolutePath"): GetAbsolutePath,
     add_suffix("GetFileInfo"): GetFileInfo,
@@ -273,13 +274,14 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     add_suffix("Krea2PromptGenerator"): add_emoji("Krea2 Prompt Generator"),
     add_suffix("MiniMaxH3PromptGenerator"): add_emoji("MiniMax H3 Prompt Generator"),
     add_suffix("LTX25PromptGenerator"): add_emoji("LTX2.5 Prompt Generator"),
-    add_suffix("MiniMaxH3StoryboardGenerator"): add_emoji("MiniMax H3 Storyboard Generator"),
+    add_suffix("MiniMaxH3StoryboardGenerator"): add_emoji("MiniMax H3 分镜资产生成器 · Storyboard Asset Generator"),
     add_suffix("MiniMaxH3LoopPromptGenerator"): add_emoji("MiniMax H3 Loop Plan Generator"),
     add_suffix("MiniMaxH3LoopPromptGeneratorV2"): add_emoji("MiniMax H3 Loop Plan Generator V2"),
     add_suffix("MiniMaxH3LoopPromptGeneratorV3"): add_emoji("零 LLM 分镜生成器 V3 · Loop Plan Generator V3 (Zero LLM)"),
     add_suffix("MiniMaxH3LoopUserInputEnhancer"): add_emoji("MiniMax H3 Loop User Input Enhancer"),
     add_suffix("QwenImage21PromptGenerator"): add_emoji("Qwen-Image-2.1 Prompt Generator"),
     add_suffix("Flux3KleinPromptUpsampler"): add_emoji("FLUX.3 Klein Prompt Upsampler"),
+    add_suffix("MossImagePromptUpsampler"): add_emoji("MOSS-Image 提示词增强器 · Prompt Upsampler"),
     add_suffix("BuildPlanFromStoryboard"): add_emoji("零 LLM 组装分镜 · MiniMax H3 Build Plan From Storyboard (Zero LLM)"),
     add_suffix("GetAbsolutePath"): add_emoji("Get Absolute Path"),
     add_suffix("GetFileInfo"): add_emoji("Get File Info"),

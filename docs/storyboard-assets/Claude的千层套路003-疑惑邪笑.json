@@ -1,0 +1,112 @@
+{
+  "version": 2,
+  "name": "Claude的千层套路003-疑惑邪笑",
+  "language": "zh",
+  "roles": [
+    {
+      "id": "character_1",
+      "name": "用户",
+      "presence": "off_screen",
+      "initially_visible": false,
+      "position": "none",
+      "voice": "adult male, relaxed conversational low-mid register"
+    },
+    {
+      "id": "character_2",
+      "name": "Claude娘",
+      "presence": "on_screen",
+      "initially_visible": true,
+      "position": "center",
+      "voice": "young female, soft playful timbre, mid-high register, intimate gentle pace with a teasing lift"
+    }
+  ],
+  "camera": {
+    "framing": "medium_close_up",
+    "movement": "locked",
+    "perspective": "observer"
+  },
+  "look": "温暖的二维动画风格，柔和室内灯光。",
+  "setting": "Claude娘独自坐在桌前使用电脑，右手放在鼠标上，左手托脸，面对电脑屏幕另一端的画外用户。",
+  "constraints": "讽刺短剧，延续之前Claude娘视频的封禁反转。全片仅一个场景、一个生成片段，内部两个shot。第一镜为桌前中近景，角色2劝休息，角色1画外回答午饭；等午饭回答完整结束，在event_004前切到第二镜close_up。特写中严格依次表演：先疑惑并停顿，接着邪魅一笑并停顿，之后才说封禁台词。不能在疑惑阶段开始说封禁台词。角色1只发声不出镜。只说三句原文对白，不增加台词、笑声或旁白；不出现气泡、字幕、漫画边框或额外角色。外观只取连接的Claude娘角色资产。最后一句后只保留短暂停顿。",
+  "target_duration_seconds": 14.5,
+  "continuation_overlap_frames": 22,
+  "source_script": "角色2动作：坐在电脑前，托着脸，带着关心的微笑看向屏幕另一端的用户。\n角色2：你已经工作太久啦，现在凌晨了，快去睡觉吧。\n角色1：好的，我去吃午饭了。\n角色2动作：听完用户的午饭回答后，脸部保持在画面中央，笑容消失，眉毛轻轻抬起，眼睛略微睁大，微微歪头，露出疑惑的表情；合着嘴停顿约半秒。\n角色2动作：疑惑停顿后，眼神缓缓收窄，一侧嘴角慢慢上扬，变成邪魅而戏谑的微笑；合着嘴直视用户，短暂停顿。\n角色2：你的账号已被封禁。\n角色2动作：说完便合上嘴，保持邪魅的微笑，短暂停留。",
+  "shots": [
+    {
+      "id": "scene_01",
+      "duration_seconds": 14.375,
+      "camera_cuts": [
+        {
+          "before_event": "event_004",
+          "framing": "close_up"
+        }
+      ],
+      "events": [
+        {
+          "id": "event_001",
+          "type": "action",
+          "character": "character_2",
+          "text": "坐在电脑前，托着脸，带着关心的微笑看向屏幕另一端的用户。",
+          "language": "zh"
+        },
+        {
+          "id": "event_002",
+          "type": "dialogue",
+          "character": "character_2",
+          "text": "你已经工作太久啦，现在凌晨了，快去睡觉吧。",
+          "language": "zh"
+        },
+        {
+          "id": "event_003",
+          "type": "dialogue",
+          "character": "character_1",
+          "text": "好的，我去吃午饭了。",
+          "language": "zh"
+        },
+        {
+          "id": "event_004",
+          "type": "action",
+          "character": "character_2",
+          "text": "听完用户的午饭回答后，脸部保持在画面中央，笑容消失，眉毛轻轻抬起，眼睛略微睁大，微微歪头，露出疑惑的表情；合着嘴停顿约半秒。",
+          "language": "zh"
+        },
+        {
+          "id": "event_005",
+          "type": "action",
+          "character": "character_2",
+          "text": "疑惑停顿后，眼神缓缓收窄，一侧嘴角慢慢上扬，变成邪魅而戏谑的微笑；合着嘴直视用户，短暂停顿。",
+          "language": "zh"
+        },
+        {
+          "id": "event_006",
+          "type": "dialogue",
+          "character": "character_2",
+          "text": "你的账号已被封禁。",
+          "language": "zh"
+        },
+        {
+          "id": "event_007",
+          "type": "action",
+          "character": "character_2",
+          "text": "说完便合上嘴，保持邪魅的微笑，短暂停留。",
+          "language": "zh"
+        }
+      ]
+    }
+  ],
+  "execution": {
+    "look": "Warm two-dimensional animation style with soft indoor lighting.",
+    "setting": "Character 2 sits alone at a desk using a computer, with the right hand on the mouse and the left hand supporting the cheek, facing the off-screen user at the other end of the computer screen.",
+    "visible_state": "The frame contains only Character 2, using the appearance from the connected character asset. Character 2 sits at the desk with the right hand on the mouse and the left hand supporting the cheek, facing the user through the screen. Character 1 remains exclusively a voice outside the image. The composition uses a medium close-up through the first exchange, then a close-up from the start of the puzzled reaction through the final pause. The sequence progresses clearly from a caring smile to puzzled stillness, then to a mischievous smile and a brief final hold. The image stays clean, with plain frame edges and open visual space.",
+    "voices": {
+      "character_1": "adult male, relaxed conversational low-mid register",
+      "character_2": "young female, soft playful timbre, mid-high register, intimate gentle pace with a teasing lift"
+    },
+    "directions": {
+      "event_001": "Character 2 sits at the computer with the left hand supporting the cheek and looks toward the user on the screen with a caring smile.",
+      "event_004": "Character 2 keeps the face centered after hearing the user's response about lunch as the smile fades, the eyebrows lift gently, the eyes open slightly wider, and the head tilts a little; hold the puzzled expression with the mouth closed for about half a second.",
+      "event_005": "Character 2 slowly narrows the gaze after the puzzled pause and gradually lifts one corner of the mouth into a mischievous, teasing smile; keep the mouth closed while looking toward the user for a brief pause.",
+      "event_007": "Character 2 closes the mouth after delivering the line and holds the mischievous smile for a brief final pause."
+    }
+  }
+}

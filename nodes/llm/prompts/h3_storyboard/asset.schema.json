@@ -1,0 +1,396 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mienodes.local/schemas/storyboard-v2.json",
+  "title": "MieNodes portable role-event storyboard v2",
+  "$comment": "Source-event equality, sequential IDs, visibility replay, duration feasibility, and caller-option fidelity are additionally enforced by storyboard_contract.py.",
+  "type": "object",
+  "properties": {
+    "version": {
+      "const": 2
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 40,
+      "pattern": "^[A-Za-z0-9_\\-\\u3400-\\u9fff]+$"
+    },
+    "language": {
+      "enum": [
+        "zh",
+        "en"
+      ]
+    },
+    "roles": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "items": {
+        "$ref": "#/$defs/role"
+      },
+      "prefixItems": [
+        {
+          "properties": {
+            "id": {
+              "const": "character_1"
+            }
+          }
+        },
+        {
+          "properties": {
+            "id": {
+              "const": "character_2"
+            }
+          }
+        },
+        {
+          "properties": {
+            "id": {
+              "const": "character_3"
+            }
+          }
+        },
+        {
+          "properties": {
+            "id": {
+              "const": "character_4"
+            }
+          }
+        },
+        {
+          "properties": {
+            "id": {
+              "const": "character_5"
+            }
+          }
+        },
+        {
+          "properties": {
+            "id": {
+              "const": "character_6"
+            }
+          }
+        },
+        {
+          "properties": {
+            "id": {
+              "const": "character_7"
+            }
+          }
+        },
+        {
+          "properties": {
+            "id": {
+              "const": "character_8"
+            }
+          }
+        }
+      ]
+    },
+    "camera": {
+      "type": "object",
+      "properties": {
+        "framing": {
+          "enum": [
+            "two_shot",
+            "medium_shot",
+            "medium_close_up",
+            "close_up",
+            "wide_shot"
+          ]
+        },
+        "movement": {
+          "enum": [
+            "locked",
+            "gentle_follow"
+          ]
+        },
+        "perspective": {
+          "enum": [
+            "observer",
+            "first_person"
+          ]
+        }
+      },
+      "required": [
+        "framing",
+        "movement",
+        "perspective"
+      ],
+      "additionalProperties": false
+    },
+    "look": {
+      "type": "string",
+      "maxLength": 3000,
+      "description": "Art style and story-required light anchors only; no asset filenames, no character appearance specifics, no room furnishing lists - identity and scenery come from wired assets."
+    },
+    "setting": {
+      "type": "string",
+      "maxLength": 3000,
+      "description": "Story-required environment cues only (time-of-day light, plot props named by events); leave empty or minimal when the wired scene asset owns the scenery. Furnishing prose absent from the scene reference gets invented inconsistently per render."
+    },
+    "constraints": {
+      "type": "string",
+      "maxLength": 3000,
+      "description": "Whole-film director rules; may restate the wiring split: on-screen characters required, scene and off-screen voices optional."
+    },
+    "target_duration_seconds": {
+      "type": "number",
+      "minimum": 1,
+      "maximum": 600
+    },
+    "continuation_overlap_frames": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 120,
+      "default": 22
+    },
+    "source_script": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 30000
+    },
+    "shots": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 20,
+      "items": {
+        "$ref": "#/$defs/shot"
+      }
+    },
+    "execution": {
+      "type": "object",
+      "properties": {
+        "look": {
+          "type": "string",
+          "maxLength": 6000,
+          "pattern": "^[^㐀-鿿]*$"
+        },
+        "setting": {
+          "type": "string",
+          "maxLength": 6000,
+          "pattern": "^[^㐀-鿿]*$"
+        },
+        "voices": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^character_[1-8]$"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "maxLength": 6000,
+            "pattern": "^[^㐀-鿿]*$"
+          }
+        },
+        "directions": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^event_[0-9]{3}$"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 6000,
+            "pattern": "^[^㐀-鿿]+$"
+          }
+        },
+        "visible_state": {
+          "type": "string",
+          "maxLength": 6000,
+          "pattern": "^[^㐀-鿿]*$",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "look",
+        "setting",
+        "visible_state",
+        "voices",
+        "directions"
+      ],
+      "additionalProperties": false
+    },
+    "audio_mode": {
+      "enum": [
+        "generated",
+        "reference"
+      ],
+      "default": "generated",
+      "description": "reference requires all role assets with audio in V3, at most 3 roles; off-screen portraits are excluded."
+    }
+  },
+  "required": [
+    "version",
+    "name",
+    "language",
+    "roles",
+    "camera",
+    "look",
+    "setting",
+    "constraints",
+    "target_duration_seconds",
+    "continuation_overlap_frames",
+    "source_script",
+    "shots",
+    "execution"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "role": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^character_[1-8]$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "presence": {
+          "enum": [
+            "on_screen",
+            "off_screen"
+          ]
+        },
+        "initially_visible": {
+          "type": "boolean"
+        },
+        "position": {
+          "enum": [
+            "left",
+            "right",
+            "center",
+            "none"
+          ]
+        },
+        "voice": {
+          "type": "string",
+          "maxLength": 300
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "presence"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "presence": {
+                "const": "off_screen"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "initially_visible": {
+                "const": false
+              },
+              "position": {
+                "const": "none"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "event": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^event_[0-9]{3}$"
+        },
+        "type": {
+          "enum": [
+            "dialogue",
+            "action",
+            "enter",
+            "exit"
+          ]
+        },
+        "character": {
+          "type": "string",
+          "pattern": "^character_[1-8]$"
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        },
+        "language": {
+          "enum": [
+            "zh",
+            "en"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "character",
+        "text",
+        "language"
+      ],
+      "additionalProperties": false
+    },
+    "shot": {
+      "type": "object",
+      "properties": {
+        "camera_cuts": {
+          "type": "array",
+          "maxItems": 19,
+          "items": {
+            "type": "object",
+            "properties": {
+              "before_event": {
+                "type": "string",
+                "pattern": "^event_[0-9]{3}$"
+              },
+              "framing": {
+                "enum": [
+                  "two_shot",
+                  "medium_shot",
+                  "medium_close_up",
+                  "close_up",
+                  "wide_shot"
+                ]
+              }
+            },
+            "required": [
+              "before_event",
+              "framing"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^scene_[0-9]{2}$"
+        },
+        "duration_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 30
+        },
+        "events": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 200,
+          "items": {
+            "$ref": "#/$defs/event"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "duration_seconds",
+        "events"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

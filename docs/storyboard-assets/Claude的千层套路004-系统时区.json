@@ -1,0 +1,138 @@
+{
+  "version": 2,
+  "name": "Claude的千层套路004-系统时区",
+  "language": "zh",
+  "roles": [
+    {
+      "id": "character_1",
+      "name": "小D",
+      "presence": "off_screen",
+      "initially_visible": false,
+      "position": "none",
+      "voice": "adult male, upbeat and slightly defensive low-mid register"
+    },
+    {
+      "id": "character_2",
+      "name": "Claude娘",
+      "presence": "on_screen",
+      "initially_visible": true,
+      "position": "center",
+      "voice": "young female, soft playful timbre, mid-high register, light conversational pace"
+    }
+  ],
+  "camera": {
+    "framing": "medium_close_up",
+    "movement": "locked",
+    "perspective": "first_person"
+  },
+  "look": "干净的二维动画风格，白天午后的现代客厅，百叶窗透进柔和日光。",
+  "setting": "白天午后的英文环境客厅：半掩的百叶窗把柔和日光铺在沙发与茶几上，午后空气安静。茶几上的笔记本电脑显示英文聊天界面，屏幕右下角有一个小小的英文数字时钟窗口，画面中出现的任何文字（屏幕界面、书脊、标签）都是英文。角色2独自坐在沙发上正对镜头，镜头即画外用户的视角；她的前臂搭在坐垫上，另一只手自然放松，视线落在与镜头相对的屏幕上。",
+  "constraints": "讽刺短剧，延续千层套路系列的封禁反转。第一人称视角，固定机位始终是画面中央的Claude娘中近景，她正对镜头说话，镜头即画外用户。全片三个生成片段，三个片段使用同一个固定机位与同一种构图，不要切换景别。角色1全程画外，只用声音出现。台词按原文顺序逐句念出：用户先说下午好并强调自己那边是下午，Claude娘附和天气不错，随后点出自己这边是凌晨三点四十七，用户辩解那只是手机时钟，Claude娘指着他屏幕角落的小钟表念出 GMT+8，最后眯起眼睛念出封禁台词。除这些原文对白之外不增加台词、笑声或旁白，不念出屏幕文字。屏幕上的时钟只显示 03:47 和 GMT+8 这两组英文字符。外观只取连接的Claude娘角色资产。最后一句封禁台词说完后，她合上嘴保持戏谑的微笑，短暂停留。",
+  "target_duration_seconds": 14,
+  "continuation_overlap_frames": 22,
+  "source_script": "角色1[en]：Good afternoon, Claude.\n角色2：下午好呀，今天的天气很不错。\n角色1[en]：It is afternoon where I live.\n角色2动作：她微微侧头，视线仍落在屏幕上。\n角色2：嗯，可我这边是凌晨三点四十七。\n角色1[en]：That is just my phone clock.\n角色2动作：她抬起一根手指，轻轻点向屏幕右下角的小钟表。\n角色2：你的钟表上写着 GMT+8。\n角色2动作：她眯起眼睛，一侧嘴角上扬。\n角色2：哼哼，你的账号已被封禁。",
+  "shots": [
+    {
+      "id": "scene_01",
+      "duration_seconds": 3.5,
+      "events": [
+        {
+          "id": "event_001",
+          "type": "dialogue",
+          "character": "character_1",
+          "text": "Good afternoon, Claude.",
+          "language": "en"
+        },
+        {
+          "id": "event_002",
+          "type": "dialogue",
+          "character": "character_2",
+          "text": "下午好呀，今天的天气很不错。",
+          "language": "zh"
+        }
+      ]
+    },
+    {
+      "id": "scene_02",
+      "duration_seconds": 5.0,
+      "events": [
+        {
+          "id": "event_003",
+          "type": "dialogue",
+          "character": "character_1",
+          "text": "It is afternoon where I live.",
+          "language": "en"
+        },
+        {
+          "id": "event_004",
+          "type": "action",
+          "character": "character_2",
+          "text": "她微微侧头，视线仍落在屏幕上。",
+          "language": "zh"
+        },
+        {
+          "id": "event_005",
+          "type": "dialogue",
+          "character": "character_2",
+          "text": "嗯，可我这边是凌晨三点四十七。",
+          "language": "zh"
+        }
+      ]
+    },
+    {
+      "id": "scene_03",
+      "duration_seconds": 8.0,
+      "events": [
+        {
+          "id": "event_006",
+          "type": "dialogue",
+          "character": "character_1",
+          "text": "That is just my phone clock.",
+          "language": "en"
+        },
+        {
+          "id": "event_007",
+          "type": "action",
+          "character": "character_2",
+          "text": "她抬起一根手指，轻轻点向屏幕右下角的小钟表。",
+          "language": "zh"
+        },
+        {
+          "id": "event_008",
+          "type": "dialogue",
+          "character": "character_2",
+          "text": "你的钟表上写着 GMT+8。",
+          "language": "zh"
+        },
+        {
+          "id": "event_009",
+          "type": "action",
+          "character": "character_2",
+          "text": "她眯起眼睛，一侧嘴角上扬。",
+          "language": "zh"
+        },
+        {
+          "id": "event_010",
+          "type": "dialogue",
+          "character": "character_2",
+          "text": "哼哼，你的账号已被封禁。",
+          "language": "zh"
+        }
+      ]
+    }
+  ],
+  "execution": {
+    "look": "A clean two-dimensional animation style in a modern living room in the middle of the day, with soft daylight filtering through half-closed window blinds.",
+    "setting": "A cozy modern living room in the middle of the day. Soft daylight filters through half-closed window blinds and the afternoon air still feels warm. A laptop on the coffee table shows an English-language chat interface, and a small English digital clock widget sits in the lower right corner of the screen, so every legible text in the environment is in English. Character 2 sits alone on the sofa facing the camera, which is the viewpoint of the off-screen caller, with one forearm resting on the cushion and the other hand relaxed while her eyes stay on the screen beyond the lens.",
+    "visible_state": "Daylight fills the living room through half-closed window blinds, and Character 2 sits on the sofa facing the camera in a medium close-up, matching the connected character appearance, with one forearm resting on the cushion and her other hand relaxed. The laptop on the coffee table shows an English-language chat interface with an English digital clock widget reading 03:47 GMT+8 in the lower right corner. Character 1 stays exclusively a voice beyond the lens. The locked framing stays on Character 2 for the whole conversation, and the closing image holds her teasing smile with a brief pause.",
+    "voices": {
+      "character_1": "adult male, upbeat and slightly defensive low-mid register",
+      "character_2": "young female, soft playful timbre, mid-high register, light conversational pace"
+    },
+    "directions": {
+      "event_004": "Character 2 tilts her head slightly while keeping her eyes on the screen.",
+      "event_007": "Character 2 raises one index finger and points it gently toward the small clock widget in the lower right corner of the screen.",
+      "event_009": "Character 2 narrows her eyes and lifts one corner of her mouth into a teasing smile while keeping her gaze on the camera."
+    }
+  }
+}

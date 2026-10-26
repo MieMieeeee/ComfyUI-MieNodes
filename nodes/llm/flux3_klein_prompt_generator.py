@@ -26,6 +26,7 @@ labels, per-call timeout override, ``is_changed`` hashing.
 from __future__ import annotations
 
 import hashlib
+import json
 import time
 
 try:
@@ -61,10 +62,14 @@ try:
         PROMPT_PACKS,
         VISION_MODES,
         build_user_message,
+        check_box_provenance,
+        elements_to_table,
+        is_edit_shaped,
         load_system_prompt,
         parse_mode_label,
         parse_pack_label,
         split_bbox_output,
+        supplied_boxes,
     )
 except ImportError:
     from .flux3_klein_prompts import (
@@ -74,10 +79,14 @@ except ImportError:
         PROMPT_PACKS,
         VISION_MODES,
         build_user_message,
+        check_box_provenance,
+        elements_to_table,
+        is_edit_shaped,
         load_system_prompt,
         parse_mode_label,
         parse_pack_label,
         split_bbox_output,
+        supplied_boxes,
     )
 
 
@@ -100,6 +109,13 @@ _DEFAULT_TEMPERATURE = 0.2
 # reasoning model on a busy backend; the long prompt pack alone is ~12k tokens
 # of system prompt.
 _DEFAULT_TIMEOUT = 300
+
+# How many samples to take when a bbox-mode reply has an unparseable or altered
+# supplied table. Verified live against MiniMax-M3.1: it sometimes writes rows as
+# loose ``id [y x y x] desc`` prose instead of JSON. One resample usually lands
+# the official shape, and failing the whole run over it would discard an
+# otherwise usable caption.
+_TABLE_PARSE_ATTEMPTS = 2
 
 
 # --------------------------------------------------------------------------- #
@@ -134,6 +150,12 @@ class Flux3KleinPromptUpsamplerEnhancer:
                 seed=seed,
                 temperature=self.temperature,
                 max_tokens=self.max_tokens,
+                # The upsampled caption is the answer; a provider that
+                # returns only its reasoning channel would hand back text
+                # with no caption and no element table. Refusing that
+                # fallback turns the failure into the empty-reply error
+                # below, which names the real cause.
+                allow_reasoning_fallback=False,
             )
             elapsed = time.perf_counter() - t0
             model_name = getattr(self.llm, "model", "?")
@@ -163,8 +185,8 @@ class Flux3KleinPromptUpsamplerEnhancer:
         mode: str,
         prompt_pack: str,
         prompt: str,
-        target_canvas: str = "",
-        bbox_json: str = "",
+        canvas_preview=None,
+        elements=None,
         reference_images=None,
         seed=None,
     ) -> tuple[str, str, str]:
@@ -175,11 +197,44 @@ class Flux3KleinPromptUpsamplerEnhancer:
         the same reply deterministically split for the bbox modes (caption
         paragraph / JSON element table), so they can drive separate conditioning
         and bounding-box nodes. Non-bbox modes return ``("", "")`` for those.
+
+        The element table comes from ``elements`` -- straight from
+        ``CreateBoundingBoxes``, which already emits boxes in the official
+        coordinate convention.
         """
         system_prompt = load_system_prompt(mode, prompt_pack)
+        rows = _resolve_table(elements, mode)
+        expected_table = rows or None
         user_text = build_user_message(
-            mode, prompt, target_canvas=target_canvas, bbox_json=bbox_json
+            mode,
+            prompt,
+            target_canvas=_canvas_ratio(canvas_preview),
+            rows=rows,
         )
+        if mode in BBOX_MODES and expected_table:
+            if is_edit_shaped(expected_table):
+                user_text += (
+                    "\nThe supplied element table is authoritative. Copy every "
+                    "row exactly, including ids, coordinates, source references "
+                    "and descs. Do not add, remove or rename rows. Put requested "
+                    "appearance changes in the instruction paragraph, not in "
+                    "source descriptions."
+                )
+            else:
+                # Generation-shaped rows: the user marked regions and the
+                # system prompt is the annotation system that turns them into
+                # an edit table. State what must hold without forbidding the
+                # transformation the system prompt asks for.
+                user_text += (
+                    "\nThe supplied rows mark the regions the user selected. "
+                    "Every marked region must be represented by the source or "
+                    "target box of the row that handles it. Tighten a marked "
+                    "box onto the object it actually marks when the marked "
+                    "region is larger than the object, and describe what is "
+                    "really there. You may add rows for the rest of the "
+                    "scene. Do not place an object in a region the user did "
+                    "not mark."
+                )
         messages = [{"role": "system", "content": system_prompt}]
 
         urls = self._reference_urls(mode, reference_images)
@@ -196,8 +251,79 @@ class Flux3KleinPromptUpsamplerEnhancer:
             messages.append({"role": "user", "content": user_text})
 
         raw = self._invoke(messages, seed=seed)
-        caption, table_json, _table = split_bbox_output(raw, mode=mode)
-        return raw.strip(), caption, table_json
+        if mode not in BBOX_MODES:
+            caption, table_json, _ = split_bbox_output(raw, mode=mode)
+            return raw.strip(), caption, table_json
+
+        last_error: Exception | None = None
+        for attempt in range(1, _TABLE_PARSE_ATTEMPTS + 1):
+            try:
+                caption, table_json, returned_table = split_bbox_output(raw, mode=mode)
+                self._check_faithfulness(expected_table, returned_table)
+            except ValueError as exc:
+                last_error = exc
+                mie_log(
+                    f"Flux3Klein: mode={mode} no parseable or faithful "
+                    f"element table: {exc} (attempt {attempt}/"
+                    f"{_TABLE_PARSE_ATTEMPTS}); raw_tail={raw[-300:]!r}"
+                )
+                if attempt < _TABLE_PARSE_ATTEMPTS:
+                    correction = {
+                        "role": "user",
+                        "content": (
+                            f"Your previous reply failed validation: {exc}. "
+                            "Return the complete instruction paragraph and ONE "
+                            "JSON array. Preserve the supplied table exactly."
+                        ),
+                    }
+                    raw = self._invoke(
+                        messages + [{"role": "assistant", "content": raw}, correction],
+                        seed=seed,
+                    )
+                continue
+            return raw.strip(), caption, table_json
+        raise last_error
+
+    @staticmethod
+    def _check_faithfulness(expected_table, returned_table) -> None:
+        """Reject a reply whose table drifted away from what the user supplied.
+
+        The rule depends on the shape of the table the user gave us, because
+        the two shapes carry different promises:
+
+        * **Edit shape** (``from`` / ``src_bbox`` / ``tgt_bbox``) -- the user
+          wrote the final table by hand. The model must return it verbatim:
+          same ids, same coordinates, same descriptions. A model that
+          rewrites a desc to describe the *end* state (the classic
+          "white cup" -> "cobalt blue cup" slip) changes what the row means.
+
+        * **Generation shape** (``bbox`` only, which is what
+          ``CreateBoundingBoxes`` emits) -- the user marked regions and the
+          official system prompt is the annotation system that turns those
+          into an edit table. The row shape *must* change, so equality is
+          meaningless. What must hold is that the coordinates stay honest:
+          every box the model emits has to be one the user drew. A box it
+          invents lands the object somewhere nobody asked for, which is the
+          failure worth catching.
+        """
+        if not expected_table:
+            return
+        if is_edit_shaped(expected_table):
+            if returned_table != expected_table:
+                raise ValueError(
+                    "Flux3Klein: LLM changed the supplied element table; "
+                    "refusing altered ids, coordinates or descriptions / "
+                    "模型改写了指定元素表，拒绝使用错误的框"
+                )
+            return
+        supplied = supplied_boxes(expected_table)
+        missing = check_box_provenance(returned_table, supplied)
+        if missing:
+            raise ValueError(
+                f"Flux3Klein: the reply does not account for the marked "
+                f"regions {missing}; refusing a table that drops the user's "
+                f"boxes / 模型输出没有覆盖用户指定的框，拒绝使用丢失区域的表"
+            )
 
     @staticmethod
     def _reference_urls(mode: str, reference_images) -> list[str]:
@@ -234,6 +360,64 @@ class Flux3KleinPromptUpsamplerEnhancer:
         return urls
 
 
+def _canvas_ratio(canvas_preview) -> str:
+    """Read the canvas aspect ratio from the canvas preview image.
+
+    ``CreateBoundingBoxes`` renders its preview at exactly the canvas size, so
+    the preview's dimensions ARE the canvas -- no separate ratio field to keep
+    in sync with it.
+
+    Returns a bare ``W:H`` string, or ``""`` when there is no preview.
+    """
+    if canvas_preview is None:
+        return ""
+    shape = getattr(canvas_preview, "shape", None)
+    if not shape or len(shape) < 3:
+        return ""
+    height, width = int(shape[1]), int(shape[2])
+    if height <= 0 or width <= 0:
+        return ""
+    return f"{width}:{height}"
+
+
+def _resolve_table(elements, mode: str = "") -> list:
+    """Turn the canvas rows into the element table the model receives.
+
+    The canvas is the only source of a user-supplied table: hand-writing the
+    JSON was always a footgun (y/x order, 0-1000 grid vs pixels) and the
+    canvas already emits boxes in the official convention.
+
+    An absent socket arrives as ``None`` and a connected-but-empty one as
+    ``[]``; those are different states and must not collapse. Treating an
+    empty array as "no table" would let the model quietly plan its own layout
+    while the user believes their canvas boxes are being honoured.
+
+    Canvas rows carry one ``bbox`` each, while the official editing table
+    wants a source and a target box per row. That is not a reason to refuse:
+    the official ``i2i_bbox`` system prompt is the annotation system that
+    turns "a marked region plus an instruction" into src/tgt rows, and the
+    native ComfyUI flow does exactly this -- ``Flux3LayoutPrompt`` hands the
+    generation-shaped rows to the model and the model produces the
+    edit-shaped table. The rows are transported as the user drew them and
+    the model converts them, which is the upstream contract.
+
+    A *move* is expressed the way the community does it: draw two boxes and
+    label their descriptions "src" and "tgt", then name those labels in the
+    instruction ("Move the bird from src to tgt"). Verified end to end.
+    """
+    if elements is None:
+        return []
+    if not elements:
+        raise ValueError(
+            "Flux3Klein: elements is connected but empty, so the boxes drawn "
+            "on the canvas would be silently ignored. Draw at least one box in "
+            "Create Bounding Boxes, or disconnect it. / "
+            "elements 已连接但为空：画布上的框会被静默忽略。"
+            "请至少画一个框，或断开该输入"
+        )
+    return elements_to_table(elements)
+
+
 # --------------------------------------------------------------------------- #
 # ComfyUI node
 # --------------------------------------------------------------------------- #
@@ -262,8 +446,12 @@ class Flux3KleinPromptUpsampler:
                             "Short request to upsample. Any language is fine — "
                             "the caption is always written in English, and only "
                             "text the model is asked to render (inside double "
-                            "quotes) keeps its original language. "
+                            "quotes) keeps its original language. Required, "
+                            "except in the *_bbox modes when an element table "
+                            "is supplied — then the table's own descriptions "
+                            "serve as the request. "
                             "短提示词，可中文；输出恒为英文，仅引号内待渲染文字保留原文。"
+                            "*_bbox 模式下若已填元素表，则可留空。"
                         ),
                     },
                 ),
@@ -291,31 +479,43 @@ class Flux3KleinPromptUpsampler:
                         )
                     },
                 ),
-                "target_canvas": (
-                    "STRING",
+                "elements": (
+                    "ARRAY",
                     {
-                        "default": "",
-                        "forceInput": True,
                         "tooltip": (
-                            "Optional canvas ratio (16:9, 1:1, or auto). It only "
-                            "steers composition — the model is instructed never "
-                            "to mention it. Leave empty to compose freely. "
-                            "可选画布比例，仅影响构图，输出中不会出现该比例。"
-                        ),
+                            "Element table from Create Bounding Boxes' "
+                            "elements output. Boxes arrive already normalized "
+                            "to the official [y_min, x_min, y_max, x_max] on "
+                            "a 0-1000 grid, so no JSON is needed. *_bbox "
+                            "modes only. To MOVE something, draw two boxes "
+                            "and label their descriptions 'src' and 'tgt', "
+                            "then name those labels in the instruction "
+                            "('Move the bird from src to tgt'). "
+                            "直接接 Create Bounding Boxes 的 elements 输出："
+                            "坐标已是官方 0-1000 网格的 [y_min, x_min, y_max, "
+                            "x_max]，无需手写 JSON。要移动物体，就画两个框，"
+                            "desc 分别写 src 和 tgt，指令里引用这两个词。"
+                        )
                     },
                 ),
-                "bboxes_json": (
-                    "STRING",
+                "canvas_preview": (
+                    "IMAGE",
                     {
-                        "default": "",
-                        "multiline": True,
                         "tooltip": (
-                            "Optional element table as a JSON array; the model "
-                            "keeps it exactly. Only for the *_bbox modes — "
-                            "leave empty to let the model plan the layout. "
-                            "可选的 JSON 元素表，模型会原样保留；仅 *_bbox 模式使用，"
-                            "留空则由模型自拟布局。"
-                        ),
+                            "Create Bounding Boxes' preview output. Its "
+                            "dimensions ARE the canvas, so the aspect ratio is "
+                            "taken from here instead of being typed — the "
+                            "canvas and the prompt can never disagree. The "
+                            "official box grid normalizes each axis "
+                            "independently, so the frame's proportions cannot "
+                            "be recovered from the boxes alone; without this, "
+                            "objects are sized as if the frame were square. "
+                            "Only the t2i modes use it (the editing modes take "
+                            "the frame from the reference image). "
+                            "接 Create Bounding Boxes 的 preview 输出："
+                            "画布比例自动取自这里，无需手填——官方网格两轴各自"
+                            "归一化，只看框无法知道画幅宽高比。"
+                        )
                     },
                 ),
                 "temperature": (
@@ -352,8 +552,8 @@ class Flux3KleinPromptUpsampler:
         prompt,
         seed=None,
         reference_images=None,
-        target_canvas="",
-        bboxes_json="",
+        elements=None,
+        canvas_preview=None,
         temperature=_DEFAULT_TEMPERATURE,
         max_tokens=_MAX_TOKENS_DEFAULT,
         timeout=_DEFAULT_TIMEOUT,
@@ -371,8 +571,8 @@ class Flux3KleinPromptUpsampler:
             mode=mode_code,
             prompt_pack=pack_code,
             prompt=prompt,
-            target_canvas=target_canvas,
-            bbox_json=bboxes_json if mode_code in BBOX_MODES else "",
+            canvas_preview=canvas_preview,
+            elements=elements if mode_code in BBOX_MODES else None,
             reference_images=reference_images,
             seed=seed,
         )
@@ -386,8 +586,8 @@ class Flux3KleinPromptUpsampler:
         prompt,
         seed=None,
         reference_images=None,
-        target_canvas="",
-        bboxes_json="",
+        elements=None,
+        canvas_preview=None,
         temperature=_DEFAULT_TEMPERATURE,
         max_tokens=_MAX_TOKENS_DEFAULT,
         timeout=_DEFAULT_TIMEOUT,
@@ -399,14 +599,24 @@ class Flux3KleinPromptUpsampler:
             prompt,
             mode_code,
             pack_code,
-            target_canvas or "",
-            bboxes_json or "",
+            _canvas_ratio(canvas_preview),
             str(seed),
             str(temperature),
             str(timeout),
             str(max_tokens),
         ):
             h.update((part or "").encode("utf-8"))
+        # A canvas edit changes the boxes without touching any widget, so the
+        # resolved table has to participate in the hash.
+        if elements:
+            try:
+                h.update(
+                    json.dumps(
+                        elements_to_table(elements), ensure_ascii=False, sort_keys=True
+                    ).encode("utf-8")
+                )
+            except (ValueError, TypeError):
+                h.update(repr(elements).encode("utf-8"))
         h.update(b"|")
         h.update(_image_sample_bytes(reference_images))
 

@@ -1,0 +1,140 @@
+{
+  "version": 2,
+  "name": "吃苹果吗-生成验证",
+  "language": "zh",
+  "roles": [
+    {
+      "id": "character_1",
+      "name": "角色1",
+      "presence": "on_screen",
+      "initially_visible": true,
+      "position": "left",
+      "voice": "adult male, low mid-range pitch"
+    },
+    {
+      "id": "character_2",
+      "name": "角色2",
+      "presence": "on_screen",
+      "initially_visible": true,
+      "position": "right",
+      "voice": "adult female, bright mid-range pitch"
+    }
+  ],
+  "camera": {
+    "framing": "two_shot",
+    "movement": "locked",
+    "perspective": "observer"
+  },
+  "look": "High-detail photorealistic 3D CGI, soft natural indoor light.",
+  "setting": "The two characters stand facing each other.",
+  "constraints": "角色2全程持有苹果。角色1不接苹果、不吃苹果。没有和解，不添加其他角色。",
+  "target_duration_seconds": 20,
+  "continuation_overlap_frames": 22,
+  "source_script": "角色2动作：双手拿着洗好的红苹果，递向角色1。\n角色2：吃苹果吗？\n角色1：不吃。\n角色2动作：仍然拿着苹果，向角色1靠近半步。\n角色2：多吃苹果对身体好。\n角色1：我不想吃。\n角色2：都洗好了，别浪费，就吃一口吧。\n角色1动作：不接苹果，抬起一只手拒绝，身体稍微转开。\n角色1：不吃不吃，我真不想吃。\n角色2动作：将苹果收回胸前，空着的手指向角色1，语气生气。\n角色2：不吃就不吃，发什么脾气？你这个性格怎么跟人相处？",
+  "shots": [
+    {
+      "id": "scene_01",
+      "duration_seconds": 9.5,
+      "events": [
+        {
+          "id": "event_001",
+          "type": "action",
+          "character": "character_2",
+          "text": "双手拿着洗好的红苹果，递向角色1。",
+          "language": "zh"
+        },
+        {
+          "id": "event_002",
+          "type": "dialogue",
+          "character": "character_2",
+          "text": "吃苹果吗？",
+          "language": "zh"
+        },
+        {
+          "id": "event_003",
+          "type": "dialogue",
+          "character": "character_1",
+          "text": "不吃。",
+          "language": "zh"
+        },
+        {
+          "id": "event_004",
+          "type": "action",
+          "character": "character_2",
+          "text": "仍然拿着苹果，向角色1靠近半步。",
+          "language": "zh"
+        },
+        {
+          "id": "event_005",
+          "type": "dialogue",
+          "character": "character_2",
+          "text": "多吃苹果对身体好。",
+          "language": "zh"
+        },
+        {
+          "id": "event_006",
+          "type": "dialogue",
+          "character": "character_1",
+          "text": "我不想吃。",
+          "language": "zh"
+        }
+      ]
+    },
+    {
+      "id": "scene_02",
+      "duration_seconds": 11.4,
+      "events": [
+        {
+          "id": "event_007",
+          "type": "dialogue",
+          "character": "character_2",
+          "text": "都洗好了，别浪费，就吃一口吧。",
+          "language": "zh"
+        },
+        {
+          "id": "event_008",
+          "type": "action",
+          "character": "character_1",
+          "text": "不接苹果，抬起一只手拒绝，身体稍微转开。",
+          "language": "zh"
+        },
+        {
+          "id": "event_009",
+          "type": "dialogue",
+          "character": "character_1",
+          "text": "不吃不吃，我真不想吃。",
+          "language": "zh"
+        },
+        {
+          "id": "event_010",
+          "type": "action",
+          "character": "character_2",
+          "text": "将苹果收回胸前，空着的手指向角色1，语气生气。",
+          "language": "zh"
+        },
+        {
+          "id": "event_011",
+          "type": "dialogue",
+          "character": "character_2",
+          "text": "不吃就不吃，发什么脾气？你这个性格怎么跟人相处？",
+          "language": "zh"
+        }
+      ]
+    }
+  ],
+  "execution": {
+    "look": "High-detail photorealistic 3D CGI, soft natural indoor light.",
+    "setting": "The two characters stand facing each other.",
+    "voices": {
+      "character_1": "adult male, low mid-range pitch",
+      "character_2": "adult female, bright mid-range pitch"
+    },
+    "directions": {
+      "event_001": "Character 2 retains the single washed red apple in both hands while extending it toward Character 1.",
+      "event_004": "Character 2 still holds the apple and moves half a step closer to Character 1.",
+      "event_008": "Character 1 keeps both hands visibly empty, raises one empty open palm in refusal, and turns slightly away. Character 2 retains the single apple.",
+      "event_010": "Character 2 draws the apple back to her chest, keeps holding it in one hand, and points at Character 1 with her free hand, angrily."
+    },
+    "visible_state": "Only Character 2 holds the single red apple throughout. Character 1 keeps both hands visibly empty. Their exchange remains unresolved, with only the two declared characters visible."
+  }
+}

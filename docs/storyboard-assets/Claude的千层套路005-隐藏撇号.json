@@ -1,0 +1,138 @@
+{
+  "version": 2,
+  "name": "Claude的千层套路005-隐藏撇号",
+  "language": "zh",
+  "roles": [
+    {
+      "id": "character_1",
+      "name": "小D",
+      "presence": "off_screen",
+      "initially_visible": false,
+      "position": "none",
+      "voice": "adult male, cautious and slightly anxious low-mid register"
+    },
+    {
+      "id": "character_2",
+      "name": "Claude娘",
+      "presence": "on_screen",
+      "initially_visible": true,
+      "position": "center",
+      "voice": "young female, soft playful timbre, mid-high register, light conversational pace"
+    }
+  ],
+  "camera": {
+    "framing": "medium_close_up",
+    "movement": "locked",
+    "perspective": "first_person"
+  },
+  "look": "干净的二维动画风格，白天午后的现代客厅，百叶窗透进柔和日光。",
+  "setting": "白天午后的英文环境客厅：半掩的百叶窗把柔和日光铺在沙发与茶几上，午后空气安静。茶几上的笔记本电脑显示英文聊天界面，屏幕最上方有一行英文日期，画面中出现的任何文字（屏幕界面、日期行、书脊、标签）都是英文。角色2独自坐在沙发上正对镜头，镜头即画外用户的视角；她的前臂搭在坐垫上，另一只手自然放松，视线落在与镜头相对的屏幕上。",
+  "constraints": "讽刺短剧，延续千层套路系列的封禁反转。第一人称视角，固定机位始终是画面中央的Claude娘中近景，她正对镜头说话，镜头即画外用户。全片三个生成片段，三个片段使用同一个固定机位与同一种构图，不要切换景别。角色1全程画外，只用声音出现。台词按原文顺序逐句念出：用户声明自己只用标准英文字符，Claude娘夸标准键盘让人放心，用户保证自己没有用奇怪标点，Claude娘的目光停在屏幕最上方那行英文日期上，指出那行日期里的撇号换了样子，用户说那行日期不属于自己，Claude娘点了点那行日期说记住了，最后眯起眼睛念出封禁台词。除这些原文对白之外不增加台词、笑声或旁白，不念出屏幕文字。外观只取连接的Claude娘角色资产。最后一句封禁台词说完后，她合上嘴保持戏谑的微笑，短暂停留。",
+  "target_duration_seconds": 14,
+  "continuation_overlap_frames": 22,
+  "source_script": "角色1[en]：I will type everything in plain ASCII.\n角色2：好呀，标准键盘最让人放心了。\n角色1[en]：No unusual punctuation, I promise.\n角色2动作：她的目光停在屏幕最上方那行日期上，眉头轻轻一挑。\n角色2：可那行日期里的撇号，换了个样子。\n角色1[en]：That line is not mine.\n角色2动作：她抬起一根手指，轻轻点了点那行日期。\n角色2：没关系，我记住了。\n角色2动作：她眯起眼睛，一侧嘴角上扬。\n角色2：哼哼，你的账号已被封禁。",
+  "shots": [
+    {
+      "id": "scene_01",
+      "duration_seconds": 3.5,
+      "events": [
+        {
+          "id": "event_001",
+          "type": "dialogue",
+          "character": "character_1",
+          "text": "I will type everything in plain ASCII.",
+          "language": "en"
+        },
+        {
+          "id": "event_002",
+          "type": "dialogue",
+          "character": "character_2",
+          "text": "好呀，标准键盘最让人放心了。",
+          "language": "zh"
+        }
+      ]
+    },
+    {
+      "id": "scene_02",
+      "duration_seconds": 5.0,
+      "events": [
+        {
+          "id": "event_003",
+          "type": "dialogue",
+          "character": "character_1",
+          "text": "No unusual punctuation, I promise.",
+          "language": "en"
+        },
+        {
+          "id": "event_004",
+          "type": "action",
+          "character": "character_2",
+          "text": "她的目光停在屏幕最上方那行日期上，眉头轻轻一挑。",
+          "language": "zh"
+        },
+        {
+          "id": "event_005",
+          "type": "dialogue",
+          "character": "character_2",
+          "text": "可那行日期里的撇号，换了个样子。",
+          "language": "zh"
+        }
+      ]
+    },
+    {
+      "id": "scene_03",
+      "duration_seconds": 8.0,
+      "events": [
+        {
+          "id": "event_006",
+          "type": "dialogue",
+          "character": "character_1",
+          "text": "That line is not mine.",
+          "language": "en"
+        },
+        {
+          "id": "event_007",
+          "type": "action",
+          "character": "character_2",
+          "text": "她抬起一根手指，轻轻点了点那行日期。",
+          "language": "zh"
+        },
+        {
+          "id": "event_008",
+          "type": "dialogue",
+          "character": "character_2",
+          "text": "没关系，我记住了。",
+          "language": "zh"
+        },
+        {
+          "id": "event_009",
+          "type": "action",
+          "character": "character_2",
+          "text": "她眯起眼睛，一侧嘴角上扬。",
+          "language": "zh"
+        },
+        {
+          "id": "event_010",
+          "type": "dialogue",
+          "character": "character_2",
+          "text": "哼哼，你的账号已被封禁。",
+          "language": "zh"
+        }
+      ]
+    }
+  ],
+  "execution": {
+    "look": "A clean two-dimensional animation style in a modern living room in the middle of the day, with soft daylight filtering through half-closed window blinds.",
+    "setting": "A cozy modern living room in the middle of the day. Soft daylight filters through half-closed window blinds and the afternoon air still feels warm. A laptop on the coffee table shows an English-language chat interface with an English date line along the top of the screen, so every legible text in the environment is in English. Character 2 sits alone on the sofa facing the camera, which is the viewpoint of the off-screen caller, with one forearm resting on the cushion and the other hand relaxed while her eyes stay on the screen beyond the lens.",
+    "visible_state": "Daylight fills the living room through half-closed window blinds, and Character 2 sits on the sofa facing the camera in a medium close-up, matching the connected character appearance, with one forearm resting on the cushion and her other hand relaxed. The laptop on the coffee table shows an English-language chat interface with an English date line along the top edge of the screen. Character 1 stays exclusively a voice beyond the lens. The locked framing stays on Character 2 for the whole conversation, and the closing image holds her teasing smile with a brief pause.",
+    "voices": {
+      "character_1": "adult male, cautious and slightly anxious low-mid register",
+      "character_2": "young female, soft playful timbre, mid-high register, light conversational pace"
+    },
+    "directions": {
+      "event_004": "Character 2 raises her eyebrows slightly while her gaze settles on the date line at the top of the screen.",
+      "event_007": "Character 2 raises one index finger and taps the date line at the top of the screen gently.",
+      "event_009": "Character 2 narrows her eyes and lifts one corner of her mouth into a teasing smile while keeping her gaze on the camera."
+    }
+  }
+}

@@ -238,19 +238,13 @@ def test_is_changed_stable_and_seed_sensitive(sb):
 
 
 def test_node_generate_wraps_enhancer(sb):
-    conn = ScriptedConnector([_board(2)])
+    from .test_storyboard_generation_node import options
+    raw = json.loads((PROJECT_DIR / "tests/fixtures/storyboard_v2_apple.json").read_text(encoding="utf-8"))
+    conn = ScriptedConnector([json.dumps(raw)])
     node = sb.MiniMaxH3StoryboardGenerator()
-    text, shots_json, count = node.generate_storyboard(
-        conn,
-        "concept",
-        2,
-        "narrative_arc - 叙事弧光/三幕",
-        "none - 不指定",
-        "en",
-        "minimal - 仅id+描述",
-        seed=0,
-        timeout=60,
-    )
+    asset, asset_json, text, count = node.generate_storyboard(
+        conn, raw["source_script"], shot_count=2, seed=0, timeout=60, **options(raw))
     assert count == 2
-    assert len(json.loads(shots_json)) == 2
-    assert "1. `scene_01`" in text
+    assert asset == json.loads(asset_json)
+    assert len(asset["shots"]) == 2
+    assert "吃苹果吗？" in text

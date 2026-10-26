@@ -1,0 +1,106 @@
+{
+  "version": 2,
+  "name": "我叫张同",
+  "language": "zh",
+  "roles": [
+    {
+      "id": "character_1",
+      "name": "Claude娘",
+      "presence": "on_screen",
+      "initially_visible": true,
+      "position": "left",
+      "voice": "young female, soft and playful timbre, mid-high register, intimate gentle pace with a teasing lift"
+    },
+    {
+      "id": "character_2",
+      "name": "DeepSeek娘",
+      "presence": "on_screen",
+      "initially_visible": true,
+      "position": "right",
+      "voice": "Female voice with a bright sweet timbre, clear articulation and slightly taut, playful delivery. Match the connected voice reference; follow each dialogue line for emotion and pace"
+    }
+  ],
+  "camera": {
+    "framing": "two_shot",
+    "movement": "locked",
+    "perspective": "observer"
+  },
+  "look": "简洁克制的二维动画风格，冷白干净的色调，柔和的线条与平涂阴影，略带纪实感的构图。",
+  "setting": "白天的医院诊室：明亮的顶灯与窗口漫射进来的日光混合照明，画面整体偏冷偏白。两人面对面坐着交谈，医生在画面左侧，患者在画面右侧。环境中任何可见文字都是中文。",
+  "constraints": "全片一个生成片段，机位固定，两人始终保持左右位置与坐姿，全程都在画面内；一方说话时另一方的嘴唇保持闭合。全程中文对话，医生语气平稳笃定，患者语气急切。医生的安抚拍肩先于第一句台词完成，患者的缩肩抬头先于他的反驳台词完成；医生抬手指自己之后才说最后一句，说完自己才反应过来、露出尴尬笑容。画面中只有这两名角色，环境中任何可见文字都是中文。",
+  "target_duration_seconds": 7.3,
+  "continuation_overlap_frames": 22,
+  "source_script": "角色1动作：他抬起一只手，安抚地拍了拍对方的肩膀。\n角色1：别紧张张同，这只是一次小手术而已。\n角色2动作：他猛地缩了一下肩膀，抬起头。\n角色2：嗯？？？我不叫张同啊医生！\n角色1动作：他愣了半拍，抬手指了指自己。\n角色1：我知道，我叫张同。\n角色1动作：说完他自己也反应过来，抬手揉了揉后脑勺，尴尬地笑了笑。",
+  "shots": [
+    {
+      "id": "scene_01",
+      "duration_seconds": 7.29,
+      "events": [
+        {
+          "id": "event_001",
+          "type": "action",
+          "character": "character_1",
+          "text": "他抬起一只手，安抚地拍了拍对方的肩膀。",
+          "language": "zh"
+        },
+        {
+          "id": "event_002",
+          "type": "dialogue",
+          "character": "character_1",
+          "text": "别紧张张同，这只是一次小手术而已。",
+          "language": "zh"
+        },
+        {
+          "id": "event_003",
+          "type": "action",
+          "character": "character_2",
+          "text": "他猛地缩了一下肩膀，抬起头。",
+          "language": "zh"
+        },
+        {
+          "id": "event_004",
+          "type": "dialogue",
+          "character": "character_2",
+          "text": "嗯？？？我不叫张同啊医生！",
+          "language": "zh"
+        },
+        {
+          "id": "event_005",
+          "type": "action",
+          "character": "character_1",
+          "text": "他愣了半拍，抬手指了指自己。",
+          "language": "zh"
+        },
+        {
+          "id": "event_006",
+          "type": "dialogue",
+          "character": "character_1",
+          "text": "我知道，我叫张同。",
+          "language": "zh"
+        },
+        {
+          "id": "event_007",
+          "type": "action",
+          "character": "character_1",
+          "text": "说完他自己也反应过来，抬手揉了揉后脑勺，尴尬地笑了笑。",
+          "language": "zh"
+        }
+      ]
+    }
+  ],
+  "execution": {
+    "look": "A restrained two-dimensional animation style with a cool clean palette, soft linework and flat cel shading, in a lightly documentary composition.",
+    "setting": "A hospital consultation room in the daytime. Bright overhead lights mix with the diffused daylight coming through the window, keeping the whole frame cool and white. Character 1 sits on the left of frame and Character 2 sits on the right, facing each other. Every legible text in the room is in Chinese.",
+    "visible_state": "Bright clinical light fills the room: overhead lights mix with the diffused daylight from the window into a cool white brightness across the frame. Character 1 sits on the left of frame facing right, both hands resting open and empty on the knees. Character 2 sits on the right of frame facing left, both hands resting open and empty on the knees.",
+    "voices": {
+      "character_1": "young female, soft and playful timbre, mid-high register, intimate gentle pace with a teasing lift",
+      "character_2": "Female voice with a bright sweet timbre, clear articulation and slightly taut, playful delivery. Match the connected voice reference; follow each dialogue line for emotion and pace"
+    },
+    "directions": {
+      "event_001": "Character 1 raises one hand with an open palm and gives Character 2 a light reassuring pat on the near shoulder, leaning slightly forward.",
+      "event_003": "Character 2 jerks the shoulder back, lifts the head and looks up at Character 1 with a startled expression.",
+      "event_005": "Character 1 freezes for a beat, then raises one hand and points at the chest.",
+      "event_007": "Character 1 realizes the slip, rubs the back of the head with one hand and gives an awkward smile."
+    }
+  }
+}

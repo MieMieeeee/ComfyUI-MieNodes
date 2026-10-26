@@ -549,17 +549,18 @@ class LoadAssetV2(object):
             return (loaded["name"], loaded["description"], "", image, None,
                     bundle)
         loaded = library.load_character("", name)
-        if len(loaded["png_bytes_list"]) != 1 or len(loaded["audio_bytes_list"]) != 1:
+        if len(loaded["png_bytes_list"]) != 1 or len(loaded["audio_bytes_list"]) > 1:
             raise ValueError(
-                "character %r does not fit the simple model (one image + one "
+                "character %r does not fit the simple model (one image + zero or one "
                 "audio): found %d image(s) and %d audio clip(s). Trim the "
                 "asset under characters/%s."
                 % (loaded["name"], len(loaded["png_bytes_list"]),
                    len(loaded["audio_bytes_list"]), loaded["name"])
             )
         image = png_bytes_list_to_image_tensor(loaded["png_bytes_list"])
-        audio_out = voice_sample_bytes_to_audio(
+        audio_out = (voice_sample_bytes_to_audio(
             loaded["audio_bytes_list"][0], loaded["audio_exts"][0])
+            if loaded["audio_bytes_list"] else None)
         bundle = {
             "kind": "character", "name": loaded["name"],
             "description": loaded["description"], "voice": loaded["voice"],
@@ -1023,18 +1024,15 @@ class SaveStoryboardAsset(object):
         "Storyboard name: 📋 Existing = overwrite, ✏️ New = create."
     )
     _JSON_PLACEHOLDER = (
-        "粘贴 storyboard.json 内容（仅英文 prompt_prefix / setting_line / "
-        "picture / ambience；台词可中英按 language 字段；fields 见 docs/"
-        "PLAN_STORYBOARD_ASSET.md §3.1）。\n"
-        "Paste the storyboard.json content here. prompt_prefix, setting_line, "
-        "lines[].picture, and ambience must be English; the line 'text' is "
-        "verbatim and follows the storyboard's 'language'."
+        "粘贴生成器或外部大语言模型输出的分镜资产 JSON。新版 version=2 "
+        "包含 roles、camera、source_script、shots[].events；动作与对白保留原文。\n"
+        "Paste the portable storyboard asset JSON. Version 2 stores numbered "
+        "roles and ordered source events; V3 compiles the video prompt."
     )
     _JSON_TIP = (
-        "分镜 JSON：必须含 version=1、language、camera_discipline、pacing、"
-        "seed_policy、prompt_prefix（非空英文 ≥1 行）、cast、shots（≥1 镜，"
-        "每镜 1..2 句；句首词 'speaker' 必须在 cast 中；'text' 锁定逐字）。"
-        "Setting/prefix/picture 含汉字会被拒；空 shots 数组 = 错误。"
+        "新版资产 version=2：角色编号连续，每条事件明确角色、类型、原文与语言。"
+        "展开 events 必须逐条匹配 source_script；允许纯动作及多句对白。"
+        "错误会带具体原因，不保存不完整资产。节点内外使用同一份系统指令和校验器。"
     )
 
     @classmethod

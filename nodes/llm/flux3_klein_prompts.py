@@ -189,7 +189,7 @@ def build_user_message(
     prompt: str,
     *,
     target_canvas: str = "",
-    bbox_json: str = "",
+    rows: list | None = None,
 ) -> str:
     """Assemble the user-side text for one upsampling call.
 
@@ -197,20 +197,33 @@ def build_user_message(
     request directly (optionally preceded by a ``TARGET CANVAS: W:H`` line,
     which steers composition and must never be echoed back), ``i2i``/
     ``i2i_bbox`` add the reference-image framing line and close with
-    "Output the caption.", and the ``*_bbox`` modes accept a user-supplied
-    element table the model must preserve exactly.
+    "Output the caption.", and the ``*_bbox`` modes add the element table the
+    user marked on the canvas.
 
-    ``bbox_json`` is validated here rather than at the node, so a malformed
-    table is rejected before any tokens are spent.
+    In the bbox modes an empty ``prompt`` is legal: a supplied element table
+    already describes the whole scene, so the request is composed from the
+    rows' own ``desc`` fields rather than rejected. The text modes have no
+    such fallback and still require a request.
+
+    ``rows`` are the canvas rows, already parsed; the table is the only
+    structured input, and it always reaches the model.
     """
     request = (prompt or "").strip()
-    if not request:
-        raise ValueError(
-            "Flux3Klein: prompt is empty; there is nothing to upsample / "
-            "prompt 为空，无内容可扩写"
-        )
     canvas = normalize_canvas(target_canvas)
-    table = _validated_bbox_json(bbox_json)
+    rows = rows or []
+
+    if not request:
+        # A supplied table already describes the scene, so its own `desc`
+        # fields can stand in for a prose request. If it has none, there is
+        # genuinely nothing to work from.
+        request = _request_from_rows(rows) if mode in BBOX_MODES else ""
+        if not request:
+            raise ValueError(
+                "Flux3Klein: prompt is empty; there is nothing to upsample / "
+                "prompt 为空，无内容可扩写"
+            )
+
+    table = _table_text(rows)
 
     lines: list[str] = []
     if mode in VISION_MODES:
@@ -234,30 +247,174 @@ def build_user_message(
     return "\n".join(lines)
 
 
-def _validated_bbox_json(bbox_json: str) -> str:
-    """Return the element table verbatim after checking it parses.
+def supplied_boxes(table: list) -> set:
+    """Every coordinate the user supplied, in any row shape.
 
-    Upstream says a supplied table must be kept exactly, so the node passes
-    the user's own string through untouched -- but it still has to be a JSON
-    array, or the model is being handed a table it cannot reproduce.
+    Collects ``bbox`` (generation shape), ``src_bbox`` and ``tgt_bbox``
+    (edit shape) from every row, so one set covers both conventions.
+
+    Returns a set of 4-tuples. A ``None`` box (a New row's ``src_bbox``, a
+    Remove row's ``tgt_bbox``) contributes nothing -- there is no coordinate
+    to have come from.
     """
-    table = (bbox_json or "").strip()
-    if not table:
-        return ""
-    try:
-        parsed = json.loads(table)
-    except json.JSONDecodeError as exc:
+    boxes: set = set()
+    if not isinstance(table, list):
+        return boxes
+    for row in table:
+        if not isinstance(row, dict):
+            continue
+        for key in ("bbox", "src_bbox", "tgt_bbox"):
+            value = row.get(key)
+            if isinstance(value, (list, tuple)) and len(value) == 4:
+                try:
+                    boxes.add(tuple(int(v) for v in value))
+                except (TypeError, ValueError):
+                    continue
+    return boxes
+
+
+def check_box_provenance(returned: list, supplied: set) -> list:
+    """Return the supplied boxes that the reply does not account for.
+
+    A supplied box is *accounted for* when some returned box overlaps it.
+    Overlap rather than equality, because the official annotation system
+    tightens a marked region onto the object inside it: a hand-drawn box is
+    usually larger than the thing it marks, and upstream's own behaviour is
+    to refine it (a marked ``[438, 31, 688, 188]`` comes back as
+    ``src_bbox [572, 34, 681, 181]``). Holding the model to byte equality
+    would forbid exactly the refinement that makes an edit land on the
+    object instead of near it.
+
+    Rows the model adds are allowed -- upstream expects background and anchor
+    rows whose boxes the model read off the image -- so the check runs in one
+    direction only: every region the user marked has to be represented.
+
+    Returns the unaccounted boxes; empty means the reply honoured every
+    marked region.
+    """
+    if not supplied:
+        return []
+    returned_boxes: list = []
+    for row in returned if isinstance(returned, list) else []:
+        if not isinstance(row, dict):
+            continue
+        for key in ("bbox", "src_bbox", "tgt_bbox"):
+            value = row.get(key)
+            if isinstance(value, (list, tuple)) and len(value) == 4:
+                try:
+                    returned_boxes.append(tuple(int(v) for v in value))
+                except (TypeError, ValueError):
+                    continue
+    return [
+        box for box in supplied
+        if not any(_box_iou(box, other) >= MIN_SUPPLIED_BOX_IOU
+                   for other in returned_boxes)
+    ]
+
+
+# How much a returned box must overlap a supplied box to count as "the same
+# region". 10% is loose enough to accept a box tightened onto the object
+# inside a larger marked region, and tight enough to catch a reply that
+# ignored the marked region entirely.
+MIN_SUPPLIED_BOX_IOU: float = 0.1
+
+
+def _box_iou(a: tuple, b: tuple) -> float:
+    """Intersection over union of two (y_min, x_min, y_max, x_max) boxes."""
+    ay0, ax0, ay1, ax1 = a
+    by0, bx0, by1, bx1 = b
+    inter_h = min(ay1, by1) - max(ay0, by0)
+    inter_w = min(ax1, bx1) - max(ax0, bx0)
+    if inter_h <= 0 or inter_w <= 0:
+        return 0.0
+    inter = inter_h * inter_w
+    area_a = max(0, ay1 - ay0) * max(0, ax1 - ax0)
+    area_b = max(0, by1 - by0) * max(0, bx1 - bx0)
+    union = area_a + area_b - inter
+    return inter / union if union else 0.0
+
+
+def is_edit_shaped(table: list) -> bool:
+    """True when the table already carries source/target boxes.
+
+    ``CreateBoundingBoxes`` emits generation-shaped rows (``bbox`` only);
+    a hand-written editing table carries ``src_bbox`` / ``tgt_bbox``. The two
+    shapes carry different promises about what the model may change, so the
+    callers need to tell them apart.
+    """
+    if not isinstance(table, list):
+        return False
+    return any(
+        isinstance(row, dict) and ("src_bbox" in row or "tgt_bbox" in row)
+        for row in table
+    )
+
+
+def elements_to_table(elements) -> list:
+    """Convert a ``CreateBoundingBoxes`` elements array into official rows.
+
+    ``CreateBoundingBoxes.elements`` is already in the official coordinate
+    convention -- ``build_elements`` in ComfyUI normalizes every box to
+    ``[y_min, x_min, y_max, x_max]`` as integers clamped to a 0-1000 grid, y
+    first -- so the only work is assigning ids and quoting text rows.
+
+    This mirrors ``Flux3LayoutPrompt.execute`` exactly, including its
+    desc-plus-quoted-text rule and its dropping of colour palettes (upstream
+    says palettes are not used; colours belong in the description). Doing it
+    here rather than hand-writing the JSON means the boxes drawn on the canvas
+    reach the model in the exact form upstream asks for.
+
+    Raises ``ValueError`` when the array is empty or a row has no usable box,
+    so a mis-wired socket fails before any tokens are spent.
+    """
+    rows: list[dict] = []
+    items = elements if isinstance(elements, list) else []
+    for i, el in enumerate(items):
+        if not isinstance(el, dict):
+            continue
+        bbox = el.get("bbox")
+        if not isinstance(bbox, (list, tuple)) or len(bbox) != 4:
+            raise ValueError(
+                f"Flux3Klein: element {i + 1} has no usable 'bbox' as "
+                f"[y_min, x_min, y_max, x_max] on a 0-1000 grid; it came from "
+                f"{el!r} / 元素 {i + 1} 的 bbox 缺失或格式不对"
+            )
+        desc = str(el.get("desc") or "")
+        if el.get("type") == "text" and el.get("text"):
+            # Upstream requires rendered text verbatim inside double quotes.
+            desc = f'{desc} "{el["text"]}"'.strip()
+        rows.append({"id": f"obj_{i + 1}", "bbox": list(bbox), "desc": desc})
+    if not rows:
         raise ValueError(
-            f"Flux3Klein: bboxes_json is not valid JSON ({exc}); fix it or "
-            f"leave it empty to let the model plan the layout / "
-            f"bboxes_json 不是合法 JSON，可留空让模型自拟布局"
-        ) from exc
-    if not isinstance(parsed, list):
-        raise ValueError(
-            f"Flux3Klein: bboxes_json must be a JSON array of element rows, "
-            f"got {type(parsed).__name__} / bboxes_json 必须是元素行组成的 JSON 数组"
+            "Flux3Klein: the elements input is empty; draw at least one box in "
+            "Create Bounding Boxes, or leave it unconnected and let the model "
+            "plan the layout / elements 为空：请在 Create Bounding Boxes "
+            "里至少画一个框，或断开该输入让模型自行规划布局"
         )
-    return table
+    return rows
+
+
+def _request_from_rows(rows: list) -> str:
+    """Compose a scene request from the rows' own ``desc`` fields.
+
+    Used when a bbox mode runs on a supplied table with no prose request. The
+    table is the authoritative description of the scene, so this reads the
+    descriptions back out rather than inventing any new content.
+    """
+    parts: list[str] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        desc = str(row.get("desc") or "").strip()
+        if desc:
+            parts.append(desc)
+    if not parts:
+        return ""
+    return "a scene containing: " + "; ".join(parts)
+
+
+def _table_text(rows: list) -> str:
+    return json.dumps(rows, ensure_ascii=False) if rows else ""
 
 
 def strip_think(raw_text: str) -> str:
@@ -265,6 +422,24 @@ def strip_think(raw_text: str) -> str:
     if not raw_text:
         return ""
     return _THINK_BLOCK_RE.sub("", raw_text).strip()
+
+
+def _strip_code_fence(text: str) -> str:
+    """Drop a wrapping ``` or ```json fence around the whole reply.
+
+    Upstream asks for a bare caption line, but models habitually fence JSON
+    when they emit a table. The fence breaks the "one space then the array"
+    contract without changing the content, so it is removed here rather than
+    being rejected.
+    """
+    stripped = text.strip()
+    if not stripped.startswith("```"):
+        return stripped
+    body = re.sub(r"^```[A-Za-z0-9_+-]*\s*", "", stripped)
+    end = body.rfind("```")
+    if end != -1:
+        body = body[:end]
+    return body.strip()
 
 
 def split_bbox_output(raw_text: str, *, mode: str = "") -> tuple[str, str, list | None]:
@@ -283,6 +458,7 @@ def split_bbox_output(raw_text: str, *, mode: str = "") -> tuple[str, str, list 
     text = strip_think(raw_text)
     if mode not in BBOX_MODES:
         return text, "", None
+    text = _strip_code_fence(text)
 
     # Official contract puts one space between the paragraph and the array, so
     # try that boundary first; then fall back to scanning candidate brackets
@@ -309,7 +485,8 @@ def split_bbox_output(raw_text: str, *, mode: str = "") -> tuple[str, str, list 
     raise ValueError(
         f"Flux3Klein: mode {mode or 'bbox'} requires the caption paragraph "
         f"followed by one JSON element table, but no parseable array was "
-        f"found in the reply / {mode or 'bbox'} 模式要求「caption 段落 + 一个 "
+        f"found in the reply. Reply tail: {text[-240:]!r} / "
+        f"{mode or 'bbox'} 模式要求「caption 段落 + 一个 "
         f"JSON 元素表」，回复里没有可解析的数组"
     )
 

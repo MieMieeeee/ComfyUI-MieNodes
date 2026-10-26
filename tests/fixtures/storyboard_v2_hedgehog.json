@@ -1,0 +1,119 @@
+{
+  "version": 2,
+  "name": "刺猬板栗-生成验证",
+  "language": "zh",
+  "roles": [
+    {
+      "id": "character_1",
+      "name": "小猫妹妹",
+      "presence": "on_screen",
+      "initially_visible": true,
+      "position": "left",
+      "voice": "young female, soft and sweet"
+    },
+    {
+      "id": "character_2",
+      "name": "猫爷爷",
+      "presence": "on_screen",
+      "initially_visible": true,
+      "position": "right",
+      "voice": "elderly male, low and mildly raspy"
+    }
+  ],
+  "camera": {
+    "framing": "two_shot",
+    "movement": "locked",
+    "perspective": "observer"
+  },
+  "look": "Soft warm textured 3D animation.",
+  "setting": "The two characters sit on a sofa, talking.",
+  "constraints": "一直是两人在沙发对话。刺猬和踩踏仅是台词叙述，不出现刺猬、板栗或回忆画面，不实际表演踩踏。",
+  "target_duration_seconds": 30,
+  "continuation_overlap_frames": 22,
+  "source_script": "角色1：爷爷，我一直有个心理阴影。\n角色2：是什么呢。\n角色1：小时候我还没上小学。\n角色1：咱家院子里有几只小刺猬。\n角色1：我喂了点剩饭，它们不吃也不跑。\n角色1：但是你走过来，用脚一只一只踩死了，我记得内脏都出来了。\n角色2：傻孩子，那是板栗呀",
+  "shots": [
+    {
+      "id": "scene_01",
+      "duration_seconds": 6.6,
+      "events": [
+        {
+          "id": "event_001",
+          "type": "dialogue",
+          "character": "character_1",
+          "text": "爷爷，我一直有个心理阴影。",
+          "language": "zh"
+        },
+        {
+          "id": "event_002",
+          "type": "dialogue",
+          "character": "character_2",
+          "text": "是什么呢。",
+          "language": "zh"
+        }
+      ]
+    },
+    {
+      "id": "scene_02",
+      "duration_seconds": 8,
+      "events": [
+        {
+          "id": "event_003",
+          "type": "dialogue",
+          "character": "character_1",
+          "text": "小时候我还没上小学。",
+          "language": "zh"
+        },
+        {
+          "id": "event_004",
+          "type": "dialogue",
+          "character": "character_1",
+          "text": "咱家院子里有几只小刺猬。",
+          "language": "zh"
+        }
+      ]
+    },
+    {
+      "id": "scene_03",
+      "duration_seconds": 5,
+      "events": [
+        {
+          "id": "event_005",
+          "type": "dialogue",
+          "character": "character_1",
+          "text": "我喂了点剩饭，它们不吃也不跑。",
+          "language": "zh"
+        }
+      ]
+    },
+    {
+      "id": "scene_04",
+      "duration_seconds": 13,
+      "events": [
+        {
+          "id": "event_006",
+          "type": "dialogue",
+          "character": "character_1",
+          "text": "但是你走过来，用脚一只一只踩死了，我记得内脏都出来了。",
+          "language": "zh"
+        },
+        {
+          "id": "event_007",
+          "type": "dialogue",
+          "character": "character_2",
+          "text": "傻孩子，那是板栗呀",
+          "language": "zh"
+        }
+      ]
+    }
+  ],
+  "execution": {
+    "look": "Soft warm textured 3D animation.",
+    "setting": "The two characters sit on a sofa, talking.",
+    "voices": {
+      "character_1": "young female, soft and sweet",
+      "character_2": "elderly male, low and mildly raspy"
+    },
+    "directions": {},
+    "visible_state": "Only Character 1 and Character 2 remain seated on the sofa in the present. Both keep their hands visibly empty while talking. The entire story is conveyed through their spoken exchange."
+  }
+}

@@ -1,17 +1,7 @@
-"""MiniMax H3 storyboard-generator ComfyUI node.
+"""MiniMax H3 role-event storyboard asset generator.
 
-Turns a concept + a target shot count into a structured storyboard
-(JSON shot list) in one LLM call. The storyboard is a PLANNING artifact:
-it does not write H3 prompts and does not touch the Production Plan —
-feed its ``shots_json`` output into ``MiniMaxH3LoopPromptGenerator``
-(which turns the board into a ``plan_json`` for
-``MiniMaxH3ChainPlanModern.plan_json_input``), or read the markdown
-``storyboard_text`` and edit before converting.
-
-Methodology (beats before shots, hook, shot-size variety, character
-anchor, transition logic, pacing, continuity bible) lives in
-``prompts/h3_storyboard/``; see ``minimax_h3_storyboard_prompts`` for
-the deterministic layer (whitelists, normalization, rendering).
+The public node emits a validated portable asset, its JSON, a readable
+preview and the shot count. V3 compiles events without another LLM call.
 """
 from __future__ import annotations
 
@@ -269,169 +259,66 @@ class H3StoryboardEnhancer:
 # --------------------------------------------------------------------------- #
 # ComfyUI node
 # --------------------------------------------------------------------------- #
+from .storyboard_asset_generator import AssetStoryboardEnhancer, preview_asset
+
 class MiniMaxH3StoryboardGenerator:
-    """ComfyUI node: concept + shot count -> structured storyboard."""
+    """User role events -> validated portable asset -> V3 (no prompt rewriting)."""
 
     @classmethod
     def INPUT_TYPES(cls):
-        return {
-            "required": {
-                "llm_service_connector": ("LLMServiceConnector",),
-                "concept": (
-                    "STRING",
-                    {
-                        "default": "",
-                        "multiline": True,
-                        "tooltip": (
-                            "Overall creative concept / story summary for the "
-                            "whole video. Blank = the node synthesizes a "
-                            "default concept."
-                        ),
-                    },
-                ),
-                "shot_count": (
-                    "INT",
-                    {
-                        "default": 5,
-                        "min": _MIN_SHOT_COUNT,
-                        "max": _MAX_SHOT_COUNT_WIDGET,
-                        "tooltip": "Expected number of storyboard shots.",
-                    },
-                ),
-                "style": (
-                    list(STYLES),
-                    {
-                        "default": STYLES[0],
-                        "tooltip": (
-                            "Storyboard style: how beats are arranged and cut."
-                        ),
-                    },
-                ),
-                "genre": (
-                    list(CATEGORIES),
-                    {
-                        "default": CATEGORIES[0],
-                        "tooltip": (
-                            "Genre taxonomy shared with the H3 prompt "
-                            "generator; injects genre-specific guidance."
-                        ),
-                    },
-                ),
-                "language": (
-                    list(LANGUAGES),
-                    {"default": DEFAULT_LANGUAGE},
-                ),
-                "output_format": (
-                    list(OUTPUT_FORMATS),
-                    {
-                        "default": OUTPUT_FORMATS[0],
-                        "tooltip": "Rendered format of storyboard_text.",
-                    },
-                ),
-                "seed": (
-                    "INT",
-                    {
-                        "default": 0,
-                        "min": 0,
-                        "max": 0xFFFFFFFFFFFFFFFF,
-                        "control_after_generate": True,
-                    },
-                ),
-            },
-            "optional": {
-                "temperature": (
-                    "FLOAT",
-                    {
-                        "default": _DEFAULT_TEMPERATURE,
-                        "min": 0.0,
-                        "max": 2.0,
-                        "step": 0.05,
-                    },
-                ),
-                "max_tokens": (
-                    "INT",
-                    {
-                        "default": _DEFAULT_MAX_TOKENS,
-                        "min": _MIN_MAX_TOKENS,
-                        "max": _MAX_MAX_TOKENS,
-                    },
-                ),
-                "timeout": ([30, 60, 120, 300], {"default": _DEFAULT_TIMEOUT}),
-            },
-        }
+        return {"required": {
+            "llm_service_connector": ("LLMServiceConnector",),
+            "name": ("STRING", {"default": "新分镜", "tooltip": "分镜资产名，可直接保存入库"}),
+            "concept": ("STRING", {"multiline": True, "default": "角色2动作：双手拿着苹果递向角色1。\n角色2：吃苹果吗？\n角色1：不吃。",
+                "tooltip": "按时间顺序，每行一个事件：角色1：台词 / 角色1动作：动作 / 角色1入场：动作 / 角色1离场：动作；可加[zh]或[en]。原文逐字锁定。"}),
+            "character_count": ("INT", {"default": 2, "min": 1, "max": 8}),
+            "character_settings": ("STRING", {"multiline": True, "default": "角色1：角色1 | 画面内 | 左侧 | adult male\n角色2：角色2 | 画面内 | 右侧 | adult female",
+                "tooltip": "每角色一行：角色1：名字 | 画面内/画外/稍后入场 | 左侧/右侧/中间/无 | 声音要求。数量须与角色数一致；留空使用编号角色。外观来自后续角色资产。"}),
+            "shot_count": ("INT", {"default": 1, "min": 1, "max": 20,
+                                  "tooltip": "Loop生成片段数。约14秒内能装下就填1：每多一段就多一次续生成，单人独占台词的续生成片段是已知崩角色形态。一个场景内的切镜写在constraints中，由camera_cuts编译为同一H3提示词的[Shot 1]/[Shot 2]。"}),
+            "target_duration_seconds": ("FLOAT", {"default": 20, "min": 1, "max": 600, "step": 1,
+                "tooltip": "目标交付总时长；按H3帧网格分配并计入续接裁剪，实际值在预览中显示。过短会报错，不删减台词。"}),
+            "camera_framing": (["medium_shot", "two_shot", "medium_close_up", "close_up", "wide_shot"],),
+            "camera_movement": (["locked", "gentle_follow"],),
+            "camera_perspective": (["observer", "first_person"],),
+            "language": (["zh", "en"], {"default": "zh"}),
+            "seed": ("INT", {"default": 0, "min": 0, "max": 0xFFFFFFFFFFFFFFFF, "control_after_generate": True}),
+        }, "optional": {
+            "look": ("STRING", {"default": "Natural lighting, coherent visual style.", "multiline": True}),
+            "setting": ("STRING", {"default": "", "multiline": True, "tooltip": "人物位置与情境；具体环境可由V3的可选场景资产提供。"}),
+            "constraints": ("STRING", {"default": "", "multiline": True, "tooltip": "导演约束，原样保留。例如：只拍两人对话，不把台词中的回忆拍出来。"}),
+            "continuation_overlap_frames": ("INT", {"default": 22, "min": 0, "max": 120, "tooltip": "需与Loop续接重叠帧一致；独立片段不裁剪时设0。"}),
+            "temperature": ("FLOAT", {"default": 0.2, "min": 0, "max": 2, "step": 0.05}),
+            "max_tokens": ("INT", {"default": 8192, "min": 256, "max": 32768}),
+            "timeout": ([30, 60, 120, 300], {"default": 120}),
+            "audio_mode": (["generated", "reference"], {"default": "generated", "tooltip": "generated：H3自选声音；reference：V3中每个角色都接带参考音频的人物资产，画外角色仅使用声音。最多3个角色；Asset→Slots音频需接到H3参考音频输入。"}),
+        }}
 
-    RETURN_TYPES = ("STRING", "STRING", "INT")
-    RETURN_NAMES = ("storyboard_text", "shots_json", "shot_count")
+    RETURN_TYPES = ("MIE_STORYBOARD", "STRING", "STRING", "INT")
+    RETURN_NAMES = ("storyboard", "storyboard_json", "storyboard_text", "shot_count")
     FUNCTION = "generate_storyboard"
     CATEGORY = MY_CATEGORY
 
-    def generate_storyboard(
-        self,
-        llm_service_connector,
-        concept,
-        shot_count,
-        style,
-        genre,
-        language,
-        output_format,
-        seed=None,
-        temperature=_DEFAULT_TEMPERATURE,
-        max_tokens=_DEFAULT_MAX_TOKENS,
-        timeout=_DEFAULT_TIMEOUT,
-    ):
-        enhancer = H3StoryboardEnhancer(
-            llm_service_connector,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            timeout=timeout,
-        )
-        out = enhancer(
-            concept,
-            shot_count,
-            style=style,
-            genre=genre,
-            language=language,
-            output_format=output_format,
-            seed=seed,
-        )
-        return (
-            out["storyboard_text"],
-            out["shots_json"],
-            out["shot_count"],
-        )
+    def generate_storyboard(self, llm_service_connector, concept, shot_count=2, seed=0,
+                            temperature=0.2, max_tokens=8192, timeout=120, **options):
+        planner = AssetStoryboardEnhancer(llm_service_connector, temperature=temperature,
+                                           max_tokens=max_tokens, timeout=timeout)
+        asset = planner(concept, shot_count, seed=seed, **options)
+        import json
+        return asset, json.dumps(asset, ensure_ascii=False, indent=2), preview_asset(asset), len(asset["shots"])
 
-    def is_changed(
-        self,
-        llm_service_connector,
-        concept,
-        shot_count,
-        style,
-        genre,
-        language,
-        output_format,
-        seed=None,
-        temperature=_DEFAULT_TEMPERATURE,
-        max_tokens=_DEFAULT_MAX_TOKENS,
-        timeout=_DEFAULT_TIMEOUT,
-    ):
-        h = hashlib.md5(usedforsecurity=False)
-        for part in (
-            concept,
-            str(shot_count),
-            style,
-            genre,
-            language,
-            output_format,
-            str(seed),
-            str(temperature),
-            str(max_tokens),
-            str(timeout),
-        ):
-            h.update((part or "").encode("utf-8"))
-        try:
-            h.update(llm_service_connector.get_state().encode("utf-8"))
-        except AttributeError:
-            h.update(str(getattr(llm_service_connector, "api_url", "")).encode("utf-8"))
-            h.update(str(getattr(llm_service_connector, "api_token", "")).encode("utf-8"))
-            h.update(str(getattr(llm_service_connector, "model", "")).encode("utf-8"))
-        return h.hexdigest()
+    @classmethod
+    def IS_CHANGED(cls, llm_service_connector, **options):
+        import json
+        from .storyboard_asset_generator import PROMPT_PATH
+        digest = hashlib.sha256(PROMPT_PATH.read_bytes())
+        digest.update(json.dumps(options, sort_keys=True, ensure_ascii=False, default=str).encode("utf-8"))
+        state = getattr(llm_service_connector, "get_state", None)
+        if callable(state):
+            digest.update(str(state()).encode("utf-8"))
+        else:
+            for key in ("api_url", "api_token", "model"):
+                digest.update(str(getattr(llm_service_connector, key, "")).encode("utf-8"))
+        return digest.hexdigest()
+
+    is_changed = IS_CHANGED

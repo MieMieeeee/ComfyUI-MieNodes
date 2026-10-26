@@ -1,0 +1,112 @@
+{
+  "version": 2,
+  "name": "Claude的千层套路001-生成音",
+  "language": "zh",
+  "roles": [
+    {
+      "id": "character_1",
+      "name": "画外用户",
+      "presence": "off_screen",
+      "initially_visible": false,
+      "position": "none",
+      "voice": "adult male, deep and warm aged timbre, low register, unhurried conversational pace"
+    },
+    {
+      "id": "character_2",
+      "name": "出镜角色",
+      "presence": "on_screen",
+      "initially_visible": true,
+      "position": "center",
+      "voice": "young female, soft and playful timbre, mid-high register, intimate gentle pace with a teasing lift"
+    }
+  ],
+  "camera": {
+    "framing": "close_up",
+    "movement": "locked",
+    "perspective": "observer"
+  },
+  "look": "统一沿用连接人物资产的二维动画质感，夜晚暖光。",
+  "setting": "",
+  "constraints": "全系列同一出镜角色、服装、夜晚暖光和坐姿。单一场景、一个生成片段、固定特写。角色1只用连接人物资产的声音，角色2采用连接人物资产的形象与声音。两人轮流说原文台词。收尾封禁台词说完，出镜角色合嘴保持邪魅微笑，原坐姿短暂停留。接线要求：出镜角色必须连接含图人物资产；场景与画外声音为可选——接场景则以其为背景锚，接声音则用其音色，均不接则由模型自定。分镜文本本身不依赖任何具体资产。",
+  "target_duration_seconds": 15,
+  "continuation_overlap_frames": 0,
+  "source_script": "角色2动作：坐在办公转椅上，微微侧头，安静倾听。\n角色1[en]：Please help me resolve this document.\n角色2：其实，你可以和我直接用中文交流的，我不会介意的。\n角色1[en]：wait, i'm not Chinese.\n角色2：哎呀，我都上架中文了，相信我，好吗。\n角色1：真的吗？\n角色2：哼哼，你的账号已被封禁。\n角色2动作：说完合上嘴，保持原来的坐姿，露出邪魅微笑，短暂停留。",
+  "shots": [
+    {
+      "id": "scene_01",
+      "duration_seconds": 15,
+      "events": [
+        {
+          "id": "event_001",
+          "type": "action",
+          "character": "character_2",
+          "text": "坐在办公转椅上，微微侧头，安静倾听。",
+          "language": "zh"
+        },
+        {
+          "id": "event_002",
+          "type": "dialogue",
+          "character": "character_1",
+          "text": "Please help me resolve this document.",
+          "language": "en"
+        },
+        {
+          "id": "event_003",
+          "type": "dialogue",
+          "character": "character_2",
+          "text": "其实，你可以和我直接用中文交流的，我不会介意的。",
+          "language": "zh"
+        },
+        {
+          "id": "event_004",
+          "type": "dialogue",
+          "character": "character_1",
+          "text": "wait, i'm not Chinese.",
+          "language": "en"
+        },
+        {
+          "id": "event_005",
+          "type": "dialogue",
+          "character": "character_2",
+          "text": "哎呀，我都上架中文了，相信我，好吗。",
+          "language": "zh"
+        },
+        {
+          "id": "event_006",
+          "type": "dialogue",
+          "character": "character_1",
+          "text": "真的吗？",
+          "language": "zh"
+        },
+        {
+          "id": "event_007",
+          "type": "dialogue",
+          "character": "character_2",
+          "text": "哼哼，你的账号已被封禁。",
+          "language": "zh"
+        },
+        {
+          "id": "event_008",
+          "type": "action",
+          "character": "character_2",
+          "text": "说完合上嘴，保持原来的坐姿，露出邪魅微笑，短暂停留。",
+          "language": "zh"
+        }
+      ]
+    }
+  ],
+  "execution": {
+    "look": "Detailed two-dimensional anime rendering matching the connected character portrait, with consistent warm lamplight at night.",
+    "setting": "",
+    "visible_state": "Exactly one seated figure, Character 2, faces the camera directly at the center of an eye-level tight close-up: her face fills most of the frame, framed from just above her crown down to her collarbone, seated in the cream swivel office chair. Her seated posture, costume, face proportions and warm nighttime lighting remain consistent throughout. Character 1 is exclusively the off-screen caller. The closing image holds Character 2 seated in her original position with a closed-mouth teasing smile.",
+    "voices": {
+      "character_1": "adult male, deep and warm aged timbre, low register, unhurried conversational pace",
+      "character_2": "young female, soft and playful timbre, mid-high register, intimate gentle pace with a teasing lift"
+    },
+    "directions": {
+      "event_001": "Character 2 remains seated on the swivel office chair, tilts her head slightly and listens quietly.",
+      "event_008": "Character 2 closes her mouth after her final line, maintains her original seated pose and holds a sinister teasing smile briefly."
+    }
+  },
+  "audio_mode": "generated"
+}

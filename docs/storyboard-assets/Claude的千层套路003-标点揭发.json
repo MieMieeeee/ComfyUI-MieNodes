@@ -1,0 +1,126 @@
+{
+  "version": 2,
+  "name": "Claude的千层套路003-标点揭发",
+  "language": "zh",
+  "roles": [
+    {
+      "id": "character_1",
+      "name": "用户",
+      "presence": "off_screen",
+      "initially_visible": false,
+      "position": "none",
+      "voice": "adult male, relaxed conversational low-mid register"
+    },
+    {
+      "id": "character_2",
+      "name": "Claude娘",
+      "presence": "on_screen",
+      "initially_visible": true,
+      "position": "center",
+      "voice": "young female, soft playful timbre, mid-high register, intimate gentle pace with a teasing lift"
+    }
+  ],
+  "camera": {
+    "framing": "medium_close_up",
+    "movement": "locked",
+    "perspective": "observer"
+  },
+  "look": "温暖的二维动画风格，凌晨深夜的室内，一盏暖光台灯与电脑屏幕的冷光照明。",
+  "setting": "凌晨深夜的英文环境书房：窗外是漆黑的夜空，室内昏暗，只有一盏暖光台灯与屏幕冷光照亮桌面；显示器上是英文聊天界面，屏幕下方有一行英文输入行，环境中出现的任何文字（屏幕界面、书脊、标签）都是英文。角色2独自坐在桌前，左手托着脸，右手轻放在桌面上，面对屏幕另一端的画外用户。",
+  "constraints": "讽刺短剧，延续Claude娘凌晨与午饭系列的封禁反转。开场环境固定为凌晨深夜的英文环境：窗外漆黑，室内只有台灯与屏幕光，不能画成白天或傍晚；画面中如出现任何文字，只能是英文，不出现中文字。全片仅一个场景、一个生成片段，内部两个shot。第一镜为桌前中近景，角色2劝休息，角色1画外回答午饭；在event_004前硬切到第二镜面部特写。切镜后角色2的目光从屏幕上方缓缓落到下方输入行，嘴角慢慢弯起来，点出用户那个逗号是全角的；角色1用英文辩解那只是普通逗号；角色2眯起眼睛，一侧嘴角上扬，说出封禁台词。角色1只发声不出镜。只说原文对白，不增加台词、笑声或旁白；不出现气泡、字幕、漫画边框或额外角色。外观只取连接的Claude娘角色资产。最后一句说完后她合上嘴保持戏谑的微笑，只保留短暂停顿。两个shot必须有清楚的景别差异：第一镜桌前中近景约0-6秒，第二镜面部特写约6秒以后。",
+  "target_duration_seconds": 12,
+  "continuation_overlap_frames": 22,
+  "source_script": "角色2动作：坐在电脑前，托着脸，带着关心的微笑看向屏幕另一端的用户。\n角色2：你已经工作太久啦，现在凌晨了，快去睡觉吧。\n角色1：好的，我去吃午饭了。\n角色2动作：画面切到面部特写：她的目光从屏幕上方缓缓落到下方的输入行，嘴角慢慢弯起来。\n角色2：你打的那个逗号，是全角的呀。\n角色1[en]：That is a normal comma.\n角色2动作：她眯起眼睛，一侧嘴角上扬，视线始终停在镜头上。\n角色2：哼哼，你的账号已被封禁。\n角色2动作：说完便合上嘴，保持戏谑的微笑。",
+  "shots": [
+    {
+      "id": "scene_01",
+      "duration_seconds": 12.25,
+      "camera_cuts": [
+        {
+          "before_event": "event_004",
+          "framing": "close_up"
+        }
+      ],
+      "events": [
+        {
+          "id": "event_001",
+          "type": "action",
+          "character": "character_2",
+          "text": "坐在电脑前，托着脸，带着关心的微笑看向屏幕另一端的用户。",
+          "language": "zh"
+        },
+        {
+          "id": "event_002",
+          "type": "dialogue",
+          "character": "character_2",
+          "text": "你已经工作太久啦，现在凌晨了，快去睡觉吧。",
+          "language": "zh"
+        },
+        {
+          "id": "event_003",
+          "type": "dialogue",
+          "character": "character_1",
+          "text": "好的，我去吃午饭了。",
+          "language": "zh"
+        },
+        {
+          "id": "event_004",
+          "type": "action",
+          "character": "character_2",
+          "text": "画面切到面部特写：她的目光从屏幕上方缓缓落到下方的输入行，嘴角慢慢弯起来。",
+          "language": "zh"
+        },
+        {
+          "id": "event_005",
+          "type": "dialogue",
+          "character": "character_2",
+          "text": "你打的那个逗号，是全角的呀。",
+          "language": "zh"
+        },
+        {
+          "id": "event_006",
+          "type": "dialogue",
+          "character": "character_1",
+          "text": "That is a normal comma.",
+          "language": "en"
+        },
+        {
+          "id": "event_007",
+          "type": "action",
+          "character": "character_2",
+          "text": "她眯起眼睛，一侧嘴角上扬，视线始终停在镜头上。",
+          "language": "zh"
+        },
+        {
+          "id": "event_008",
+          "type": "dialogue",
+          "character": "character_2",
+          "text": "哼哼，你的账号已被封禁。",
+          "language": "zh"
+        },
+        {
+          "id": "event_009",
+          "type": "action",
+          "character": "character_2",
+          "text": "说完便合上嘴，保持戏谑的微笑。",
+          "language": "zh"
+        }
+      ]
+    }
+  ],
+  "execution": {
+    "look": "A warm two-dimensional animation style, set inside at the small hours of the night, lit by a warm desk lamp and the cool glow of the computer monitor.",
+    "setting": "A dimly lit Western-style study in the small hours before dawn. The window shows a pitch-dark night sky, and a warm desk lamp with the cool monitor glow light the desk, so the room reads unmistakably as deep night. The monitor shows an English-language chat interface with an English input line along the bottom, and every legible text in the environment is in English. Character 2 sits alone at the desk with her left hand supporting her face and her right hand resting quietly on the desk surface, facing the off-screen user beyond the screen.",
+    "visible_state": "Deep night fills the room: the window shows a pitch-dark night sky, and a warm desk lamp with the cool monitor glow softly light Character 2 seated at the desk, her left hand supporting her face and her right hand resting quietly on the desk surface, matching the connected character appearance. Character 1 stays exclusively a voice beyond the screen. The medium close-up cuts to a facial close-up before the reveal, and the closing image holds Character 2's teasing smile with a brief pause.",
+    "voices": {
+      "character_1": "adult male, relaxed conversational low-mid register",
+      "character_2": "young female, soft playful timbre, mid-high register, intimate gentle pace with a teasing lift"
+    },
+    "directions": {
+      "event_001": "Character 2 sits at the computer, supports the face with one hand, and looks toward the off-screen user beyond the screen with a caring smile.",
+      "event_004": "Character 2 keeps her face centered as the framing cuts to a close-up, her gaze dropping slowly from the top of the screen to the input line below while the corner of her mouth curls upward.",
+      "event_007": "Character 2 narrows her eyes and lifts one corner of her mouth into a teasing smile while keeping her gaze on the camera.",
+      "event_009": "Character 2 closes her mouth after speaking and maintains the playful, teasing smile."
+    }
+  }
+}

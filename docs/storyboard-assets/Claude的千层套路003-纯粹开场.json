@@ -1,0 +1,119 @@
+{
+  "version": 2,
+  "name": "Claude的千层套路003-纯粹开场",
+  "language": "zh",
+  "roles": [
+    {
+      "id": "character_1",
+      "name": "用户",
+      "presence": "off_screen",
+      "initially_visible": false,
+      "position": "none",
+      "voice": "adult male, relaxed conversational low-mid register"
+    },
+    {
+      "id": "character_2",
+      "name": "Claude娘",
+      "presence": "on_screen",
+      "initially_visible": true,
+      "position": "center",
+      "voice": "young female, soft playful timbre, mid-high register, intimate gentle pace with a teasing lift"
+    }
+  ],
+  "camera": {
+    "framing": "medium_close_up",
+    "movement": "locked",
+    "perspective": "first_person"
+  },
+  "look": "温暖的二维动画风格，凌晨深夜的房间，只有一盏暖光台灯照明。",
+  "setting": "凌晨深夜的安静房间：窗外是漆黑的夜空，室内昏暗，只亮着一盏暖光台灯。角色2独自坐在一把椅子上正对镜头，像在与画外用户视频通话；她身边只有椅子和台灯，双手安静地放在腿上。",
+  "constraints": "千层套路系列第三集的纯粹开场版，开场仿照001并统一为系列开场模板：画外用户先用英文开口，角色2先安静倾听、微微侧头，然后才回应。讽刺短剧，全片反转最后落在系列通用的封禁台词。开场环境纯粹：凌晨深夜的安静房间，窗外漆黑，室内只有一盏暖光台灯，不能画成白天或傍晚；画面里只有她和一把椅子，没有桌子、电脑、屏幕或任何环境文字，双手安静放在腿上，不做任何精细手部动作。第一人称视角，固定机位即画外用户的眼睛，她正对镜头说话。全片一个生成片段，内部两个shot：第一镜坐姿中近景，包含英文开场、劝睡觉和午饭回答；午饭回答完整结束后，在event_005前硬切到第二镜更宽的中景，她从椅子上站起身。第二镜她起身后居高临下面对镜头：站定后低头看向镜头，一侧嘴角上扬露出邪魅而戏谑的微笑，合着嘴短暂停顿，之后才说封禁台词，不能在站起或站定过程中开口。角色1只发声不出镜。只说四句原文对白，不增加台词、笑声或旁白；不出现气泡、字幕、屏幕或额外角色。外观只取连接的Claude娘角色资产。最后一句说完后她站在原地保持微笑，只保留短暂停顿。两个shot必须有清楚的景别差异：第一镜坐姿中近景约0-9秒；约9-10秒硬切到第二镜中景，她站起身，大半身进入画面，起身与站姿是主要内容，面部特写构图只属于第一镜。",
+  "target_duration_seconds": 16,
+  "continuation_overlap_frames": 22,
+  "source_script": "角色2动作：坐在椅子上正对镜头，微微侧着头，安静地听着画外用户说话。\n角色1[en]：Hello, I still have some work to do.\n角色2：你已经工作太久啦，现在凌晨了，快去睡觉吧。\n角色1：好的，我去吃午饭了。\n角色2动作：听完午饭的回答，画面硬切到更宽的中景，她突然从椅子上站起身来，动作干脆利落。\n角色2动作：站定后，她低头看向镜头前的用户，一侧嘴角上扬，露出邪魅而戏谑的微笑，合着嘴短暂停顿。\n角色2：你的账号已被封禁。\n角色2动作：说完便合上嘴，站在原地，保持邪魅的微笑，短暂停留。",
+  "shots": [
+    {
+      "id": "scene_01",
+      "duration_seconds": 15.5,
+      "camera_cuts": [
+        {
+          "before_event": "event_005",
+          "framing": "medium_shot"
+        }
+      ],
+      "events": [
+        {
+          "id": "event_001",
+          "type": "action",
+          "character": "character_2",
+          "text": "坐在椅子上正对镜头，微微侧着头，安静地听着画外用户说话。",
+          "language": "zh"
+        },
+        {
+          "id": "event_002",
+          "type": "dialogue",
+          "character": "character_1",
+          "text": "Hello, I still have some work to do.",
+          "language": "en"
+        },
+        {
+          "id": "event_003",
+          "type": "dialogue",
+          "character": "character_2",
+          "text": "你已经工作太久啦，现在凌晨了，快去睡觉吧。",
+          "language": "zh"
+        },
+        {
+          "id": "event_004",
+          "type": "dialogue",
+          "character": "character_1",
+          "text": "好的，我去吃午饭了。",
+          "language": "zh"
+        },
+        {
+          "id": "event_005",
+          "type": "action",
+          "character": "character_2",
+          "text": "听完午饭的回答，画面硬切到更宽的中景，她突然从椅子上站起身来，动作干脆利落。",
+          "language": "zh"
+        },
+        {
+          "id": "event_006",
+          "type": "action",
+          "character": "character_2",
+          "text": "站定后，她低头看向镜头前的用户，一侧嘴角上扬，露出邪魅而戏谑的微笑，合着嘴短暂停顿。",
+          "language": "zh"
+        },
+        {
+          "id": "event_007",
+          "type": "dialogue",
+          "character": "character_2",
+          "text": "你的账号已被封禁。",
+          "language": "zh"
+        },
+        {
+          "id": "event_008",
+          "type": "action",
+          "character": "character_2",
+          "text": "说完便合上嘴，站在原地，保持邪魅的微笑，短暂停留。",
+          "language": "zh"
+        }
+      ]
+    }
+  ],
+  "execution": {
+    "look": "A warm two-dimensional animation style, set inside at the small hours of the night, lit by a single warm table lamp.",
+    "setting": "A quiet room in the small hours before dawn. The window shows a pitch-dark night sky, and one warm table lamp softly lights the dim room so the scene reads unmistakably as deep night. Character 2 sits alone on a chair facing the camera as if on a video call with the off-screen user, with just the chair and the lamp around her and her hands resting quietly in her lap.",
+    "visible_state": "Deep night fills the room: the window shows a pitch-dark night sky, and one warm table lamp softly lights Character 2 seated on a chair directly facing the camera, hands resting quietly in her lap, matching the connected character appearance, with the open space around her kept simple for a clean video-call framing. Character 1 remains exclusively a voice beyond the lens. After the lunch reply the framing cuts to a wider medium shot: Character 2 stands upright beside her chair with her arms relaxed at her sides and gazes down toward the camera, and the closing image holds her teasing smile with a brief pause.",
+    "voices": {
+      "character_1": "adult male, relaxed conversational low-mid register",
+      "character_2": "young female, soft playful timbre, mid-high register, intimate gentle pace with a teasing lift"
+    },
+    "directions": {
+      "event_001": "Character 2 sits on the chair facing the camera, her head tilted slightly, listening quietly to the off-screen user.",
+      "event_005": "Character 2 rises from her chair in one crisp decisive motion after the hard cut to the wider medium shot, standing upright beside the chair with her arms relaxed at her sides.",
+      "event_006": "Character 2, standing, lowers her gaze to the camera, lifts one corner of her mouth into a sinister teasing smile, and holds her mouth closed for a brief pause.",
+      "event_008": "Character 2 closes her mouth after speaking, remains standing in place, and maintains the smile during a brief final hold."
+    }
+  }
+}

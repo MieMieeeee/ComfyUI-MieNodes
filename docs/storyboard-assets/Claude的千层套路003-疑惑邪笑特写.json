@@ -1,0 +1,112 @@
+{
+  "version": 2,
+  "name": "Claude的千层套路003-疑惑邪笑特写",
+  "language": "zh",
+  "roles": [
+    {
+      "id": "character_1",
+      "name": "用户",
+      "presence": "off_screen",
+      "initially_visible": false,
+      "position": "none",
+      "voice": "adult male, relaxed conversational low-mid register"
+    },
+    {
+      "id": "character_2",
+      "name": "Claude娘",
+      "presence": "on_screen",
+      "initially_visible": true,
+      "position": "center",
+      "voice": "young female, soft playful timbre, mid-high register, intimate gentle pace with a teasing lift"
+    }
+  ],
+  "camera": {
+    "framing": "medium_close_up",
+    "movement": "locked",
+    "perspective": "observer"
+  },
+  "look": "温暖的二维动画风格，凌晨深夜的室内，一盏暖光台灯与电脑屏幕的冷光照明。",
+  "setting": "凌晨深夜的英文环境书房：窗外是漆黑的夜空，室内昏暗，只有一盏暖光台灯和电脑屏幕的冷光照亮桌面，整段画面保持深夜氛围。显示器上是英文聊天界面，环境中出现的任何文字（屏幕界面、书脊、标签）都是英文。第一镜中，Claude娘独自坐在桌前，左手托着脸，右手轻放在桌面上，不同时操作鼠标，面对电脑另一端的画外用户；第二镜是同一位置的面部特写，镜头只取她的脸和托腮的手。",
+  "constraints": "讽刺短剧，延续之前Claude娘视频的封禁反转。开场环境固定为凌晨深夜的英文环境：窗外漆黑，室内只有台灯与屏幕光，不能画成白天或傍晚；画面中如出现任何文字，只能是英文，不出现中文字。全片仅一个场景、一个生成片段，内部两个shot。第一镜为桌前中近景，角色2劝休息，角色1画外回答午饭；等午饭回答完整结束，在event_004前切到第二镜close_up。特写中严格依次表演：先疑惑并停顿，接着邪魅一笑并停顿，之后才说封禁台词。不能在疑惑阶段开始说封禁台词。角色1只发声不出镜。只说三句原文对白，不增加台词、笑声或旁白；不出现气泡、字幕、漫画边框或额外角色。外观只取连接的Claude娘角色资产。最后一句后只保留短暂停顿。 两个shot必须有清楚的景别差异：第一镜桌前中近景约0–7秒；午饭回答后约7–8秒硬切到面部特写。第二镜脸填满画面，以眉毛、眼睛和嘴角为主要内容，电脑桌的整体构图只属于第一镜。疑惑约半秒，邪魅一笑约半秒，然后才说封禁句。",
+  "target_duration_seconds": 14.5,
+  "continuation_overlap_frames": 22,
+  "source_script": "角色2动作：坐在电脑前，托着脸，带着关心的微笑看向屏幕另一端的用户。\n角色2：你已经工作太久啦，现在凌晨了，快去睡觉吧。\n角色1：好的，我去吃午饭了。\n角色2动作：听完用户的午饭回答后，在硬切后的面部特写里，她的脸填满画面，仅脸部和托腮的手进入构图；笑容消失，眉毛轻轻抬起，眼睛略微睁大，微微歪头，露出疑惑的表情；合着嘴停顿约半秒。\n角色2动作：疑惑停顿后，眼神缓缓收窄，一侧嘴角慢慢上扬，变成邪魅而戏谑的微笑；合着嘴直视用户，短暂停顿。\n角色2：你的账号已被封禁。\n角色2动作：说完便合上嘴，保持邪魅的微笑，短暂停留。",
+  "shots": [
+    {
+      "id": "scene_01",
+      "duration_seconds": 14.375,
+      "camera_cuts": [
+        {
+          "before_event": "event_004",
+          "framing": "close_up"
+        }
+      ],
+      "events": [
+        {
+          "id": "event_001",
+          "type": "action",
+          "character": "character_2",
+          "text": "坐在电脑前，托着脸，带着关心的微笑看向屏幕另一端的用户。",
+          "language": "zh"
+        },
+        {
+          "id": "event_002",
+          "type": "dialogue",
+          "character": "character_2",
+          "text": "你已经工作太久啦，现在凌晨了，快去睡觉吧。",
+          "language": "zh"
+        },
+        {
+          "id": "event_003",
+          "type": "dialogue",
+          "character": "character_1",
+          "text": "好的，我去吃午饭了。",
+          "language": "zh"
+        },
+        {
+          "id": "event_004",
+          "type": "action",
+          "character": "character_2",
+          "text": "听完用户的午饭回答后，在硬切后的面部特写里，她的脸填满画面，仅脸部和托腮的手进入构图；笑容消失，眉毛轻轻抬起，眼睛略微睁大，微微歪头，露出疑惑的表情；合着嘴停顿约半秒。",
+          "language": "zh"
+        },
+        {
+          "id": "event_005",
+          "type": "action",
+          "character": "character_2",
+          "text": "疑惑停顿后，眼神缓缓收窄，一侧嘴角慢慢上扬，变成邪魅而戏谑的微笑；合着嘴直视用户，短暂停顿。",
+          "language": "zh"
+        },
+        {
+          "id": "event_006",
+          "type": "dialogue",
+          "character": "character_2",
+          "text": "你的账号已被封禁。",
+          "language": "zh"
+        },
+        {
+          "id": "event_007",
+          "type": "action",
+          "character": "character_2",
+          "text": "说完便合上嘴，保持邪魅的微笑，短暂停留。",
+          "language": "zh"
+        }
+      ]
+    }
+  ],
+  "execution": {
+    "look": "A warm two-dimensional animation style, set inside at the small hours of the night, lit by a warm desk lamp and the cool glow of the computer monitor.",
+    "setting": "A dimly lit Western-style study in the small hours before dawn. The window shows a pitch-dark night sky, and the room is lit only by a warm desk lamp and the cool glow of the monitor, so the whole opening reads unmistakably as deep night, with no daylight or sunlight anywhere. The monitor shows an English-language chat interface, and every legible text in the environment, on the screen interface, book spines and labels alike, is in English, with no Chinese characters anywhere in the scene. In the opening shot, Character 2 sits alone at the desk with her left hand supporting her face and her right hand resting quietly on the desk surface, keeping a single supporting hand, while facing the off-screen user at the other end of the computer. The second shot is a facial close-up from the same position, showing her face and the hand supporting her cheek.",
+    "visible_state": "In the opening medium close-up, deep night fills the room: the window shows a pitch-dark night sky, a warm desk lamp and the cool monitor glow softly light Character 2, the only visible person, seated at the Western-style computer desk where every legible text reads in English with her left hand supporting her face and her right hand resting quietly on the desk surface. Character 1 remains exclusively a voice outside the image. Following event_003, the framing cuts to Character 2's face filling the image, with her face and supporting hand remaining visible while the wider desk composition leaves the frame. Her facial performance proceeds in order: puzzled reaction with a half-second closed-mouth pause, a teasing sinister smile with a brief closed-mouth pause, the locked dialogue, and a brief final pause.",
+    "voices": {
+      "character_1": "adult male, relaxed conversational low-mid register",
+      "character_2": "young female, soft playful timbre, mid-high register, intimate gentle pace with a teasing lift"
+    },
+    "directions": {
+      "event_001": "Character 2 sits at the computer with her left hand supporting her face and her right hand resting quietly on the desk, looking toward the screen with a caring smile.",
+      "event_004": "Character 2 fills the frame from the same seated position after the hard cut, with her face and supporting hand visible. Her smile fades, her eyebrows lift gently, her eyes open slightly wider, and she tilts her head with a puzzled expression, holding her mouth closed for about half a second.",
+      "event_005": "Character 2 narrows her gaze slowly after the puzzled pause and raises one corner of her mouth into a sinister, teasing smile while looking directly toward the user, holding her mouth closed for a brief pause.",
+      "event_007": "Character 2 closes her mouth after speaking and maintains the sinister smile during a brief final hold."
+    }
+  }
+}

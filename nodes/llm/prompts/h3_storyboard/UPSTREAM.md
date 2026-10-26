@@ -30,3 +30,18 @@ project-specific; the Python-side whitelists live in
 | --- | --- |
 | `system_storyboard.txt` | System role: storyboard methodology + strict JSON output contract |
 | `user_storyboard_template.txt` | User turn; placeholders `{concept}` `{shot_count}` `{style_name}` `{style_advice}` `{genre_advice}` `{language}` are `.format()`-ed by `minimax_h3_storyboard_prompts.build_user_text` |
+| `system_asset.txt` | System role for portable v2 storyboard assets; loaded verbatim by `storyboard_asset_generator.PROMPT_PATH` (see sync pair below) |
+| `asset.schema.json` | JSON schema of the v2 asset for external tooling |
+
+## SYNC PAIR — system_asset.txt (never edit one side alone)
+
+`system_asset.txt` (this directory) and
+`docs/storyboard_asset_system_prompt.txt` (the external/no-ComfyUI path)
+are two sibling renderings of ONE v2 contract. Their openings differ by
+design (asset_header JSON flow vs free-form conversation flow); every
+shared rule — roles, camera, shots/events, execution copy, duration,
+live-render craft rules — must be updated in BOTH files in the same
+commit, or the two generation paths drift. The 2026-10-26 review update
+(fewest segments, no floor-pinned budgets, first-frame visible_state,
+spoken-word numerals, role-name scope, constraints-not-compiled,
+script-asserted visible objects) landed in both.

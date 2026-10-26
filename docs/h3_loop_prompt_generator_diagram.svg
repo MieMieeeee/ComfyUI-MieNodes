@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1580 1580" width="1580" height="1580" font-family="Virgil, Segoe UI, sans-serif">
+<rect x="0" y="0" width="1580" height="1580" fill="#ffffff"/>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#1e1e1e"/></marker></defs>
+<rect x="20" y="150" width="380" height="70" rx="8" ry="8" fill="#ffe3e3" stroke="#c92a2a" stroke-width="2"/>
+<text x="0" y="0" font-size="11" text-anchor="middle" fill="#1e1e1e"><tspan x="210.0" y="175.4">llm_service_connector</tspan><tspan x="210.0" y="189.1">LLMServiceConnector (link)</tspan><tspan x="210.0" y="202.9">SetMiniMaxTokenPlanLLMServiceConnector</tspan></text>
+<rect x="20" y="228" width="380" height="70" rx="8" ry="8" fill="#ffe3e3" stroke="#c92a2a" stroke-width="2"/>
+<text x="0" y="0" font-size="11" text-anchor="middle" fill="#1e1e1e"><tspan x="210.0" y="253.4">user_input</tspan><tspan x="210.0" y="267.1">STRING multiline</tspan><tspan x="210.0" y="280.9">对话行 = locked verbatim</tspan></text>
+<rect x="20" y="306" width="380" height="70" rx="8" ry="8" fill="#ffe3e3" stroke="#c92a2a" stroke-width="2"/>
+<text x="0" y="0" font-size="11" text-anchor="middle" fill="#1e1e1e"><tspan x="210.0" y="331.4">enhance_user_input</tspan><tspan x="210.0" y="345.1">off (default) / on</tspan><tspan x="210.0" y="358.9">on = +1 LLM 润色 (canonical 别用)</tspan></text>
+<rect x="20" y="384" width="380" height="70" rx="8" ry="8" fill="#ffe3e3" stroke="#c92a2a" stroke-width="2"/>
+<text x="0" y="0" font-size="11" text-anchor="middle" fill="#1e1e1e"><tspan x="210.0" y="416.2">seed</tspan><tspan x="210.0" y="430.0">INT default=0  |  0=时钟派生</tspan></text>
+<rect x="20" y="512" width="380" height="58" rx="8" ry="8" fill="#d0ebff" stroke="#1971c2" stroke-width="2"/>
+<text x="0" y="0" font-size="9" text-anchor="middle" fill="#1e1e1e"><tspan x="210.0" y="538.8">scene_count</tspan><tspan x="210.0" y="550.0">INT default=0  |  0=auto 最小切分</tspan></text>
+<rect x="20" y="576" width="380" height="58" rx="8" ry="8" fill="#d0ebff" stroke="#1971c2" stroke-width="2"/>
+<text x="0" y="0" font-size="9" text-anchor="middle" fill="#1e1e1e"><tspan x="210.0" y="602.8">total_duration_seconds</tspan><tspan x="210.0" y="614.0">INT default=0  |  每场 clamp 4-14s</tspan></text>
+<rect x="20" y="640" width="380" height="58" rx="8" ry="8" fill="#d0ebff" stroke="#1971c2" stroke-width="2"/>
+<text x="0" y="0" font-size="9" text-anchor="middle" fill="#1e1e1e"><tspan x="210.0" y="666.8">pacing</tspan><tspan x="210.0" y="678.0">fast/normal(def)/slow  |  语速, 不影响切数</tspan></text>
+<rect x="20" y="704" width="380" height="58" rx="8" ry="8" fill="#d0ebff" stroke="#1971c2" stroke-width="2"/>
+<text x="0" y="0" font-size="9" text-anchor="middle" fill="#1e1e1e"><tspan x="210.0" y="730.8">generation_mode</tspan><tspan x="210.0" y="742.0">per_shot (def) / single_call  |  逐场连续性好</tspan></text>
+<rect x="20" y="768" width="380" height="58" rx="8" ry="8" fill="#d0ebff" stroke="#1971c2" stroke-width="2"/>
+<text x="0" y="0" font-size="9" text-anchor="middle" fill="#1e1e1e"><tspan x="210.0" y="794.8">category</tspan><tspan x="210.0" y="806.0">none/dialogue/action  |  抽到对话 → auto dialogue</tspan></text>
+<rect x="20" y="832" width="380" height="58" rx="8" ry="8" fill="#d0ebff" stroke="#1971c2" stroke-width="2"/>
+<text x="0" y="0" font-size="9" text-anchor="middle" fill="#1e1e1e"><tspan x="210.0" y="858.8">output_language</tspan><tspan x="210.0" y="870.0">en (def) / zh  |  不影响 locked 对白</tspan></text>
+<rect x="20" y="896" width="380" height="58" rx="8" ry="8" fill="#d0ebff" stroke="#1971c2" stroke-width="2"/>
+<text x="0" y="0" font-size="9" text-anchor="middle" fill="#1e1e1e"><tspan x="210.0" y="922.8">seed_mode</tspan><tspan x="210.0" y="934.0">per_scene_increment (def)  |  全场不同 seed</tspan></text>
+<rect x="20" y="960" width="380" height="58" rx="8" ry="8" fill="#d0ebff" stroke="#1971c2" stroke-width="2"/>
+<text x="0" y="0" font-size="9" text-anchor="middle" fill="#1e1e1e"><tspan x="210.0" y="986.8">temperature</tspan><tspan x="210.0" y="998.0">FLOAT default=0.4  |  0.0-2.0  step 0.05</tspan></text>
+<rect x="20" y="1024" width="380" height="58" rx="8" ry="8" fill="#d0ebff" stroke="#1971c2" stroke-width="2"/>
+<text x="0" y="0" font-size="9" text-anchor="middle" fill="#1e1e1e"><tspan x="210.0" y="1050.8">max_tokens</tspan><tspan x="210.0" y="1062.0">INT default=16384  |  64-32768  思维链 16k+</tspan></text>
+<rect x="20" y="1088" width="380" height="58" rx="8" ry="8" fill="#d0ebff" stroke="#1971c2" stroke-width="2"/>
+<text x="0" y="0" font-size="9" text-anchor="middle" fill="#1e1e1e"><tspan x="210.0" y="1114.8">timeout</tspan><tspan x="210.0" y="1126.0">60/120/300(def)/600 s  |  Ollama 用 120</tspan></text>
+<rect x="20" y="1152" width="380" height="58" rx="8" ry="8" fill="#d0ebff" stroke="#1971c2" stroke-width="2"/>
+<text x="0" y="0" font-size="9" text-anchor="middle" fill="#1e1e1e"><tspan x="210.0" y="1178.8">reference_mode</tspan><tspan x="210.0" y="1190.0">t2va(def)/i2va/fl2va/ref2va  |  → images 接线</tspan></text>
+<rect x="20" y="1216" width="380" height="58" rx="8" ry="8" fill="#d0ebff" stroke="#1971c2" stroke-width="2"/>
+<text x="0" y="0" font-size="9" text-anchor="middle" fill="#1e1e1e"><tspan x="210.0" y="1242.8">images</tspan><tspan x="210.0" y="1254.0">IMAGE batch 1-9  |  i2va/fl2va/ref2va 必接</tspan></text>
+<rect x="20" y="1280" width="380" height="58" rx="8" ry="8" fill="#d0ebff" stroke="#1971c2" stroke-width="2"/>
+<text x="0" y="0" font-size="9" text-anchor="middle" fill="#1e1e1e"><tspan x="210.0" y="1306.8">caption_mode</tspan><tspan x="210.0" y="1318.0">memory_disk(def)/memory_only/no_cache/force_recap</tspan></text>
+<rect x="460" y="200" width="540" height="880" rx="8" ry="8" fill="#fff3bf" stroke="#1e1e1e" stroke-width="2"/>
+<text x="0" y="0" font-size="14" text-anchor="middle" fill="#1e1e1e"><tspan x="730.0" y="496.5">MiniMaxH3LoopPromptGenerator | Mie</tspan><tspan x="730.0" y="514.0"></tspan><tspan x="730.0" y="531.5">FUNCTION = generate</tspan><tspan x="730.0" y="549.0">CATEGORY = 🐑 MieNodes/🐑 Prompt Generator</tspan><tspan x="730.0" y="566.5"></tspan><tspan x="730.0" y="584.0">user_input</tspan><tspan x="730.0" y="601.5">  →  enhance (optional)</tspan><tspan x="730.0" y="619.0">  →  caption pipeline (5 图片)</tspan><tspan x="730.0" y="636.5">  →  semantic facts (layout / bindings)</tspan><tspan x="730.0" y="654.0">  →  stage0: scene_count + duration</tspan><tspan x="730.0" y="671.5">  →  prefix (3-section contract)</tspan><tspan x="730.0" y="689.0">  →  per-shot shot: 6-section / 3-section</tspan><tspan x="730.0" y="706.5">  →  speaker voice sheet + identity pin</tspan><tspan x="730.0" y="724.0">  →  assemble dialogue_line_blocks</tspan><tspan x="730.0" y="741.5">  →  &lt;d&gt;[Lang] ...&lt;/d&gt;  (locked verbatim)</tspan><tspan x="730.0" y="759.0"></tspan><tspan x="730.0" y="776.5">RETURN_TYPES = (STRING, STRING, STRING)</tspan><tspan x="730.0" y="794.0">RETURN_NAMES = plan_json, summary, board_kind</tspan></text>
+<rect x="1060" y="230" width="440" height="90" rx="8" ry="8" fill="#d3f9d8" stroke="#2b8a3e" stroke-width="2"/>
+<text x="0" y="0" font-size="12" text-anchor="middle" fill="#1e1e1e"><tspan x="1280.0" y="257.0">plan_json  (STRING)</tspan><tspan x="1280.0" y="272.0">H3 生产链消费的 JSON</tspan><tspan x="1280.0" y="287.0">{ shots: [...], prompt_prefix: [...] }</tspan><tspan x="1280.0" y="302.0">→ MiniMaxH3ChainPlanModern.plan_json_input</tspan></text>
+<rect x="1060" y="335" width="440" height="90" rx="8" ry="8" fill="#d3f9d8" stroke="#2b8a3e" stroke-width="2"/>
+<text x="0" y="0" font-size="12" text-anchor="middle" fill="#1e1e1e"><tspan x="1280.0" y="362.0">summary  (STRING)</tspan><tspan x="1280.0" y="377.0">人类可读总览</tspan><tspan x="1280.0" y="392.0">enhance rewrite / 切片决策</tspan><tspan x="1280.0" y="407.0">引用图 manifest / seed 链</tspan></text>
+<rect x="1060" y="440" width="440" height="90" rx="8" ry="8" fill="#d3f9d8" stroke="#2b8a3e" stroke-width="2"/>
+<text x="0" y="0" font-size="12" text-anchor="middle" fill="#1e1e1e"><tspan x="1280.0" y="467.0">board_kind  (STRING)</tspan><tspan x="1280.0" y="482.0">dialogue / narration / reference</tspan><tspan x="1280.0" y="497.0">供下游节点选合同</tspan><tspan x="1280.0" y="512.0">switch-on 用</tspan></text>
+<rect x="1060" y="605" width="440" height="75" rx="8" ry="8" fill="#eebefa" stroke="#862e9c" stroke-width="2"/>
+<text x="0" y="0" font-size="11" text-anchor="middle" fill="#1e1e1e"><tspan x="1280.0" y="626.0">首次跑通</tspan><tspan x="1280.0" y="639.8">enhance=on, pacing=normal</tspan><tspan x="1280.0" y="653.5">scene_count=0, duration=0</tspan><tspan x="1280.0" y="667.2">per_shot + t2va</tspan></text>
+<rect x="1060" y="690" width="440" height="75" rx="8" ry="8" fill="#eebefa" stroke="#862e9c" stroke-width="2"/>
+<text x="0" y="0" font-size="11" text-anchor="middle" fill="#1e1e1e"><tspan x="1280.0" y="711.0">Canonical 文本</tspan><tspan x="1280.0" y="724.8">enhance=off (防双重润色)</tspan><tspan x="1280.0" y="738.5">其余默认即可</tspan><tspan x="1280.0" y="752.2">user_input 已结构化时</tspan></text>
+<rect x="1060" y="775" width="440" height="75" rx="8" ry="8" fill="#eebefa" stroke="#862e9c" stroke-width="2"/>
+<text x="0" y="0" font-size="11" text-anchor="middle" fill="#1e1e1e"><tspan x="1280.0" y="796.0">稳定性 / 续接</tspan><tspan x="1280.0" y="809.8">seed_mode=per_scene_increment</tspan><tspan x="1280.0" y="823.5">seed 给固定值</tspan><tspan x="1280.0" y="837.2">checkpoint recovery</tspan></text>
+<rect x="1060" y="860" width="440" height="75" rx="8" ry="8" fill="#eebefa" stroke="#862e9c" stroke-width="2"/>
+<text x="0" y="0" font-size="11" text-anchor="middle" fill="#1e1e1e"><tspan x="1280.0" y="881.0">本地 Ollama</tspan><tspan x="1280.0" y="894.8">timeout=120 (冷启动)</tspan><tspan x="1280.0" y="908.5">max_tokens=4096 (小模型)</tspan><tspan x="1280.0" y="922.2">temperature 默认</tspan></text>
+<rect x="20" y="1460" width="245" height="100" rx="8" ry="8" fill="#c5f6fa" stroke="#0c8599" stroke-width="2"/>
+<text x="0" y="0" font-size="11" text-anchor="middle" fill="#1e1e1e"><tspan x="142.5" y="1493.5">1. enhance</tspan><tspan x="142.5" y="1507.2">可选 +1 LLM</tspan><tspan x="142.5" y="1521.0">MiniMax-M3 改写</tspan><tspan x="142.5" y="1534.8">user_input 规范化</tspan></text>
+<rect x="270" y="1460" width="245" height="100" rx="8" ry="8" fill="#c5f6fa" stroke="#0c8599" stroke-width="2"/>
+<text x="0" y="0" font-size="11" text-anchor="middle" fill="#1e1e1e"><tspan x="392.5" y="1493.5">2. caption</tspan><tspan x="392.5" y="1507.2">图片 caption</tspan><tspan x="392.5" y="1521.0">memory+disk cache</tspan><tspan x="392.5" y="1534.8">5 张并行调</tspan></text>
+<rect x="520" y="1460" width="245" height="100" rx="8" ry="8" fill="#c5f6fa" stroke="#0c8599" stroke-width="2"/>
+<text x="0" y="0" font-size="11" text-anchor="middle" fill="#1e1e1e"><tspan x="642.5" y="1493.5">3. semantic facts</tspan><tspan x="642.5" y="1507.2">layout / bindings</tspan><tspan x="642.5" y="1521.0">LLM span extract</tspan><tspan x="642.5" y="1534.8">deterministic + fallback</tspan></text>
+<rect x="770" y="1460" width="245" height="100" rx="8" ry="8" fill="#c5f6fa" stroke="#0c8599" stroke-width="2"/>
+<text x="0" y="0" font-size="11" text-anchor="middle" fill="#1e1e1e"><tspan x="892.5" y="1493.5">4. stage0 storyboard</tspan><tspan x="892.5" y="1507.2">scene_count 切分</tspan><tspan x="892.5" y="1521.0">duration 分配</tspan><tspan x="892.5" y="1534.8">自动 pacing</tspan></text>
+<rect x="1020" y="1460" width="245" height="100" rx="8" ry="8" fill="#c5f6fa" stroke="#0c8599" stroke-width="2"/>
+<text x="0" y="0" font-size="11" text-anchor="middle" fill="#1e1e1e"><tspan x="1142.5" y="1493.5">5. prefix</tspan><tspan x="1142.5" y="1507.2">3-section 合同</tspan><tspan x="1142.5" y="1521.0">voice sheet</tspan><tspan x="1142.5" y="1534.8">identity pin</tspan></text>
+<rect x="1270" y="1460" width="245" height="100" rx="8" ry="8" fill="#c5f6fa" stroke="#0c8599" stroke-width="2"/>
+<text x="0" y="0" font-size="11" text-anchor="middle" fill="#1e1e1e"><tspan x="1392.5" y="1493.5">6. shot × N</tspan><tspan x="1392.5" y="1507.2">6-section / 3-section</tspan><tspan x="1392.5" y="1521.0">dialogue_line_blocks</tspan><tspan x="1392.5" y="1534.8">&lt;d&gt;[Lang] locked</tspan></text>
+<text x="60.0" y="48.0" font-size="28" text-anchor="middle" fill="#1e1e1e">MiniMaxH3LoopPromptGenerator  —  参数 + 调用流一张图</text>
+<text x="60.0" y="84.0" font-size="14" text-anchor="middle" fill="#495057">INPUT_TYPES  →  节点处理链  →  plan_json (H3 Chain 消费)</text>
+<text x="20.0" y="136.0" font-size="16" text-anchor="start" fill="#c92a2a">Required  (4)</text>
+<text x="20.0" y="498.0" font-size="16" text-anchor="start" fill="#1971c2">Optional  (13) — 全部 0/默认值即 auto</text>
+<text x="1060.0" y="216.0" font-size="16" text-anchor="start" fill="#2b8a3e">Outputs  (3)</text>
+<text x="1060.0" y="591.0" font-size="16" text-anchor="start" fill="#862e9c">Quick recipes</text>
+<text x="20.0" y="1444.0" font-size="14" text-anchor="start" fill="#1e1e1e">  ↳ 一次完整调用的 6 阶段 LLM 流（per_shot 时 stage6 按场景数 ×N）</text>
+<line x1="265.0" y1="1510.0" x2="270.0" y2="1510.0" stroke="#0c8599" stroke-width="2" marker-end="url(#arrow)"/>
+<line x1="515.0" y1="1510.0" x2="520.0" y2="1510.0" stroke="#0c8599" stroke-width="2" marker-end="url(#arrow)"/>
+<line x1="765.0" y1="1510.0" x2="770.0" y2="1510.0" stroke="#0c8599" stroke-width="2" marker-end="url(#arrow)"/>
+<line x1="1015.0" y1="1510.0" x2="1020.0" y2="1510.0" stroke="#0c8599" stroke-width="2" marker-end="url(#arrow)"/>
+<line x1="1265.0" y1="1510.0" x2="1270.0" y2="1510.0" stroke="#0c8599" stroke-width="2" marker-end="url(#arrow)"/>
+</svg>

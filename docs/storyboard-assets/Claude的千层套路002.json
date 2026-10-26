@@ -1,0 +1,105 @@
+{
+  "version": 2,
+  "name": "Claude的千层套路002",
+  "language": "zh",
+  "roles": [
+    {
+      "id": "character_1",
+      "name": "小D",
+      "presence": "off_screen",
+      "initially_visible": false,
+      "position": "none",
+      "voice": "adult male, friendly conversational low-mid register"
+    },
+    {
+      "id": "character_2",
+      "name": "Claude娘",
+      "presence": "on_screen",
+      "initially_visible": true,
+      "position": "center",
+      "voice": "young female, soft playful timbre, mid-high register, light conversational pace with a teasing lift"
+    }
+  ],
+  "camera": {
+    "framing": "medium_close_up",
+    "movement": "locked",
+    "perspective": "first_person"
+  },
+  "look": "干净的二维动画风格，白天午后的现代客厅，百叶窗透进柔和日光。",
+  "setting": "白天午后的英文环境客厅：半掩的百叶窗把柔和日光铺在沙发与茶几上，午后空气安静。茶几上的笔记本电脑显示英文聊天界面，画面中出现的任何文字（屏幕界面、书脊、标签）都是英文。角色2独自坐在沙发上正对镜头，镜头即画外用户的视角；她的前臂搭在坐垫上，另一只手自然放松，视线落在与镜头相对的屏幕上。",
+  "constraints": "千层套路系列第二集，讽刺短剧，全片反转最后一句封禁台词。第一人称视角，固定机位始终是画面中央的Claude娘中近景，她正对镜头说话，镜头即画外用户。全片一个生成片段，不切换景别。角色1全程画外，只用声音出现。台词按原文顺序逐句念出：用户用英文说了自己有个问题，Claude娘先夸他英文不错，再点破他用的是中文逗号，用户发出一声惊慌的短促惊叫，Claude娘嘴角弯起，说出本系列通用的封禁台词。除这些原文对白之外不增加台词、笑声或旁白，不念出屏幕文字。用户在第二句那一声是短促惊慌的惊叫，随即噤声，中文单字发音要短促上扬。画面中如出现任何文字，只能是英文聊天界面，不出现中文字。外观只取连接的Claude娘角色资产。最后一句封禁台词说完后，她合上嘴保持戏谑的微笑，短暂停留。",
+  "target_duration_seconds": 7,
+  "continuation_overlap_frames": 22,
+  "source_script": "角色2动作：她正对镜头坐着，听屏幕另一端那位用户说话，神情专注。\n角色1[en]：Hello，I have a problem\n角色2：你的英文不错，但可惜用的是中文逗号。\n角色1：啊\n角色2动作：她听见屏幕那头短促的一声惊叫，嘴角慢慢弯起来。\n角色2：你的账号已被封禁。\n角色2动作：说完便合上嘴，保持戏谑的微笑。",
+  "shots": [
+    {
+      "id": "scene_01",
+      "duration_seconds": 7.0,
+      "events": [
+        {
+          "id": "event_001",
+          "type": "action",
+          "character": "character_2",
+          "text": "她正对镜头坐着，听屏幕另一端那位用户说话，神情专注。",
+          "language": "zh"
+        },
+        {
+          "id": "event_002",
+          "type": "dialogue",
+          "character": "character_1",
+          "text": "Hello，I have a problem",
+          "language": "en"
+        },
+        {
+          "id": "event_003",
+          "type": "dialogue",
+          "character": "character_2",
+          "text": "你的英文不错，但可惜用的是中文逗号。",
+          "language": "zh"
+        },
+        {
+          "id": "event_004",
+          "type": "dialogue",
+          "character": "character_1",
+          "text": "啊",
+          "language": "zh"
+        },
+        {
+          "id": "event_005",
+          "type": "action",
+          "character": "character_2",
+          "text": "她听见屏幕那头短促的一声惊叫，嘴角慢慢弯起来。",
+          "language": "zh"
+        },
+        {
+          "id": "event_006",
+          "type": "dialogue",
+          "character": "character_2",
+          "text": "你的账号已被封禁。",
+          "language": "zh"
+        },
+        {
+          "id": "event_007",
+          "type": "action",
+          "character": "character_2",
+          "text": "说完便合上嘴，保持戏谑的微笑。",
+          "language": "zh"
+        }
+      ]
+    }
+  ],
+  "execution": {
+    "look": "A clean two-dimensional animation style in a modern living room in the middle of the day, with soft daylight filtering through half-closed window blinds.",
+    "setting": "A cozy modern living room in the middle of the day. Soft daylight filters through half-closed window blinds and the afternoon air still feels warm. A laptop on the coffee table shows an English-language chat interface, and every legible text in the environment is in English. Character 2 sits alone on the sofa facing the camera, which is the viewpoint of the off-screen caller, with one forearm resting on the cushion and the other hand relaxed while her eyes stay on the screen beyond the lens.",
+    "visible_state": "Daylight fills the living room through half-closed window blinds, and Character 2 sits on the sofa facing the camera in a medium close-up, matching the connected character appearance, with one forearm resting on the cushion and her other hand relaxed. The laptop on the coffee table shows an English-language chat interface with English text. Character 1 stays exclusively a voice beyond the lens. The locked framing stays on Character 2 for the whole conversation, and the closing image holds her teasing smile with a brief pause.",
+    "voices": {
+      "character_1": "adult male, friendly conversational low-mid register",
+      "character_2": "young female, soft playful timbre, mid-high register, light conversational pace with a teasing lift"
+    },
+    "directions": {
+      "event_001": "Character 2 sits facing the camera and listens to the caller beyond the lens with a focused expression.",
+      "event_005": "Character 2 hears the short startled cry from the other end of the screen, and the corner of her mouth curls upward.",
+      "event_007": "Character 2 closes her mouth after speaking and maintains the playful, teasing smile."
+    }
+  }
+}
