@@ -26,11 +26,11 @@
     "perspective": "observer"
   },
   "look": "半写实插画风格，细腻笔触与柔和光影，安静的都市深夜与清晨质感。",
-  "setting": "一间书房：靠窗摆着一张书桌和一把转椅，桌上一盏台灯亮着，窗外是远处的城市。角色2始终坐在书桌前的转椅里没有离开，角色1离开后又回来。",
-  "constraints": "全片两个生成片段：第一段是下班前的深夜，第二段是第二天清晨，老板在第二段推门回来时用一句话点明已经隔了一天，两段之间是硬切。机位固定，角色2全程没有离开，一直坐在书桌前的转椅里；角色1第一段说完就走了，第二段又推门回来。角色1语气急躁、催得紧，角色2语气慢而稳。全程中文对话。画面中只有这两名角色，环境中任何可见文字都是中文。",
-  "target_duration_seconds": 12.5,
+  "setting": "一间办公室：靠窗的工位上摆着一张桌子，桌上一台亮着的电脑显示器和一盏台灯，键盘旁边放着一杯茶，窗外是远处的城市。角色2始终坐在工位前的转椅里面对电脑工作，角色1离开后在清晨又回来。环境中任何可见文字都是中文。",
+  "constraints": "全片两个生成片段：第一段是下班前的深夜，第二段是第二天清晨，老板在第二段推门回来时用一句话点明已经隔了一天，两段之间是硬切。机位固定。角色2（小程）全程坐在工位前的转椅里面对电脑，没有离开；电脑显示器全程亮着，屏幕上是中文界面；那杯茶放在键盘旁边，他不去拿。角色1（老板）第一段站着说话，说完关门离开，第二段推门回来站在工位旁。角色1语气急躁、催得紧，角色2语气慢而稳。全程中文对话。画面中只有这两名角色。",
+  "target_duration_seconds": 13.0,
   "continuation_overlap_frames": 0,
-  "source_script": "角色1：小程，下班前新版本一定要上线！\n角色2：好的，没问题！\n角色1离场：关门出去。\n角色2动作：他还在工位上敲着键盘，听见门响抬起头。\n角色1入场：开门进来\n角色1：新版本昨天怎么还没上线？\n角色2：我还没下班呢",
+  "source_script": "角色1：小程，下班前新版本一定要上线！\n角色2：好的，没问题！\n角色1离场：关门出去。\n角色2动作：他还在工位上面对电脑敲着键盘，听见门响抬起头。\n角色1入场：开门进来\n角色1：新版本昨天怎么还没上线？\n角色2：我还没下班呢\n角色2动作：说完他转回屏幕，继续敲键盘。",
   "shots": [
     {
       "id": "scene_01",
@@ -61,13 +61,13 @@
     },
     {
       "id": "scene_02",
-      "duration_seconds": 6.0,
+      "duration_seconds": 6.5,
       "events": [
         {
           "id": "event_004",
           "type": "action",
           "character": "character_2",
-          "text": "他还在工位上敲着键盘，听见门响抬起头。",
+          "text": "他还在工位上面对电脑敲着键盘，听见门响抬起头。",
           "language": "zh"
         },
         {
@@ -90,22 +90,30 @@
           "character": "character_2",
           "text": "我还没下班呢",
           "language": "zh"
+        },
+        {
+          "id": "event_008",
+          "type": "action",
+          "character": "character_2",
+          "text": "说完他转回屏幕，继续敲键盘。",
+          "language": "zh"
         }
       ]
     }
   ],
   "execution": {
     "look": "A semi-realistic illustration style with fine brushwork and soft light, in the quiet mood of an urban night and early morning.",
-    "setting": "A study room: a desk and a swivel chair stand by the window, a desk lamp glows on the desk, and the city is visible far outside the window. Character 2 stays seated in the swivel chair at the desk the whole time, while Character 1 leaves and then comes back the next morning. Every legible text in the environment is in Chinese.",
-    "visible_state": "A study room lit by a glowing desk lamp on the desk, with soft light coming through the window. Character 2 sits in the swivel chair at the desk facing left, a cup of tea in his hand, looking up calmly toward the door.",
+    "setting": "An office corner: a desk stands by the window with one glowing computer monitor and a desk lamp on it, a mug of tea beside the keyboard, and the city visible far outside the window. Character 2 works at the desk in the swivel chair facing the computer the whole time, while Character 1 leaves and comes back the next morning. Every legible text in the environment, including the screen, is in Chinese.",
+    "visible_state": "A desk by the window with one glowing computer monitor and a desk lamp, a mug of tea beside the keyboard, and the city far outside the window. Character 2 sits in the swivel chair facing the monitor with both hands on the keyboard, his face lit by the screen glow, and Character 1 stands on the left of frame facing right.",
     "voices": {
       "character_1": "young male, clean mid voice, flat and even, deadpan, cold, short phrasing",
       "character_2": "young male, clear warm mid-low voice, chest-supported, slow and relaxed pace"
     },
     "directions": {
-      "event_003": "Character 1 pushes the door shut and walks out of frame, and the room is left lit only by the desk lamp while Character 2 stays seated at the desk.",
-      "event_004": "Character 2 keeps typing at his desk in the lamplight, then pauses and lifts his head toward the door as the handle turns.",
-      "event_005": "Character 1 opens the door and steps into the room, and bright early-morning daylight floods the space through the window behind Character 2."
+      "event_003": "Character 1 pushes the door shut and walks out of frame, and the room is left lit by the desk lamp and the monitor glow while Character 2 stays at the desk.",
+      "event_004": "Character 2 keeps typing on the keyboard facing the glowing monitor in the lamplight, then pauses and lifts his head toward the door as the handle turns.",
+      "event_005": "Character 1 opens the door and steps into the room, and bright early-morning daylight floods the space through the window behind Character 2.",
+      "event_008": "Character 2 turns back to the monitor and keeps typing on the keyboard, still seated in the swivel chair."
     }
   },
   "audio_mode": "reference"
