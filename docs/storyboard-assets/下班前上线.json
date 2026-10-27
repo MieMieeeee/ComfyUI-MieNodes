@@ -9,7 +9,7 @@
       "presence": "on_screen",
       "initially_visible": true,
       "position": "left",
-      "voice": "young male, clean mid voice, flat and short, no smile, no rise, no breathiness, cold wording"
+      "voice": "young male, clean mid voice, flat and even, deadpan, cold, short phrasing"
     },
     {
       "id": "character_2",
@@ -17,15 +17,7 @@
       "presence": "on_screen",
       "initially_visible": true,
       "position": "center",
-      "voice": "young male, clear warm voice, mid-low, chest-supported, slow and loose, one soft laugh at the end"
-    },
-    {
-      "id": "character_3",
-      "name": "旁白",
-      "presence": "off_screen",
-      "initially_visible": false,
-      "position": "none",
-      "voice": "young male news anchor, steady chest voice, clear diction, mid-low pitch, flat professional delivery"
+      "voice": "young male, clear warm mid-low voice, chest-supported, slow and relaxed pace"
     }
   ],
   "camera": {
@@ -33,16 +25,16 @@
     "movement": "locked",
     "perspective": "observer"
   },
-  "look": "半写实插画风格，细腻笔触与柔和光影，暖色灯光与冷色夜窗对比，安静的都市夜戏质感。",
-  "setting": "夜晚的室内：暖色灯光从一侧照过来，窗外透进深蓝色的夜光，暖冷对比。环境中任何可见文字都是中文。",
-  "constraints": "全片两个生成片段：第一段是当天夜里，第二段是第二天夜里，跨越一天由画外旁白在第二段开头点明（此处不裁剪续接帧，旁白不会被剪掉）。机位固定，角色1在画面左侧，角色2坐在书桌前的位置，全程都在画面内；一方说话时另一方的嘴唇保持闭合。角色3只出声不出镜。角色1语气急躁、催得紧，角色2语气慢而稳。全程中文对话。画面中只有这两名角色。",
-  "target_duration_seconds": 12.0,
+  "look": "半写实插画风格，细腻笔触与柔和光影，安静的都市深夜与清晨质感。",
+  "setting": "一间书房：靠窗摆着一张书桌和一把转椅，桌上一盏台灯亮着，窗外是远处的城市。角色2始终坐在书桌前的转椅里没有离开，角色1离开后又回来。",
+  "constraints": "全片两个生成片段：第一段是下班前的深夜，第二段是第二天清晨，老板在第二段推门回来时用一句话点明已经隔了一天，两段之间是硬切。机位固定，角色2全程没有离开，一直坐在书桌前的转椅里；角色1第一段说完就走了，第二段又推门回来。角色1语气急躁、催得紧，角色2语气慢而稳。全程中文对话。画面中只有这两名角色，环境中任何可见文字都是中文。",
+  "target_duration_seconds": 12.5,
   "continuation_overlap_frames": 0,
-  "source_script": "角色1：小程，下班前新版本一定要上线！\n角色2：好的，没问题！\n角色2离场：关门出去。\n角色1离场：他转身跟着走了出去。\n角色3：第二天\n角色1入场：开门进来\n角色2入场：他已经在书桌前的转椅里坐好，抬头看向门口。\n角色1：新版本怎么还没上线？\n角色2：我还没下班呢",
+  "source_script": "角色1：小程，下班前新版本一定要上线！\n角色2：好的，没问题！\n角色1离场：关门出去。\n角色1入场：开门进来\n角色1：新版本昨天怎么还没上线？\n角色2：我还没下班呢",
   "shots": [
     {
       "id": "scene_01",
-      "duration_seconds": 6.0,
+      "duration_seconds": 6.5,
       "events": [
         {
           "id": "event_001",
@@ -61,15 +53,8 @@
         {
           "id": "event_003",
           "type": "exit",
-          "character": "character_2",
-          "text": "关门出去。",
-          "language": "zh"
-        },
-        {
-          "id": "event_004",
-          "type": "exit",
           "character": "character_1",
-          "text": "他转身跟着走了出去。",
+          "text": "关门出去。",
           "language": "zh"
         }
       ]
@@ -79,35 +64,21 @@
       "duration_seconds": 6.0,
       "events": [
         {
-          "id": "event_005",
-          "type": "dialogue",
-          "character": "character_3",
-          "text": "第二天",
-          "language": "zh"
-        },
-        {
-          "id": "event_006",
+          "id": "event_004",
           "type": "enter",
           "character": "character_1",
           "text": "开门进来",
           "language": "zh"
         },
         {
-          "id": "event_007",
-          "type": "enter",
-          "character": "character_2",
-          "text": "他已经在书桌前的转椅里坐好，抬头看向门口。",
-          "language": "zh"
-        },
-        {
-          "id": "event_008",
+          "id": "event_005",
           "type": "dialogue",
           "character": "character_1",
-          "text": "新版本怎么还没上线？",
+          "text": "新版本昨天怎么还没上线？",
           "language": "zh"
         },
         {
-          "id": "event_009",
+          "id": "event_006",
           "type": "dialogue",
           "character": "character_2",
           "text": "我还没下班呢",
@@ -117,19 +88,16 @@
     }
   ],
   "execution": {
-    "look": "A semi-realistic illustration style with fine brushwork and soft light, contrasting warm lamp glow against cool night light from the window, in the quiet mood of an urban night scene.",
-    "setting": "Night indoors: warm light falls from one side while deep blue night light comes through the window, warm against cool. Every legible text in the environment is in Chinese.",
-    "visible_state": "Warm lamp light falls from one side and deep blue night light comes through the window, keeping the frame warm against cool blue. Character 1 stands on the left of frame facing right with a cool, flat, unhurried expression, a grey scarf held at his neck. Character 2 sits on the right of frame in the swivel chair at the desk, facing left, a cup of tea in his hand, looking up calmly.",
+    "look": "A semi-realistic illustration style with fine brushwork and soft light, in the quiet mood of an urban night and early morning.",
+    "setting": "A study room: a desk and a swivel chair stand by the window, a desk lamp glows on the desk, and the city is visible far outside the window. Character 2 stays seated in the swivel chair at the desk the whole time, while Character 1 leaves and then comes back the next morning. Every legible text in the environment is in Chinese.",
+    "visible_state": "A study room lit by a glowing desk lamp on the desk, with soft light coming through the window. Character 2 sits in the swivel chair at the desk facing left, a cup of tea in his hand, looking up calmly toward the door.",
     "voices": {
-      "character_1": "young male, clean mid voice, flat and short, no smile, no rise, no breathiness, cold wording",
-      "character_2": "young male, clear warm voice, mid-low, chest-supported, slow and loose, one soft laugh at the end",
-      "character_3": "young male news anchor, steady chest voice, clear diction, mid-low pitch, flat professional delivery"
+      "character_1": "young male, clean mid voice, flat and even, deadpan, cold, short phrasing",
+      "character_2": "young male, clear warm mid-low voice, chest-supported, slow and relaxed pace"
     },
     "directions": {
-      "event_003": "Character 2 pushes the door shut and walks out of frame.",
-      "event_004": "Character 1 turns around and follows him out of frame.",
-      "event_006": "Character 1 opens the door and steps into the room, still mid-sentence.",
-      "event_007": "Character 2 is already seated in the swivel chair at the desk, looking up toward the door with a cup of tea in his hand."
+      "event_003": "Character 1 pushes the door shut and walks out of frame, and the room is left lit only by the desk lamp while Character 2 stays seated at the desk.",
+      "event_004": "Character 1 opens the door and steps into the room, and bright early-morning daylight floods the space through the window behind Character 2."
     }
   },
   "audio_mode": "reference"

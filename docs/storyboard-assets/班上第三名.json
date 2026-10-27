@@ -9,7 +9,7 @@
       "presence": "on_screen",
       "initially_visible": true,
       "position": "left",
-      "voice": "young female, sweet mid voice, held tight and restrained, quick and slightly stumbling when she explains, a short humph at the end"
+      "voice": "young female, sweet mid register, restrained and cool, steady pace, clear articulation"
     },
     {
       "id": "character_2",
@@ -17,7 +17,7 @@
       "presence": "on_screen",
       "initially_visible": true,
       "position": "right",
-      "voice": "young male, athletic voice, chest-supported stable mid pitch, brisk, a laugh when pleased, not a high bright boy voice"
+      "voice": "young male, athletic chest-supported voice, stable mid pitch, brisk and even pace, clear articulation"
     }
   ],
   "camera": {
@@ -100,8 +100,8 @@
     "setting": "Bright afternoon daylight comes in from one side of the frame together with soft warm ambient light, keeping the whole image bright and warm.",
     "visible_state": "Bright afternoon daylight comes in from one side together with soft warm ambient light, keeping the whole frame bright and warm. Character 1 sits on the left of frame facing right, her arms folded, her cheeks slightly puffed and her gaze turned away with a cool, guarded look. Character 2 sits on the right of frame facing left, one hand raised near his temple in a boyish salute, wearing a broad open grin.",
     "voices": {
-      "character_1": "young female, sweet mid voice, held tight and restrained, quick and slightly stumbling when she explains, a short humph at the end",
-      "character_2": "young male, athletic voice, chest-supported stable mid pitch, brisk, a laugh when pleased, not a high bright boy voice"
+      "character_1": "young female, sweet mid register, restrained and cool, steady pace, clear articulation",
+      "character_2": "young male, athletic chest-supported voice, stable mid pitch, brisk and even pace, clear articulation"
     },
     "directions": {
       "event_002": "Character 1 lifts her eyes toward Character 2 with a curious look, her brows slightly raised.",

@@ -9,7 +9,7 @@
       "presence": "on_screen",
       "initially_visible": true,
       "position": "left",
-      "voice": "young female, sweet mid voice, held tight and restrained, quick and slightly stumbling when she explains, a short humph at the end"
+      "voice": "young female, sweet mid register, restrained and cool, steady pace, clear articulation"
     },
     {
       "id": "character_2",
@@ -17,7 +17,7 @@
       "presence": "on_screen",
       "initially_visible": true,
       "position": "right",
-      "voice": "young male, athletic voice, chest-supported stable mid pitch, brisk, a laugh when pleased, not a high bright boy voice"
+      "voice": "young male, athletic chest-supported voice, stable mid pitch, brisk and even pace, clear articulation"
     }
   ],
   "camera": {
@@ -28,9 +28,9 @@
   "look": "精致二维动画风格，明亮清爽的色彩，干净的线条与平涂阴影，现代都市日常短剧质感。",
   "setting": "午后明亮的自然光从画面一侧斜照进来，混着柔和的暖色环境光，整体明亮温暖。",
   "constraints": "全片一个生成片段，机位固定，两人始终保持左右位置与坐姿，全程都在画面内；一方说话时另一方的嘴唇保持闭合。全程中文对话，语气自然：角色2像在讲一件又好笑又无奈的事，越讲越起劲；角色1听得认真，有点替他着急。台词逐句说出，每句之间留短暂停顿；最后一句说完后角色1反应过来笑出声。画面中只有这两名角色。",
-  "target_duration_seconds": 14.0,
+  "target_duration_seconds": 18.6,
   "continuation_overlap_frames": 22,
-  "source_script": "角色2：你们说好笑不好笑，有一个同学，从没给我打过电话，现在要结婚了，给我送来了请帖，要我随礼。\n角色1动作：她微微皱起眉头，认真地看着他。\n角色1：同学结婚邀请你，是想跟你联络一下感情，别光想着钱，你这位同学是大学的还是中学的？\n角色2动作：他苦笑着摇了摇头。\n角色2：是驾校的，一起学了三天车\n角色1动作：她愣了一下，随即笑出声来。",
+  "source_script": "角色2：你们说好笑不好笑，有一个同学，从没给我打过电话，现在要结婚了，给我送来了请帖，要我随礼。\n角色1动作：她微微皱起眉头，认真地看着他。\n角色1：同学结婚邀请你，是想跟你联络一下感情，别光想着钱，你这位同学是大学的还是中学的？\n角色2动作：他苦笑着摇了摇头。\n角色2：是学车的，一共就学了三天车\n角色1动作：她愣了一下，随即笑出声来。",
   "shots": [
     {
       "id": "scene_01",
@@ -68,7 +68,7 @@
           "id": "event_005",
           "type": "dialogue",
           "character": "character_2",
-          "text": "是驾校的，一起学了三天车",
+          "text": "是学车的，一共就学了三天车",
           "language": "zh"
         },
         {
@@ -86,8 +86,8 @@
     "setting": "Bright afternoon daylight comes in from one side of the frame together with soft warm ambient light, keeping the whole image bright and warm.",
     "visible_state": "Bright afternoon daylight comes in from one side together with soft warm ambient light, keeping the whole frame bright and warm. Character 1 sits on the left of frame facing right, her arms folded, her cheeks slightly puffed and her gaze turned away with a cool, guarded look. Character 2 sits on the right of frame facing left, one hand raised near his temple in a boyish salute, wearing a broad open grin.",
     "voices": {
-      "character_1": "young female, sweet mid voice, held tight and restrained, quick and slightly stumbling when she explains, a short humph at the end",
-      "character_2": "young male, athletic voice, chest-supported stable mid pitch, brisk, a laugh when pleased, not a high bright boy voice"
+      "character_1": "young female, sweet mid register, restrained and cool, steady pace, clear articulation",
+      "character_2": "young male, athletic chest-supported voice, stable mid pitch, brisk and even pace, clear articulation"
     },
     "directions": {
       "event_002": "Character 1 furrows her brows slightly and studies Character 2 with a serious, questioning look.",
