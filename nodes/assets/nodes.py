@@ -988,9 +988,10 @@ class LoadStoryboardAsset(object):
             },
         }
 
-    RETURN_TYPES = (STORYBOARD_BUNDLE_TYPE, "STRING")
-    RETURN_NAMES = ("storyboard", "status")
+    RETURN_TYPES = (STORYBOARD_BUNDLE_TYPE, "STRING", "STRING")
+    RETURN_NAMES = ("storyboard", "status", "preview")
     FUNCTION = "load"
+    OUTPUT_NODE = True
 
     @classmethod
     def IS_CHANGED(cls, library_dir, name):
@@ -1004,7 +1005,13 @@ class LoadStoryboardAsset(object):
         cleaned, path = _storyboard.load_storyboard(library_dir, name)
         bundle = dict(cleaned)  # pure dict: the builder reads JSON-shaped data
         bundle["_path"] = path
-        return (bundle, "ok (%s)" % path)
+        # Show what was actually loaded - cast, every event, the delivered
+        # duration and the render-risk warnings - on the node itself.
+        preview = _storyboard.storyboard_preview(cleaned)
+        return {"ui": {"text": preview},
+                "storyboard": (bundle,),
+                "status": ("ok (%s)" % path,),
+                "preview": (preview,)}
 
 
 class SaveStoryboardAsset(object):

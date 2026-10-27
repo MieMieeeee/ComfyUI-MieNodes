@@ -744,9 +744,18 @@ def _storyboards_dir(library_dir):
 
 
 def _storyboard_path(library_dir, name):
-    """Absolute path to ``<root>/storyboards/<name>/storyboard.json``."""
+    """Absolute path to ``<root>/storyboards/<name>/storyboard.json``.
+
+    Falls back to the storyboards shipped inside the plugin package, so a
+    shared storyboard can be loaded without importing it first.
+    """
     n = _library.validate_name(name)
-    return _storyboards_dir(library_dir) / n / STORYBOARD_JSON_NAME
+    path = _storyboards_dir(library_dir) / n / STORYBOARD_JSON_NAME
+    if path.is_file():
+        return path
+    bundled = (_library.bundled_library_root() / STORYBOARDS_DIRNAME / n
+               / STORYBOARD_JSON_NAME)
+    return bundled if bundled.is_file() else path
 
 
 def save_storyboard(library_dir, payload):
@@ -826,16 +835,25 @@ def list_storyboards(library_dir):
     sb_dir = _storyboards_dir(library_dir)
     names: list[str] = []
     skipped: list[str] = []
-    if not sb_dir.is_dir():
-        return {"names": "", "status": "ok"}
-    for entry in sb_dir.iterdir():
-        if not entry.is_dir():
-            continue
-        reason = _storyboard_entry_problem(entry)
-        if reason is None:
-            names.append(entry.name)
-        else:
-            skipped.append("skipped %s: %s" % (entry.name, reason))
+    if sb_dir.is_dir():
+        for entry in sb_dir.iterdir():
+            if not entry.is_dir():
+                continue
+            reason = _storyboard_entry_problem(entry)
+            if reason is None:
+                names.append(entry.name)
+            else:
+                skipped.append("skipped %s: %s" % (entry.name, reason))
+    # Storyboards shipped inside the plugin package are listed too; a user
+    # library entry with the same name wins.
+    bundled_dir = _library.bundled_library_root() / STORYBOARDS_DIRNAME
+    if bundled_dir.is_dir():
+        known = {n.casefold() for n in names}
+        for entry in bundled_dir.iterdir():
+            if not entry.is_dir() or entry.name.casefold() in known:
+                continue
+            if _storyboard_entry_problem(entry) is None:
+                names.append(entry.name)
     return {
         "names": "\n".join(sorted(names)),
         "status": "ok" if not skipped else "\n".join(skipped),
@@ -962,6 +980,46 @@ def storyboard_requirements(cleaned: dict) -> list[dict]:
         "note": "",
     })
     return out
+
+
+def storyboard_preview(cleaned):
+    """Human-readable summary of one validated v2 storyboard asset.
+
+    Shows what the asset actually contains and how long it will run:
+    cast, per-shot events, the delivered duration and the render-risk
+    warnings. Shared by the loader node (on-canvas display) and the
+    generator node's text output.
+    """
+    from .storyboard_contract import allocate_frames, storyboard_warnings
+    asset = cleaned
+    if asset.get("version") != 2:
+        return "（非 v2 资产：%s）" % asset.get("version")
+    frames = allocate_frames(asset)
+    overlap = asset.get("continuation_overlap_frames", 22)
+    delivered = (sum(frames) - overlap * (len(frames) - 1)) / 24
+    names = {r["id"]: r["name"] for r in asset.get("roles", [])}
+    lines = ["%s · %s" % (asset.get("name", "?"), "分镜资产 v%d" % asset.get("version", 2))]
+    lines.append("角色 %d 位：%s" % (
+        len(asset.get("roles", [])),
+        "、".join("%s(%s%s)" % (r["name"], r["presence"],
+                                "" if r["position"] == "none" else "/" + r["position"])
+                  for r in asset.get("roles", []))))
+    lines.append("生成片段 %d 段 · 预计交付 %.2f 秒 · 续接重叠 %d 帧" % (
+        len(frames), delivered, overlap))
+    for shot, length in zip(asset.get("shots", []), frames):
+        lines.append("— %s · 原始 %.2f 秒 · %d 事件" % (
+            shot.get("id"), length / 24, len(shot.get("events", []))))
+        for event in shot.get("events", []):
+            lines.append("    [%s] %s %s：%s" % (
+                event.get("id"), event.get("type"),
+                names.get(event.get("character"), event.get("character")),
+                event.get("text", "")))
+    warnings = storyboard_warnings(asset)
+    if warnings:
+        lines.append("⚠ 渲染风险：")
+        for warning in warnings:
+            lines.append("    " + warning)
+    return "\n".join(lines)
 
 
 def read_storyboard_meta(library_dir, name):

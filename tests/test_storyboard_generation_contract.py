@@ -198,7 +198,7 @@ def test_real_save_and_load_node_bundles_feed_v3(mods, tmp_path):
     saved = SaveStoryboardAsset().save(
         library_dir=str(tmp_path), name=NEW_NAME_SENTINEL,
         new_name=raw["name"], json_text=json.dumps(raw))[1]
-    loaded = LoadStoryboardAsset().load(str(tmp_path), raw["name"])[0]
+    loaded = LoadStoryboardAsset().load(str(tmp_path), raw["name"])["storyboard"][0]
     for bundle in (saved, loaded):
         assert "_path" in bundle
         out = mods["builder"].MiniMaxH3LoopPromptGeneratorV3().generate_v3(
@@ -352,3 +352,40 @@ def test_speech_budget_warning_flags_a_clip_packed_for_a_slow_delivery(mods):
     raw["shots"][0]["duration_seconds"] = 14.0
     raw["target_duration_seconds"] = 14.0
     assert not any("慢速语速" in w for w in contract.storyboard_warnings(raw))
+
+
+def test_bundled_assets_answer_names_the_user_library_does_not_have(mods, tmp_path, monkeypatch):
+    """Assets shipped inside the plugin are a fallback, never an override."""
+    import importlib
+    import shutil
+    from importlib import import_module
+    library = importlib.import_module(mods["storyboard"].__package__ + ".library")
+    storyboard = importlib.import_module(mods["storyboard"].__package__ + ".storyboard")
+    plugin_root = tmp_path / "plugin"
+    (plugin_root / "asset_library" / "characters").mkdir(parents=True)
+    (plugin_root / "bundled_assets" / "characters" / "内置猫").mkdir(parents=True)
+    (plugin_root / "bundled_assets" / "characters" / "内置猫" / "images").mkdir()
+    # a character entry needs at least one real PNG to pass the library's own check
+    png = next(Path("C:/PP/V9/V9-Large/ComfyUI_Mie_2026_V9.0_Large/ComfyUI/custom_nodes/"
+                    "comfyui_mienodes/asset_library/characters").rglob("*.png"), None)
+    if png is not None:
+        shutil.copy(png, plugin_root / "bundled_assets" / "characters" / "内置猫" / "images" / "01.png")
+    (plugin_root / "bundled_assets" / "characters" / "内置猫" / "character.json").write_text(
+        json.dumps({"name": "内置猫", "description": "bundled probe", "voice": "young female"},
+                   ensure_ascii=False), encoding="utf-8")
+    (plugin_root / "bundled_assets" / "storyboards" / "内置分镜").mkdir(parents=True)
+    (plugin_root / "bundled_assets" / "storyboards" / "内置分镜" / "storyboard.json").write_text(
+        json.dumps(apple(), ensure_ascii=False), encoding="utf-8")
+    # the storyboard's name must match its directory
+    payload = json.loads((plugin_root / "bundled_assets" / "storyboards" / "内置分镜"
+                          / "storyboard.json").read_text(encoding="utf-8"))
+    payload["name"] = "内置分镜"
+    (plugin_root / "bundled_assets" / "storyboards" / "内置分镜" / "storyboard.json").write_text(
+        json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+    monkeypatch.setattr(library, "PLUGIN_ROOT", plugin_root)
+    monkeypatch.setattr(storyboard, "_library", library)
+    names = library.list_characters("", plugin_root=plugin_root).get("names", "").splitlines()
+    assert "内置猫" in names
+    sb_names = storyboard.list_storyboards("").get("names", "").splitlines()
+    assert "内置分镜" in sb_names

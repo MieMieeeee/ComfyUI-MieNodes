@@ -90,12 +90,22 @@ _NAME_PATTERN = re.compile("[A-Za-z0-9_\\-\\u3400-\\u4DBF\\u4E00-\\u9FFF\\uF900-
 LIBRARY_DIR_ENV = "MIE_ASSET_LIBRARY"
 LIBRARY_DIRNAME = "asset_library"
 LEGACY_HOME_DIRNAME = "mie_asset_library"
+# Assets shipped INSIDE the plugin package. Read-only fallback: a user
+# library entry always wins, the bundled copy only answers names the user
+# does not have, so sharing characters/storyboards needs no import step.
+BUNDLED_DIRNAME = "bundled_assets"
 
 
 def fixed_library_root(plugin_root=None):
     """The machine's fixed library root: <plugin>/asset_library."""
     root = Path(plugin_root).resolve() if plugin_root is not None else PLUGIN_ROOT
     return root / LIBRARY_DIRNAME
+
+
+def bundled_library_root(plugin_root=None):
+    """The read-only assets shipped inside the plugin: <plugin>/bundled_assets."""
+    root = Path(plugin_root).resolve() if plugin_root is not None else PLUGIN_ROOT
+    return root / BUNDLED_DIRNAME
 
 
 def _migrate_legacy_home_library_once(target, plugin_root):
@@ -622,7 +632,12 @@ def load_character(library_dir, name, plugin_root=None):
     characters_dir = root / CHARACTERS_DIRNAME
     target_dir = _find_casefold_sibling(characters_dir, n)
     if target_dir is None or not target_dir.is_dir():
-        raise FileNotFoundError("character %r not found under %s" % (n, characters_dir))
+        # Fall back to the assets shipped inside the plugin package.
+        bundled = bundled_library_root(plugin_root) / CHARACTERS_DIRNAME
+        target_dir = _find_casefold_sibling(bundled, n)
+        if target_dir is None or not target_dir.is_dir():
+            raise FileNotFoundError(
+                "character %r not found under %s or %s" % (n, characters_dir, bundled))
     json_path = target_dir / CHARACTER_JSON_NAME
     payload = _read_asset_json(json_path, ("voice",))
     description = _require_description(payload, json_path)
@@ -717,16 +732,25 @@ def list_characters(library_dir, plugin_root=None):
     characters_dir = root / CHARACTERS_DIRNAME
     names = []
     skipped = []
-    if not characters_dir.is_dir():
-        return {"names": "", "status": "ok"}
-    for entry in characters_dir.iterdir():
-        if not entry.is_dir():
-            continue
-        reason = _character_entry_problem(entry)
-        if reason is None:
-            names.append(entry.name)
-        else:
-            skipped.append("skipped %s: %s" % (entry.name, reason))
+    if characters_dir.is_dir():
+        for entry in characters_dir.iterdir():
+            if not entry.is_dir():
+                continue
+            reason = _character_entry_problem(entry)
+            if reason is None:
+                names.append(entry.name)
+            else:
+                skipped.append("skipped %s: %s" % (entry.name, reason))
+    # Assets shipped inside the plugin: listed too, but a user library
+    # entry with the same name wins.
+    bundled_dir = bundled_library_root(plugin_root) / CHARACTERS_DIRNAME
+    if bundled_dir.is_dir():
+        known = {n.casefold() for n in names}
+        for entry in bundled_dir.iterdir():
+            if not entry.is_dir() or entry.name.casefold() in known:
+                continue
+            if _character_entry_problem(entry) is None:
+                names.append(entry.name)
     return {
         "names": "\n".join(sorted(names)),
         "status": "ok" if not skipped else "\n".join(skipped),
@@ -1037,7 +1061,11 @@ def load_scene(library_dir, name, plugin_root=None):
     scenes_dir = root / SCENES_DIRNAME
     target_dir = _find_casefold_sibling(scenes_dir, n)
     if target_dir is None or not target_dir.is_dir():
-        raise FileNotFoundError("scene %r not found under %s" % (n, scenes_dir))
+        bundled = bundled_library_root(plugin_root) / SCENES_DIRNAME
+        target_dir = _find_casefold_sibling(bundled, n)
+        if target_dir is None or not target_dir.is_dir():
+            raise FileNotFoundError(
+                "scene %r not found under %s or %s" % (n, scenes_dir, bundled))
     json_path = target_dir / SCENE_JSON_NAME
     payload = _read_asset_json(json_path, ("description",))
     if payload["name"] != target_dir.name:
@@ -1067,16 +1095,23 @@ def list_scenes(library_dir, plugin_root=None):
     scenes_dir = root / SCENES_DIRNAME
     names = []
     skipped = []
-    if not scenes_dir.is_dir():
-        return {"names": "", "status": "ok"}
-    for entry in scenes_dir.iterdir():
-        if not entry.is_dir():
-            continue
-        reason = _scene_entry_problem(entry)
-        if reason is None:
-            names.append(entry.name)
-        else:
-            skipped.append("skipped %s: %s" % (entry.name, reason))
+    if scenes_dir.is_dir():
+        for entry in scenes_dir.iterdir():
+            if not entry.is_dir():
+                continue
+            reason = _scene_entry_problem(entry)
+            if reason is None:
+                names.append(entry.name)
+            else:
+                skipped.append("skipped %s: %s" % (entry.name, reason))
+    bundled_dir = bundled_library_root(plugin_root) / SCENES_DIRNAME
+    if bundled_dir.is_dir():
+        known = {n.casefold() for n in names}
+        for entry in bundled_dir.iterdir():
+            if not entry.is_dir() or entry.name.casefold() in known:
+                continue
+            if _scene_entry_problem(entry) is None:
+                names.append(entry.name)
     return {
         "names": "\n".join(sorted(names)),
         "status": "ok" if not skipped else "\n".join(skipped),
