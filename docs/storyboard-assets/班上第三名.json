@@ -1,0 +1,114 @@
+{
+  "version": 2,
+  "name": "班上第三名",
+  "language": "zh",
+  "roles": [
+    {
+      "id": "character_1",
+      "name": "霜糖",
+      "presence": "on_screen",
+      "initially_visible": true,
+      "position": "left",
+      "voice": "young female, sweet mid voice, held tight and restrained, quick and slightly stumbling when she explains, a short humph at the end"
+    },
+    {
+      "id": "character_2",
+      "name": "曜阳",
+      "presence": "on_screen",
+      "initially_visible": true,
+      "position": "right",
+      "voice": "young male, athletic voice, chest-supported stable mid pitch, brisk, a laugh when pleased, not a high bright boy voice"
+    }
+  ],
+  "camera": {
+    "framing": "two_shot",
+    "movement": "locked",
+    "perspective": "observer"
+  },
+  "look": "精致二维动画风格，明亮清爽的色彩，干净的线条与平涂阴影，现代都市日常短剧质感。",
+  "setting": "午后明亮的自然光从画面一侧斜照进来，混着柔和的暖色环境光，整体明亮温暖。",
+  "constraints": "全片一个生成片段，机位固定，两人始终保持左右位置与坐姿，全程都在画面内；一方说话时另一方的嘴唇保持闭合。全程中文对话，语气自然：角色1嘴硬心软，角色2自信又死要面子。台词逐句说出，每句之间留短暂停顿；角色2先得意，最后一句时笑容收住。画面中只有这两名角色。",
+  "target_duration_seconds": 8.2,
+  "continuation_overlap_frames": 22,
+  "source_script": "角色1：你在班上排名第几呀？\n角色1动作：她抬起眼睛看向对方，目光里带着好奇。\n角色2：第三。\n角色2动作：他咧嘴笑起来，眼神里带着得意。\n角色1：呦，不错嘛。\n角色1动作：她挑了挑眉，嘴角撇出一个不太信服的笑。\n角色2：那当然了。只有两个同学，实在是打不过。\n角色2动作：他的笑容慢慢收住，眼神往旁边飘了一下。",
+  "shots": [
+    {
+      "id": "scene_01",
+      "duration_seconds": 8.2,
+      "events": [
+        {
+          "id": "event_001",
+          "type": "dialogue",
+          "character": "character_1",
+          "text": "你在班上排名第几呀？",
+          "language": "zh"
+        },
+        {
+          "id": "event_002",
+          "type": "action",
+          "character": "character_1",
+          "text": "她抬起眼睛看向对方，目光里带着好奇。",
+          "language": "zh"
+        },
+        {
+          "id": "event_003",
+          "type": "dialogue",
+          "character": "character_2",
+          "text": "第三。",
+          "language": "zh"
+        },
+        {
+          "id": "event_004",
+          "type": "action",
+          "character": "character_2",
+          "text": "他咧嘴笑起来，眼神里带着得意。",
+          "language": "zh"
+        },
+        {
+          "id": "event_005",
+          "type": "dialogue",
+          "character": "character_1",
+          "text": "呦，不错嘛。",
+          "language": "zh"
+        },
+        {
+          "id": "event_006",
+          "type": "action",
+          "character": "character_1",
+          "text": "她挑了挑眉，嘴角撇出一个不太信服的笑。",
+          "language": "zh"
+        },
+        {
+          "id": "event_007",
+          "type": "dialogue",
+          "character": "character_2",
+          "text": "那当然了。只有两个同学，实在是打不过。",
+          "language": "zh"
+        },
+        {
+          "id": "event_008",
+          "type": "action",
+          "character": "character_2",
+          "text": "他的笑容慢慢收住，眼神往旁边飘了一下。",
+          "language": "zh"
+        }
+      ]
+    }
+  ],
+  "execution": {
+    "look": "A refined two-dimensional animation style with a bright clean palette, clean linework and flat cel shading, in the look of a contemporary urban slice-of-life short film.",
+    "setting": "Bright afternoon daylight comes in from one side of the frame together with soft warm ambient light, keeping the whole image bright and warm.",
+    "visible_state": "Bright afternoon daylight comes in from one side together with soft warm ambient light, keeping the whole frame bright and warm. Character 1 sits on the left of frame facing right, her arms folded, her cheeks slightly puffed and her gaze turned away with a cool, guarded look. Character 2 sits on the right of frame facing left, one hand raised near his temple in a boyish salute, wearing a broad open grin.",
+    "voices": {
+      "character_1": "young female, sweet mid voice, held tight and restrained, quick and slightly stumbling when she explains, a short humph at the end",
+      "character_2": "young male, athletic voice, chest-supported stable mid pitch, brisk, a laugh when pleased, not a high bright boy voice"
+    },
+    "directions": {
+      "event_002": "Character 1 lifts her eyes toward Character 2 with a curious look, her brows slightly raised.",
+      "event_004": "Character 2 breaks into a broad grin with a proud, playful look in his eyes.",
+      "event_006": "Character 1 raises her brows and pulls a skeptical half-smile.",
+      "event_008": "Character 2's grin fades into a sheepish look as his gaze drifts off to the side."
+    }
+  },
+  "audio_mode": "reference"
+}

@@ -1,0 +1,136 @@
+{
+  "version": 2,
+  "name": "下班前上线",
+  "language": "zh",
+  "roles": [
+    {
+      "id": "character_1",
+      "name": "凌澈",
+      "presence": "on_screen",
+      "initially_visible": true,
+      "position": "left",
+      "voice": "young male, clean mid voice, flat and short, no smile, no rise, no breathiness, cold wording"
+    },
+    {
+      "id": "character_2",
+      "name": "砚舟",
+      "presence": "on_screen",
+      "initially_visible": true,
+      "position": "center",
+      "voice": "young male, clear warm voice, mid-low, chest-supported, slow and loose, one soft laugh at the end"
+    },
+    {
+      "id": "character_3",
+      "name": "旁白",
+      "presence": "off_screen",
+      "initially_visible": false,
+      "position": "none",
+      "voice": "young male news anchor, steady chest voice, clear diction, mid-low pitch, flat professional delivery"
+    }
+  ],
+  "camera": {
+    "framing": "two_shot",
+    "movement": "locked",
+    "perspective": "observer"
+  },
+  "look": "半写实插画风格，细腻笔触与柔和光影，暖色灯光与冷色夜窗对比，安静的都市夜戏质感。",
+  "setting": "夜晚的室内：暖色灯光从一侧照过来，窗外透进深蓝色的夜光，暖冷对比。环境中任何可见文字都是中文。",
+  "constraints": "全片两个生成片段：第一段是当天夜里，第二段是第二天夜里，跨越一天由画外旁白在第二段开头点明（此处不裁剪续接帧，旁白不会被剪掉）。机位固定，角色1在画面左侧，角色2坐在书桌前的位置，全程都在画面内；一方说话时另一方的嘴唇保持闭合。角色3只出声不出镜。角色1语气急躁、催得紧，角色2语气慢而稳。全程中文对话。画面中只有这两名角色。",
+  "target_duration_seconds": 12.0,
+  "continuation_overlap_frames": 0,
+  "source_script": "角色1：小程，下班前新版本一定要上线！\n角色2：好的，没问题！\n角色2离场：关门出去。\n角色1离场：他转身跟着走了出去。\n角色3：第二天\n角色1入场：开门进来\n角色2入场：他已经在书桌前的转椅里坐好，抬头看向门口。\n角色1：新版本怎么还没上线？\n角色2：我还没下班呢",
+  "shots": [
+    {
+      "id": "scene_01",
+      "duration_seconds": 6.0,
+      "events": [
+        {
+          "id": "event_001",
+          "type": "dialogue",
+          "character": "character_1",
+          "text": "小程，下班前新版本一定要上线！",
+          "language": "zh"
+        },
+        {
+          "id": "event_002",
+          "type": "dialogue",
+          "character": "character_2",
+          "text": "好的，没问题！",
+          "language": "zh"
+        },
+        {
+          "id": "event_003",
+          "type": "exit",
+          "character": "character_2",
+          "text": "关门出去。",
+          "language": "zh"
+        },
+        {
+          "id": "event_004",
+          "type": "exit",
+          "character": "character_1",
+          "text": "他转身跟着走了出去。",
+          "language": "zh"
+        }
+      ]
+    },
+    {
+      "id": "scene_02",
+      "duration_seconds": 6.0,
+      "events": [
+        {
+          "id": "event_005",
+          "type": "dialogue",
+          "character": "character_3",
+          "text": "第二天",
+          "language": "zh"
+        },
+        {
+          "id": "event_006",
+          "type": "enter",
+          "character": "character_1",
+          "text": "开门进来",
+          "language": "zh"
+        },
+        {
+          "id": "event_007",
+          "type": "enter",
+          "character": "character_2",
+          "text": "他已经在书桌前的转椅里坐好，抬头看向门口。",
+          "language": "zh"
+        },
+        {
+          "id": "event_008",
+          "type": "dialogue",
+          "character": "character_1",
+          "text": "新版本怎么还没上线？",
+          "language": "zh"
+        },
+        {
+          "id": "event_009",
+          "type": "dialogue",
+          "character": "character_2",
+          "text": "我还没下班呢",
+          "language": "zh"
+        }
+      ]
+    }
+  ],
+  "execution": {
+    "look": "A semi-realistic illustration style with fine brushwork and soft light, contrasting warm lamp glow against cool night light from the window, in the quiet mood of an urban night scene.",
+    "setting": "Night indoors: warm light falls from one side while deep blue night light comes through the window, warm against cool. Every legible text in the environment is in Chinese.",
+    "visible_state": "Warm lamp light falls from one side and deep blue night light comes through the window, keeping the frame warm against cool blue. Character 1 stands on the left of frame facing right with a cool, flat, unhurried expression, a grey scarf held at his neck. Character 2 sits on the right of frame in the swivel chair at the desk, facing left, a cup of tea in his hand, looking up calmly.",
+    "voices": {
+      "character_1": "young male, clean mid voice, flat and short, no smile, no rise, no breathiness, cold wording",
+      "character_2": "young male, clear warm voice, mid-low, chest-supported, slow and loose, one soft laugh at the end",
+      "character_3": "young male news anchor, steady chest voice, clear diction, mid-low pitch, flat professional delivery"
+    },
+    "directions": {
+      "event_003": "Character 2 pushes the door shut and walks out of frame.",
+      "event_004": "Character 1 turns around and follows him out of frame.",
+      "event_006": "Character 1 opens the door and steps into the room, still mid-sentence.",
+      "event_007": "Character 2 is already seated in the swivel chair at the desk, looking up toward the door with a cup of tea in his hand."
+    }
+  },
+  "audio_mode": "reference"
+}
