@@ -9,7 +9,7 @@
       "presence": "on_screen",
       "initially_visible": true,
       "position": "left",
-      "voice": "young female, sweet mid register, restrained and cool, steady pace, clear articulation"
+      "voice": "young female, sweet high-mid register, restrained and cool, steady pace, clear articulation"
     },
     {
       "id": "character_2",
@@ -100,7 +100,7 @@
     "setting": "Bright afternoon daylight comes in from one side of the frame together with soft warm ambient light, keeping the whole image bright and warm.",
     "visible_state": "Bright afternoon daylight comes in from one side together with soft warm ambient light, keeping the whole frame bright and warm. Character 1 sits on the left of frame facing right, sitting back in her chair with a cool, guarded look and her chin slightly lifted. Character 2 sits on the right of frame facing left, leaning forward a little with his forearms resting on the table and a broad open grin.",
     "voices": {
-      "character_1": "young female, sweet mid register, restrained and cool, steady pace, clear articulation",
+      "character_1": "young female, sweet high-mid register, restrained and cool, steady pace, clear articulation",
       "character_2": "young male, athletic chest-supported voice, stable mid pitch, brisk and even pace, clear articulation"
     },
     "directions": {

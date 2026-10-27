@@ -9,7 +9,7 @@
       "presence": "on_screen",
       "initially_visible": true,
       "position": "left",
-      "voice": "young male, clean mid voice, flat and even, deadpan, cold, short phrasing"
+      "voice": "young male, clean low-mid register, flat and even, deadpan, cold, short phrasing"
     },
     {
       "id": "character_2",
@@ -17,7 +17,7 @@
       "presence": "on_screen",
       "initially_visible": true,
       "position": "center",
-      "voice": "young male, clear warm mid-low voice, chest-supported, slow and relaxed pace"
+      "voice": "young male, clear warm mid register, chest-supported, slow and relaxed pace"
     }
   ],
   "camera": {
@@ -106,8 +106,8 @@
     "setting": "An office corner: a desk stands by the window with one glowing computer monitor and a desk lamp on it, a mug of tea beside the keyboard, and the city visible far outside the window. Character 2 works at the desk in the swivel chair facing the computer the whole time, while Character 1 leaves and comes back the next morning. Every legible text in the environment, including the screen, is in Chinese.",
     "visible_state": "A desk by the window with one glowing computer monitor and a desk lamp, a mug of tea beside the keyboard, and the city far outside the window. Character 2 sits in the swivel chair facing the monitor with both hands on the keyboard, his face lit by the screen glow, and Character 1 stands on the left of frame facing right.",
     "voices": {
-      "character_1": "young male, clean mid voice, flat and even, deadpan, cold, short phrasing",
-      "character_2": "young male, clear warm mid-low voice, chest-supported, slow and relaxed pace"
+      "character_1": "young male, clean low-mid register, flat and even, deadpan, cold, short phrasing",
+      "character_2": "young male, clear warm mid register, chest-supported, slow and relaxed pace"
     },
     "directions": {
       "event_003": "Character 1 pushes the door shut and walks out of frame, and the room is left lit by the desk lamp and the monitor glow while Character 2 stays at the desk.",
