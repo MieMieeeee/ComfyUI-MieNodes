@@ -1,0 +1,3057 @@
+{
+  "revision": 0,
+  "last_node_id": 88,
+  "last_link_id": 184,
+  "nodes": [
+    {
+      "id": 16,
+      "type": "BasicGuider",
+      "pos": [
+        2914.5975432214836,
+        196.2866687166025
+      ],
+      "size": [
+        360,
+        104
+      ],
+      "flags": {},
+      "order": 26,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 29
+        },
+        {
+          "name": "conditioning",
+          "type": "CONDITIONING",
+          "link": 30
+        }
+      ],
+      "outputs": [
+        {
+          "name": "GUIDER",
+          "type": "GUIDER",
+          "links": [
+            18
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.35.0",
+        "Node name for S&R": "BasicGuider"
+      }
+    },
+    {
+      "id": 17,
+      "type": "RandomNoise",
+      "pos": [
+        2920.0753417901005,
+        523.0680981283763
+      ],
+      "size": [
+        360,
+        132
+      ],
+      "flags": {},
+      "order": 22,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "noise_seed",
+          "type": "INT",
+          "widget": {
+            "name": "noise_seed"
+          },
+          "link": 31
+        }
+      ],
+      "outputs": [
+        {
+          "name": "NOISE",
+          "type": "NOISE",
+          "links": [
+            17
+          ]
+        }
+      ],
+      "title": "Scene Seed",
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.35.0",
+        "Node name for S&R": "RandomNoise"
+      },
+      "widgets_values": [
+        0,
+        "fixed"
+      ],
+      "widgets_values_named": {
+        "noise_seed": 0,
+        "control_after_generate": "fixed"
+      }
+    },
+    {
+      "id": 12,
+      "type": "VAEDecode",
+      "pos": [
+        3830.5971332334225,
+        370.0626545463299
+      ],
+      "size": [
+        360,
+        104
+      ],
+      "flags": {},
+      "order": 29,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "samples",
+          "type": "LATENT",
+          "link": 15
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": 16
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            34
+          ]
+        }
+      ],
+      "title": "VAEDecode",
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.35.0",
+        "Node name for S&R": "VAEDecode"
+      }
+    },
+    {
+      "id": 23,
+      "type": "MiniMaxH3LoopTrim",
+      "pos": [
+        3820.425331491136,
+        549.4811236837261
+      ],
+      "size": [
+        420,
+        250
+      ],
+      "flags": {},
+      "order": 30,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 34
+        },
+        {
+          "name": "audio",
+          "shape": 7,
+          "type": "AUDIO",
+          "link": 35
+        },
+        {
+          "name": "state",
+          "shape": 7,
+          "type": "H3_CHAIN_STATE",
+          "link": 36
+        },
+        {
+          "name": "trim_frames",
+          "type": "INT",
+          "widget": {
+            "name": "trim_frames"
+          },
+          "link": 37
+        }
+      ],
+      "outputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "links": [
+            8,
+            44
+          ]
+        },
+        {
+          "name": "audio",
+          "type": "AUDIO",
+          "links": [
+            46,
+            50
+          ]
+        },
+        {
+          "name": "images_with_overlap",
+          "type": "IMAGE",
+          "links": [
+            47
+          ]
+        },
+        {
+          "name": "overlap_frames",
+          "type": "INT",
+          "links": null
+        }
+      ],
+      "title": "Trim Carried Overlap",
+      "properties": {
+        "cnr_id": "comfyui-minimaxh3-contex-loop",
+        "ver": "2b4c7d3bc82d6d4a167fd6b47d6d219ee7264759",
+        "Node name for S&R": "MiniMaxH3LoopTrim",
+        "aux_id": "ethanfel/ComfyUI-MiniMaxH3-Context-Loop"
+      },
+      "widgets_values": [
+        0,
+        24,
+        true,
+        "sync_with_video"
+      ],
+      "widgets_values_named": {
+        "trim_frames": 0,
+        "fps": 24,
+        "match_tail": true,
+        "audio_trim_mode": "sync_with_video"
+      }
+    },
+    {
+      "id": 11,
+      "type": "VAEDecodeAudio",
+      "pos": [
+        3845.4865270758396,
+        196.2866687166025
+      ],
+      "size": [
+        360,
+        104
+      ],
+      "flags": {},
+      "order": 28,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "samples",
+          "type": "LATENT",
+          "link": 13
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": 14
+        }
+      ],
+      "outputs": [
+        {
+          "name": "AUDIO",
+          "type": "AUDIO",
+          "links": [
+            35
+          ]
+        }
+      ],
+      "title": "VAEDecode Audio",
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.35.0",
+        "Node name for S&R": "VAEDecodeAudio"
+      }
+    },
+    {
+      "id": 13,
+      "type": "SamplerCustomAdvanced",
+      "pos": [
+        3351.7821574197715,
+        196.2866687166025
+      ],
+      "size": [
+        360,
+        164
+      ],
+      "flags": {},
+      "order": 27,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "noise",
+          "type": "NOISE",
+          "link": 17
+        },
+        {
+          "name": "guider",
+          "type": "GUIDER",
+          "link": 18
+        },
+        {
+          "name": "sampler",
+          "type": "SAMPLER",
+          "link": 19
+        },
+        {
+          "name": "sigmas",
+          "type": "SIGMAS",
+          "link": 20
+        },
+        {
+          "name": "latent_image",
+          "type": "LATENT",
+          "link": 21
+        }
+      ],
+      "outputs": [
+        {
+          "name": "output",
+          "type": "LATENT",
+          "links": [
+            9,
+            13,
+            15,
+            45
+          ]
+        },
+        {
+          "name": "denoised_output",
+          "type": "LATENT",
+          "links": null
+        }
+      ],
+      "title": "Sample Video + Audio",
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.35.0",
+        "Node name for S&R": "SamplerCustomAdvanced"
+      }
+    },
+    {
+      "id": 27,
+      "type": "ModelAttentionBackend",
+      "pos": [
+        968.8251676316756,
+        196.2866687166025
+      ],
+      "size": [
+        360,
+        108
+      ],
+      "flags": {},
+      "order": 13,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 53
+        }
+      ],
+      "outputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "links": [
+            2
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.35.0",
+        "Node name for S&R": "ModelAttentionBackend"
+      },
+      "widgets_values": [
+        "comfy kitchen attention"
+      ],
+      "widgets_values_named": {
+        "attention": "comfy kitchen attention"
+      }
+    },
+    {
+      "id": 20,
+      "type": "CLIPLoader",
+      "pos": [
+        264.38081583472103,
+        528.5345055931533
+      ],
+      "size": [
+        566.973735483275,
+        141.98950645202945
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "CLIP",
+          "type": "CLIP",
+          "links": [
+            94
+          ]
+        }
+      ],
+      "title": "H3 Text Encoder",
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.35.0",
+        "Node name for S&R": "CLIPLoader"
+      },
+      "widgets_values": [
+        "MiniMax-H3\\qwen3vl_32b_minimax_h3_int8_convrot.safetensors",
+        "minimax",
+        "default"
+      ],
+      "widgets_values_named": {
+        "clip_name": "MiniMax-H3\\qwen3vl_32b_minimax_h3_int8_convrot.safetensors",
+        "type": "minimax",
+        "device": "default"
+      },
+      "color": "#3a549f",
+      "bgcolor": "#26408b"
+    },
+    {
+      "id": 22,
+      "type": "VAELoader",
+      "pos": [
+        269.9752214291265,
+        866.6745303836868
+      ],
+      "size": [
+        552.3264384224542,
+        88.89472852125664
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "VAE",
+          "type": "VAE",
+          "links": [
+            16,
+            40,
+            96
+          ]
+        }
+      ],
+      "title": "Video VAE",
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.35.0",
+        "Node name for S&R": "VAELoader"
+      },
+      "widgets_values": [
+        "MiniMax-H3\\minimax_h3_video_vae_fp16.safetensors"
+      ],
+      "widgets_values_named": {
+        "vae_name": "MiniMax-H3\\minimax_h3_video_vae_fp16.safetensors"
+      },
+      "color": "#3a549f",
+      "bgcolor": "#26408b"
+    },
+    {
+      "id": 24,
+      "type": "MiniMaxH3ChainContext",
+      "pos": [
+        2438.0241166480555,
+        400.76495400687656
+      ],
+      "size": [
+        420,
+        260
+      ],
+      "flags": {},
+      "order": 25,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "state",
+          "type": "H3_CHAIN_STATE",
+          "link": 38
+        },
+        {
+          "name": "conditioning",
+          "type": "CONDITIONING",
+          "link": 98
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": 40
+        },
+        {
+          "name": "latent",
+          "type": "LATENT",
+          "link": 99
+        },
+        {
+          "name": "audio_vae",
+          "shape": 7,
+          "type": "VAE",
+          "link": 42
+        },
+        {
+          "name": "model",
+          "shape": 7,
+          "type": "MODEL",
+          "link": null
+        },
+        {
+          "name": "drift_sigmas",
+          "shape": 7,
+          "type": "SIGMAS",
+          "link": null
+        },
+        {
+          "name": "lip_sync_voice",
+          "shape": 7,
+          "type": "AUDIO",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "conditioning",
+          "type": "CONDITIONING",
+          "links": [
+            30
+          ]
+        },
+        {
+          "name": "trim_frames",
+          "type": "INT",
+          "links": [
+            37
+          ]
+        },
+        {
+          "name": "is_continuation",
+          "type": "BOOLEAN",
+          "links": null
+        },
+        {
+          "name": "latent",
+          "type": "LATENT",
+          "links": [
+            21
+          ]
+        },
+        {
+          "name": "model",
+          "type": "MODEL",
+          "links": null
+        }
+      ],
+      "title": "Apply Scene Context",
+      "properties": {
+        "cnr_id": "comfyui-minimaxh3-contex-loop",
+        "ver": "2b4c7d3bc82d6d4a167fd6b47d6d219ee7264759",
+        "Node name for S&R": "MiniMaxH3ChainContext",
+        "aux_id": "ethanfel/ComfyUI-MiniMaxH3-Context-Loop"
+      }
+    },
+    {
+      "id": 25,
+      "type": "MiniMaxH3ChainSegmentSave",
+      "pos": [
+        4407.504744609461,
+        199.6772046277792
+      ],
+      "size": [
+        460,
+        220
+      ],
+      "flags": {},
+      "order": 31,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "state",
+          "type": "H3_CHAIN_STATE",
+          "link": 43
+        },
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 44
+        },
+        {
+          "name": "sampled_latent",
+          "type": "LATENT",
+          "link": 45
+        },
+        {
+          "name": "audio",
+          "shape": 7,
+          "type": "AUDIO",
+          "link": 46
+        },
+        {
+          "name": "images_with_overlap",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": 47
+        },
+        {
+          "name": "denoised_latent",
+          "shape": 7,
+          "type": "LATENT",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "segment",
+          "type": "H3_CHAIN_SEGMENT",
+          "links": [
+            49
+          ]
+        },
+        {
+          "name": "status",
+          "type": "STRING",
+          "links": null
+        }
+      ],
+      "title": "Save Segment + Checkpoint",
+      "properties": {
+        "cnr_id": "comfyui-minimaxh3-contex-loop",
+        "ver": "2b4c7d3bc82d6d4a167fd6b47d6d219ee7264759",
+        "Node name for S&R": "MiniMaxH3ChainSegmentSave",
+        "aux_id": "ethanfel/ComfyUI-MiniMaxH3-Context-Loop"
+      }
+    },
+    {
+      "id": 2,
+      "type": "MiniMaxH3SigmaShift",
+      "pos": [
+        2450.8000275530703,
+        196.2866687166025
+      ],
+      "size": [
+        360,
+        132
+      ],
+      "flags": {},
+      "order": 17,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 2
+        }
+      ],
+      "outputs": [
+        {
+          "name": "MODEL",
+          "type": "MODEL",
+          "links": [
+            29,
+            32
+          ]
+        }
+      ],
+      "title": "Sigma Shift",
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.35.0",
+        "Node name for S&R": "MiniMaxH3SigmaShift"
+      },
+      "widgets_values": [
+        12,
+        3
+      ],
+      "widgets_values_named": {
+        "shift_video": 12,
+        "shift_audio": 3
+      }
+    },
+    {
+      "id": 8,
+      "type": "MiniMaxH3ChainLoopEnd",
+      "pos": [
+        5219.822694447326,
+        204.5319140768721
+      ],
+      "size": [
+        420,
+        220
+      ],
+      "flags": {},
+      "order": 33,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "flow",
+          "type": "H3_CHAIN_FLOW",
+          "link": 6
+        },
+        {
+          "name": "state",
+          "type": "H3_CHAIN_STATE",
+          "link": 7
+        },
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 8
+        },
+        {
+          "name": "sampled_latent",
+          "type": "LATENT",
+          "link": 9
+        },
+        {
+          "name": "segment",
+          "type": "H3_CHAIN_SEGMENT",
+          "link": 10
+        }
+      ],
+      "outputs": [
+        {
+          "name": "manifest",
+          "type": "H3_CHAIN_MANIFEST",
+          "links": [
+            5
+          ]
+        },
+        {
+          "name": "manifest_json",
+          "type": "STRING",
+          "links": null
+        },
+        {
+          "name": "last_context_frames",
+          "type": "IMAGE",
+          "links": null
+        },
+        {
+          "name": "last_context_latent",
+          "type": "LATENT",
+          "links": null
+        }
+      ],
+      "title": "Loop End",
+      "properties": {
+        "cnr_id": "comfyui-minimaxh3-contex-loop",
+        "ver": "2b4c7d3bc82d6d4a167fd6b47d6d219ee7264759",
+        "Node name for S&R": "MiniMaxH3ChainLoopEnd",
+        "aux_id": "ethanfel/ComfyUI-MiniMaxH3-Context-Loop"
+      },
+      "widgets_values": [
+        "off",
+        "recursive"
+      ],
+      "widgets_values_named": {
+        "between_scene_cleanup": "off",
+        "execution_mode": "recursive"
+      }
+    },
+    {
+      "id": 18,
+      "type": "KSamplerSelect",
+      "pos": [
+        2917.4920018346,
+        362.73828447612
+      ],
+      "size": [
+        360,
+        108
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "SAMPLER",
+          "type": "SAMPLER",
+          "links": [
+            19
+          ]
+        }
+      ],
+      "title": "Sampler",
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.35.0",
+        "Node name for S&R": "KSamplerSelect"
+      },
+      "widgets_values": [
+        "euler"
+      ],
+      "widgets_values_named": {
+        "sampler_name": "euler"
+      }
+    },
+    {
+      "id": 19,
+      "type": "BasicScheduler",
+      "pos": [
+        2915.074121863012,
+        705.2269757830366
+      ],
+      "size": [
+        360,
+        176
+      ],
+      "flags": {},
+      "order": 23,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 32
+        },
+        {
+          "name": "steps",
+          "type": "INT",
+          "widget": {
+            "name": "steps"
+          },
+          "link": 33
+        }
+      ],
+      "outputs": [
+        {
+          "name": "SIGMAS",
+          "type": "SIGMAS",
+          "links": [
+            20
+          ]
+        }
+      ],
+      "title": "Sampling Schedule",
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.35.0",
+        "Node name for S&R": "BasicScheduler"
+      },
+      "widgets_values": [
+        "simple",
+        20,
+        1
+      ],
+      "widgets_values_named": {
+        "scheduler": "simple",
+        "steps": 20,
+        "denoise": 1
+      }
+    },
+    {
+      "id": 4,
+      "type": "MiniMaxH3GenerationProfile",
+      "pos": [
+        1640.0282932400182,
+        1138.1924396393981
+      ],
+      "size": [
+        360,
+        152
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "lip_sync_options",
+          "shape": 7,
+          "type": "H3_LIP_SYNC_OPTIONS",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "chain_policy",
+          "type": "H3_CHAIN_POLICY",
+          "links": [
+            3
+          ]
+        },
+        {
+          "name": "status",
+          "type": "STRING",
+          "links": null
+        }
+      ],
+      "title": "Generation Profile",
+      "properties": {
+        "cnr_id": "comfyui-minimaxh3-contex-loop",
+        "ver": "2b4c7d3bc82d6d4a167fd6b47d6d219ee7264759",
+        "Node name for S&R": "MiniMaxH3GenerationProfile",
+        "aux_id": "ethanfel/ComfyUI-MiniMaxH3-Context-Loop"
+      },
+      "widgets_values": [
+        "Visual continuity",
+        "Generate audio"
+      ],
+      "widgets_values_named": {
+        "scene_continuity": "Visual continuity",
+        "audio_profile": "Generate audio"
+      }
+    },
+    {
+      "id": 26,
+      "type": "MiniMaxH3ChainReview",
+      "pos": [
+        4349.043206147923,
+        519.7755988367765
+      ],
+      "size": [
+        761.0526641611768,
+        926.8421577879149
+      ],
+      "flags": {},
+      "order": 32,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "state",
+          "type": "H3_CHAIN_STATE",
+          "link": 48
+        },
+        {
+          "name": "segment",
+          "type": "H3_CHAIN_SEGMENT",
+          "link": 49
+        },
+        {
+          "name": "audio",
+          "shape": 7,
+          "type": "AUDIO",
+          "link": 50
+        },
+        {
+          "name": "pending_review",
+          "shape": 7,
+          "type": "H3_REVIEW_DISPOSITION",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "segment",
+          "type": "H3_CHAIN_SEGMENT",
+          "links": [
+            10
+          ]
+        },
+        {
+          "name": "status",
+          "type": "STRING",
+          "links": null
+        }
+      ],
+      "title": "Review Candidates",
+      "properties": {
+        "cnr_id": "comfyui-minimaxh3-contex-loop",
+        "ver": "2b4c7d3bc82d6d4a167fd6b47d6d219ee7264759",
+        "Node name for S&R": "MiniMaxH3ChainReview",
+        "aux_id": "ethanfel/ComfyUI-MiniMaxH3-Context-Loop"
+      },
+      "widgets_values": [
+        false,
+        false,
+        0,
+        false,
+        true,
+        "checkpointed",
+        1,
+        false
+      ],
+      "widgets_values_named": {
+        "enabled": false,
+        "play_notification_sound": false,
+        "auto_continue_timeout_minutes": 0,
+        "unload_models_while_waiting": false,
+        "assemble_partial_on_stop": true,
+        "partial_audio_source": "checkpointed",
+        "candidate_count": 1,
+        "review_each_candidate": false
+      },
+      "color": "#3a549f",
+      "bgcolor": "#26408b"
+    },
+    {
+      "id": 29,
+      "type": "LoraLoaderModelOnly",
+      "pos": [
+        262.4023691457197,
+        388.09216446982117
+      ],
+      "size": [
+        572.5952232046347,
+        82
+      ],
+      "flags": {},
+      "order": 11,
+      "mode": 4,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 52
+        }
+      ],
+      "outputs": [
+        {
+          "name": "MODEL",
+          "type": "MODEL",
+          "links": [
+            53
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.31.1",
+        "Node name for S&R": "LoraLoaderModelOnly"
+      },
+      "widgets_values": [
+        "MiniMax-H3\\MiniMax-H3-Ref2VA-Acc-8Step_pruned_comfy.safetensors",
+        1
+      ],
+      "widgets_values_named": {
+        "lora_name": "MiniMax-H3\\MiniMax-H3-Ref2VA-Acc-8Step_pruned_comfy.safetensors",
+        "strength_model": 1
+      },
+      "color": "#3a549f",
+      "bgcolor": "#26408b"
+    },
+    {
+      "id": 5,
+      "type": "UNETLoader",
+      "pos": [
+        264.38081583472103,
+        196.2866687166025
+      ],
+      "size": [
+        571.1565511453525,
+        133.36413482427525
+      ],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "MODEL",
+          "type": "MODEL",
+          "links": [
+            52
+          ]
+        }
+      ],
+      "title": "H3 Diffusion Model",
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.35.0",
+        "Node name for S&R": "UNETLoader"
+      },
+      "widgets_values": [
+        "MiniMax-H3\\minimax_h3_ref2va_pruned_int8_convrot.safetensors",
+        "default"
+      ],
+      "widgets_values_named": {
+        "unet_name": "MiniMax-H3\\minimax_h3_ref2va_pruned_int8_convrot.safetensors",
+        "weight_dtype": "default"
+      },
+      "color": "#3a549f",
+      "bgcolor": "#26408b"
+    },
+    {
+      "id": 21,
+      "type": "VAELoader",
+      "pos": [
+        264.38081583472103,
+        727.4845590252824
+      ],
+      "size": [
+        561.8790741618259,
+        83.79995059048429
+      ],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "VAE",
+          "type": "VAE",
+          "links": [
+            14,
+            42,
+            97
+          ]
+        }
+      ],
+      "title": "Audio VAE",
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.35.0",
+        "Node name for S&R": "VAELoader"
+      },
+      "widgets_values": [
+        "MiniMax-H3\\minimax_h3_audio_vae_fp32.safetensors"
+      ],
+      "widgets_values_named": {
+        "vae_name": "MiniMax-H3\\minimax_h3_audio_vae_fp32.safetensors"
+      },
+      "color": "#3a549f",
+      "bgcolor": "#26408b"
+    },
+    {
+      "id": 15,
+      "type": "MiniMaxH3ChainCurrent",
+      "pos": [
+        1466.2759192405028,
+        672.4693315539145
+      ],
+      "size": [
+        312.03370021006435,
+        338
+      ],
+      "flags": {},
+      "order": 21,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "state",
+          "type": "H3_CHAIN_STATE",
+          "link": 28
+        }
+      ],
+      "outputs": [
+        {
+          "name": "state",
+          "type": "H3_CHAIN_STATE",
+          "links": [
+            7,
+            36,
+            38,
+            43,
+            48
+          ]
+        },
+        {
+          "name": "clip_index",
+          "type": "INT",
+          "links": null
+        },
+        {
+          "name": "clip_count",
+          "type": "INT",
+          "links": null
+        },
+        {
+          "name": "shot_id",
+          "type": "STRING",
+          "links": null
+        },
+        {
+          "name": "prompt",
+          "type": "STRING",
+          "links": [
+            105
+          ]
+        },
+        {
+          "name": "noise_seed",
+          "type": "INT",
+          "links": [
+            31
+          ]
+        },
+        {
+          "name": "length",
+          "type": "INT",
+          "links": [
+            102
+          ]
+        },
+        {
+          "name": "steps",
+          "type": "INT",
+          "links": [
+            33
+          ]
+        },
+        {
+          "name": "width",
+          "type": "INT",
+          "links": [
+            100
+          ]
+        },
+        {
+          "name": "height",
+          "type": "INT",
+          "links": [
+            101
+          ]
+        },
+        {
+          "name": "audio_start",
+          "type": "FLOAT",
+          "links": null
+        },
+        {
+          "name": "audio_duration",
+          "type": "FLOAT",
+          "links": null
+        },
+        {
+          "name": "source_audio_slice",
+          "type": "AUDIO",
+          "links": null
+        },
+        {
+          "name": "status",
+          "type": "STRING",
+          "links": null
+        },
+        {
+          "name": "video_blend_frames",
+          "type": "INT",
+          "links": null
+        }
+      ],
+      "title": "Current Scene",
+      "properties": {
+        "cnr_id": "comfyui-minimaxh3-contex-loop",
+        "ver": "2b4c7d3bc82d6d4a167fd6b47d6d219ee7264759",
+        "Node name for S&R": "MiniMaxH3ChainCurrent",
+        "aux_id": "ethanfel/ComfyUI-MiniMaxH3-Context-Loop"
+      },
+      "widgets_values": [
+        false
+      ],
+      "widgets_values_named": {
+        "align_audio_reference": false
+      }
+    },
+    {
+      "id": 6,
+      "type": "MiniMaxH3ChainLoopStart",
+      "pos": [
+        1465.8231375858645,
+        418.1080430411894
+      ],
+      "size": [
+        360,
+        216
+      ],
+      "flags": {},
+      "order": 20,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "plan",
+          "type": "H3_CHAIN_PLAN",
+          "link": 65
+        },
+        {
+          "name": "external_context",
+          "shape": 7,
+          "type": "H3_CHAIN_EXTERNAL_CONTEXT",
+          "link": null
+        },
+        {
+          "name": "source_timeline",
+          "shape": 7,
+          "type": "H3_SOURCE_TIMELINE",
+          "link": null
+        },
+        {
+          "name": "tagged_references",
+          "shape": 7,
+          "type": "H3_TAGGED_REFERENCES",
+          "link": null
+        },
+        {
+          "name": "reference_schedule",
+          "shape": 7,
+          "type": "H3_REFERENCE_SCHEDULE",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "flow",
+          "type": "H3_CHAIN_FLOW",
+          "links": [
+            6
+          ]
+        },
+        {
+          "name": "state",
+          "type": "H3_CHAIN_STATE",
+          "links": [
+            28
+          ]
+        },
+        {
+          "name": "status",
+          "type": "STRING",
+          "links": null
+        }
+      ],
+      "title": "Loop Start",
+      "properties": {
+        "cnr_id": "comfyui-minimaxh3-contex-loop",
+        "ver": "2b4c7d3bc82d6d4a167fd6b47d6d219ee7264759",
+        "Node name for S&R": "MiniMaxH3ChainLoopStart",
+        "aux_id": "ethanfel/ComfyUI-MiniMaxH3-Context-Loop"
+      },
+      "widgets_values": [
+        1,
+        "",
+        true
+      ],
+      "widgets_values_named": {
+        "start_clip": 1,
+        "scene_range": "",
+        "verify_resume_history": true
+      }
+    },
+    {
+      "id": 38,
+      "type": "MiniMaxH3ChainPreflight",
+      "pos": [
+        1466.939919163807,
+        191.54672135995796
+      ],
+      "size": [
+        333.52491707833724,
+        179.65858715185982
+      ],
+      "flags": {},
+      "order": 19,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "plan",
+          "type": "H3_CHAIN_PLAN",
+          "link": 64
+        },
+        {
+          "name": "source_timeline",
+          "shape": 7,
+          "type": "H3_SOURCE_TIMELINE",
+          "link": null
+        },
+        {
+          "name": "tagged_references",
+          "shape": 7,
+          "type": "H3_TAGGED_REFERENCES",
+          "link": null
+        },
+        {
+          "name": "reference_schedule",
+          "shape": 7,
+          "type": "H3_REFERENCE_SCHEDULE",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "plan",
+          "type": "H3_CHAIN_PLAN",
+          "links": [
+            65
+          ]
+        },
+        {
+          "name": "preflight",
+          "type": "H3_PREFLIGHT_REPORT",
+          "links": null
+        },
+        {
+          "name": "ready",
+          "type": "BOOLEAN",
+          "links": null
+        },
+        {
+          "name": "status",
+          "type": "STRING",
+          "links": null
+        },
+        {
+          "name": "report_json",
+          "type": "STRING",
+          "links": null
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfyui-minimaxh3-contex-loop",
+        "ver": "336ee236de09a92dd25b006bbd97b57f82e3639a",
+        "Node name for S&R": "MiniMaxH3ChainPreflight",
+        "aux_id": "ethanfel/ComfyUI-MiniMaxH3-Context-Loop"
+      },
+      "widgets_values": [
+        1,
+        "",
+        true
+      ],
+      "widgets_values_named": {
+        "start_clip": 1,
+        "scene_range": "",
+        "verify_resume_history": true
+      }
+    },
+    {
+      "id": 47,
+      "type": "MiniMaxH3ReferenceToVideo",
+      "pos": [
+        1948.2554535486474,
+        210.17103084436513
+      ],
+      "size": [
+        400,
+        504
+      ],
+      "flags": {},
+      "order": 24,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": 94
+        },
+        {
+          "name": "vae",
+          "shape": 7,
+          "type": "VAE",
+          "link": 96
+        },
+        {
+          "name": "audio_vae",
+          "shape": 7,
+          "type": "VAE",
+          "link": 97
+        },
+        {
+          "name": "ref_images.ref_image_0",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": 125
+        },
+        {
+          "name": "ref_images.ref_image_1",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": 184
+        },
+        {
+          "name": "ref_videos.ref_video_0",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "name": "ref_video_audios.ref_video_audio_0",
+          "shape": 7,
+          "type": "AUDIO",
+          "link": null
+        },
+        {
+          "name": "ref_audios.ref_audio_0",
+          "shape": 7,
+          "type": "AUDIO",
+          "link": 185
+        },
+        {
+          "name": "ref_audios.ref_audio_1",
+          "shape": 7,
+          "type": "AUDIO",
+          "link": null
+        },
+        {
+          "name": "ref_audios.ref_audio_2",
+          "shape": 7,
+          "type": "AUDIO",
+          "link": null
+        },
+        {
+          "name": "prompt",
+          "type": "STRING",
+          "widget": {
+            "name": "prompt"
+          },
+          "link": 105
+        },
+        {
+          "name": "width",
+          "type": "INT",
+          "widget": {
+            "name": "width"
+          },
+          "link": 100
+        },
+        {
+          "name": "height",
+          "type": "INT",
+          "widget": {
+            "name": "height"
+          },
+          "link": 101
+        },
+        {
+          "name": "length",
+          "type": "INT",
+          "widget": {
+            "name": "length"
+          },
+          "link": 102
+        },
+        {
+          "name": "ref_images.ref_image_2",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "name": "ref_video_audios.ref_video_audio_1",
+          "shape": 7,
+          "type": "AUDIO",
+          "link": null
+        },
+        {
+          "name": "ref_video_audios.ref_video_audio_2",
+          "shape": 7,
+          "type": "AUDIO",
+          "link": null
+        },
+        {
+          "name": "ref_images.ref_image_3",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "name": "ref_images.ref_image_4",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "name": "ref_videos.ref_video_1",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "positive",
+          "type": "CONDITIONING",
+          "links": [
+            98
+          ]
+        },
+        {
+          "name": "LATENT",
+          "type": "LATENT",
+          "links": [
+            99
+          ]
+        }
+      ],
+      "title": "④ H3：人物图 + 可选场景图",
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.35.0",
+        "Node name for S&R": "MiniMaxH3ReferenceToVideo"
+      },
+      "widgets_values": [
+        "",
+        1344,
+        768,
+        124,
+        "match"
+      ],
+      "widgets_values_named": {
+        "prompt": "",
+        "width": 1344,
+        "height": 768,
+        "length": 124,
+        "ref_image_size": "match"
+      }
+    },
+    {
+      "id": 1,
+      "type": "MiniMaxH3ChainScenePromptEditor",
+      "pos": [
+        2707.266281149375,
+        1346.6975241417585
+      ],
+      "size": [
+        1000,
+        840
+      ],
+      "flags": {},
+      "order": 18,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "plan",
+          "type": "H3_CHAIN_PLAN",
+          "link": 59
+        }
+      ],
+      "outputs": [
+        {
+          "name": "plan",
+          "type": "H3_CHAIN_PLAN",
+          "links": [
+            64
+          ]
+        }
+      ],
+      "title": "Scene Prompts",
+      "properties": {
+        "cnr_id": "comfyui-minimaxh3-contex-loop",
+        "ver": "2b4c7d3bc82d6d4a167fd6b47d6d219ee7264759",
+        "Node name for S&R": "MiniMaxH3ChainScenePromptEditor",
+        "aux_id": "ethanfel/ComfyUI-MiniMaxH3-Context-Loop",
+        "h3_scene_prompt_editor_active_scene": 0,
+        "h3_scene_prompt_editor_font_size": 18,
+        "h3_scene_prompt_editor_rich_text": true,
+        "h3_scene_prompt_editor_schema_mode": "ref2va",
+        "h3_scene_prompt_editor_structure_open": false
+      },
+      "widgets_values": [],
+      "widgets_values_named": {}
+    },
+    {
+      "id": 7,
+      "type": "MiniMaxH3ChainAssemble",
+      "pos": [
+        5242.680185103104,
+        530.2372194449393
+      ],
+      "size": [
+        648,
+        673.2
+      ],
+      "flags": {},
+      "order": 34,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "manifest",
+          "type": "H3_CHAIN_MANIFEST",
+          "link": 5
+        },
+        {
+          "name": "source_timeline",
+          "shape": 7,
+          "type": "H3_SOURCE_TIMELINE",
+          "link": null
+        },
+        {
+          "name": "blend_video_vae",
+          "shape": 7,
+          "type": "VAE",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "video_path",
+          "type": "STRING",
+          "links": null
+        }
+      ],
+      "title": "⑥ 最终成片 → output/live_pov",
+      "properties": {
+        "cnr_id": "comfyui-minimaxh3-contex-loop",
+        "ver": "2b4c7d3bc82d6d4a167fd6b47d6d219ee7264759",
+        "Node name for S&R": "MiniMaxH3ChainAssemble",
+        "aux_id": "ethanfel/ComfyUI-MiniMaxH3-Context-Loop"
+      },
+      "widgets_values": [
+        "plan",
+        "storyboard_v2_apple_positive_20261021",
+        256,
+        true,
+        "storyboard_generation_20261021",
+        "plan",
+        "off",
+        "off",
+        false,
+        "av_overlap"
+      ],
+      "widgets_values_named": {
+        "audio_source": "plan",
+        "filename": "claude_assets_15s_%date:yyyy-MM-dd%",
+        "audio_bitrate": 256,
+        "copy_to_output": true,
+        "output_subfolder": "live_pov",
+        "blend_schedule": "plan",
+        "boundary_tone_match": "off",
+        "color_stabilization": "off",
+        "delete_checkpoints_after_assembly": false,
+        "generated_audio_join": "av_overlap"
+      }
+    },
+    {
+      "id": 3,
+      "type": "MiniMaxH3ChainPlanModern",
+      "pos": [
+        1641.3795989493285,
+        1345.3855692584516
+      ],
+      "size": [
+        1003.729546820367,
+        1330.7692307692214
+      ],
+      "flags": {},
+      "order": 15,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "chain_policy",
+          "type": "H3_CHAIN_POLICY",
+          "link": 3
+        },
+        {
+          "name": "plan_json_input",
+          "shape": 7,
+          "type": "STRING",
+          "link": 181
+        },
+        {
+          "name": "project_assets",
+          "shape": 7,
+          "type": "H3_PROJECT_ASSETS",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "plan",
+          "type": "H3_CHAIN_PLAN",
+          "links": [
+            59
+          ]
+        },
+        {
+          "name": "summary",
+          "type": "STRING",
+          "links": null
+        },
+        {
+          "name": "clip_count",
+          "type": "INT",
+          "links": null
+        },
+        {
+          "name": "width",
+          "type": "INT",
+          "links": null
+        },
+        {
+          "name": "height",
+          "type": "INT",
+          "links": null
+        },
+        {
+          "name": "video_blend_frames",
+          "type": "INT",
+          "links": null
+        }
+      ],
+      "title": "⑤ 计划由 V3 提供 / 采样参数",
+      "properties": {
+        "cnr_id": "comfyui-minimaxh3-contex-loop",
+        "ver": "2b4c7d3bc82d6d4a167fd6b47d6d219ee7264759",
+        "Node name for S&R": "MiniMaxH3ChainPlanModern",
+        "aux_id": "ethanfel/ComfyUI-MiniMaxH3-Context-Loop",
+        "h3_chain_plan_layout": {
+          "advanced": false,
+          "collapsedScenes": {},
+          "jsonOpen": false,
+          "promptHeights": {
+            "json": 260,
+            "scene-basic:scene_01": 72,
+            "scene-basic:scene_02": 72,
+            "scene-basic:scene_03": 72,
+            "scene-basic:scene_04": 72,
+            "scene:a_dog_fight_vs_the_cat": 112,
+            "scene:cat_on_the_rooftop": 224,
+            "scene:conclusion_eating": 112,
+            "scene:controlled_vs_free": 112,
+            "scene:friendship_definition": 112,
+            "scene:indoor_announce": 112,
+            "scene:leaving_home": 112,
+            "scene:night_city_ride": 112,
+            "scene:night_market_arrival": 112,
+            "scene:night_ride_with_a_whisper": 112,
+            "scene:opening_hungry": 112,
+            "scene:picky_vs_gulp": 112,
+            "scene:scene_01": 112,
+            "scene:scene_02": 112,
+            "scene:scene_03": 112,
+            "scene:scene_04": 112,
+            "scene:settling_at_picnic": 112,
+            "scene:stealing_food": 112,
+            "scene:tram_boarding": 112,
+            "scene:tram_stop_arrival": 224,
+            "scene:tuk-tuk_departure": 112,
+            "scene:walking_to_picnic": 112,
+            "shared": 88
+          },
+          "settingsOpen": true
+        },
+        "h3_chain_scene_colors": {}
+      },
+      "widgets_values": [
+        "{\"shots\":[{\"id\":\"scene_01\",\"prompt\":[\"integrated_multimodal_description: [Shot 1] two shot, static locked-off camera maintaining the same framing, an observer viewpoint, separate from the cast.\",\"High-detail photorealistic 3D CGI with soft natural indoor lighting.\",\"Character 1 is the figure in <Picture 1>; use this reference for identity and appearance only.\",\"Character 2 is the figure in <Picture 2>; use this reference for identity and appearance only.\",\"Opening cast: Character 1, Character 2. Begin directly in this framing.\",\"Character 1 begins at left of frame.\",\"Character 2 begins at right of frame.\",\"Scene context: The two characters stand facing each other.\",\"Only the explicitly tagged dialogue is spoken. Do not speak stage directions or role labels.\",\"Perform the following events once, in the exact written order; one speaker at a time, without overlapping or repeating lines.\",\"Each specified prop exists in its stated quantity and stays with its stated holder. An offered object stays with the offering actor until an explicit accepted handover; refusal leaves the other actor empty-handed.\",\"The image contains exactly the declared visible cast in the present setting. Spoken stories remain audio within this present conversation.\",\"Visible state: Only Character 1 and Character 2 appear in the two-shot. Character 2 holds a single washed red apple in both hands throughout the exchange, including while offering it and while keeping it close to the chest. Character 1 keeps both hands visibly empty throughout the exchange; during the refusal, Character 1 raises one visibly empty open palm and turns the body slightly away while Character 2 retains the apple. The exchange remains tense and unresolved.\",\"Character 2 performs this action: Character 2 holds the single washed red apple with both hands and extends it toward Character 1.\",\"Character 2 speaks as (S2), adult female, bright mid-range pitch: <d>[Chinese] 吃苹果吗？</d> Character 2's lips move naturally with this line.\",\"While this line is spoken, Character 1's lips remain completely closed.\",\"Character 1 speaks as (S1), adult male, low mid-range pitch: <d>[Chinese] 不吃。</d> Character 1's lips move naturally with this line.\",\"While this line is spoken, Character 2's lips remain completely closed.\",\"Character 2 performs this action: Character 2 continues holding the single washed red apple in both hands and moves half a step closer to Character 1.\",\"Character 2 speaks as (S2), adult female, bright mid-range pitch: <d>[Chinese] 多吃苹果对身体好。</d> Character 2's lips move naturally with this line.\",\"While this line is spoken, Character 1's lips remain completely closed.\",\"Character 1 speaks as (S1), adult male, low mid-range pitch: <d>[Chinese] 我不想吃。</d> Character 1's lips move naturally with this line.\",\"While this line is spoken, Character 2's lips remain completely closed.\",\"overall_soundscape: Natural room tone, breathing and synchronized movement sounds.\",\"non_diegetic_music: No non-diegetic music.\"],\"length\":260,\"seed\":\"77\"},{\"id\":\"scene_02\",\"prompt\":[\"integrated_multimodal_description: [Shot 1] two shot, static locked-off camera maintaining the same framing, an observer viewpoint, separate from the cast.\",\"High-detail photorealistic 3D CGI with soft natural indoor lighting.\",\"Character 1 is the figure in <Picture 1>; use this reference for identity and appearance only.\",\"Character 2 is the figure in <Picture 2>; use this reference for identity and appearance only.\",\"Opening cast: Character 1, Character 2. Begin directly in this framing.\",\"Scene context: The two characters stand facing each other.\",\"Continue the current blocking, completed action state and prop ownership from the preceding clip.\",\"Only the explicitly tagged dialogue is spoken. Do not speak stage directions or role labels.\",\"Perform the following events once, in the exact written order; one speaker at a time, without overlapping or repeating lines.\",\"Each specified prop exists in its stated quantity and stays with its stated holder. An offered object stays with the offering actor until an explicit accepted handover; refusal leaves the other actor empty-handed.\",\"The image contains exactly the declared visible cast in the present setting. Spoken stories remain audio within this present conversation.\",\"Visible state: Only Character 1 and Character 2 appear in the two-shot. Character 2 holds a single washed red apple in both hands throughout the exchange, including while offering it and while keeping it close to the chest. Character 1 keeps both hands visibly empty throughout the exchange; during the refusal, Character 1 raises one visibly empty open palm and turns the body slightly away while Character 2 retains the apple. The exchange remains tense and unresolved.\",\"Character 2 speaks as (S2), adult female, bright mid-range pitch: <d>[Chinese] 都洗好了，别浪费，就吃一口吧。</d> Character 2's lips move naturally with this line.\",\"While this line is spoken, Character 1's lips remain completely closed.\",\"Character 1 performs this action: Character 1 keeps both hands visibly empty, raises one empty open palm in refusal, and turns the body slightly away while Character 2 retains the apple.\",\"Character 1 speaks as (S1), adult male, low mid-range pitch: <d>[Chinese] 不吃不吃，我真不想吃。</d> Character 1's lips move naturally with this line.\",\"While this line is spoken, Character 2's lips remain completely closed.\",\"Character 2 performs this action: Character 2 draws the single apple back to the chest, points toward Character 1 with the free hand, and adopts an angry expression.\",\"Character 2 speaks as (S2), adult female, bright mid-range pitch: <d>[Chinese] 不吃就不吃，发什么脾气？你这个性格怎么跟人相处？</d> Character 2's lips move naturally with this line.\",\"While this line is spoken, Character 1's lips remain completely closed.\",\"overall_soundscape: Natural room tone, breathing and synchronized movement sounds.\",\"non_diegetic_music: No non-diegetic music.\"],\"length\":243,\"seed\":\"78\"}],\"prompt_prefix\":[]}",
+        "storyboard_v2_apple_positive_20261021",
+        "structured-events-v2-empty-open-palm-20steps",
+        960,
+        544,
+        "video",
+        "disabled",
+        10,
+        20,
+        0,
+        20,
+        0
+      ],
+      "widgets_values_named": {
+        "plan_json": "",
+        "run_name": "claude_assets_15s_20261020",
+        "generation_fingerprint": "assets-authored-v1",
+        "width": 960,
+        "height": 544,
+        "encode_mode": "video",
+        "crop": "disabled",
+        "default_duration_seconds": 15,
+        "default_steps": 20,
+        "base_seed": 0,
+        "segment_crf": 20,
+        "video_blend_frames": 0
+      },
+      "color": "#3a549f",
+      "bgcolor": "#26408b"
+    },
+    {
+      "id": 53,
+      "type": "AboutAuthorNode|Mie",
+      "pos": [
+        -108.80172227750957,
+        118.2063765107987
+      ],
+      "size": [
+        260,
+        551
+      ],
+      "flags": {
+        "shadow": false
+      },
+      "order": 6,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "properties": {
+        "cnr_id": "comfyui_mienodes",
+        "ver": "18e66ff2e20f2033e122eac82f7b6f0e608a5bca",
+        "Node name for S&R": "AboutAuthorNode|Mie",
+        "theme": "leaf"
+      },
+      "widgets_values": [
+        ""
+      ],
+      "widgets_values_named": {
+        "mie_author": ""
+      },
+      "color": "transparent",
+      "bgcolor": "transparent"
+    },
+    {
+      "id": 50,
+      "type": "ShowAndSaveAnything|Mie",
+      "pos": [
+        1118.5945706067262,
+        1609.2372309637017
+      ],
+      "size": [
+        281.7932225144126,
+        485.25646372506617
+      ],
+      "flags": {},
+      "order": 14,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "anything",
+          "type": "*",
+          "link": 180
+        }
+      ],
+      "outputs": [
+        {
+          "name": "STRING",
+          "type": "STRING",
+          "links": null
+        }
+      ],
+      "title": "查看 V3 输出的分镜计划",
+      "properties": {
+        "cnr_id": "comfyui_mienodes",
+        "ver": "1.2.9",
+        "Node name for S&R": "ShowAndSaveAnything|Mie"
+      },
+      "widgets_values": [
+        false,
+        "show_anything.log",
+        "{\n  \"shots\": [\n    {\n      \"id\": \"scene_01\",\n      \"prompt\": [\n        \"integrated_multimodal_description: [Shot 1] First-person POV, medium close-up of Cloud facing the camera, natural indoor lighting, static camera.\",\n        \"Cloud looks toward the camera with a calm expression.\",\n        \"An off-screen male voice (S1) says in an off-screen voiceover: <d>[English] Cloud, help me resolve this document.</d> while Cloud’s lips remain completely closed; she only listens with a slight tilt of the head.\",\n        \"\",\n        \"Cloud then smiles slightly and replies with a soft, playful voice (S2): <d>[Chinese] 其实，你可以和我直接用中文交流的，我不会介意的。</d> Her lips move naturally with the line.\",\n        \"\",\n        \"Immediately after, the off-screen male voice (S1) says in an off-screen voiceover: <d>[English] wait, i'm not Chinese.</d> while Cloud’s lips stay completely closed; she raises her eyebrows in mild surprise.\",\n        \"\",\n        \"Cloud leans in a little and continues with the same playful voice (S2): <d>[Chinese] 哎呀，我都上架中文了，相信我，好吗。</d> Her mouth moves in sync.\",\n        \"\",\n        \"The off-screen male voice (S1) then says hesitantly in an off-screen voiceover: <d>[Chinese] 真，真的吗？</d> while Cloud’s lips remain completely closed; she just watches with an amused expression.\",\n        \"\",\n        \"Finally Cloud smirks and says with a teasing tone (S2): <d>[Chinese] 哼哼，你的账号已被封禁。</d> Her lips move clearly with the words, then settle closed as she looks at the camera.\",\n        \"\",\n        \"overall_soundscape: Quiet indoor room tone, soft fabric movement, natural breathing.\",\n        \"non_diegetic_music: N/A\",\n        \"\"\n      ],\n      \"length\": 362,\n      \"seed\": \"570630552299790\"\n    }\n  ],\n  \"prompt_prefix\": []\n}"
+      ],
+      "widgets_values_named": {
+        "save_to_log": false,
+        "log_file_name": "show_anything.log",
+        "displaytext": "{\n  \"shots\": [\n    {\n      \"id\": \"scene_01\",\n      \"prompt\": [\n        \"integrated_multimodal_description: [Shot 1] First-person POV, medium close-up of Cloud facing the camera, natural indoor lighting, static camera.\",\n        \"Cloud looks toward the camera with a calm expression.\",\n        \"An off-screen male voice (S1) says in an off-screen voiceover: <d>[English] Cloud, help me resolve this document.</d> while Cloud’s lips remain completely closed; she only listens with a slight tilt of the head.\",\n        \"\",\n        \"Cloud then smiles slightly and replies with a soft, playful voice (S2): <d>[Chinese] 其实，你可以和我直接用中文交流的，我不会介意的。</d> Her lips move naturally with the line.\",\n        \"\",\n        \"Immediately after, the off-screen male voice (S1) says in an off-screen voiceover: <d>[English] wait, i'm not Chinese.</d> while Cloud’s lips stay completely closed; she raises her eyebrows in mild surprise.\",\n        \"\",\n        \"Cloud leans in a little and continues with the same playful voice (S2): <d>[Chinese] 哎呀，我都上架中文了，相信我，好吗。</d> Her mouth moves in sync.\",\n        \"\",\n        \"The off-screen male voice (S1) then says hesitantly in an off-screen voiceover: <d>[Chinese] 真，真的吗？</d> while Cloud’s lips remain completely closed; she just watches with an amused expression.\",\n        \"\",\n        \"Finally Cloud smirks and says with a teasing tone (S2): <d>[Chinese] 哼哼，你的账号已被封禁。</d> Her lips move clearly with the words, then settle closed as she looks at the camera.\",\n        \"\",\n        \"overall_soundscape: Quiet indoor room tone, soft fabric movement, natural breathing.\",\n        \"non_diegetic_music: N/A\",\n        \"\"\n      ],\n      \"length\": 362,\n      \"seed\": \"570630552299790\"\n    }\n  ],\n  \"prompt_prefix\": []\n}"
+      }
+    },
+    {
+      "id": 57,
+      "type": "AssetToSlots|Mie",
+      "pos": [
+        1171.3830148258232,
+        1116.0847293074287
+      ],
+      "size": [
+        230.362890625,
+        386
+      ],
+      "flags": {},
+      "order": 16,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "assets",
+          "type": "MIE_ASSET_ROSTER",
+          "link": 182
+        },
+        {
+          "name": "character_1",
+          "shape": 7,
+          "type": "MIE_CHARACTER_ASSET",
+          "link": null
+        },
+        {
+          "name": "character_2",
+          "shape": 7,
+          "type": "MIE_CHARACTER_ASSET",
+          "link": null
+        },
+        {
+          "name": "character_3",
+          "shape": 7,
+          "type": "MIE_CHARACTER_ASSET",
+          "link": null
+        },
+        {
+          "name": "character_4",
+          "shape": 7,
+          "type": "MIE_CHARACTER_ASSET",
+          "link": null
+        },
+        {
+          "name": "character_5",
+          "shape": 7,
+          "type": "MIE_CHARACTER_ASSET",
+          "link": null
+        },
+        {
+          "name": "character_6",
+          "shape": 7,
+          "type": "MIE_CHARACTER_ASSET",
+          "link": null
+        },
+        {
+          "name": "character_7",
+          "shape": 7,
+          "type": "MIE_CHARACTER_ASSET",
+          "link": null
+        },
+        {
+          "name": "character_8",
+          "shape": 7,
+          "type": "MIE_CHARACTER_ASSET",
+          "link": null
+        },
+        {
+          "name": "character_9",
+          "shape": 7,
+          "type": "MIE_CHARACTER_ASSET",
+          "link": null
+        },
+        {
+          "name": "scene_1",
+          "shape": 7,
+          "type": "MIE_SCENE_ASSET",
+          "link": null
+        },
+        {
+          "name": "scene_2",
+          "shape": 7,
+          "type": "MIE_SCENE_ASSET",
+          "link": null
+        },
+        {
+          "name": "scene_3",
+          "shape": 7,
+          "type": "MIE_SCENE_ASSET",
+          "link": null
+        },
+        {
+          "name": "scene_4",
+          "shape": 7,
+          "type": "MIE_SCENE_ASSET",
+          "link": null
+        },
+        {
+          "name": "scene_5",
+          "shape": 7,
+          "type": "MIE_SCENE_ASSET",
+          "link": null
+        },
+        {
+          "name": "scene_6",
+          "shape": 7,
+          "type": "MIE_SCENE_ASSET",
+          "link": null
+        },
+        {
+          "name": "scene_7",
+          "shape": 7,
+          "type": "MIE_SCENE_ASSET",
+          "link": null
+        },
+        {
+          "name": "scene_8",
+          "shape": 7,
+          "type": "MIE_SCENE_ASSET",
+          "link": null
+        },
+        {
+          "name": "scene_9",
+          "shape": 7,
+          "type": "MIE_SCENE_ASSET",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "count",
+          "type": "INT",
+          "links": null
+        },
+        {
+          "name": "picture_1",
+          "type": "IMAGE",
+          "links": [
+            125
+          ]
+        },
+        {
+          "name": "picture_2",
+          "type": "IMAGE",
+          "links": [
+            184
+          ]
+        },
+        {
+          "name": "picture_3",
+          "type": "IMAGE",
+          "links": null
+        },
+        {
+          "name": "picture_4",
+          "type": "IMAGE",
+          "links": null
+        },
+        {
+          "name": "picture_5",
+          "type": "IMAGE",
+          "links": null
+        },
+        {
+          "name": "picture_6",
+          "type": "IMAGE",
+          "links": null
+        },
+        {
+          "name": "picture_7",
+          "type": "IMAGE",
+          "links": null
+        },
+        {
+          "name": "picture_8",
+          "type": "IMAGE",
+          "links": null
+        },
+        {
+          "name": "picture_9",
+          "type": "IMAGE",
+          "links": null
+        },
+        {
+          "name": "audio_count",
+          "type": "INT",
+          "links": null
+        },
+        {
+          "name": "audio_1",
+          "type": "AUDIO",
+          "links": null
+        },
+        {
+          "name": "audio_2",
+          "type": "AUDIO",
+          "links": null
+        },
+        {
+          "name": "audio_3",
+          "type": "AUDIO",
+          "links": null
+        }
+      ],
+      "title": "③ 分配图片：picture_1 人物 / picture_2 场景",
+      "properties": {
+        "cnr_id": "comfyui_mienodes",
+        "ver": "18e66ff2e20f2033e122eac82f7b6f0e608a5bca",
+        "Node name for S&R": "AssetToSlots|Mie"
+      }
+    },
+    {
+      "id": 79,
+      "type": "LoadAssetV2|Mie",
+      "pos": [
+        -1080,
+        1160
+      ],
+      "size": [
+        360,
+        750
+      ],
+      "flags": {},
+      "order": 7,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "name",
+          "type": "STRING",
+          "links": null
+        },
+        {
+          "name": "description",
+          "type": "STRING",
+          "links": null
+        },
+        {
+          "name": "voice",
+          "type": "STRING",
+          "links": null
+        },
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "links": null
+        },
+        {
+          "name": "audio",
+          "type": "AUDIO",
+          "links": null
+        },
+        {
+          "name": "asset",
+          "type": "MIE_ASSET",
+          "links": [
+            178
+          ]
+        }
+      ],
+      "title": "角色1 · 填你自己的角色资产名",
+      "properties": {
+        "cnr_id": "ComfyUI_MieNodes",
+        "ver": "5a8315e2fcb2437af741a72745c845ac4572ed3d",
+        "Node name for S&R": "LoadAssetV2|Mie"
+      },
+      "widgets_values": [
+        "character",
+        "",
+        ""
+      ],
+      "widgets_values_named": {
+        "kind": "character",
+        "library_dir": "",
+        "name": "深红"
+      }
+    },
+    {
+      "id": 85,
+      "type": "LoadStoryboardAsset|Mie",
+      "pos": [
+        -661.289478601076,
+        1176.9342179016137
+      ],
+      "size": [
+        440,
+        230
+      ],
+      "flags": {},
+      "order": 8,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "storyboard",
+          "type": "MIE_STORYBOARD",
+          "links": [
+            179
+          ]
+        },
+        {
+          "name": "status",
+          "type": "STRING",
+          "links": null
+        }
+      ],
+      "title": "① 分镜资产：班上第三名（仓库 docs/storyboard-assets/，先导入）",
+      "properties": {
+        "cnr_id": "ComfyUI_MieNodes",
+        "ver": "5a8315e2fcb2437af741a72745c845ac4572ed3d",
+        "Node name for S&R": "LoadStoryboardAsset|Mie"
+      },
+      "widgets_values": [
+        "",
+        "班上第三名"
+      ],
+      "widgets_values_named": {
+        "library_dir": "",
+        "name": "Claude单图对话-15秒"
+      }
+    },
+    {
+      "id": 86,
+      "type": "MiniMaxH3LoopPromptGeneratorV3|Mie",
+      "pos": [
+        429.50899236885306,
+        1308.4973484337918
+      ],
+      "size": [
+        512.6744140625,
+        262
+      ],
+      "flags": {},
+      "order": 12,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "storyboard",
+          "type": "MIE_STORYBOARD",
+          "link": 179
+        },
+        {
+          "name": "character_1",
+          "shape": 7,
+          "type": "MIE_ASSET",
+          "link": 178
+        },
+        {
+          "name": "scene_1",
+          "shape": 7,
+          "type": "MIE_ASSET",
+          "link": null
+        },
+        {
+          "name": "character_2",
+          "type": "MIE_ASSET",
+          "link": 183
+        },
+        {
+          "name": "scene_2",
+          "type": "MIE_ASSET",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "plan_json",
+          "type": "STRING",
+          "links": [
+            180,
+            181
+          ]
+        },
+        {
+          "name": "summary",
+          "type": "STRING",
+          "links": null
+        },
+        {
+          "name": "board_kind",
+          "type": "STRING",
+          "links": null
+        },
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "links": null
+        },
+        {
+          "name": "assets",
+          "type": "MIE_ASSET_ROSTER",
+          "links": [
+            182
+          ]
+        }
+      ],
+      "title": "② V3：原文组装 / 自动生成声音",
+      "properties": {
+        "cnr_id": "ComfyUI_MieNodes",
+        "ver": "5a8315e2fcb2437af741a72745c845ac4572ed3d",
+        "Node name for S&R": "MiniMaxH3LoopPromptGeneratorV3|Mie"
+      },
+      "widgets_values": [
+        77,
+        "fixed"
+      ],
+      "widgets_values_named": {
+        "seed": 570630552299790,
+        "control_after_generate": "fixed"
+      }
+    },
+    {
+      "id": 87,
+      "type": "Note",
+      "pos": [
+        -650,
+        1450
+      ],
+      "size": [
+        440,
+        650
+      ],
+      "flags": {},
+      "order": 9,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "title": "如何通过资产运行",
+      "properties": {
+        "text": ""
+      },
+      "widgets_values": [
+        "① 把仓库 docs/storyboard-assets/ 里的分镜资产导入资产库（命令行 python scripts/import_storyboard_assets.py docs/storyboard-assets --overwrite，或把 JSON 粘进「保存分镜资产」）；本图默认用「班上第三名」（需要 2 个角色资产）。\n② 在两个「填你自己的角色资产名」节点里填上你已建好的角色资产名（没有就先用「保存角色资产」建：图 + 声音 + 名字 + 外观描述 + 声线）。\n③ 场景资产可选：接上就以场景图为环境，不接就由分镜里的 setting 决定环境。\n④ 跑。分镜→提示词→成片全程零 LLM，不需要任何 API Key。\n⑤ 验收台词用 ASR，别看烧录字幕；最终提示词在 output/h3_chains/<run_name>/segments/*.prompt.txt。\n注意：分镜里有几位画内角色就接几张角色图（少接一张 H3 会自己编那个人的长相）；角色资产没音频时把那根 ref_audio 连线删掉；run_name 只能用 ASCII。"
+      ],
+      "widgets_values_named": {
+        "text": "资产版使用方法\n\n1. 角色资产选择「Claude娘」。\n2. 分镜资产选择「Claude单图对话-15秒」。\n3. 点击运行即可；生成六轮对白、约15秒视频。\n\n接线说明\n分镜 → V3.storyboard\nClaude娘 asset → V3.character_1\ncharacter_2（旁白）留空；scene_1 留空。\nV3.plan_json → 计划.plan_json_input\nV3.assets → Asset To Slots.assets\npicture_1 → H3.ref_image_0\n\n这份分镜使用 authored + generated：\n原文不改写，人物声音由 H3 生成。\n不接参考音频，也不需要旁白人或场景资产。\n角色资产自带音频会由 V3 排除。\n\n修改剧情：编辑/另存分镜资产的 prompt 和 lines，\n两者对白与语言必须一致；duration_seconds 控制时长。\n修改人物：在角色资产加载节点选择其他角色。\n种子已固定为验证值。换剧情或重做时请修改\n计划节点 run_name，避免接续旧任务。\n\n输出：ComfyUI/output/live_pov\n完整原文分镜已随此工作流另附 JSON。"
+      },
+      "color": "#283b47",
+      "bgcolor": "#1c2932"
+    },
+    {
+      "id": 88,
+      "type": "LoadAssetV2|Mie",
+      "pos": [
+        -1080,
+        2000
+      ],
+      "size": [
+        270,
+        744
+      ],
+      "flags": {},
+      "order": 10,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "name",
+          "type": "STRING",
+          "links": null
+        },
+        {
+          "name": "description",
+          "type": "STRING",
+          "links": null
+        },
+        {
+          "name": "voice",
+          "type": "STRING",
+          "links": null
+        },
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "links": null
+        },
+        {
+          "name": "audio",
+          "type": "AUDIO",
+          "links": null
+        },
+        {
+          "name": "asset",
+          "type": "MIE_ASSET",
+          "links": [
+            183
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "ComfyUI_MieNodes",
+        "ver": "5a8315e2fcb2437af741a72745c845ac4572ed3d",
+        "Node name for S&R": "LoadAssetV2|Mie"
+      },
+      "widgets_values": [
+        "character",
+        "",
+        ""
+      ],
+      "widgets_values_named": {
+        "kind": "scene",
+        "library_dir": "",
+        "name": "咖啡厅"
+      },
+      "title": "角色2 · 填你自己的角色资产名"
+    }
+  ],
+  "links": [
+    [
+      2,
+      27,
+      0,
+      2,
+      0,
+      "MODEL"
+    ],
+    [
+      3,
+      4,
+      0,
+      3,
+      0,
+      "H3_CHAIN_POLICY"
+    ],
+    [
+      6,
+      6,
+      0,
+      8,
+      0,
+      "H3_CHAIN_FLOW"
+    ],
+    [
+      7,
+      15,
+      0,
+      8,
+      1,
+      "H3_CHAIN_STATE"
+    ],
+    [
+      8,
+      23,
+      0,
+      8,
+      2,
+      "IMAGE"
+    ],
+    [
+      9,
+      13,
+      0,
+      8,
+      3,
+      "LATENT"
+    ],
+    [
+      10,
+      26,
+      0,
+      8,
+      4,
+      "H3_CHAIN_SEGMENT"
+    ],
+    [
+      13,
+      13,
+      0,
+      11,
+      0,
+      "LATENT"
+    ],
+    [
+      14,
+      21,
+      0,
+      11,
+      1,
+      "VAE"
+    ],
+    [
+      15,
+      13,
+      0,
+      12,
+      0,
+      "LATENT"
+    ],
+    [
+      16,
+      22,
+      0,
+      12,
+      1,
+      "VAE"
+    ],
+    [
+      17,
+      17,
+      0,
+      13,
+      0,
+      "NOISE"
+    ],
+    [
+      18,
+      16,
+      0,
+      13,
+      1,
+      "GUIDER"
+    ],
+    [
+      19,
+      18,
+      0,
+      13,
+      2,
+      "SAMPLER"
+    ],
+    [
+      20,
+      19,
+      0,
+      13,
+      3,
+      "SIGMAS"
+    ],
+    [
+      21,
+      24,
+      3,
+      13,
+      4,
+      "LATENT"
+    ],
+    [
+      29,
+      2,
+      0,
+      16,
+      0,
+      "MODEL"
+    ],
+    [
+      30,
+      24,
+      0,
+      16,
+      1,
+      "CONDITIONING"
+    ],
+    [
+      31,
+      15,
+      5,
+      17,
+      0,
+      "INT"
+    ],
+    [
+      32,
+      2,
+      0,
+      19,
+      0,
+      "MODEL"
+    ],
+    [
+      38,
+      15,
+      0,
+      24,
+      0,
+      "H3_CHAIN_STATE"
+    ],
+    [
+      40,
+      22,
+      0,
+      24,
+      2,
+      "VAE"
+    ],
+    [
+      42,
+      21,
+      0,
+      24,
+      4,
+      "VAE"
+    ],
+    [
+      43,
+      15,
+      0,
+      25,
+      0,
+      "H3_CHAIN_STATE"
+    ],
+    [
+      44,
+      23,
+      0,
+      25,
+      1,
+      "IMAGE"
+    ],
+    [
+      45,
+      13,
+      0,
+      25,
+      2,
+      "LATENT"
+    ],
+    [
+      46,
+      23,
+      1,
+      25,
+      3,
+      "AUDIO"
+    ],
+    [
+      47,
+      23,
+      2,
+      25,
+      4,
+      "IMAGE"
+    ],
+    [
+      52,
+      5,
+      0,
+      29,
+      0,
+      "MODEL"
+    ],
+    [
+      53,
+      29,
+      0,
+      27,
+      0,
+      "MODEL"
+    ],
+    [
+      59,
+      3,
+      0,
+      1,
+      0,
+      "H3_CHAIN_PLAN"
+    ],
+    [
+      98,
+      47,
+      0,
+      24,
+      1,
+      "CONDITIONING"
+    ],
+    [
+      99,
+      47,
+      1,
+      24,
+      3,
+      "LATENT"
+    ],
+    [
+      34,
+      12,
+      0,
+      23,
+      0,
+      "IMAGE"
+    ],
+    [
+      35,
+      11,
+      0,
+      23,
+      1,
+      "AUDIO"
+    ],
+    [
+      36,
+      15,
+      0,
+      23,
+      2,
+      "H3_CHAIN_STATE"
+    ],
+    [
+      37,
+      24,
+      1,
+      23,
+      3,
+      "INT"
+    ],
+    [
+      48,
+      15,
+      0,
+      26,
+      0,
+      "H3_CHAIN_STATE"
+    ],
+    [
+      49,
+      25,
+      0,
+      26,
+      1,
+      "H3_CHAIN_SEGMENT"
+    ],
+    [
+      50,
+      23,
+      1,
+      26,
+      2,
+      "AUDIO"
+    ],
+    [
+      28,
+      6,
+      1,
+      15,
+      0,
+      "H3_CHAIN_STATE"
+    ],
+    [
+      65,
+      38,
+      0,
+      6,
+      0,
+      "H3_CHAIN_PLAN"
+    ],
+    [
+      64,
+      1,
+      0,
+      38,
+      0,
+      "H3_CHAIN_PLAN"
+    ],
+    [
+      5,
+      8,
+      0,
+      7,
+      0,
+      "H3_CHAIN_MANIFEST"
+    ],
+    [
+      178,
+      79,
+      5,
+      86,
+      1,
+      "MIE_ASSET"
+    ],
+    [
+      179,
+      85,
+      0,
+      86,
+      0,
+      "MIE_STORYBOARD"
+    ],
+    [
+      180,
+      86,
+      0,
+      50,
+      0,
+      "STRING"
+    ],
+    [
+      181,
+      86,
+      0,
+      3,
+      1,
+      "STRING"
+    ],
+    [
+      182,
+      86,
+      4,
+      57,
+      0,
+      "MIE_ASSET_ROSTER"
+    ],
+    [
+      94,
+      20,
+      0,
+      47,
+      0,
+      "CLIP"
+    ],
+    [
+      96,
+      22,
+      0,
+      47,
+      1,
+      "VAE"
+    ],
+    [
+      97,
+      21,
+      0,
+      47,
+      2,
+      "VAE"
+    ],
+    [
+      125,
+      57,
+      1,
+      47,
+      3,
+      "IMAGE"
+    ],
+    [
+      33,
+      15,
+      7,
+      19,
+      1,
+      "INT"
+    ],
+    [
+      105,
+      15,
+      4,
+      47,
+      10,
+      "STRING"
+    ],
+    [
+      100,
+      15,
+      8,
+      47,
+      11,
+      "INT"
+    ],
+    [
+      101,
+      15,
+      9,
+      47,
+      12,
+      "INT"
+    ],
+    [
+      102,
+      15,
+      6,
+      47,
+      13,
+      "INT"
+    ],
+    [
+      184,
+      57,
+      2,
+      47,
+      4,
+      "IMAGE"
+    ],
+    [
+      183,
+      88,
+      5,
+      86,
+      3,
+      "MIE_ASSET"
+    ],
+    [
+      185,
+      57,
+      11,
+      47,
+      7,
+      "AUDIO"
+    ]
+  ],
+  "groups": [
+    {
+      "id": 9,
+      "title": "🐏Model Loader / 模型加载",
+      "bounding": [
+        179.04981022515864,
+        108.06682826274304,
+        761.1004486642712,
+        907.0072950025236
+      ],
+      "color": "#02c39a",
+      "flags": {}
+    },
+    {
+      "id": 10,
+      "title": "🐏Sampling & Scheduling / 采样与调度",
+      "bounding": [
+        1402.406710023413,
+        107.24068730496161,
+        2344.351131586489,
+        913.4136560436896
+      ],
+      "color": "#02c39a",
+      "flags": {}
+    },
+    {
+      "id": 11,
+      "title": "🐏Attention Acceleration / 注意力机制加速",
+      "bounding": [
+        954.4255243274051,
+        108.07981587359411,
+        430.922551930136,
+        907.5470025117538
+      ],
+      "color": "#02c396",
+      "flags": {}
+    },
+    {
+      "id": 12,
+      "title": "🐏Video & Audio Decode / 音视频解码",
+      "bounding": [
+        3771.2443314762563,
+        107.06196488514948,
+        514.8984486901395,
+        1407.1328564771743
+      ],
+      "color": "#02c396",
+      "flags": {}
+    },
+    {
+      "id": 13,
+      "title": "🐏Review & Continue / 视频预览",
+      "bounding": [
+        4302.163652745708,
+        108.61291964747912,
+        862.1690848812714,
+        1406.9803360521491
+      ],
+      "color": "#02c396",
+      "flags": {}
+    },
+    {
+      "id": 14,
+      "title": "🐏Deliver / 最终结果",
+      "bounding": [
+        5182.035334056755,
+        108.25719539774505,
+        834.2202822976114,
+        1411.2151997160734
+      ],
+      "color": "#02c396",
+      "flags": {}
+    },
+    {
+      "id": 15,
+      "title": "🐏 Project & Scenes / 项目与场景",
+      "bounding": [
+        1565.0690020875184,
+        1039.439538666506,
+        2181.3509015700924,
+        1816.0697246610669
+      ],
+      "color": "#02c39a",
+      "flags": {}
+    },
+    {
+      "id": 18,
+      "title": "② V3 原文组装与资产输出",
+      "bounding": [
+        181.98000786717026,
+        1033.5867112720273,
+        1362.9411620514354,
+        1175.2619942219503
+      ],
+      "color": "#02c39a",
+      "flags": {}
+    },
+    {
+      "id": 19,
+      "title": "① 选择人物与分镜资产",
+      "bounding": [
+        -1193.8840587398586,
+        1040.9051439805048,
+        1362.9411620514354,
+        1169.5457137838575
+      ],
+      "color": "#02c39a",
+      "flags": {}
+    }
+  ],
+  "config": {},
+  "extra": {
+    "VHS_KeepIntermediate": true,
+    "VHS_MetadataImage": true,
+    "VHS_latentpreview": false,
+    "VHS_latentpreviewrate": 0,
+    "comfyui_mcp": {
+      "workflow_uuid": "f290be82-df65-55fd-8890-a9aa553a2fcc"
+    },
+    "ds": {
+      "scale": 0.1436352296215001,
+      "offset": [
+        3947.90072161128,
+        1527.9886931176488
+      ]
+    },
+    "frontendVersion": "1.55.18"
+  },
+  "version": 0.4
+}

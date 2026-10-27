@@ -27,7 +27,9 @@
 
 4. 选择 shot_count、target_duration_seconds 和 camera_framing / movement / perspective；look 是画面风格，setting 是环境与初始状态，constraints 是全片约束。默认 language=zh，locked 固定机位，observer 为旁观视角。two_shot 是双人构图，medium_close_up 是中近景。
 5. 将 storyboard 输出接入 V3 的 storyboard；角色资产按 character_1、character_2 接入 V3。场景资产接 scene_1，可留空。V3 的 plan_json 接 Loop 计划节点；assets 经 Asset → Slots 接参考图输入。
-6. 如果要保存，storyboard_json 接「保存分镜资产」的 json_text 输入，新建名称须与 JSON 中的 name 一致；下次通过「加载分镜资产」直接接 V3。提供的示例工作流让生成、保存共用一个「资产名称」字符串节点，只在该处改名即可。storyboard_text 只用于阅读预览。
+6. 如果要保存，storyboard_json 接「保存分镜资产」的 json_text 输入，新建名称须与 JSON 中的 name 一致；下次通过「加载分镜资产」直接接 V3。storyboard_text 只用于阅读预览。
+7. 角色资产（参考图与声音）需要自己建：用「保存角色资产」把图和音频存成资产，再用「加载资产」按名字选中它。
+   完整可拖入的参考工作流见 [docs/examples/storyboard-generation/storyboard-h3-ref2va.json](examples/storyboard-generation/storyboard-h3-ref2va.json)，外部测试者的上手说明见 [docs/qa/sketches-20261027/TESTING_GUIDE.md](qa/sketches-20261027/TESTING_GUIDE.md)。
 
 仅交换角色资产即可复用角色动作与台词，但资产应适合所需动作，例如拿苹果需要能执行持握动作的角色。此版本从 H3 生成声音，不注入角色资产中的参考音频。
 
