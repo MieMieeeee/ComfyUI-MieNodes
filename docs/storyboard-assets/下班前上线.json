@@ -30,7 +30,7 @@
   "constraints": "全片两个生成片段：第一段是下班前的深夜，第二段是第二天清晨，老板在第二段推门回来时用一句话点明已经隔了一天，两段之间是硬切。机位固定，角色2全程没有离开，一直坐在书桌前的转椅里；角色1第一段说完就走了，第二段又推门回来。角色1语气急躁、催得紧，角色2语气慢而稳。全程中文对话。画面中只有这两名角色，环境中任何可见文字都是中文。",
   "target_duration_seconds": 12.5,
   "continuation_overlap_frames": 0,
-  "source_script": "角色1：小程，下班前新版本一定要上线！\n角色2：好的，没问题！\n角色1离场：关门出去。\n角色1入场：开门进来\n角色1：新版本昨天怎么还没上线？\n角色2：我还没下班呢",
+  "source_script": "角色1：小程，下班前新版本一定要上线！\n角色2：好的，没问题！\n角色1离场：关门出去。\n角色2动作：他还在工位上敲着键盘，听见门响抬起头。\n角色1入场：开门进来\n角色1：新版本昨天怎么还没上线？\n角色2：我还没下班呢",
   "shots": [
     {
       "id": "scene_01",
@@ -65,20 +65,27 @@
       "events": [
         {
           "id": "event_004",
+          "type": "action",
+          "character": "character_2",
+          "text": "他还在工位上敲着键盘，听见门响抬起头。",
+          "language": "zh"
+        },
+        {
+          "id": "event_005",
           "type": "enter",
           "character": "character_1",
           "text": "开门进来",
           "language": "zh"
         },
         {
-          "id": "event_005",
+          "id": "event_006",
           "type": "dialogue",
           "character": "character_1",
           "text": "新版本昨天怎么还没上线？",
           "language": "zh"
         },
         {
-          "id": "event_006",
+          "id": "event_007",
           "type": "dialogue",
           "character": "character_2",
           "text": "我还没下班呢",
@@ -97,7 +104,8 @@
     },
     "directions": {
       "event_003": "Character 1 pushes the door shut and walks out of frame, and the room is left lit only by the desk lamp while Character 2 stays seated at the desk.",
-      "event_004": "Character 1 opens the door and steps into the room, and bright early-morning daylight floods the space through the window behind Character 2."
+      "event_004": "Character 2 keeps typing at his desk in the lamplight, then pauses and lifts his head toward the door as the handle turns.",
+      "event_005": "Character 1 opens the door and steps into the room, and bright early-morning daylight floods the space through the window behind Character 2."
     }
   },
   "audio_mode": "reference"

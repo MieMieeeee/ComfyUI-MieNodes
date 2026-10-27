@@ -269,13 +269,19 @@ def _replay_visibility(asset):
     return openings
 
 
-def estimate_shot_seconds(shot):
-    """Content seconds the duration estimator demands for one shot."""
+def estimate_shot_seconds(shot, rate=8.0):
+    """Content seconds the duration estimator demands for one shot.
+
+    ``rate`` is CJK characters per second. The default (8) is the
+    feasibility floor the allocator uses; live renders measured H3
+    delivering Chinese at 4.5-6.3 characters per second, so the
+    conservative rate (5.5) is what a review must budget against.
+    """
     seconds = 0.0
     for event in shot["events"]:
         if event["type"] == "dialogue":
-            seconds += len(re.findall(r"[\u3400-\u9fff]", event["text"])) / 8
-            seconds += len(re.findall(r"[A-Za-z]+(?:'[A-Za-z]+)?", event["text"])) / 4 + 0.2
+            seconds += len(re.findall(r"[\u3400-\u9fff]", event["text"])) / rate
+            seconds += len(re.findall(r"[A-Za-z]+(?:'[A-Za-z]+)?", event["text"])) / 3 + 0.2
         else:
             seconds += 0.5
     return seconds
@@ -335,6 +341,15 @@ def storyboard_warnings(asset):
         if effective - need < 0.2:
             out.append("%s 预算贴地：扣除续接重叠后 %.2f 秒要装约 %.2f 秒台词与动作，收尾节拍最可能被截"
                        " · shot budget at the floor" % (shot["id"], effective, need))
+        # A clip whose speech fills it loses its SHORTEST line: H3 drops a
+        # clause rather than overrun the budget. Budget against the measured
+        # delivery rate (5-6 characters per second), not the 8 the
+        # feasibility floor assumes.
+        slow_need = estimate_shot_seconds(shot, rate=5.5)
+        if effective - slow_need < 0.5:
+            out.append("%s 台词按慢速语速需要约 %.2f 秒，本镜只有 %.2f 秒：塞满的片段会被丢掉最短的一句"
+                       " · speech budget too tight for a slow delivery"
+                       % (shot["id"], slow_need, effective))
     for shot in shots[1:]:
         speakers = {event["character"] for event in shot["events"] if event["type"] == "dialogue"}
         if len(speakers) == 1:

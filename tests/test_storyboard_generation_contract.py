@@ -335,3 +335,20 @@ def test_both_storyboard_system_prompts_carry_the_render_review_rules():
     for rule in shared:
         assert rule in docs_prompt, "docs prompt missing: " + rule
         assert rule in node_prompt, "node prompt missing: " + rule
+
+
+def test_speech_budget_warning_flags_a_clip_packed_for_a_slow_delivery(mods):
+    from importlib import import_module
+    contract = import_module(mods["storyboard"].__package__ + ".storyboard_contract")
+    def event(eid, kind, who, text):
+        return {"id": eid, "type": kind, "character": who, "text": text, "language": "zh"}
+    raw = {"shots": [{"id": "scene_01", "duration_seconds": 6.0, "events": [
+        event("event_001", "dialogue", "character_1", "你看见楼下停的那辆奔驰了吗"),
+        event("event_002", "dialogue", "character_1", "现在要结婚了给我送来了请帖要我随礼"),
+    ]}], "target_duration_seconds": 6.0, "continuation_overlap_frames": 22}
+    warnings = contract.storyboard_warnings(raw)
+    assert any("慢速语速" in w for w in warnings)
+    # the same content with room to breathe is clean
+    raw["shots"][0]["duration_seconds"] = 14.0
+    raw["target_duration_seconds"] = 14.0
+    assert not any("慢速语速" in w for w in contract.storyboard_warnings(raw))
