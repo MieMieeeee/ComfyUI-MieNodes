@@ -12,20 +12,36 @@ app.registerExtension({
         }
 
         if (nodeData?.name === "LoadStoryboardAsset|Mie") {
+            const PLACEHOLDER = "（运行后这里显示剧本内容：角色、逐条事件、每镜时长、交付总时长与渲染风险）\nRun to preview the loaded script asset.";
+
+            // Create the read-only panel when the node appears, so an
+            // un-run node explains itself instead of looking broken.
+            const onNodeCreated = nodeType.prototype.onNodeCreated;
+
+            nodeType.prototype.onNodeCreated = function () {
+                onNodeCreated?.apply(this, arguments);
+                this.ensureStoryboardTextWidget?.(app);
+            };
+
+            nodeType.prototype.ensureStoryboardTextWidget = function (appRef) {
+                if (!this.textWidget) {
+                    this.textWidget = ComfyWidgets["STRING"](this, "displaytext", ["STRING", {multiline: true}], appRef).widget;
+                    this.textWidget.inputEl.readOnly = true;
+                    this.textWidget.inputEl.style.border = "none";
+                    this.textWidget.inputEl.style.backgroundColor = "transparent";
+                    this.textWidget.value = PLACEHOLDER;
+                }
+                return this.textWidget;
+            };
+
             const onExecuted = nodeType.prototype.onExecuted;
 
             nodeType.prototype.onExecuted = function (message) {
                 onExecuted?.apply(this, arguments);
 
-                if (!this.textWidget) {
-                    this.textWidget = ComfyWidgets["STRING"](this, "displaytext", ["STRING", {multiline: true}], app).widget;
-                    this.textWidget.inputEl.readOnly = true;
-                    this.textWidget.inputEl.style.border = "none";
-                    this.textWidget.inputEl.style.backgroundColor = "transparent";
-                }
-
+                const widget = this.ensureStoryboardTextWidget(app);
                 const text = message["text"];
-                this.textWidget.value = Array.isArray(text) ? text.join("") : (text || "");
+                widget.value = Array.isArray(text) ? text.join("") : (text || "");
             };
         }
     },
