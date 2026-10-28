@@ -750,12 +750,19 @@ def _assemble_authored_plan(storyboard: dict, slot_bundles: dict) -> dict:
             picture_slots.append(slot)
     scene = slot_bundles.get(_storyboard.MAX_CHARACTER_SLOT + 1)
     scene_slot = None
+    scene_ambience = ""
     if scene is not None:
         if not isinstance(scene, dict) or scene.get("kind") != "scene" or scene.get("image") is None:
             raise ValueError("scene_1 requires a scene asset with an image")
         scene_slot = _storyboard.MAX_CHARACTER_SLOT + 1
         roster_slots.append(scene_slot)
         picture_slots.append(scene_slot)
+        # The v2 asset has no ambience field (sound belongs to the
+        # environment), so a wired scene's ambience replaces the
+        # compiler's fallback soundscape line below. The v1 authored
+        # track keeps its prompts verbatim — only the v2-compiled
+        # shots (_structured_events) are patched.
+        scene_ambience = (scene.get("ambience") or "").strip()
     reference_context = []
     summary_lines = ["authored prompt preserved; audio mode: " + storyboard["audio_mode"]]
     if not generated and storyboard.get("_structured_events"):
@@ -804,15 +811,34 @@ def _assemble_authored_plan(storyboard: dict, slot_bundles: dict) -> dict:
             % (scene.get("name") or "?", scene_picture)
         )
     shots = []
+    fallback_line = None
+    if scene_ambience and storyboard.get("_structured_events"):
+        from ..assets.storyboard_contract import RUNTIME_SOUNDSCAPE
+        fallback_line = "overall_soundscape: " + RUNTIME_SOUNDSCAPE
     for index, shot in enumerate(storyboard["shots"], 1):
         # H3's temporal grid is 17*k+5 at 24 fps; nearest representable duration.
         frames = max(5, 17 * round((shot["duration_seconds"] * 24 - 5) / 17) + 5)
-        shots.append({"id": "scene_%02d" % index, "prompt": shot["prompt"].split("\n"),
+        prompt_text = shot["prompt"]
+        if fallback_line and fallback_line in prompt_text:
+            prompt_text = prompt_text.replace(
+                fallback_line, "overall_soundscape: " + scene_ambience
+            )
+        shots.append({"id": "scene_%02d" % index, "prompt": prompt_text.split("\n"),
                       "length": frames, "seed": _seed_for(storyboard, index)})
+    # What the run summary should name: on the v2 track the wired scene's
+    # ambience is what actually landed (the runtime dict's own "ambience"
+    # is an untouchable placeholder); a v1 authored board keeps its own
+    # field — its prompts were preserved verbatim, so naming a scene
+    # value it never used would mislead.
+    if storyboard.get("_structured_events"):
+        resolved_ambience = scene_ambience or storyboard.get("ambience", "")
+    else:
+        resolved_ambience = storyboard.get("ambience", "")
     return {
         "plan": {"shots": shots, "prompt_prefix": reference_context},
         "summary_lines": summary_lines,
-        "ambience": storyboard.get("ambience", ""), "size_note": "",
+        "ambience": resolved_ambience,
+        "size_note": "",
         "roster_slots": roster_slots, "picture_slots": picture_slots,
         "picture_of_slot": {slot: i for i, slot in enumerate(picture_slots, 1)},
         "scene_slot": scene_slot,

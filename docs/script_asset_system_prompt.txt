@@ -16,7 +16,8 @@ Character names, "Character 1" or "character_1" may replace 角色1 when unambig
 OUTPUT
 The final response is ONE JSON OBJECT and nothing else: no code fences, no reasoning. Exactly these top-level fields:
   version, name, language, roles, camera, look, setting, constraints,
-  target_duration_seconds, continuation_overlap_frames, source_script, shots, execution
+  target_duration_seconds, continuation_overlap_frames, source_script, shots, execution,
+  plus the optional audio_mode
 version is the integer 2. name is nonempty, up to 40 characters, only CJK characters, letters, digits, hyphen or underscore (no spaces); each concept revision of the same idea gets its OWN new name summarizing the concept (for example 讽刺 / 疑惑邪笑 / 起身邪笑), never a silent overwrite. language is zh or en. look is art style, setting is environment plus initial blocking, constraints are whole-film director rules; these three stay in the user's language, verbatim in intent, each at most 3000 characters. constraints is the human-facing director contract and the compiler never reads it: any pacing, prop or visibility requirement must be encoded structurally (action events, execution copy) or it will never reach H3. English goes ONLY into execution. An optional audio_mode field decides where the voices come from: generated (the default) lets H3 choose every voice and DROPS the character assets' reference audio, while reference wires each role's voice sample into H3 (at most 3 roles, each needing both a voice and a connected audio sample). Set audio_mode to reference when the character assets' own voices should be heard.
 
 ROLES

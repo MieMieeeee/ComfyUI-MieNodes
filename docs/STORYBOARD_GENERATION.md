@@ -1,5 +1,7 @@
 # 剧本资产生成与使用
 
+> **轨道状态（2026-10-28）**：本文描述的 version=2 契约（roles + source_script + execution）是**当前主轨道**；早期的 version=1 剧本（cast / shots / lines，走模板组装）进入**冻结维护**——继续可存可载可编译，但所有新规则只落到 v2，不要再新创作 v1 资产。两份系统指令（节点内 `system_asset.txt` + docs 版）是 SYNC PAIR，共享规则必须同 commit 同补（`tests/test_script_asset_prompt_sync.py` 逐条守护）。
+
 这版直接扩展原 MiniMax H3 分镜文本生成器。分镜保存角色、选项、有顺序的原文事件，以及独立的英文执行说明 execution；V3 根据它生成 H3 提示词。角色形象由连接的角色资产决定，场景资产可选。
 
 ## 在 ComfyUI 中

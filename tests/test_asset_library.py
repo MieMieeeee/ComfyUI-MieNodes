@@ -694,13 +694,13 @@ def test_v2_simple_nodes_reject_multi_assets(lib_dir, monkeypatch):
         [make_png((1, 1, 1), 8, 6), make_png((2, 2, 2), 8, 6)],
         [make_wav(freq=440.0), make_wav(freq=880.0)],
     )
-    with pytest.raises(ValueError, match="does not fit the simple model.*2 image.*2 audio"):
+    with pytest.raises(ValueError, match="does not fit the simple node model.*2 image.*2 audio"):
         LoadCharacterAssetV2().load_character("", "Multi")
     library.save_scene(
         str(lib_dir), "ManyScene", "d",
         [make_png((1, 1, 1), 6, 6), make_png((2, 2, 2), 6, 6)],
     )
-    with pytest.raises(ValueError, match="does not fit the simple model.*2 image"):
+    with pytest.raises(ValueError, match="does not fit the simple node model.*2 image"):
         LoadSceneAssetV2().load_scene("", "ManyScene")
     # A multi-frame batch on the simple SAVE node dies at the one-frame gate.
     with pytest.raises(ValueError, match="exactly one frame"):

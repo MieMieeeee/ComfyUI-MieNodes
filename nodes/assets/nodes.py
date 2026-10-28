@@ -49,6 +49,19 @@ KIND_TIP = (
     "Asset kind: character (voice + audio sample) or scene (description + "
     "image only; voice/audio are ignored)."
 )
+# The Delete node is the ONE kind picker with a third option: script assets
+# (storyboards) have no images/audio and are deleted with the same
+# two-click confirm. Save/Load keep the two-value KIND_COMBO — a script is
+# never saved or loaded through the media asset nodes (they have their own
+# Load/Save Storyboard pair).
+DELETE_KIND_COMBO = ["character", "scene", "storyboard"]
+DELETE_KIND_TIP = (
+    "要删除的资产类型：character = 角色；scene = 场景；storyboard = 剧本资产"
+    "（storyboards/<名字>/ 目录；插件内置的剧本副本不会被删，只删本机库里的）。\n"
+    "Asset kind to delete: character, scene, or storyboard (the script-asset "
+    "directory in the local library; bundled copies ship with the plugin and "
+    "are never deleted)."
+)
 
 
 def _validate_exempt(name, **_kwargs):
@@ -335,7 +348,13 @@ class SaveAssetV2(object):
     )
     _DESC_TIP = (
         "资产的英文描述（60–100 词）。角色 = 外观事实（年龄/发型/脸型/着装），场景 = 空间/陈设/光线/氛围。\n"
-        "English description (60-100 words). Character = looks only; scene = space, furniture, lighting, atmosphere."
+        "注意：version=2 剧本（当前主契约）经零 LLM 编译时，描述文本不进 H3 提示词——身份与场景来自参考图；"
+        "本描述供 v1 模板轨道、LLM（V2）轨道与资产库界面使用。\n"
+        "English description (60-100 words). Character = looks only; scene = space, "
+        "furniture, lighting, atmosphere. When a version=2 script (the current "
+        "contract) is compiled zero-LLM, this text never enters the H3 prompt — "
+        "identity and environment come from the reference images; the description "
+        "feeds the v1 template track, the LLM (V2) track and the library UI."
     )
     _VOICE_PLACEHOLDER = (
         "音色描述 · Voice timbre（英文一行 EN one line，≤200 字符 chars，仅角色 · character only）\n"
@@ -343,7 +362,12 @@ class SaveAssetV2(object):
     )
     _VOICE_TIP = (
         "角色音色的英文一行描述（年龄/性别/音域/语速/质感，≤200 字符）；场景类型忽略本字段。\n"
-        "One-line English timbre descriptor for characters (age/gender/register/pace/texture, <=200 chars); ignored for scenes."
+        "version=2 剧本经零 LLM 编译时，提示词里的音色文字来自剧本资产本身；本字段仍须非空，"
+        "并供 v1 模板轨道与 LLM（V2）轨道使用。\n"
+        "One-line English timbre descriptor for characters (age/gender/register/pace/texture, <=200 chars); "
+        "ignored for scenes. When a version=2 script is compiled zero-LLM, the prompt's voice text comes "
+        "from the script asset itself; this field still must be non-empty and feeds the v1 template track "
+        "and the LLM (V2) track."
     )
     _AMBIENCE_PLACEHOLDER = (
         "场景氛围 · Scene ambience（英文一行 EN one line，≤400 字符 chars，仅场景 · scene only，可空）\n"
@@ -534,8 +558,11 @@ class LoadAssetV2(object):
             loaded = library.load_scene("", name)
             if len(loaded["png_bytes_list"]) != 1:
                 raise ValueError(
-                    "scene %r does not fit the simple model (one image): "
-                    "found %d image(s). Trim the asset under scenes/%s."
+                    "scene %r does not fit the simple node model (one image): "
+                    "found %d image(s). The multi-image layout is a "
+                    "HAND-maintained disk feature (see "
+                    "docs/ASSET_LIBRARY_GUIDE.md) — the nodes read and write "
+                    "exactly one image. Trim the asset under scenes/%s."
                     % (loaded["name"], len(loaded["png_bytes_list"]),
                        loaded["name"])
                 )
@@ -551,9 +578,12 @@ class LoadAssetV2(object):
         loaded = library.load_character("", name)
         if len(loaded["png_bytes_list"]) != 1 or len(loaded["audio_bytes_list"]) > 1:
             raise ValueError(
-                "character %r does not fit the simple model (one image + zero or one "
-                "audio): found %d image(s) and %d audio clip(s). Trim the "
-                "asset under characters/%s."
+                "character %r does not fit the simple node model (one image + "
+                "zero or one audio): found %d image(s) and %d audio clip(s). "
+                "The multi-image / multi-audio layout is a HAND-maintained "
+                "disk feature (see docs/ASSET_LIBRARY_GUIDE.md) — the nodes "
+                "read and write exactly one image and at most one clip. Trim "
+                "the asset under characters/%s."
                 % (loaded["name"], len(loaded["png_bytes_list"]),
                    len(loaded["audio_bytes_list"]), loaded["name"])
             )
@@ -715,12 +745,12 @@ class DeleteAsset(_DeleteAssetBase):
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "kind": (list(KIND_COMBO), {"default": "character", "tooltip": KIND_TIP}),
+                "kind": (list(DELETE_KIND_COMBO), {"default": "character", "tooltip": DELETE_KIND_TIP}),
                 "library_dir": ("STRING", {"default": ""}),
                 "name": (list(NAME_PLACEHOLDER), {
                     "default": NAME_PLACEHOLDER[0],
-                    "tooltip": "要删除的资产：下拉只列所选类型里已有的资产。删除前需在节点上两击确认（第二击排队执行）。\n"
-                               "Asset to delete: lists existing assets of the chosen kind only. Deletion requires the node's two-click confirm (the second click queues it).",
+                    "tooltip": "要删除的资产：下拉只列所选类型里已有的资产（剧本类型列出本机库里的剧本）。删除前需在节点上两击确认（第二击排队执行）。\n"
+                               "Asset to delete: lists existing assets of the chosen kind only (storyboard kind lists the local library's scripts). Deletion requires the node's two-click confirm (the second click queues it).",
                 }),
                 # Written ONLY by the delete button's confirmed click (unix
                 # seconds); execution accepts a fresh stamp only. Not a
@@ -735,8 +765,12 @@ class DeleteAsset(_DeleteAssetBase):
     OUTPUT_NODE = True
 
     def delete(self, kind="character", library_dir="", name="", confirm_token=""):
-        delete_fn = (library.delete_scene if kind == "scene"
-                     else library.delete_character)
+        if kind == "storyboard":
+            delete_fn = _storyboard.delete_storyboard
+        elif kind == "scene":
+            delete_fn = library.delete_scene
+        else:
+            delete_fn = library.delete_character
         return self._delete(name, confirm_token, delete_fn, kind)
 
 

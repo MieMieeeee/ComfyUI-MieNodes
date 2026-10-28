@@ -1,6 +1,13 @@
 # -*- coding: utf-8 -*-
 """On-disk storyboard asset (docs/PLAN_STORYBOARD_ASSET.md).
 
+TRACK STATUS (2026-10-28): the version-1 schema validated here (cast /
+shots / lines, template or authored assembly) is FROZEN maintenance
+mode — it keeps validating and assembling, but every new rule lands on
+the version-2 contract in ``storyboard_contract.py`` (roles +
+source_script + execution) only. Never extend both validators in
+parallel; new features start at v2.
+
 A storyboard is the AUTHORED INPUT to the zero-LLM plan assembler
 (``nodes/llm/storyboard_builder.py``): a hand-written cast of speakers, a
 sequence of dialogue shots, an optional English Setting sentence, and a
@@ -29,6 +36,7 @@ import json
 import math
 import os
 import re
+import shutil
 from pathlib import Path
 
 try:
@@ -886,16 +894,53 @@ def _storyboard_entry_problem(entry):
     return None
 
 
+def delete_storyboard(library_dir, name):
+    """Delete one storyboard asset (the whole storyboards/<name>/ directory).
+
+    Mirrors ``library.delete_character`` / ``delete_scene``: raises
+    FileNotFoundError when the storyboard does not exist, never touches a
+    bundled copy inside the plugin package (those ship with the plugin;
+    a user-library entry of the same name wins and is the only thing on
+    disk here).
+    """
+    root = _library.validate_library_dir(library_dir)
+    n = _library.validate_name(name)
+    sb_dir = _storyboards_dir(library_dir)
+    target_dir = _library._find_casefold_sibling(sb_dir, n)
+    if target_dir is None or not target_dir.is_dir():
+        raise FileNotFoundError(
+            "storyboard %r not found under %s (nothing deleted)" % (n, sb_dir)
+        )
+    files = [p for p in target_dir.rglob("*") if p.is_file()]
+    shutil.rmtree(target_dir)
+    return {
+        "ok": True,
+        "kind": "storyboard",
+        "name": target_dir.name,
+        "deleted_files": len(files),
+        "deleted_dir": str(target_dir),
+    }
+
+
 def storyboard_cache_key(library_dir, name):
     """Content hash of one storyboard JSON for IS_CHANGED. Returns the
     MISSING marker when the file is gone (so a failed read is not
-    cached as a success — mirrors ``library.character_cache_key``)."""
+    cached as a success — mirrors ``library.character_cache_key``).
+
+    The bundled fallback counts too: a storyboard that exists only in
+    ``bundled_assets`` loads fine, so its hash must come from the bundled
+    file — otherwise the Load node re-executes on every queue for no
+    reason."""
     try:
         _library.validate_library_dir(library_dir)
         n = _library.validate_name(name)
         sb_dir = _library._find_casefold_sibling(
             _storyboards_dir(library_dir), n
         )
+        if sb_dir is None or not sb_dir.is_dir():
+            sb_dir = _library._find_casefold_sibling(
+                _library.bundled_library_root() / STORYBOARDS_DIRNAME, n
+            )
         if sb_dir is None or not sb_dir.is_dir():
             return _library.MISSING_CACHE_MARKER
         json_path = sb_dir / STORYBOARD_JSON_NAME
@@ -1014,6 +1059,11 @@ def storyboard_preview(cleaned):
                 event.get("id"), event.get("type"),
                 names.get(event.get("character"), event.get("character")),
                 event.get("text", "")))
+    constraints = (asset.get("constraints") or "").strip()
+    if constraints:
+        lines.append("约束 · constraints（人读契约，不进编译 · for humans, "
+                     "never compiled into the H3 prompt）：")
+        lines.append("    " + constraints.replace("\n", "\n    "))
     warnings = storyboard_warnings(asset)
     if warnings:
         lines.append("⚠ 渲染风险：")
@@ -1066,8 +1116,18 @@ def augment_assets_payload(payload, library_dir):
     """Add the ``storyboards`` key to a ``library.list_assets_payload``
     result (the server joins the two modules; library.py must not import
     this module — storyboard.py imports library validators, the reverse
-    would be circular)."""
+    would be circular).
+
+    Skip notes ride along: characters/scenes already surface their skip
+    reasons through ``payload["error"]``, and a storyboard that fails
+    validation must be equally visible instead of just silently
+    vanishing from the dropdown."""
     listing = list_storyboards(library_dir)
     names = [n for n in listing.get("names", "").splitlines() if n]
     payload["storyboards"] = [{"name": n} for n in names]
+    status = listing.get("status", "")
+    if status and status != "ok":
+        payload["error"] = "; ".join(
+            part for part in (payload.get("error"), status) if part
+        )
     return payload

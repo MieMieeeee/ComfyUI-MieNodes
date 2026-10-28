@@ -24,14 +24,17 @@ const NEW_NAME = "（✏️ 新名字…）";
 const PLACEHOLDER = "（下拉选择资产）";
 const KIND_CHAR = "角色 Char";
 const KIND_SCENE = "场景 Scene";
-const KIND_STORY = "分镜 Storyboard";
+const KIND_STORY = "剧本 Script";
 
 // nodeData.name（含 |Mie 后缀）-> 行为配置
 const NODES = {
     // 2026-10-11 合并裁决：每个操作一个节点，kind 下拉选角色/场景。
     // kindWidget = 有 kind 下拉，cfg.save/preview/kinds 随其值实时变化。
     "LoadAssetV2|Mie": { kinds: ["characters"], preview: "character", kindWidget: true },
-    "DeleteAsset|Mie": { kinds: ["characters"], preview: "character", del: true, kindWidget: true },
+    "DeleteAsset|Mie": { kinds: ["characters"], preview: "character", del: true, kindWidget: true,
+        // 2026-10-28：删除节点是唯一有第三种 kind 的节点——剧本资产
+        // （storyboards/<名>/）同样走两击确认删除；预览走文本兜底。
+        kindValues: ["character", "scene", "storyboard"] },
     "SaveAssetV2|Mie": { kinds: ["characters"], save: "character", kindWidget: true },
     "SaveAssetAutoV2|Mie": { kinds: ["characters"], save: "character", kindWidget: true },
     // 旧的单类型节点（后端 CATEGORY=hidden，菜单里不出现，但老工作流照常
@@ -615,6 +618,18 @@ function makeKindToggle(node) {
     if (!kindW || typeof node.addDOMWidget !== "function") return;
     kindW.hidden = true;
 
+    // 分段按钮的可选值由节点配置决定（默认角色/场景；删除节点多一个
+    // 剧本 kind，见 NODES 里的 kindValues）。
+    const KIND_CHOICES = [
+        { value: "character", label: "👤 角色 · Character",
+          tip: "角色资产：有 voice 音色描述 + 音频样本。\nCharacter asset: voice descriptor + audio sample." },
+        { value: "scene", label: "🏞 场景 · Scene",
+          tip: "场景资产：只有描述 + 定妆图（音色/音频被忽略）。\nScene asset: description + image only (voice/audio ignored)." },
+        { value: "storyboard", label: "📜 剧本 · Script",
+          tip: "剧本资产：storyboards/<名字>/ 目录里的分镜契约 JSON，无图无音频；删除只删本机库副本。\nScript asset: the storyboard JSON under storyboards/<name>/, no images/audio; deleting removes the local library copy only." },
+    ];
+    const values = node.__mieAssets?.cfg?.kindValues || ["character", "scene"];
+
     const wrap = document.createElement("div");
     wrap.className = "mie-mode-row mie-kindrow";
     const mk = (value, text, tip) => {
@@ -631,17 +646,13 @@ function makeKindToggle(node) {
         });
         return b;
     };
-    wrap.append(
-        mk("character", "👤 角色 · Character",
-           "角色资产：有 voice 音色描述 + 音频样本。\nCharacter asset: voice descriptor + audio sample."),
-        mk("scene", "🏞 场景 · Scene",
-           "场景资产：只有描述 + 定妆图（音色/音频被忽略）。\nScene asset: description + image only (voice/audio ignored).")
-    );
+    for (const c of KIND_CHOICES) {
+        if (values.includes(c.value)) wrap.append(mk(c.value, c.label, c.tip));
+    }
     const btns = [...wrap.querySelectorAll(".mie-mode-btn")];
     const sync = () => {
-        const scene = (kindW.value || "character") === "scene";
-        btns[0].classList.toggle("active", !scene);
-        btns[1].classList.toggle("active", scene);
+        const cur = kindW.value || "character";
+        btns.forEach((b, i) => b.classList.toggle("active", values[i] === cur));
     };
     node.__mieAssets.syncKindToggle = sync;
 
@@ -667,14 +678,17 @@ function adaptKind(node) {
     const ui = node.__mieAssets;
     if (!ui?.cfg?.kindWidget) return;
     const kindW = node.widgets.find((w) => w.name === "kind");
-    const scene = (kindW?.value || "character") === "scene";
+    const kind = kindW?.value || "character";
     const cfg = ui.cfg;
-    if (cfg.save) cfg.save = scene ? "scene" : "character";
-    if (cfg.preview) cfg.preview = scene ? "scene" : "character";
-    cfg.kinds = [scene ? "scenes" : "characters"];
+    // 三态映射：save 节点只有 character/scene；preview 跟随 kind（剧本
+    // 走 /meta 的 storyboard 分支 + 文本兜底预览）；kinds 决定下拉名单。
+    if (cfg.save) cfg.save = kind === "scene" ? "scene" : "character";
+    if (cfg.preview) cfg.preview = kind;
+    cfg.kinds = [kind === "character" ? "characters"
+                 : kind === "scene" ? "scenes" : "storyboards"];
     ui.syncKindToggle?.();
-    ui.setKindVisibility?.(scene);
-    ui.refreshKindTexts?.(scene);
+    ui.setKindVisibility?.(kind === "scene");
+    ui.refreshKindTexts?.(kind === "scene");
     relayoutNode(node);
     applyLibrary(node);
     if (cfg.save) refreshSavePreview(node, { autofill: false });

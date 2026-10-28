@@ -14,6 +14,16 @@ PERSPECTIVES = ("observer", "first_person")
 EVENT_TYPES = ("dialogue", "action", "enter", "exit")
 LANGUAGES = ("zh", "en")
 
+# The soundscape line ``to_runtime`` stamps into every compiled shot when
+# nothing better exists. ``storyboard_builder`` swaps it for the WIRED
+# scene asset's ``ambience`` (the v2 asset itself has no ambience field —
+# sound belongs to the environment asset, not the directing contract).
+RUNTIME_SOUNDSCAPE = "Natural room tone, breathing and synchronized movement sounds."
+# Role voice keeps the SAME cap as the character asset's voice line
+# (library.VOICE_MAX_CHARS): the two fields describe one timbre, and the
+# system prompt tells the author to write them to match each other.
+ROLE_VOICE_MAX_CHARS = 200
+
 
 def _bare_phrase(value):
     """Drop trailing sentence punctuation from a spliced phrase.
@@ -145,7 +155,8 @@ def validate_v2(payload, *, _check_timing=True, _check_execution=True):
             raise ValueError("role position must be left/right/center/none")
         if role["presence"] == "off_screen" and role["position"] != "none":
             raise ValueError("off_screen role position must be none")
-        role["voice"] = _bare_phrase(_text(role.get("voice", ""), "role voice", empty=True, maximum=300))
+        role["voice"] = _bare_phrase(_text(role.get("voice", ""), "role voice", empty=True,
+                                           maximum=ROLE_VOICE_MAX_CHARS))
     if not any(r["presence"] == "on_screen" for r in roles):
         raise ValueError("at least one on_screen role is required")
     camera = out.get("camera")
@@ -438,7 +449,7 @@ def to_runtime(asset):
                     visible.add(who)
                 elif kind == "exit":
                     visible.remove(who)
-        lines += ["overall_soundscape: Natural room tone, breathing and synchronized movement sounds.",
+        lines += ["overall_soundscape: " + RUNTIME_SOUNDSCAPE,
                   "non_diegetic_music: No non-diegetic music."]
         shots.append({"lines": speech, "prompt": "\n".join(lines), "duration_seconds": length / 24})
     return {"name": asset["name"], "version": 1, "assembly_mode": "authored", "audio_mode": asset.get("audio_mode", "generated"),

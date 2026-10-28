@@ -107,23 +107,34 @@ def _register() -> None:
             return web.json_response(
                 {"ok": False, "error": "name is required"}, status=400
             )
-        if kind not in ("character", "scene"):
+        if kind not in ("character", "scene", "storyboard"):
             return web.json_response(
-                {"ok": False, "error": "kind must be character or scene"},
+                {"ok": False, "error": "kind must be character, scene or storyboard"},
                 status=400,
             )
         try:
             from _mienodes_internal.nodes.assets.nodes import (
                 NAME_PLACEHOLDER,
                 NEW_NAME_SENTINEL,
+                STORYBOARD_NAME_PLACEHOLDER,
             )
         except ImportError:
-            from .nodes import NAME_PLACEHOLDER, NEW_NAME_SENTINEL
-        if name in NAME_PLACEHOLDER or name == NEW_NAME_SENTINEL:
+            from .nodes import (
+                NAME_PLACEHOLDER,
+                NEW_NAME_SENTINEL,
+                STORYBOARD_NAME_PLACEHOLDER,
+            )
+        if (name in NAME_PLACEHOLDER or name == NEW_NAME_SENTINEL
+                or name in STORYBOARD_NAME_PLACEHOLDER):
             return web.json_response(
                 {"ok": False, "error": "pick a real asset name first"}, status=400
             )
-        fn = library.delete_character if kind == "character" else library.delete_scene
+        if kind == "storyboard":
+            fn = storyboard.delete_storyboard
+        elif kind == "scene":
+            fn = library.delete_scene
+        else:
+            fn = library.delete_character
         try:
             result = fn("", name)
         except Exception as e:

@@ -268,7 +268,7 @@ class MiniMaxH3StoryboardGenerator:
     def INPUT_TYPES(cls):
         return {"required": {
             "llm_service_connector": ("LLMServiceConnector",),
-            "name": ("STRING", {"default": "新分镜", "tooltip": "分镜资产名，可直接保存入库"}),
+            "name": ("STRING", {"default": "新剧本", "tooltip": "剧本资产名，可直接保存入库。\nScript-asset name; can be saved into the library as-is."}),
             "concept": ("STRING", {"multiline": True, "default": "角色2动作：双手拿着苹果递向角色1。\n角色2：吃苹果吗？\n角色1：不吃。",
                 "tooltip": "按时间顺序，每行一个事件：角色1：台词 / 角色1动作：动作 / 角色1入场：动作 / 角色1离场：动作；可加[zh]或[en]。原文逐字锁定。"}),
             "character_count": ("INT", {"default": 2, "min": 1, "max": 8}),

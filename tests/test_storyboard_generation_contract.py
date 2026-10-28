@@ -389,3 +389,78 @@ def test_bundled_assets_answer_names_the_user_library_does_not_have(mods, tmp_pa
     assert "内置猫" in names
     sb_names = storyboard.list_storyboards("").get("names", "").splitlines()
     assert "内置分镜" in sb_names
+
+
+# --------------------------------------------------------------------------- #
+# 2026-10-28 review fixes: scene ambience on the v2 track, script-asset
+# delete, skip-status surfacing, bundled cache key, constraints preview.
+# --------------------------------------------------------------------------- #
+def _scene(name, description, ambience=""):
+    import torch
+    return {"kind": "scene", "name": name, "description": description,
+            "ambience": ambience, "image": torch.zeros(1, 8, 8, 3)}
+
+
+def test_v2_scene_ambience_replaces_the_fallback_soundscape(mods):
+    raw = apple()
+    node = mods["builder"].MiniMaxH3LoopPromptGeneratorV3()
+    actors = dict(character_1=_char("角色1", "First actor.", "male voice"),
+                  character_2=_char("角色2", "Second actor.", "female voice"))
+    out = node.generate_v3(
+        raw, scene_1=_scene("客厅", "A cozy living room.",
+                            "Quiet room tone with soft indoor air, no music"),
+        **actors)
+    joined = "\n".join(json.loads(out[0])["shots"][0]["prompt"])
+    assert ("overall_soundscape: Quiet room tone with soft indoor air, "
+            "no music") in joined
+    assert "Natural room tone, breathing" not in joined
+    assert "Quiet room tone" in out[1]  # the run summary names the resolved line
+
+    out2 = node.generate_v3(raw, scene_1=_scene("客厅", "A cozy living room."),
+                            **actors)
+    joined2 = "\n".join(json.loads(out2[0])["shots"][0]["prompt"])
+    assert "Natural room tone, breathing" in joined2  # no ambience -> fallback
+
+
+def test_preview_shows_constraints_marked_not_compiled(mods):
+    cleaned = mods["storyboard"].validate_storyboard_payload(apple())
+    text = mods["storyboard"].storyboard_preview(cleaned)
+    assert "全程持有苹果" in text
+    assert "不进编译" in text
+
+
+def test_delete_storyboard_removes_the_asset_directory(mods, tmp_path):
+    lib = mods["storyboard"]
+    cleaned, _path, status = lib.save_storyboard(str(tmp_path), apple())
+    assert status == "created"
+    result = lib.delete_storyboard(str(tmp_path), cleaned["name"])
+    assert result["ok"] is True and result["kind"] == "storyboard"
+    assert result["deleted_files"] >= 1
+    with pytest.raises(FileNotFoundError):
+        lib.delete_storyboard(str(tmp_path), cleaned["name"])
+
+
+def test_augment_payload_surfaces_storyboard_skip_reasons(mods, tmp_path):
+    lib = mods["storyboard"]
+    bad = tmp_path / "storyboards" / "坏剧本"
+    bad.mkdir(parents=True)
+    (bad / "storyboard.json").write_text("{ not json", encoding="utf-8")
+    payload = lib.augment_assets_payload({"ok": True, "error": None}, str(tmp_path))
+    assert payload["storyboards"] == []
+    assert "坏剧本" in payload["error"]
+    payload2 = lib.augment_assets_payload({"ok": True, "error": "prior note"},
+                                          str(tmp_path))
+    assert "prior note" in payload2["error"] and "坏剧本" in payload2["error"]
+
+
+def test_cache_key_covers_the_bundled_fallback(mods, tmp_path, monkeypatch):
+    lib = mods["storyboard"]
+    bundled = tmp_path / "bundled"
+    target = bundled / "storyboards" / apple()["name"]
+    target.mkdir(parents=True)
+    (target / "storyboard.json").write_text(
+        json.dumps(apple(), ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(lib._library, "bundled_library_root",
+                        lambda plugin_root=None: bundled)
+    key = lib.storyboard_cache_key(str(tmp_path / "user_lib"), apple()["name"])
+    assert key != lib._library.MISSING_CACHE_MARKER

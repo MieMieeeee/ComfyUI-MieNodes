@@ -1,5 +1,7 @@
 # 分镜资产 + 零 LLM 组装 实施计划
 
+> **轨道状态（2026-10-28）**：本文的 version=1 剧本契约（cast / shots / lines）已进入**冻结维护**——当前主契约是 version=2（`nodes/assets/storyboard_contract.py`，见 [`STORYBOARD_GENERATION.md`](STORYBOARD_GENERATION.md) 与 [`PLAN_STORYBOARD_FIRST_ASSET_V3.md`](PLAN_STORYBOARD_FIRST_ASSET_V3.md)）。新规则只落 v2，本文留作 v1 行为的权威记录。
+>
 > 修订 2026-10-19。前置依赖：资产库 V2（`docs/PLAN_ASSET_LIBRARY.md`，已落地）、
 > H3 Loop 生成器确定性化系列修复（`9a5d1e6`/`0cc25d9`/`cfa1487`，已落地）。
 > 本文档描述的是**新增第二条 plan 生产轨道**，不改动现有 LLM 生成轨道。
