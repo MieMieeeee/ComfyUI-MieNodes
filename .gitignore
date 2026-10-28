@@ -47,3 +47,5 @@ tests/live_combo_results/
 # series production reference images (kept locally, not part of the published contract)
 docs/storyboard-assets/series-unified/production/
 docs/storyboard-assets/llm-series-20261025/
+docs/storyboard-assets/llm-series-20261027/
+docs/storyboard-assets/knight-kitten-20261026/
