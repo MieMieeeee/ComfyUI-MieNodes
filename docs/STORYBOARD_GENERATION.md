@@ -1,10 +1,10 @@
-# 分镜资产生成与使用
+# 剧本资产生成与使用
 
 这版直接扩展原 MiniMax H3 分镜文本生成器。分镜保存角色、选项、有顺序的原文事件，以及独立的英文执行说明 execution；V3 根据它生成 H3 提示词。角色形象由连接的角色资产决定，场景资产可选。
 
 ## 在 ComfyUI 中
 
-1. 添加「MiniMax H3 分镜资产生成器」，连接大语言模型服务。
+1. 添加「MiniMax H3 剧本资产生成器」，连接大语言模型服务。
 2. 设 character_count，按编号填写 character_settings。每个角色一行，例如：
 
 ```text
@@ -27,7 +27,7 @@
 
 4. 选择 shot_count、target_duration_seconds 和 camera_framing / movement / perspective；look 是画面风格，setting 是环境与初始状态，constraints 是全片约束。默认 language=zh，locked 固定机位，observer 为旁观视角。two_shot 是双人构图，medium_close_up 是中近景。
 5. 将 storyboard 输出接入 V3 的 storyboard；角色资产按 character_1、character_2 接入 V3。场景资产接 scene_1，可留空。V3 的 plan_json 接 Loop 计划节点；assets 经 Asset → Slots 接参考图输入。
-6. 如果要保存，storyboard_json 接「保存分镜资产」的 json_text 输入，新建名称须与 JSON 中的 name 一致；下次通过「加载分镜资产」直接接 V3。storyboard_text 只用于阅读预览。
+6. 如果要保存，storyboard_json 接「保存剧本资产」的 json_text 输入，新建名称须与 JSON 中的 name 一致；下次通过「加载剧本资产」直接接 V3。storyboard_text 只用于阅读预览。
 7. 角色资产（参考图与声音）需要自己建：用「保存角色资产」把图和音频存成资产，再用「加载资产」按名字选中它。
    完整可拖入的参考工作流见 [docs/examples/storyboard-generation/storyboard-h3-ref2va.json](examples/storyboard-generation/storyboard-h3-ref2va.json)，外部测试者的上手说明见 [docs/qa/sketches-20261027/TESTING_GUIDE.md](qa/sketches-20261027/TESTING_GUIDE.md)。
 
@@ -41,7 +41,7 @@
 
 1. 把 [完整系统指令](../nodes/llm/prompts/h3_storyboard/system_asset.txt) 全文放入系统指令；不支持系统消息的聊天工具可把它作为首条指令。需要包含实战经验（时段光效锚点、环境文字语言、单手动作、节拍拆分、切镜景别匹配）时，用 [整合版系统指令](script_asset_system_prompt.txt)（含一个通过校验器的完整示例资产）。
 2. 提交 [吃苹果输入模板](examples/storyboard-generation/apple-input.txt) 或 [刺猬输入模板](examples/storyboard-generation/hedgehog-input.txt)，再替换为自己的角色和事件。
-3. 模型应输出一个 version=2 JSON 对象。复制 JSON 到「保存分镜资产」，随后加载并接 V3。
+3. 模型应输出一个 version=2 JSON 对象。复制 JSON 到「保存剧本资产」，随后加载并接 V3。
 4. 可先在仓库目录运行下面的纯 Python 检查，不需要启动 ComfyUI 或安装 torch：
 
 ```text
@@ -68,4 +68,4 @@ continuation_overlap_frames 是每次续接在拼接时去掉的前导上下文�
 
 ## 现成的资产系列
 
-[分镜资产系列](storyboard-assets/) 存放可直接入库的 version 2 资产，是「千层套路」玩梗短剧系列：001（既有 v1）/ 002 中文逗号 / 003 凌晨与午饭（含各表演版本）/ 004 系统时区 / 005 隐藏撇号。每集都通过了契约校验，并已导入部署资产库，用「加载分镜资产」直接选用。批量导入用 `python scripts/import_storyboard_assets.py docs/storyboard-assets`，逐个校验用 `python scripts/validate_storyboard_asset.py <文件>`。
+[剧本资产系列](storyboard-assets/) 存放可直接入库的 version 2 资产，是「千层套路」玩梗短剧系列：001（既有 v1）/ 002 中文逗号 / 003 凌晨与午饭（含各表演版本）/ 004 系统时区 / 005 隐藏撇号。每集都通过了契约校验，并已导入部署资产库，用「加载剧本资产」直接选用。批量导入用 `python scripts/import_storyboard_assets.py docs/storyboard-assets`，逐个校验用 `python scripts/validate_storyboard_asset.py <文件>`。

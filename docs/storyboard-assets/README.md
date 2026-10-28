@@ -1,4 +1,4 @@
-# 千层套路 · 分镜资产系列
+# 千层套路 · 剧本资产系列
 
 > 2026-10-23：新的系列统一版见 [series-unified/README.md](series-unified/README.md)。当前统一要求为Claude娘定版形象、夜间书房转椅、参考人物声线与封禁收尾；英文开场是可选项，003保持坐姿。下文保留早期素材和变体记录，成片通过情况以对应QA记录为准。
 
@@ -19,7 +19,7 @@ python scripts/validate_storyboard_asset.py docs/storyboard-assets/Claude的千�
 python scripts/import_storyboard_assets.py docs/storyboard-assets
 ```
 
-导入后资产出现在 `<library>/storyboards/<资产名>/storyboard.json`，在 ComfyUI 里用「加载分镜资产」直接选用。
+导入后资产出现在 `<library>/storyboards/<资产名>/storyboard.json`，在 ComfyUI 里用「加载剧本资产」直接选用。
 
 ## 剧集表
 

@@ -1,7 +1,7 @@
-# 分镜资产 + H3 视频 · 外部测试说明（v1.5.2）
+# 剧本资产 + H3 视频 · 外部测试说明
 
-核心流程：**装插件 → 准备角色资产 → 导入分镜资产 → 跑出成片**。
-本管线是"分镜与渲染解耦"设计：**后半段（分镜资产 → 编译提示词 → 视频生成）完全零 LLM，不需要任何 API Key**。
+核心流程：**装插件 → 准备角色资产 → 导入剧本资产 → 跑出成片**。
+本管线是"剧本与渲染解耦"设计：**后半段（剧本资产 → 编译提示词 → 视频生成）完全零 LLM，不需要任何 API Key**。
 
 ---
 
@@ -25,12 +25,12 @@ docs/examples/storyboard-generation/storyboard-h3-ref2va.json
 
 （相对本文件的路径是 `../../examples/storyboard-generation/storyboard-h3-ref2va.json`）
 
-它包含整条链路（载入分镜资产 → V3 编译 → 资产分槽 → H3 ref2va → 链路循环 → 合成成片），
+它包含整条链路（加载剧本资产 → V3 编译 → 资产分槽 → H3 ref2va → 链路循环 → 合成成片），
 画布上还有一个 Note 节点写着每一步。拖进 ComfyUI 后只需要改两处（见第 2 节）。
 
 ## 2. 准备角色资产（测试者自建，仓库里不提供）
 
-仓库只提供**分镜资产 JSON**，**角色资产（参考图 + 声音）不在仓库里**，需要自己建：
+仓库只提供**剧本资产 JSON**，**角色资产（参考图 + 声音）不在仓库里**，需要自己建：
 
 1. 画布上放 **「保存角色资产 · Save Character Asset」**（`SaveCharacterAssetV2|Mie`）：
    - 填 `name`（资产名）、`description`（外观描述，英文，越具体越稳）、
@@ -44,7 +44,7 @@ docs/examples/storyboard-generation/storyboard-h3-ref2va.json
 > 少接一张 H3 会自己编那个角色的长相；只有一个角色的资产时，把角色2 那根连线删掉即可
 > （H3 会忽略空的参考槽位）。
 
-## 3. 拿到分镜资产（三条路线，建议按顺序试）
+## 3. 拿到剧本资产（三条路线，建议按顺序试）
 
 ### 路线 1：直接用仓库里的现成资产（零 LLM · 先跑通管线）
 
@@ -59,10 +59,10 @@ docs/examples/storyboard-generation/storyboard-h3-ref2va.json
 
 导入二选一：
 - 命令行（插件目录下）：`python scripts/import_storyboard_assets.py docs/storyboard-assets --overwrite`
-- 手动：打开 JSON 全文，粘进 **「保存分镜资产 · Save Storyboard Asset」** 的 `json_text`，
+- 手动：打开 JSON 全文，粘进 **「保存剧本资产 · Save Script Asset」** 的 `json_text`，
   节点的 `name` 必须与 JSON 里的 `"name"` 完全一致。
 
-然后把参考工作流里 **「① 分镜资产」** 节点的 `name` 改成对应资产名，跑。
+然后把参考工作流里 **「① 剧本资产」** 节点的 `name` 改成对应资产名，跑。
 （参考工作流默认用 `班上第三名`，需要 2 个角色资产；用 `白披风骑士猫的独白` 只需 1 个。）
 
 ### 路线 2：用外部网页大模型生成分镜（免配 API Key · 写自己的故事）
@@ -79,12 +79,12 @@ docs/examples/storyboard-generation/storyboard-h3-ref2va.json
 角色1离场：拿着咖啡转身走出门外
 ```
 
-3. 模型会输出**一个完整的 JSON 对象**。复制它，粘进 **「保存分镜资产」** 的 `json_text`，
+3. 模型会输出**一个完整的 JSON 对象**。复制它，粘进 **「保存剧本资产」** 的 `json_text`，
    并把节点 `name` 设成与 JSON 内部 `"name"` 一致。
 
 ### 路线 3：用插件内置节点生成（需要配 LLM API Key）
 
-画布上放 **「MiniMax H3 分镜资产生成器」**（`MiniMaxH3StoryboardGenerator|Mie`）：
+画布上放 **「MiniMax H3 剧本资产生成器」**（`MiniMaxH3StoryboardGenerator|Mie`）：
 
 | 输入 | 说明 |
 |---|---|
@@ -96,7 +96,7 @@ docs/examples/storyboard-generation/storyboard-h3-ref2va.json
 | `continuation_overlap_frames` | 多段时保持 22（与下游 Loop 裁切一致） |
 | `audio_mode` | `generated`（默认，H3 生成声音，**角色参考音会被丢弃**）/ `reference`（接上角色资产声线样音，≤3 个角色） |
 
-输出四个口：`storyboard`（接 V3）、`storyboard_json`（接「保存分镜资产」的 json_text）、
+输出四个口：`storyboard`（接 V3）、`storyboard_json`（接「保存剧本资产」的 json_text）、
 `storyboard_text`（人读的预览）、`shot_count`。
 
 ## 4. 接线铁律（跑视频，全程零 LLM）
@@ -104,7 +104,7 @@ docs/examples/storyboard-generation/storyboard-h3-ref2va.json
 管线结构（节点中文名 ↔ 类名）：
 
 ```text
-载入分镜 · Load Storyboard Asset            (LoadStoryboardAsset|Mie)
+加载剧本 · Load Script Asset                (LoadStoryboardAsset|Mie)
   → H3 循环提示词生成器 V3                 (MiniMaxH3LoopPromptGeneratorV3|Mie)  ← 零 LLM，编译成 plan_json
   → 资产转槽位 · Asset → Slots              (AssetToSlots|Mie)                    ← 拆成 picture_1.. / audio_1..
   → H3 参考生视频                           (MiniMaxH3ReferenceToVideo)
@@ -145,5 +145,5 @@ docs/examples/storyboard-generation/storyboard-h3-ref2va.json
 
 ## 7. 反馈
 
-带这四样回来最好复现：分镜资产 JSON、`segments/*.prompt.txt`、成片 mp4、ASR 文本。
+带这四样回来最好复现：剧本资产 JSON、`segments/*.prompt.txt`、成片 mp4、ASR 文本。
 已验证的成片与 QA 记录在 `docs/qa/`（`sketches-20261027/`、`knight-cat-20261026/`、`storyboard-gags-20261026/`）。

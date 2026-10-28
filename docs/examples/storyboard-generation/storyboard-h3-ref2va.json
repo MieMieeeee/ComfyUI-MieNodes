@@ -2234,7 +2234,7 @@
           "links": null
         }
       ],
-      "title": "① 分镜资产：班上第三名（仓库 docs/storyboard-assets/，先导入）",
+      "title": "① 剧本资产：班上第三名（仓库 docs/storyboard-assets/，先导入）",
       "properties": {
         "cnr_id": "ComfyUI_MieNodes",
         "ver": "5a8315e2fcb2437af741a72745c845ac4572ed3d",
@@ -2360,10 +2360,10 @@
         "text": ""
       },
       "widgets_values": [
-        "① 把仓库 docs/storyboard-assets/ 里的分镜资产导入资产库（命令行 python scripts/import_storyboard_assets.py docs/storyboard-assets --overwrite，或把 JSON 粘进「保存分镜资产」）；本图默认用「班上第三名」（需要 2 个角色资产）。\n② 在两个「填你自己的角色资产名」节点里填上你已建好的角色资产名（没有就先用「保存角色资产」建：图 + 声音 + 名字 + 外观描述 + 声线）。\n③ 场景资产可选：接上就以场景图为环境，不接就由分镜里的 setting 决定环境。\n④ 跑。分镜→提示词→成片全程零 LLM，不需要任何 API Key。\n⑤ 验收台词用 ASR，别看烧录字幕；最终提示词在 output/h3_chains/<run_name>/segments/*.prompt.txt。\n注意：分镜里有几位画内角色就接几张角色图（少接一张 H3 会自己编那个人的长相）；角色资产没音频时把那根 ref_audio 连线删掉；run_name 只能用 ASCII。"
+        "① 把仓库 docs/storyboard-assets/ 里的剧本资产导入资产库（命令行 python scripts/import_storyboard_assets.py docs/storyboard-assets --overwrite，或把 JSON 粘进「保存剧本资产」）；本图默认用「班上第三名」（需要 2 个角色资产）。\n② 在两个「填你自己的角色资产名」节点里填上你已建好的角色资产名（没有就先用「保存角色资产」建：图 + 声音 + 名字 + 外观描述 + 声线）。\n③ 场景资产可选：接上就以场景图为环境，不接就由剧本里的 setting 决定环境。\n④ 跑。剧本→提示词→成片全程零 LLM，不需要任何 API Key。\n⑤ 验收台词用 ASR，别看烧录字幕；最终提示词在 output/h3_chains/<run_name>/segments/*.prompt.txt。\n注意：剧本里有几位画内角色就接几张角色图（少接一张 H3 会自己编那个人的长相）；角色资产没音频时把那根 ref_audio 连线删掉；run_name 只能用 ASCII。"
       ],
       "widgets_values_named": {
-        "text": "资产版使用方法\n\n1. 角色资产选择「Claude娘」。\n2. 分镜资产选择「Claude单图对话-15秒」。\n3. 点击运行即可；生成六轮对白、约15秒视频。\n\n接线说明\n分镜 → V3.storyboard\nClaude娘 asset → V3.character_1\ncharacter_2（旁白）留空；scene_1 留空。\nV3.plan_json → 计划.plan_json_input\nV3.assets → Asset To Slots.assets\npicture_1 → H3.ref_image_0\n\n这份分镜使用 authored + generated：\n原文不改写，人物声音由 H3 生成。\n不接参考音频，也不需要旁白人或场景资产。\n角色资产自带音频会由 V3 排除。\n\n修改剧情：编辑/另存分镜资产的 prompt 和 lines，\n两者对白与语言必须一致；duration_seconds 控制时长。\n修改人物：在角色资产加载节点选择其他角色。\n种子已固定为验证值。换剧情或重做时请修改\n计划节点 run_name，避免接续旧任务。\n\n输出：ComfyUI/output/live_pov\n完整原文分镜已随此工作流另附 JSON。"
+        "text": "资产版使用方法\n\n1. 角色资产选择「Claude娘」。\n2. 剧本资产选择「Claude单图对话-15秒」。\n3. 点击运行即可；生成六轮对白、约15秒视频。\n\n接线说明\n分镜 → V3.storyboard\nClaude娘 asset → V3.character_1\ncharacter_2（旁白）留空；scene_1 留空。\nV3.plan_json → 计划.plan_json_input\nV3.assets → Asset To Slots.assets\npicture_1 → H3.ref_image_0\n\n这份分镜使用 authored + generated：\n原文不改写，人物声音由 H3 生成。\n不接参考音频，也不需要旁白人或场景资产。\n角色资产自带音频会由 V3 排除。\n\n修改剧情：编辑/另存分镜资产的 prompt 和 lines，\n两者对白与语言必须一致；duration_seconds 控制时长。\n修改人物：在角色资产加载节点选择其他角色。\n种子已固定为验证值。换剧情或重做时请修改\n计划节点 run_name，避免接续旧任务。\n\n输出：ComfyUI/output/live_pov\n完整原文分镜已随此工作流另附 JSON。"
       },
       "color": "#283b47",
       "bgcolor": "#1c2932"
@@ -3024,7 +3024,7 @@
     },
     {
       "id": 19,
-      "title": "① 选择人物与分镜资产",
+      "title": "① 选择人物与剧本资产",
       "bounding": [
         -1193.8840587398586,
         1040.9051439805048,
