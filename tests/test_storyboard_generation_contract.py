@@ -198,7 +198,7 @@ def test_real_save_and_load_node_bundles_feed_v3(mods, tmp_path):
     saved = SaveStoryboardAsset().save(
         library_dir=str(tmp_path), name=NEW_NAME_SENTINEL,
         new_name=raw["name"], json_text=json.dumps(raw))[1]
-    loaded = LoadStoryboardAsset().load(str(tmp_path), raw["name"])["storyboard"][0]
+    loaded = LoadStoryboardAsset().load(str(tmp_path), raw["name"])["result"][0]
     for bundle in (saved, loaded):
         assert "_path" in bundle
         out = mods["builder"].MiniMaxH3LoopPromptGeneratorV3().generate_v3(
@@ -322,7 +322,7 @@ def test_voice_trailing_punctuation_is_normalized_before_splicing(mods):
 
 def test_both_storyboard_system_prompts_carry_the_render_review_rules():
     root = Path(__file__).parents[1]
-    docs_prompt = (root / "docs" / "storyboard_asset_system_prompt.txt").read_text(encoding="utf-8")
+    docs_prompt = (root / "docs" / "script_asset_system_prompt.txt").read_text(encoding="utf-8")
     node_prompt = (root / "nodes/llm/prompts/h3_storyboard/system_asset.txt").read_text(encoding="utf-8")
     shared = [
         "FEWEST",

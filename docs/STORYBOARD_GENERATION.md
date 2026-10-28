@@ -39,7 +39,7 @@
 
 ## 在其他大语言模型中
 
-1. 把 [完整系统指令](../nodes/llm/prompts/h3_storyboard/system_asset.txt) 全文放入系统指令；不支持系统消息的聊天工具可把它作为首条指令。需要包含实战经验（时段光效锚点、环境文字语言、单手动作、节拍拆分、切镜景别匹配）时，用 [整合版系统指令](storyboard_asset_system_prompt.txt)（含一个通过校验器的完整示例资产）。
+1. 把 [完整系统指令](../nodes/llm/prompts/h3_storyboard/system_asset.txt) 全文放入系统指令；不支持系统消息的聊天工具可把它作为首条指令。需要包含实战经验（时段光效锚点、环境文字语言、单手动作、节拍拆分、切镜景别匹配）时，用 [整合版系统指令](script_asset_system_prompt.txt)（含一个通过校验器的完整示例资产）。
 2. 提交 [吃苹果输入模板](examples/storyboard-generation/apple-input.txt) 或 [刺猬输入模板](examples/storyboard-generation/hedgehog-input.txt)，再替换为自己的角色和事件。
 3. 模型应输出一个 version=2 JSON 对象。复制 JSON 到「保存分镜资产」，随后加载并接 V3。
 4. 可先在仓库目录运行下面的纯 Python 检查，不需要启动 ComfyUI 或安装 torch：

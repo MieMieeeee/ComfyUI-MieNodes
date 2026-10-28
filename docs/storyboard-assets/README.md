@@ -102,7 +102,7 @@ python scripts/import_storyboard_assets.py docs/storyboard-assets
 | `七岁养伤的一年` | 三岁从文、四岁习武……八岁通晓琴棋书画，被跳过的七岁在养伤 | 1（讲述者正对镜头） | 10 事件 / 10.8s |
 | `我叫张同` | 医生把病人叫成张同，病人抗议，医生答「我叫张同」 | 2（医生 / 患者） | 7 事件 / 7.3s |
 
-三份都按 2026-10-26 更新的 `docs/storyboard_asset_system_prompt.txt` 校过：单段生成、visible_state 只写首帧状态、
+三份都按 2026-10-26 更新的 `docs/script_asset_system_prompt.txt` 校过：单段生成、visible_state 只写首帧状态、
 环境文字语言锚点写进 setting（编译器不读 constraints，写在 constraints 里到不了 H3）、台词里的数字写成口语词。
 
 三份均已在真机 ComfyUI 上跑通 H3 成片（`Claude娘-日式赛璐璐` + `DeepSeek娘-日式赛璐璐`），台词逐句 ASR 核对通过。

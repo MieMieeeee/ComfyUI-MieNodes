@@ -998,7 +998,7 @@ def storyboard_preview(cleaned):
     overlap = asset.get("continuation_overlap_frames", 22)
     delivered = (sum(frames) - overlap * (len(frames) - 1)) / 24
     names = {r["id"]: r["name"] for r in asset.get("roles", [])}
-    lines = ["%s · %s" % (asset.get("name", "?"), "分镜资产 v%d" % asset.get("version", 2))]
+    lines = ["%s · %s" % (asset.get("name", "?"), "剧本资产 v%d" % asset.get("version", 2))]
     lines.append("角色 %d 位：%s" % (
         len(asset.get("roles", [])),
         "、".join("%s(%s%s)" % (r["name"], r["presence"],

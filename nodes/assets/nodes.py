@@ -350,7 +350,7 @@ class SaveAssetV2(object):
         "例 e.g.: quiet room tone with soft indoor air, no music"
     )
     _AMBIENCE_TIP = (
-        "场景的氛围句（英文一行，≤400 字符；空 = 保留磁盘值，新场景则不写）。零 LLM 分镜组装节点会"
+        "场景的氛围句（英文一行，≤400 字符；空 = 保留磁盘值，新场景则不写）。零 LLM 剧本组装节点会"
         "原样注入 plan。仅场景类型生效。\n"
         "One-line English ambience (≤400 chars; empty = preserve the on-disk value, leave it "
         "absent on new scenes). Inserted verbatim by the zero-LLM storyboard assembler. Scene kind only."
@@ -958,7 +958,7 @@ class AssetsToRoster(object):
 # --------------------------------------------------------------------------- #
 STORYBOARD_BUNDLE_TYPE = "MIE_STORYBOARD"
 
-STORYBOARD_NAME_PLACEHOLDER = ["（下拉选择分镜 · pick storyboard）"]
+STORYBOARD_NAME_PLACEHOLDER = ["（下拉选择剧本 · pick script）"]
 
 
 class LoadStoryboardAsset(object):
@@ -981,7 +981,7 @@ class LoadStoryboardAsset(object):
                 "name": (list(STORYBOARD_NAME_PLACEHOLDER), {
                     "default": STORYBOARD_NAME_PLACEHOLDER[0],
                     "tooltip": (
-                        "分镜名 · Storyboard name：下拉选要加载的分镜；\n"
+                        "剧本名 · Script name：下拉选要加载的剧本；\n"
                         "改写手头一次保存后请按 R 刷新下拉。"
                     ),
                 }),
@@ -989,7 +989,10 @@ class LoadStoryboardAsset(object):
         }
 
     RETURN_TYPES = (STORYBOARD_BUNDLE_TYPE, "STRING", "STRING")
-    RETURN_NAMES = ("storyboard", "status", "preview")
+    # The third output MUST be named "text": the frontend delivers each
+    # output under its own name, and js/storyboardPreview.js reads
+    # message["text"] to paint the preview on the node.
+    RETURN_NAMES = ("storyboard", "status", "text")
     FUNCTION = "load"
     OUTPUT_NODE = True
 
@@ -1008,10 +1011,10 @@ class LoadStoryboardAsset(object):
         # Show what was actually loaded - cast, every event, the delivered
         # duration and the render-risk warnings - on the node itself.
         preview = _storyboard.storyboard_preview(cleaned)
-        return {"ui": {"text": preview},
-                "storyboard": (bundle,),
-                "status": ("ok (%s)" % path,),
-                "preview": (preview,)}
+        # "result" carries the positional outputs; without it the node
+        # would return nothing at all.
+        return {"ui": {"text": [preview]},
+                "result": (bundle, "ok (%s)" % path, preview)}
 
 
 class SaveStoryboardAsset(object):
@@ -1026,12 +1029,12 @@ class SaveStoryboardAsset(object):
     CATEGORY = ASSETS_CATEGORY
 
     _NAME_TIP = (
-        "分镜名：📋 已有分镜 Existing 模式下拉选名字 = 覆盖；✏️ 新建 New "
+        "剧本名：📋 已有剧本 Existing 模式下拉选名字 = 覆盖；✏️ 新建 New "
         "模式输入名字 = 新建（互斥二选一）。\n"
         "Storyboard name: 📋 Existing = overwrite, ✏️ New = create."
     )
     _JSON_PLACEHOLDER = (
-        "粘贴生成器或外部大语言模型输出的分镜资产 JSON。新版 version=2 "
+        "粘贴生成器或外部大语言模型输出的剧本资产 JSON。新版 version=2 "
         "包含 roles、camera、source_script、shots[].events；动作与对白保留原文。\n"
         "Paste the portable storyboard asset JSON. Version 2 stores numbered "
         "roles and ordered source events; V3 compiles the video prompt."
@@ -1059,7 +1062,7 @@ class SaveStoryboardAsset(object):
                 }),
                 "new_name": ("STRING", {
                     "default": "",
-                    "placeholder": "新分镜名 · new storyboard name",
+                    "placeholder": "新剧本名 · new script name",
                 }),
             },
         }

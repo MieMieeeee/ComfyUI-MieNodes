@@ -36,7 +36,7 @@ project-specific; the Python-side whitelists live in
 ## SYNC PAIR — system_asset.txt (never edit one side alone)
 
 `system_asset.txt` (this directory) and
-`docs/storyboard_asset_system_prompt.txt` (the external/no-ComfyUI path)
+`docs/script_asset_system_prompt.txt` (the external/no-ComfyUI path)
 are two sibling renderings of ONE v2 contract. Their openings differ by
 design (asset_header JSON flow vs free-form conversation flow); every
 shared rule — roles, camera, shots/events, execution copy, duration,

@@ -14,7 +14,7 @@ class AssetStoryboardEnhancer:
         self.temperature, self.max_tokens, self.timeout = float(temperature), int(max_tokens), timeout
 
     def __call__(self, concept, shot_count, *, character_count=2, character_settings="",
-                 name="新分镜", target_duration_seconds=20, camera_framing="medium_shot",
+                 name="新剧本", target_duration_seconds=20, camera_framing="medium_shot",
                  camera_movement="locked", camera_perspective="observer", language="zh",
                  look="", setting="", constraints="", continuation_overlap_frames=22,
                  seed=0, audio_mode="generated", **_unused):
@@ -87,7 +87,7 @@ def preview_asset(asset):
     names = {r["id"]: r["name"] for r in asset["roles"]}
     frames = allocate_frames(asset)
     delivered = (sum(frames) - asset["continuation_overlap_frames"] * (len(frames) - 1)) / 24
-    lines = ["# 分镜资产 · " + asset["name"], "",
+    lines = ["# 剧本资产 · " + asset["name"], "",
              "%d 个角色 · %d 个生成片段 · %d 个镜头 · 预计交付 %.3f 秒 · 续接重叠 %d 帧" %
              (len(names), len(frames), sum(1 + len(s.get("camera_cuts", [])) for s in asset["shots"]),
               delivered, asset["continuation_overlap_frames"]), ""]
