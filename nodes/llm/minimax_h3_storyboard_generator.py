@@ -270,19 +270,38 @@ class MiniMaxH3StoryboardGenerator:
             "llm_service_connector": ("LLMServiceConnector",),
             "name": ("STRING", {"default": "新剧本", "tooltip": "剧本资产名，可直接保存入库。\nScript-asset name; can be saved into the library as-is."}),
             "concept": ("STRING", {"multiline": True, "default": "角色2动作：双手拿着苹果递向角色1。\n角色2：吃苹果吗？\n角色1：不吃。",
-                "tooltip": "按时间顺序，每行一个事件：角色1：台词 / 角色1动作：动作 / 角色1入场：动作 / 角色1离场：动作；可加[zh]或[en]。原文逐字锁定。"}),
+                "tooltip": "按输入模式填 · depends on mode:\n"
+                           "concept 概念创作：随便写——一个点子、一段故事、几句台词草稿都行，AI 出完整剧本，你看了预览再说好不好；\n"
+                           "script 锁定剧本：一行一件事（角色1：台词 / 角色1动作：动作 / 角色1入场：/ 角色1离场：，可加[zh]/[en]），台词逐字锁定。\n"
+                           "In concept mode write anything (an idea, a story, loose lines) and the AI authors the full asset; "
+                           "in script mode every line is a role-labelled event, locked verbatim."}),
             "character_count": ("INT", {"default": 2, "min": 1, "max": 8}),
             "character_settings": ("STRING", {"multiline": True, "default": "角色1：角色1 | 画面内 | 左侧 | adult male\n角色2：角色2 | 画面内 | 右侧 | adult female",
-                "tooltip": "每角色一行：角色1：名字 | 画面内/画外/稍后入场 | 左侧/右侧/中间/无 | 声音要求。数量须与角色数一致；留空使用编号角色。外观来自后续角色资产。"}),
-            "shot_count": ("INT", {"default": 1, "min": 1, "max": 20,
-                                  "tooltip": "Loop生成片段数。约14秒内能装下就填1：每多一段就多一次续生成，单人独占台词的续生成片段是已知崩角色形态。一个场景内的切镜写在constraints中，由camera_cuts编译为同一H3提示词的[Shot 1]/[Shot 2]。"}),
+                "tooltip": "每角色一行：角色1：名字 | 画面内/画外/稍后入场 | 左侧/右侧/中间/无 | 声音要求（分隔符 | 或逗号都行）。锁定模式须与角色数一致；概念模式可整栏留空由 AI 定。外观来自角色资产。\n"
+                           "One line per role ( | or commas as separators). Locked mode: must cover every numbered role; concept mode: leave empty and the AI casts it."}),
+            "shot_count": ("INT", {"default": 0, "min": 0, "max": 20,
+                                  "tooltip": "生成片段数，0=自动（能装进约14秒就用最少分段；推荐）。锁定模式下事件会被逐字分组；单人独占台词的续接片段是已知崩角色形态。\n"
+                                             "Generation segments, 0 = auto (fewest segments that fit; recommended)."}),
             "target_duration_seconds": ("FLOAT", {"default": 20, "min": 1, "max": 600, "step": 1,
-                "tooltip": "目标交付总时长；按H3帧网格分配并计入续接裁剪，实际值在预览中显示。过短会报错，不删减台词。"}),
-            "camera_framing": (["medium_shot", "two_shot", "medium_close_up", "close_up", "wide_shot"],),
-            "camera_movement": (["locked", "gentle_follow"],),
-            "camera_perspective": (["observer", "first_person"],),
+                "tooltip": "目标交付总时长；概念模式只是建议（AI 按内容调整），锁定模式按 H3 帧网格分配。过短会报错，不删减台词。\n"
+                           "Target delivered duration; a hint in concept mode, enforced in locked mode. Too short errors loudly; dialogue is never cut."}),
+            "camera_framing": (["medium_shot", "two_shot", "medium_close_up", "close_up", "wide_shot"],
+                {"tooltip": "景别：two_shot 双人同框 / medium_shot 中景 / medium_close_up 中近景 / close_up 特写 / wide_shot 全景。概念模式是建议。\n"
+                            "Framing (a hint in concept mode): two_shot / medium_shot / medium_close_up / close_up / wide_shot."}),
+            "camera_movement": (["locked", "gentle_follow"],
+                {"tooltip": "机位运动：locked 固定机位（推荐）/ gentle_follow 轻微跟随。\nCamera movement: locked (recommended) or gentle_follow."}),
+            "camera_perspective": (["observer", "first_person"],
+                {"tooltip": "视角：observer 旁观（独白对镜头也用它）/ first_person 第一人称（观众自己的手和身体会入画）。\n"
+                            "Perspective: observer, or first_person (the viewer's own hands/body enter the frame)."}),
             "language": (["zh", "en"], {"default": "zh"}),
             "seed": ("INT", {"default": 0, "min": 0, "max": 0xFFFFFFFFFFFFFFFF, "control_after_generate": True}),
+            # 输入模式（2026-10-29 裁定）：人只给概念/台词，我们出完整分镜，用户验收。
+            # 放在 required 尾部保住旧工作流的 widget 位序；默认 script = 旧行为不变。
+            "mode": (["script", "concept"], {"default": "script", "tooltip":
+                "输入模式 · input mode:\n"
+                "script 锁定剧本（默认，旧行为）：concept 里写「角色1：台词」式逐行剧本，台词逐字锁定，AI 只分组和写英文执行说明；\n"
+                "concept 概念创作：concept 里随便写（点子/故事/台词草稿），AI 出完整剧本（角色、台词、分镜、时长全包），你在预览里验收，不满意改 seed 或改概念重跑。\n"
+                "script (default, unchanged): role-labelled lines, dialogue locked verbatim. concept: write anything, the AI authors the whole asset for you to review."}),
         }, "optional": {
             "look": ("STRING", {"default": "Natural lighting, coherent visual style.", "multiline": True}),
             "setting": ("STRING", {"default": "", "multiline": True, "tooltip": "人物位置与情境；具体环境可由V3的可选场景资产提供。"}),

@@ -41,6 +41,7 @@ SHARED_MARKERS = (
     "INITIAL STAGING ONLY",                # setting narrowed to staging (2026-10-29)
     "overrides it mechanically",           # wired scene asset beats script scene text
     "light preset",                        # time of day lives in the light selector
+    "mode=concept",                        # free-creation mode contract (2026-10-29)
     "environments only",                   # scene purity: never a figure
     "a dark sedan at the curb below",      # script-asserted visible object
     "5-6 characters per second",           # measured speech-rate budget

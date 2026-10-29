@@ -7,7 +7,8 @@
 ## 在 ComfyUI 中
 
 1. 添加「MiniMax H3 剧本资产生成器」，连接大语言模型服务。
-2. 设 character_count，按编号填写 character_settings。每个角色一行，例如：
+1a. **想省事：把输入模式 mode 切到「concept 概念创作」**——concept 里随便写（一个点子、一段故事、几句台词草稿都行），AI 出完整剧本：角色、台词、分镜、时长全包；你在 storyboard_text 预览里验收，不满意就改概念或换个 seed 重跑。character_settings 可以整栏留空（AI 定角色）；camera / 时长 / 光锚等此时只是建议，AI 按概念调整。接线事实（name、audio_mode、续接重叠帧）不会被 AI 改动。
+2. **要精确控制台词：留在「script 锁定剧本」模式**。设 character_count，按编号填写 character_settings。每个角色一行（分隔符 | 或逗号都行），例如：
 
 ```text
 角色1：男猫 | 画面内 | 左侧 | 低沉、简短的男声
@@ -25,7 +26,7 @@
 角色1动作：双手仍插在口袋里，没有接苹果。
 ```
 
-对白用「角色1：」，动作用「角色1动作：」。入场、离场分别用「角色1入场：」「角色1离场：」。英文台词可写「角色1[en]：No, thanks.」。未标角色的导演要求放在 constraints 中。
+对白用「角色1：」（口语写法「角色1说：」「角色1问：」等也认，一律当对白），动作用「角色1动作：」。入场、离场分别用「角色1入场：」「角色1离场：」。英文台词可写「角色1[en]：No, thanks.」。未标角色的导演要求放在 constraints 中。写错的行会在报错里回显原文并给出改法。
 
 4. 选择 shot_count、target_duration_seconds 和 camera_framing / movement / perspective；look 是画面风格，constraints 是全片约束（人读，不进编译）。默认 language=zh，locked 固定机位，observer 为旁观视角。two_shot 是双人构图，medium_close_up 是中近景。
 5. **场景与光锚是独立输入（2026-10-29 裁定），不再塞进 setting**：

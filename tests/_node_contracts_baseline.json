@@ -2063,6 +2063,7 @@
       "concept",
       "language",
       "llm_service_connector",
+      "mode",
       "name",
       "seed",
       "shot_count",

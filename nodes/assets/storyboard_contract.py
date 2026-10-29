@@ -64,7 +64,13 @@ def _text(value, label, *, empty=False, maximum=12000):
 
 
 def parse_script(script, roles, language="zh"):
-    """Read explicit role-labelled events. The LLM never owns these records."""
+    """Read explicit role-labelled events. The LLM never owns these records.
+
+    Humans, not agents, type these lines: common speech verbs before the
+    colon (说/问/喊/回答…) are accepted as dialogue labels, and the error
+    message TEACHES (echoes the line, shows the format, points at the
+    concept mode) instead of just refusing.
+    """
     script = _text(script, "source_script", maximum=30000)
     aliases = {}
     for i, role in enumerate(roles, 1):
@@ -74,21 +80,34 @@ def parse_script(script, roles, language="zh"):
                 raise ValueError("role names/aliases must be unique: %s" % alias)
             aliases[alias] = role["id"]
     names = "|".join(re.escape(a) for a in sorted(aliases, key=len, reverse=True))
-    pattern = re.compile(r"^\s*(" + names + r")\s*(动作|对白|入场|离场|action|dialogue|enter|exit)?"
+    speech_verbs = ("说道", "问道", "喊道", "答道", "回答", "笑道", "怒道",
+                    "轻声说", "低声说", "说", "问", "喊", "叫", "道", "答",
+                    "嘀咕", "吐槽", "开口")
+    types = "动作|对白|入场|离场|action|dialogue|enter|exit|" + "|".join(speech_verbs)
+    pattern = re.compile(r"^\s*(" + names + r")\s*(" + types + r")?"
                          r"\s*(?:\[(zh|en)\])?\s*[：:]\s*(.+)$", re.IGNORECASE)
     events = []
-    kind_of = {"动作": "action", "对白": "dialogue", "入场": "enter", "离场": "exit"}
+    kind_of = {"动作": "action", "对白": "dialogue", "入场": "enter", "离场": "exit",
+               **{verb: "dialogue" for verb in speech_verbs}}
     for number, line in enumerate(script.splitlines(), 1):
         if not line.strip() or line.lstrip().startswith("#"):
             continue
         match = pattern.match(line)
         if not match:
-            raise ValueError("source_script line %d: use 角色1：台词 or 角色1动作：动作; "
-                             "director notes belong in constraints" % number)
+            raise ValueError(
+                "source_script 第 %d 行无法识别 · line %d does not match: 「%s」\n"
+                "每行必须以角色开头 · every event line starts with a role label:\n"
+                "  台词 角色1：你好    动作 角色1动作：他站起来    入场 角色1入场：…    离场 角色1离场：…\n"
+                "旁白：先在 character_settings 加一行「角色1：旁白 | 画外 | 无」再以 角色1： 开头写；"
+                "场景描述放 scene，导演要求放 constraints。只想给个点子？把输入模式 mode 切到 concept 概念创作，"
+                "写什么都行 · just an idea? switch mode to concept and write freely"
+                % (number, number, line.strip()[:60]))
         alias, kind, lang, text = match.groups()
-        kind = (kind or "dialogue").lower()
+        kind = kind_of.get((kind or "对白"), (kind or "对白").lower())
+        if kind not in EVENT_TYPES:
+            kind = "dialogue"
         events.append({"id": "event_%03d" % (len(events) + 1),
-                       "type": kind_of.get(kind, kind), "character": aliases[alias.casefold()],
+                       "type": kind, "character": aliases[alias.casefold()],
                        "text": _text(text, "source event text", maximum=2000),
                        "language": lang or language})
     if not events or len(events) > 200:
@@ -107,22 +126,44 @@ def parse_roles(count, settings=""):
     if not settings.strip():
         return roles
     seen = set()
-    for line in settings.splitlines():
+    for number, line in enumerate(settings.splitlines(), 1):
         if not line.strip():
             continue
         match = re.match(r"^\s*(?:角色|character_?\s*)(\d+)\s*[：:]\s*(.+)$", line, re.I)
         if not match:
-            raise ValueError("character_settings: use 角色1：名字 | 画面内 | 左侧 | voice")
-        index, fields = int(match[1]), [x.strip() for x in match[2].split("|")]
-        if index not in range(1, count + 1) or index in seen or not 1 <= len(fields) <= 4:
-            raise ValueError("character_settings has duplicate/unknown role or too many fields")
+            raise ValueError(
+                "character_settings 第 %d 行无法识别 · line %d does not match: 「%s」\n"
+                "每角色一行（分隔符用 | 或逗号都可以）· one line per role, | or commas both work:\n"
+                "  角色1：小明 | 画面内 | 左侧 | 低沉男声\n"
+                "状态：画面内/画外/稍后入场；位置：左侧/右侧/中间/无；概念创作模式可整栏留空由 AI 定"
+                % (number, number, line.strip()[:60]))
+        index = int(match[1])
+        # Commas are accepted as separators for the first three columns
+        # (humans forget the pipes); maxsplit keeps the VOICE column whole —
+        # voice descriptors legitimately contain commas ("adult male, low
+        # mid-range pitch").
+        fields = [x.strip() for x in re.split(r"\s*[|，,、]\s*", match[2], maxsplit=3) if x.strip()]
+        if index not in range(1, count + 1):
+            raise ValueError(
+                "character_settings 第 %d 行的角色编号 角色%d 超出 character_count=%d · "
+                "line %d: 角色%d is outside character_count=%d\n"
+                "把 character_count 改成 %d，或删掉这一行：「%s」"
+                % (number, index, count, number, index, count,
+                   max(count, index), line.strip()[:60]))
+        if index in seen or not 1 <= len(fields) <= 4:
+            raise ValueError(
+                "character_settings 第 %d 行有重复编号或字段数超限（1..4 个）· line %d has a "
+                "duplicate role or too many fields: 「%s」" % (number, number, line.strip()[:60]))
         seen.add(index)
         role = roles[index - 1]
         role["name"] = _text(fields[0], "role name", maximum=40)
         if len(fields) > 1:
             status = fields[1]
             if status not in ("画面内", "画外", "稍后入场", "on_screen", "off_screen", "enter_later"):
-                raise ValueError("role presence must be 画面内 / 画外 / 稍后入场")
+                raise ValueError(
+                    "character_settings 第 %d 行的角色状态无法识别 · line %d unknown presence "
+                    "「%s」：可用 画面内 / 画外 / 稍后入场 · use 画面内 / 画外 / 稍后入场"
+                    % (number, number, status))
             role["presence"] = "off_screen" if status in ("画外", "off_screen") else "on_screen"
             role["initially_visible"] = status in ("画面内", "on_screen")
             if role["presence"] == "off_screen":
@@ -133,7 +174,13 @@ def parse_roles(count, settings=""):
         if len(fields) > 3:
             role["voice"] = fields[3]
     if len(seen) != count:
-        raise ValueError("character_settings must define every numbered role")
+        defined = sorted(seen)
+        raise ValueError(
+            "character_settings 定义了 %d 个角色（%s），但 character_count=%d · "
+            "settings define %d role(s) (%s) while character_count=%d\n"
+            "两边要一致：把 character_count 改成 %d，或补齐/删掉角色行 · make them agree"
+            % (len(seen), "、".join("角色%d" % i for i in defined), count,
+               len(seen), ", ".join(str(i) for i in defined), count, len(seen)))
     return roles
 
 
