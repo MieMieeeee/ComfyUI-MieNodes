@@ -292,6 +292,27 @@ class MiniMaxH3StoryboardGenerator:
             "max_tokens": ("INT", {"default": 8192, "min": 256, "max": 32768}),
             "timeout": ([30, 60, 120, 300], {"default": 120}),
             "audio_mode": (["generated", "reference"], {"default": "generated", "tooltip": "generated：H3自选声音；reference：V3中每个角色都接带参考音频的人物资产，画外角色仅使用声音。最多3个角色；Asset→Slots音频需接到H3参考音频输入。"}),
+            # 2026-10-29 裁定：场景/光锚是独立输入，不再塞进 setting。
+            # 新 widget 一律放 optional 尾部（widget 顺序按位置序列化）。
+            "scene": ("STRING", {"default": "", "multiline": True, "tooltip":
+                "场景描述（可选，中文可）。环境长什么样交给这个字段；在 V3 里接了场景资产时，"
+                "编译器会机械丢弃这里的文字（资产覆盖剧本场景），图与 ambience 生效。\n"
+                "Scene description (optional). When a scene asset is wired in V3, this text is "
+                "mechanically dropped at compile time (the asset overrides the script's scene); the "
+                "image and its ambience stand. Leave empty and wire a scene asset, or fill this and "
+                "wire nothing — never rely on both."}),
+            "light": (["follow_image", "daylight", "golden_hour", "night_lamp", "night_screen",
+                       "late_night", "morning", "custom"], {"default": "follow_image", "tooltip":
+                "时段光锚（预设选择器）。follow_image=不写光文字，跟随场景图自带光线；夜戏不接场景图时"
+                "必须选夜间预设，否则 H3 默认渲染成白天。custom=在下方 light_text 自定义。\n"
+                "Time-of-day light anchor (preset selector). follow_image writes no light text and "
+                "follows the wired scene image's own lighting; a night story without a visibly dark "
+                "scene image MUST pick a night preset or H3 renders daylight. custom = write your "
+                "own in light_text below."}),
+            "light_text": ("STRING", {"default": "", "multiline": True, "tooltip":
+                "自定义光锚，仅在 light=custom 时填写（留空会响亮报错）；会被译成英文 execution.light。\n"
+                "Custom light anchor, only with light=custom (empty here is a loud error); "
+                "translated into the English execution.light."}),
         }}
 
     RETURN_TYPES = ("MIE_STORYBOARD", "STRING", "STRING", "INT")

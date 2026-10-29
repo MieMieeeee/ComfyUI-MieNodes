@@ -14,6 +14,24 @@ PERSPECTIVES = ("observer", "first_person")
 EVENT_TYPES = ("dialogue", "action", "enter", "exit")
 LANGUAGES = ("zh", "en")
 
+# Time-of-day light anchors (2026-10-29 ruling): light is its OWN selector
+# field, not prose inside ``setting``. A preset compiles to this fixed
+# English sentence in every shot prompt — no LLM in the loop. ``follow_image``
+# (the default) writes nothing: the wired scene image's own lighting stands,
+# and an UNWIRED story at night must NOT stay on follow_image (H3 renders
+# unspecified time as daylight). ``custom`` requires ``light_text`` (user
+# language), which the generation LLM translates to ``execution.light``.
+LIGHT_CHOICES = ("follow_image", "daylight", "golden_hour", "night_lamp",
+                 "night_screen", "late_night", "morning", "custom")
+LIGHT_PROMPTS = {
+    "daylight": "Soft natural daylight fills the scene; the time is broad day.",
+    "golden_hour": "Warm low golden-hour sunlight rakes across the scene, long soft shadows.",
+    "night_lamp": "Night: the window shows a pitch-dark sky and the scene is lit by a warm table lamp.",
+    "night_screen": "Night: the window shows a pitch-dark sky and the scene is lit by the cool glow of a monitor screen.",
+    "late_night": "Pitch-dark late night: only faint scattered light remains and the window shows a black sky.",
+    "morning": "Soft early-morning light, low and gently cool, enters the scene.",
+}
+
 # The soundscape line ``to_runtime`` stamps into every compiled shot when
 # nothing better exists. ``storyboard_builder`` swaps it for the WIRED
 # scene asset's ``ambience`` (the v2 asset itself has no ambience field —
@@ -122,8 +140,9 @@ def parse_roles(count, settings=""):
 def validate_v2(payload, *, _check_timing=True, _check_execution=True):
     if not isinstance(payload, dict) or type(payload.get("version")) is not int or payload["version"] != 2:
         raise ValueError("storyboard version must be 2")
-    allowed = {"version", "name", "language", "roles", "camera", "look", "setting", "constraints",
-               "target_duration_seconds", "continuation_overlap_frames", "source_script", "shots", "execution", "audio_mode"}
+    allowed = {"version", "name", "language", "roles", "camera", "look", "setting", "scene",
+               "light", "light_text", "constraints", "target_duration_seconds",
+               "continuation_overlap_frames", "source_script", "shots", "execution", "audio_mode"}
     if set(payload) - allowed:
         raise ValueError("unknown storyboard fields: %s" % sorted(set(payload) - allowed))
     out = copy.deepcopy(payload)
@@ -132,6 +151,29 @@ def validate_v2(payload, *, _check_timing=True, _check_execution=True):
     out["name"] = validate_name(out.get("name", ""))
     if out.get("language") not in LANGUAGES:
         raise ValueError("language must be zh or en")
+    # Scene / light split (2026-10-29 ruling): ``scene`` is the optional
+    # environment description the builder DROPS whenever a scene asset is
+    # wired (the asset overrides the text mechanically); ``setting`` narrows
+    # to initial staging + story-required spatial facts. Old assets with
+    # environment prose inside ``setting`` stay valid — their text simply
+    # rides the staging line. Default values leave NO key behind so a
+    # board that never used the split round-trips byte-identically.
+    scene = _text(payload.get("scene") or "", "scene", empty=True, maximum=3000)
+    if scene:
+        out["scene"] = scene
+    elif "scene" in out:
+        del out["scene"]
+    light = out.get("light", "follow_image")
+    if light not in LIGHT_CHOICES:
+        raise ValueError("light must be one of %s" % (LIGHT_CHOICES,))
+    if light == "custom":
+        out["light_text"] = _text(out.get("light_text", ""), "light_text", maximum=600)
+    elif str(out.get("light_text") or "").strip():
+        raise ValueError("light_text is only valid together with light=custom")
+    if light != "follow_image" or "light" in payload:
+        out["light"] = light
+    elif "light" in out:
+        del out["light"]
     roles = out.get("roles")
     if not isinstance(roles, list) or not 1 <= len(roles) <= ROLE_MAX:
         raise ValueError("roles must contain 1..8 characters")
@@ -234,12 +276,33 @@ def _positive_visual(value, label, *, empty=False):
 
 def _validate_execution(asset, events):
     execution = asset.get("execution")
-    if not isinstance(execution, dict) or set(execution) != {"look", "setting", "visible_state", "voices", "directions"}:
-        raise ValueError("execution requires English look, setting, visible_state, voices and directions")
+    required = {"look", "setting", "visible_state", "voices", "directions"}
+    allowed = required | {"scene", "light"}
+    if not isinstance(execution, dict) or not required <= set(execution) <= allowed:
+        raise ValueError("execution requires English look, setting, visible_state, voices and directions"
+                         " (optional scene and light)")
     for key in ("look", "setting"):
         execution[key] = _english(execution[key], "execution." + key, empty=not bool(asset[key]))
         if not asset[key] and execution[key]:
             raise ValueError("execution." + key + " cannot invent an absent source instruction")
+    # execution.scene mirrors the source scene exactly like look/setting;
+    # execution.light exists ONLY for light=custom (preset light is compiled
+    # from the fixed English table, never stored). Empty values leave NO key
+    # so an asset that never used the split round-trips byte-identically.
+    raw_scene = execution.get("scene", "")
+    raw_light = execution.get("light", "")
+    execution["scene"] = _english(raw_scene, "execution.scene",
+                                  empty=not bool(asset.get("scene", "")))
+    if not asset.get("scene", "") and execution["scene"]:
+        raise ValueError("execution.scene cannot invent an absent source scene")
+    custom_light = asset.get("light", "follow_image") == "custom"
+    execution["light"] = _english(raw_light, "execution.light", empty=not custom_light)
+    if not custom_light and execution["light"]:
+        raise ValueError("execution.light is only valid together with light=custom")
+    if not execution["scene"]:
+        execution.pop("scene", None)
+    if not execution["light"]:
+        execution.pop("light", None)
     execution["visible_state"] = _positive_visual(execution["visible_state"], "execution.visible_state")
     voices = execution["voices"]
     if not isinstance(voices, dict) or set(voices) != {r["id"] for r in asset["roles"]}:
@@ -408,7 +471,16 @@ def to_runtime(asset):
             if shot is asset["shots"][0] and role["id"] in opening and role["position"] != "none":
                 lines.append("%s begins at %s of frame." % (names[role["id"]], role["position"]))
         if execution["setting"]:
-            lines.append("Scene context: " + execution["setting"])
+            lines.append("Opening staging: " + execution["setting"])
+        if execution.get("scene"):
+            # The optional environment line. The builder STRIPS this line
+            # whenever a scene asset is wired (2026-10-29 ruling: the wired
+            # asset overrides the script's scene text mechanically).
+            lines.append("Scene context: " + execution["scene"])
+        light = asset.get("light", "follow_image")
+        light_line = (execution.get("light") or "") if light == "custom" else LIGHT_PROMPTS.get(light, "")
+        if light_line:
+            lines.append("Light: " + light_line)
         if shot is not asset["shots"][0]:
             lines.append("Continue the current blocking, completed action state and prop ownership from the preceding clip.")
         lines += ["Only the explicitly tagged dialogue is spoken. Do not speak stage directions or role labels.",

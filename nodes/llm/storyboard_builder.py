@@ -815,10 +815,27 @@ def _assemble_authored_plan(storyboard: dict, slot_bundles: dict) -> dict:
     if scene_ambience and storyboard.get("_structured_events"):
         from ..assets.storyboard_contract import RUNTIME_SOUNDSCAPE
         fallback_line = "overall_soundscape: " + RUNTIME_SOUNDSCAPE
+    # 2026-10-29 ruling: a WIRED scene asset overrides the script's own
+    # scene text. The v2 compiler emits the environment prose as
+    # "Scene context: ..." lines; strip them mechanically (the image and
+    # its ambience stand). Staging ("Opening staging:") and the light
+    # anchor always survive — they are story facts, not environment.
+    scene_override = scene_slot is not None and bool(storyboard.get("_structured_events"))
+    if scene_override:
+        summary_lines.append(
+            "scene asset wired: the script's own scene text is overridden "
+            "(dropped at compile time); the wired scene image and its "
+            "ambience stand"
+        )
     for index, shot in enumerate(storyboard["shots"], 1):
         # H3's temporal grid is 17*k+5 at 24 fps; nearest representable duration.
         frames = max(5, 17 * round((shot["duration_seconds"] * 24 - 5) / 17) + 5)
         prompt_text = shot["prompt"]
+        if scene_override:
+            prompt_text = "\n".join(
+                line for line in prompt_text.split("\n")
+                if not line.startswith("Scene context: ")
+            )
         if fallback_line and fallback_line in prompt_text:
             prompt_text = prompt_text.replace(
                 fallback_line, "overall_soundscape: " + scene_ambience

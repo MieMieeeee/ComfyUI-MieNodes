@@ -320,21 +320,9 @@ def test_voice_trailing_punctuation_is_normalized_before_splicing(mods):
     assert "tenor.: <d>" not in spoken
 
 
-def test_both_storyboard_system_prompts_carry_the_render_review_rules():
-    root = Path(__file__).parents[1]
-    docs_prompt = (root / "docs" / "script_asset_system_prompt.txt").read_text(encoding="utf-8")
-    node_prompt = (root / "nodes/llm/prompts/h3_storyboard/system_asset.txt").read_text(encoding="utf-8")
-    shared = [
-        "FEWEST",
-        "first_person",
-        "vertical relation",
-        "only phone in the room",
-        "bare phrase with no trailing punctuation",
-        "setting TEXT overrides the wired scene image",
-    ]
-    for rule in shared:
-        assert rule in docs_prompt, "docs prompt missing: " + rule
-        assert rule in node_prompt, "node prompt missing: " + rule
+# (removed 2026-10-29: superseded by tests/test_script_asset_prompt_sync.py,
+#  which enforces the full CRAFT RULES section equality plus a shared
+#  marker list — a stronger guard than this per-phrase check)
 
 
 def test_speech_budget_warning_flags_a_clip_packed_for_a_slow_delivery(mods):
@@ -464,3 +452,70 @@ def test_cache_key_covers_the_bundled_fallback(mods, tmp_path, monkeypatch):
                         lambda plugin_root=None: bundled)
     key = lib.storyboard_cache_key(str(tmp_path / "user_lib"), apple()["name"])
     assert key != lib._library.MISSING_CACHE_MARKER
+
+
+# --------------------------------------------------------------------------- #
+# 2026-10-29 ruling: scene is its own field (dropped when a scene asset is
+# wired), light is a preset selector, setting narrows to staging.
+# --------------------------------------------------------------------------- #
+def _v2_with_scene_light(apple_base, light="night_screen", **extra):
+    raw = apple_base()
+    raw["setting"] = "第一镜两人站在桌前；第二镜甲后退半步。"
+    raw["scene"] = "一间深夜的办公室，靠窗工位上有亮着的显示器。"
+    raw["light"] = light
+    if light == "custom":
+        raw["light_text"] = "凌晨深夜，窗外漆黑，只有暖台灯。"
+    raw["execution"]["setting"] = ("First shot both stand at the desk; second shot "
+                                   "Character 1 steps half a pace back.")
+    raw["execution"]["scene"] = "A late-night office with a lit monitor by the window."
+    if light == "custom":
+        raw["execution"]["light"] = "Pitch-dark night sky; lit by a warm desk lamp only."
+    raw.update(extra)
+    return raw
+
+
+def test_v2_scene_line_present_without_a_scene_asset(mods):
+    raw = _v2_with_scene_light(apple)
+    node = mods["builder"].MiniMaxH3LoopPromptGeneratorV3()
+    out = node.generate_v3(raw, character_1=_char("甲", "First.", "male"),
+                           character_2=_char("乙", "Second.", "female"))
+    joined = "\n".join(json.loads(out[0])["shots"][0]["prompt"])
+    assert "Scene context: A late-night office" in joined
+    assert "Opening staging: First shot both stand" in joined
+    assert "Light: Night: the window shows a pitch-dark sky" in joined
+
+
+def test_v2_wired_scene_asset_overrides_the_script_scene(mods):
+    raw = _v2_with_scene_light(apple)
+    node = mods["builder"].MiniMaxH3LoopPromptGeneratorV3()
+    out = node.generate_v3(raw, character_1=_char("甲", "First.", "male"),
+                           character_2=_char("乙", "Second.", "female"),
+                           scene_1=_scene("办公室", "An office.",
+                                          "Quiet room tone with soft indoor air"))
+    joined = "\n".join(json.loads(out[0])["shots"][0]["prompt"])
+    # the script's scene prose is mechanically DROPPED...
+    assert "Scene context:" not in joined
+    # ...while staging, the light anchor and the ambience swap survive
+    assert "Opening staging: First shot both stand" in joined
+    assert "Light: Night: the window shows a pitch-dark sky" in joined
+    assert "overall_soundscape: Quiet room tone with soft indoor air" in joined
+    # the run summary says the override happened
+    assert "overridden" in out[1]
+
+
+def test_v2_custom_light_compiles_from_execution(mods):
+    raw = _v2_with_scene_light(apple, light="custom")
+    node = mods["builder"].MiniMaxH3LoopPromptGeneratorV3()
+    out = node.generate_v3(raw, character_1=_char("甲", "First.", "male"),
+                           character_2=_char("乙", "Second.", "female"))
+    joined = "\n".join(json.loads(out[0])["shots"][0]["prompt"])
+    assert "Light: Pitch-dark night sky; lit by a warm desk lamp only." in joined
+    assert "night_screen" not in joined  # no preset sentence leaked in
+
+
+def test_v2_light_contract_errors(mods):
+    with pytest.raises(ValueError, match="light_text"):
+        validate = mods["storyboard"].validate_storyboard_payload
+        validate(_v2_with_scene_light(apple, light="custom", light_text=""))
+    with pytest.raises(ValueError, match="light_text is only valid"):
+        validate(_v2_with_scene_light(apple, light_text="凌晨深夜，窗外漆黑。"))

@@ -27,9 +27,13 @@
 
 对白用「角色1：」，动作用「角色1动作：」。入场、离场分别用「角色1入场：」「角色1离场：」。英文台词可写「角色1[en]：No, thanks.」。未标角色的导演要求放在 constraints 中。
 
-4. 选择 shot_count、target_duration_seconds 和 camera_framing / movement / perspective；look 是画面风格，setting 是环境与初始状态，constraints 是全片约束。默认 language=zh，locked 固定机位，observer 为旁观视角。two_shot 是双人构图，medium_close_up 是中近景。
+4. 选择 shot_count、target_duration_seconds 和 camera_framing / movement / perspective；look 是画面风格，constraints 是全片约束（人读，不进编译）。默认 language=zh，locked 固定机位，observer 为旁观视角。two_shot 是双人构图，medium_close_up 是中近景。
+5. **场景与光锚是独立输入（2026-10-29 裁定），不再塞进 setting**：
+   - `setting` 只写**初始站位/姿态**和剧情必需的空间事实（"看得见楼下的窗户"）；
+   - `scene`（可选）写环境描述——但在 V3 里**接了场景资产时，这里的文字会被编译器机械丢弃**（资产覆盖剧本场景：图 + ambience 生效），所以别把剧情关键信息写在 scene 里。要么填 scene 不接资产，要么接资产把 scene 留空；
+   - `light` 是**时段光锚预设选择器**：follow_image（默认，不写光文字、跟随场景图自带光线）/ daylight / golden_hour / night_lamp / night_screen / late_night / morning / custom（在 light_text 自定义，会译成英文 execution.light）。**夜戏不接场景图时必须选夜间预设**，否则 H3 默认渲染成白天。
 5. 将 storyboard 输出接入 V3 的 storyboard；角色资产按 character_1、character_2 接入 V3。场景资产接 scene_1，可留空。V3 的 plan_json 接 Loop 计划节点；assets 经 Asset → Slots 接参考图输入。
-6. 如果要保存，storyboard_json 接「保存剧本资产」的 json_text 输入，新建名称须与 JSON 中的 name 一致；下次通过「加载剧本资产」直接接 V3。storyboard_text 只用于阅读预览。
+7. 如果要保存，storyboard_json 接「保存剧本资产」的 json_text 输入，新建名称须与 JSON 中的 name 一致；下次通过「加载剧本资产」直接接 V3。storyboard_text 只用于阅读预览。
 7. 角色资产（参考图与声音）需要自己建：用「保存角色资产」把图和音频存成资产，再用「加载资产」按名字选中它。
    完整可拖入的参考工作流见 [docs/examples/storyboard-generation/storyboard-h3-ref2va.json](examples/storyboard-generation/storyboard-h3-ref2va.json)，外部测试者的上手说明见 [docs/qa/sketches-20261027/TESTING_GUIDE.md](qa/sketches-20261027/TESTING_GUIDE.md)。
 

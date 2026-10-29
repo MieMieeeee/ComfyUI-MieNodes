@@ -1051,6 +1051,14 @@ def storyboard_preview(cleaned):
                   for r in asset.get("roles", []))))
     lines.append("生成片段 %d 段 · 预计交付 %.2f 秒 · 续接重叠 %d 帧" % (
         len(frames), delivered, overlap))
+    scene = (asset.get("scene") or "").strip()
+    if scene:
+        lines.append("场景 · scene（接线场景资产时会被覆盖 · overridden by a wired scene asset）：")
+        lines.append("    " + scene.replace("\n", "\n    "))
+    light = asset.get("light", "follow_image")
+    if light != "follow_image":
+        detail = ("：%s" % asset.get("light_text", "")) if light == "custom" else ""
+        lines.append("光锚 · light：%s%s" % (light, detail))
     for shot, length in zip(asset.get("shots", []), frames):
         lines.append("— %s · 原始 %.2f 秒 · %d 事件" % (
             shot.get("id"), length / 24, len(shot.get("events", []))))

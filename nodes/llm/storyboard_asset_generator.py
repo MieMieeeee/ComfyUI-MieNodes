@@ -17,7 +17,8 @@ class AssetStoryboardEnhancer:
                  name="新剧本", target_duration_seconds=20, camera_framing="medium_shot",
                  camera_movement="locked", camera_perspective="observer", language="zh",
                  look="", setting="", constraints="", continuation_overlap_frames=22,
-                 seed=0, audio_mode="generated", **_unused):
+                 seed=0, audio_mode="generated", scene="", light="follow_image",
+                 light_text="", **_unused):
         from ..assets.storyboard_contract import parse_roles, parse_script, validate_v2
         roles = parse_roles(character_count, character_settings)
         events = parse_script(concept, roles, language)
@@ -32,6 +33,15 @@ class AssetStoryboardEnhancer:
                   "source_script": concept.strip()}
         if audio_mode != "generated":
             header["audio_mode"] = audio_mode
+        # 2026-10-29 ruling: scene is its OWN field (the wired scene asset
+        # overrides it at assembly), light is a preset selector. Defaults
+        # leave the keys out so an old-style asset stays byte-identical.
+        if str(scene).strip():
+            header["scene"] = str(scene).strip()
+        if light != "follow_image":
+            header["light"] = light
+        if light == "custom":
+            header["light_text"] = str(light_text).strip()
         # Check caller fields and source visibility before a provider request.
         # An arbitrary probe partition cannot prove timing infeasibility: the
         # model may need unequal groups to fit a long utterance into one clip.
@@ -96,6 +106,14 @@ def preview_asset(asset):
     for role in asset["roles"]:
         lines.append("- %s → %s · %s · %s" %
                      (role["id"], role["name"], role["presence"], role["position"]))
+    scene = (asset.get("scene") or "").strip()
+    if scene:
+        lines += ["", "场景 · scene（接线场景资产时被覆盖 · overridden by a wired scene asset）：",
+                  "  " + scene]
+    light = asset.get("light", "follow_image")
+    if light != "follow_image":
+        detail = ("：%s" % asset.get("light_text", "")) if light == "custom" else ""
+        lines += ["", "光锚 · light：%s%s" % (light, detail)]
     for shot, length in zip(asset["shots"], frames):
         lines += ["", "## %s · 原始 %.3f 秒" % (shot["id"], length / 24)]
         cuts = {cut["before_event"]: cut["framing"] for cut in shot.get("camera_cuts", [])}

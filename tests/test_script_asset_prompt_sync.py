@@ -38,7 +38,9 @@ CRAFT_HEADING = "CRAFT RULES FROM LIVE RENDERS"
 SHARED_MARKERS = (
     "its OWN new name",                    # one name per concept revision
     "timbre, the register and the pace ONLY",  # voice = timbre, never behaviour
-    "carries the light anchor only",       # setting vs the wired scene image
+    "INITIAL STAGING ONLY",                # setting narrowed to staging (2026-10-29)
+    "overrides it mechanically",           # wired scene asset beats script scene text
+    "light preset",                        # time of day lives in the light selector
     "environments only",                   # scene purity: never a figure
     "a dark sedan at the curb below",      # script-asserted visible object
     "5-6 characters per second",           # measured speech-rate budget

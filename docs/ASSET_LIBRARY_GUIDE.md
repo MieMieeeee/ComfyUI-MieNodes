@@ -39,6 +39,7 @@ MieNodes 的资产库把「跨镜头要重复用的角色和场景」存成磁�
 
 - **LLM（V2）轨道与 v1 模板轨道**：`description` 与 `voice` 原样进提示词（身份锚 / 音色行）。
 - **version=2 剧本资产经零 LLM 编译（V3 / Build Plan From Script）**：资产**文本**不进提示词——身份与场景来自参考图，音色文字来自剧本自己的 `execution.voices`，场景的 `ambience`（若有）替换 soundscape 行。资产的 `description` 仍须非空（校验与界面用），`voice` 仍须非空（参考音频模式的接线校验），但它们的**文字内容**不进这条轨道的提示词。
+- **场景资产覆盖剧本的 scene 字段（2026-10-29 裁定）**：v2 剧本自带的 `scene` 环境文字，在接了场景资产时会被编译器**机械丢弃**（提示词里那行 Scene context 直接剥掉），图与 ambience 生效；运行 summary 会注明发生了覆盖。时段光走剧本自己的 `light` 预设，不受影响。
 
 ### 旧库自动兼容
 
