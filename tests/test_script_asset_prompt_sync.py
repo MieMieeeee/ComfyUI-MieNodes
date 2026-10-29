@@ -42,6 +42,7 @@ SHARED_MARKERS = (
     "overrides it mechanically",           # wired scene asset beats script scene text
     "light preset",                        # time of day lives in the light selector
     "mode=concept",                        # free-creation mode contract (2026-10-29)
+    "mode=revise",                         # iterate-on-the-saved-asset contract (2026-10-29)
     "environments only",                   # scene purity: never a figure
     "a dark sedan at the curb below",      # script-asserted visible object
     "5-6 characters per second",           # measured speech-rate budget

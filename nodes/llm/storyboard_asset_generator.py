@@ -13,14 +13,44 @@ class AssetStoryboardEnhancer:
         self.llm = llm_service_connector
         self.temperature, self.max_tokens, self.timeout = float(temperature), int(max_tokens), timeout
 
-    def __call__(self, concept, shot_count, *, mode="script", character_count=2, character_settings="",
+    def __call__(self, concept, shot_count, *, mode="script", base_asset=None,
+                 character_count=2, character_settings="",
                  name="新剧本", target_duration_seconds=20, camera_framing="medium_shot",
                  camera_movement="locked", camera_perspective="observer", language="zh",
                  look="", setting="", constraints="", continuation_overlap_frames=22,
                  seed=0, audio_mode="generated", scene="", light="follow_image",
                  light_text="", **_unused):
         from ..assets.storyboard_contract import parse_roles, parse_script, validate_v2
-        if mode == "concept":
+        if mode == "revise":
+            # Revision mode (2026-10-29): the asset is the saved source of
+            # truth users iterate on. Wire the previous version's storyboard
+            # bundle, write the requested change in the concept box, and the
+            # LLM produces the NEXT revision — untouched parts stay put.
+            if not isinstance(base_asset, dict) or not base_asset:
+                raise ValueError(
+                    "修订模式需要把「加载剧本资产」的 storyboard 输出接到本节点的 storyboard "
+                    "输入（先加载要微调的那一版）· revise mode needs the previous version "
+                    "wired into the storyboard input (Load Script Asset → storyboard)")
+            if not str(concept or "").strip():
+                raise ValueError(
+                    "concept（修订要求）是空的：写这一版要改什么，例如「结尾改成她笑而不语，"
+                    "其余不动」· write what THIS revision should change; everything else stays")
+            base = {k: v for k, v in base_asset.items() if k != "_path"}
+            base = validate_v2(base)
+            payload = {"mode": "revise",
+                       "base_asset": base,
+                       "revision": str(concept).strip(),
+                       "caller_owned": {"name": name}}
+            inherited_audio = base.get("audio_mode", "generated")
+            inherited_overlap = base.get("continuation_overlap_frames", 22)
+            # Wiring facts are INHERITED from the base revision and stay
+            # caller-owned: the model may not flip audio_mode or the loop
+            # overlap while rewriting dialogue.
+            audio_mode = inherited_audio
+            continuation_overlap_frames = inherited_overlap
+            header = None
+            expected_shots = 0
+        elif mode == "concept":
             # Free-creation mode (2026-10-29 ruling): the user pastes an idea,
             # a story paragraph or loose dialogue lines — the LLM authors the
             # COMPLETE asset. No format requirements on the input at all.
@@ -130,7 +160,71 @@ class AssetStoryboardEnhancer:
         raise RuntimeError("storyboard asset validation failed after 3 attempts: " + error)
 
 
-def preview_asset(asset):
+def asset_diff(old, new, limit=5):
+    """Mechanical old→new revision report (revise mode's review surface).
+
+    Pure diff, no judgments: which events survived verbatim, which were
+    reworded/added/removed (pairing by actor+type), which structural
+    fields moved, and how the delivered duration changed. The user reads
+    this to decide whether the revision is the one they wanted.
+    """
+    def flat(a):
+        return [e for s in a["shots"] for e in s["events"]]
+    old_events, new_events = flat(old), flat(new)
+    kept = [e for e in old_events if e in new_events]
+    removed_pool = [e for e in old_events if e not in new_events]
+    added_pool = [e for e in new_events if e not in old_events]
+    by_key = {}
+    for e in removed_pool:
+        by_key.setdefault((e["type"], e["character"]), []).append(e)
+    reworded, pure_added = [], []
+    for e in added_pool:
+        bucket = by_key.get((e["type"], e["character"]))
+        if bucket:
+            reworded.append((bucket.pop(0), e))
+        else:
+            pure_added.append(e)
+    pure_removed = [e for bucket in by_key.values() for e in bucket]
+    lines = ["修订对比 · revision diff（旧 %s → 新 %s）" % (old.get("name", "?"), new.get("name", "?")),
+             "事件：%d 条逐字未动 · %d 条改写 · 新增 %d · 删除 %d（%d → %d 条）"
+             % (len(kept), len(reworded), len(pure_added), len(pure_removed),
+                len(old_events), len(new_events))]
+    for o, n in reworded[:limit]:
+        lines.append("  改写 · %s「%s」→「%s」"
+                     % (o["character"], o["text"][:28], n["text"][:28]))
+    for e in pure_added[:limit]:
+        lines.append("  新增 · %s「%s」" % (e["character"], e["text"][:32]))
+    for e in pure_removed[:limit]:
+        lines.append("  删除 · %s「%s」" % (e["character"], e["text"][:32]))
+    for field in ("look", "setting", "scene", "constraints"):
+        if (old.get(field) or "") != (new.get(field) or ""):
+            lines.append("字段 · %s 已更新 · %s updated" % (field, field))
+    old_light, new_light = old.get("light", "follow_image"), new.get("light", "follow_image")
+    if old_light != new_light:
+        lines.append("光锚 · light：%s → %s" % (old_light, new_light))
+    if old.get("camera") != new.get("camera"):
+        lines.append("相机 · camera：%s → %s" % (old.get("camera"), new.get("camera")))
+    old_roles = {r["id"]: r for r in old["roles"]}
+    for r in new["roles"]:
+        o = old_roles.get(r["id"])
+        if o is None:
+            lines.append("角色 · %s 新增：%s" % (r["id"], r["name"]))
+        elif any(o.get(k) != r.get(k) for k in ("name", "presence", "position", "voice")):
+            lines.append("角色 · %s 调整：%s → %s（画面 %s/%s · 位置 %s/%s）"
+                         % (r["id"], o.get("name"), r.get("name"),
+                            o.get("presence"), r.get("presence"),
+                            o.get("position"), r.get("position")))
+    from ..assets.storyboard_contract import allocate_frames
+    for label, a in (("旧", old), ("新", new)):
+        frames = allocate_frames(a)
+        overlap = a.get("continuation_overlap_frames", 22)
+        lines.append("时长 · %s：%d 段 · 交付 %.2f 秒"
+                     % (label, len(frames),
+                        (sum(frames) - overlap * (len(frames) - 1)) / 24))
+    return lines
+
+
+def preview_asset(asset, diff_lines=None):
     from ..assets.storyboard_contract import allocate_frames, storyboard_warnings
     names = {r["id"]: r["name"] for r in asset["roles"]}
     frames = allocate_frames(asset)
@@ -141,6 +235,8 @@ def preview_asset(asset):
               delivered, asset["continuation_overlap_frames"]), ""]
     for warning in storyboard_warnings(asset):
         lines += ["⚠ " + warning, ""]
+    if diff_lines:
+        lines += ["", "## " + diff_lines[0]] + diff_lines[1:]
     for role in asset["roles"]:
         lines.append("- %s → %s · %s · %s" %
                      (role["id"], role["name"], role["presence"], role["position"]))

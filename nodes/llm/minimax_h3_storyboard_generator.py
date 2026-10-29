@@ -295,14 +295,24 @@ class MiniMaxH3StoryboardGenerator:
                             "Perspective: observer, or first_person (the viewer's own hands/body enter the frame)."}),
             "language": (["zh", "en"], {"default": "zh"}),
             "seed": ("INT", {"default": 0, "min": 0, "max": 0xFFFFFFFFFFFFFFFF, "control_after_generate": True}),
-            # 输入模式（2026-10-29 裁定）：人只给概念/台词，我们出完整分镜，用户验收。
-            # 放在 required 尾部保住旧工作流的 widget 位序；默认 script = 旧行为不变。
-            "mode": (["script", "concept"], {"default": "script", "tooltip":
+            # 输入模式（2026-10-29 裁定）：人只给概念/台词，我们出完整分镜，用户验收；
+            # 资产是保存物，要能基于上一版持续微调。放 required 尾部保 widget 位序。
+            "mode": (["script", "concept", "revise"], {"default": "script", "tooltip":
                 "输入模式 · input mode:\n"
-                "script 锁定剧本（默认，旧行为）：concept 里写「角色1：台词」式逐行剧本，台词逐字锁定，AI 只分组和写英文执行说明；\n"
-                "concept 概念创作：concept 里随便写（点子/故事/台词草稿），AI 出完整剧本（角色、台词、分镜、时长全包），你在预览里验收，不满意改 seed 或改概念重跑。\n"
-                "script (default, unchanged): role-labelled lines, dialogue locked verbatim. concept: write anything, the AI authors the whole asset for you to review."}),
+                "concept 概念创作：concept 里随便写（点子/故事/台词草稿），AI 出完整剧本，预览验收；\n"
+                "revise 修订：把「加载剧本资产」的 storyboard 接到下方输入，concept 里写这一版要改什么"
+                "（如「结尾改成她笑而不语，其余不动」），AI 在上一版基础上出新版，预览附逐条 diff；"
+                "未提及的台词逐字保留。接线事实（audio_mode/续接重叠帧）继承上一版；\n"
+                "script 锁定剧本（默认，旧行为）：逐行剧本，台词逐字锁定，AI 只分组和写英文执行说明。\n"
+                "concept: write anything, the AI authors the whole asset. revise: wire the previous "
+                "version's storyboard, describe THIS revision, get the next version with a diff. "
+                "script (default): role-labelled lines locked verbatim."}),
         }, "optional": {
+            # 修订模式的基线：上一版剧本资产。只在 mode=revise 时被读取。
+            "storyboard": ("MIE_STORYBOARD", {"tooltip":
+                "接「加载剧本资产」的 storyboard 输出 · wire the Load Script Asset output here.\n"
+                "仅 revise 修订模式读取：作为基线版本，concept 里写的修改要求作用在它之上，"
+                "产出带新名字的下一版（旧资产不动）。concept/script 模式忽略此输入。"}),
             "look": ("STRING", {"default": "Natural lighting, coherent visual style.", "multiline": True}),
             "setting": ("STRING", {"default": "", "multiline": True, "tooltip": "人物位置与情境；具体环境可由V3的可选场景资产提供。"}),
             "constraints": ("STRING", {"default": "", "multiline": True, "tooltip": "导演约束，原样保留。例如：只拍两人对话，不把台词中的回忆拍出来。"}),
@@ -343,9 +353,17 @@ class MiniMaxH3StoryboardGenerator:
                             temperature=0.2, max_tokens=8192, timeout=120, **options):
         planner = AssetStoryboardEnhancer(llm_service_connector, temperature=temperature,
                                            max_tokens=max_tokens, timeout=timeout)
-        asset = planner(concept, shot_count, seed=seed, **options)
+        base_asset = None
+        diff_lines = None
+        if options.get("mode") == "revise":
+            base_asset = options.pop("storyboard", None)
+        asset = planner(concept, shot_count, seed=seed, base_asset=base_asset, **options)
+        if base_asset:
+            from .storyboard_asset_generator import asset_diff
+            diff_lines = asset_diff(base_asset, asset)
         import json
-        return asset, json.dumps(asset, ensure_ascii=False, indent=2), preview_asset(asset), len(asset["shots"])
+        text = preview_asset(asset, diff_lines=diff_lines)
+        return asset, json.dumps(asset, ensure_ascii=False, indent=2), text, len(asset["shots"])
 
     @classmethod
     def IS_CHANGED(cls, llm_service_connector, **options):

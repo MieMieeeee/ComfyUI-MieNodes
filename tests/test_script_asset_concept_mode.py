@@ -210,3 +210,57 @@ def test_settings_accept_comma_separators_and_teach_on_mismatch(mods):
         parse_roles(2, "角色1：小明，画外\n角色2：小红，画面内\n角色3：小刚，画面内")
     with pytest.raises(ValueError, match="超出 character_count"):
         parse_roles(1, "角色1：小明，画外\n角色5：小刚，画面内")
+
+
+# --------------------------------------------------------------------------- #
+# Revision mode: iterate on the SAVED asset
+# --------------------------------------------------------------------------- #
+def test_revise_mode_produces_next_version_from_base(mods, verified_asset):
+    base = dict(verified_asset)  # 起身邪笑 (audio_mode generated, overlap 22)
+    revised = json.loads(json.dumps(base, ensure_ascii=False))
+    revised["name"] = "疑惑邪笑"
+    revised["shots"][0]["events"][4]["text"] = "你的账号已被冻结。"
+    revised["source_script"] = base["source_script"].replace("封禁", "冻结")
+    planner = _planner(mods, [json.dumps(revised, ensure_ascii=False)])
+    asset = planner("把最后一句台词的「封禁」改成「冻结」，其余一律不动", 0,
+                    mode="revise", base_asset=base, name="疑惑邪笑")
+    assert asset["name"] == "疑惑邪笑"
+    assert "冻结" in asset["shots"][0]["events"][4]["text"]
+    payload = json.loads(planner.llm.calls[0][1]["content"])
+    assert payload["mode"] == "revise" and payload["base_asset"]["name"] == base["name"]
+
+
+def test_revise_mode_inherits_wiring_facts_loudly(mods, verified_asset):
+    base = dict(verified_asset)
+    bad = json.loads(json.dumps(base, ensure_ascii=False))
+    bad["name"] = "疑惑邪笑"
+    bad["audio_mode"] = "reference"  # 模型不得翻转接线事实
+    good = json.loads(json.dumps(base, ensure_ascii=False))
+    good["name"] = "疑惑邪笑"
+    planner = _planner(mods, [json.dumps(bad, ensure_ascii=False),
+                              json.dumps(good, ensure_ascii=False)])
+    asset = planner("微调一版", 0, mode="revise", base_asset=base, name="疑惑邪笑")
+    assert asset.get("audio_mode", "generated") == base.get("audio_mode", "generated")
+    assert "caller-owned audio_mode" in planner.llm.calls[1][-1]["content"]
+
+
+def test_revise_mode_requires_base_and_instruction(mods, verified_asset):
+    planner = _planner(mods, [])
+    with pytest.raises(ValueError, match="storyboard"):
+        planner("改一版", 0, mode="revise", name="x")
+    with pytest.raises(ValueError, match="修订要求"):
+        planner("", 0, mode="revise", base_asset=verified_asset, name="x")
+
+
+def test_asset_diff_reports_reworded_and_untouched_events(mods, verified_asset):
+    gen = mods["generator"]
+    old = dict(verified_asset)
+    new = json.loads(json.dumps(verified_asset, ensure_ascii=False))
+    new["shots"][0]["events"][4]["text"] = "你的账号已被冻结。"
+    new["source_script"] = old["source_script"].replace("封禁", "冻结")
+    new["light"] = "night_screen"
+    diff = gen.asset_diff(old, new)
+    text = "\n".join(diff)
+    assert "5 条逐字未动" in text or "逐字未动" in text
+    assert "改写" in text and "冻结" in text
+    assert "night_screen" in text  # light change reported

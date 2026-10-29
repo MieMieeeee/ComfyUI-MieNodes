@@ -2051,6 +2051,7 @@
       "max_tokens",
       "scene",
       "setting",
+      "storyboard",
       "temperature",
       "timeout"
     ],
