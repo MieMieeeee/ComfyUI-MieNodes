@@ -190,8 +190,13 @@ def asset_diff(old, new, limit=5):
              % (len(kept), len(reworded), len(pure_added), len(pure_removed),
                 len(old_events), len(new_events))]
     for o, n in reworded[:limit]:
-        lines.append("  改写 · %s「%s」→「%s」"
-                     % (o["character"], o["text"][:28], n["text"][:28]))
+        # Dialogue rewrites carry ⚠ (2026-10-30 live: M3 sneaked a filler
+        # character into an untouched line; the diff caught it) — the whole
+        # point of the revision review surface.
+        tag = ("⚠ 台词改写 · dialogue reworded" if o["type"] == "dialogue"
+               else "改写 · reworded")
+        lines.append("  %s · %s「%s」→「%s」"
+                     % (tag, o["character"], o["text"][:28], n["text"][:28]))
     for e in pure_added[:limit]:
         lines.append("  新增 · %s「%s」" % (e["character"], e["text"][:32]))
     for e in pure_removed[:limit]:

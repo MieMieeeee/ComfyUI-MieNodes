@@ -283,8 +283,10 @@ class MiniMaxH3StoryboardGenerator:
                                   "tooltip": "生成片段数，0=自动（能装进约14秒就用最少分段；推荐）。锁定模式下事件会被逐字分组；单人独占台词的续接片段是已知崩角色形态。\n"
                                              "Generation segments, 0 = auto (fewest segments that fit; recommended)."}),
             "target_duration_seconds": ("FLOAT", {"default": 20, "min": 1, "max": 600, "step": 1,
-                "tooltip": "目标交付总时长；概念模式只是建议（AI 按内容调整），锁定模式按 H3 帧网格分配。过短会报错，不删减台词。\n"
-                           "Target delivered duration; a hint in concept mode, enforced in locked mode. Too short errors loudly; dialogue is never cut."}),
+                "tooltip": "目标交付总时长；概念模式只是建议（AI 按内容调整），锁定模式按 H3 帧网格分配。过短会报错，不删减台词。"
+                           "怒斥/喊叫演绎实测约 2.5 字/秒，愤怒独白要把目标时长按慢速翻着加。\n"
+                           "Target delivered duration; a hint in concept mode, enforced in locked mode. Too short errors loudly; "
+                           "dialogue is never cut. Furious/shouting delivery measured ~2.5 chars/s - budget angry monologues accordingly."}),
             "camera_framing": (["medium_shot", "two_shot", "medium_close_up", "close_up", "wide_shot"],
                 {"tooltip": "景别：two_shot 双人同框 / medium_shot 中景 / medium_close_up 中近景 / close_up 特写 / wide_shot 全景。概念模式是建议。\n"
                             "Framing (a hint in concept mode): two_shot / medium_shot / medium_close_up / close_up / wide_shot."}),
@@ -333,11 +335,12 @@ class MiniMaxH3StoryboardGenerator:
             "light": (["follow_image", "daylight", "golden_hour", "night_lamp", "night_screen",
                        "late_night", "morning", "custom"], {"default": "follow_image", "tooltip":
                 "时段光锚（预设选择器）。follow_image=不写光文字，跟随场景图自带光线；夜戏不接场景图时"
-                "必须选夜间预设，否则 H3 默认渲染成白天。custom=在下方 light_text 自定义。\n"
+                "必须选夜间预设，否则 H3 默认渲染成白天。night_lamp 是室内台灯场景，户外夜景选 late_night。"
+                "custom=在下方 light_text 自定义。\n"
                 "Time-of-day light anchor (preset selector). follow_image writes no light text and "
                 "follows the wired scene image's own lighting; a night story without a visibly dark "
-                "scene image MUST pick a night preset or H3 renders daylight. custom = write your "
-                "own in light_text below."}),
+                "scene image MUST pick a night preset or H3 renders daylight. night_lamp is an INDOOR "
+                "table-lamp scene; outdoor night picks late_night. custom = write your own below."}),
             "light_text": ("STRING", {"default": "", "multiline": True, "tooltip":
                 "自定义光锚，仅在 light=custom 时填写（留空会响亮报错）；会被译成英文 execution.light。\n"
                 "Custom light anchor, only with light=custom (empty here is a loud error); "

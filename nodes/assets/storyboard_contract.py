@@ -297,7 +297,19 @@ def validate_v2(payload, *, _check_timing=True, _check_execution=True):
             previous_cut = event_order[cut["before_event"]]
         actual.extend(events)
     if actual != expected:
-        raise ValueError("source events differ: text, actor, type, language and order must remain verbatim")
+        # Name the FIRST mismatch so a retrying model (or a human) can fix
+        # the exact spot instead of guessing (2026-10-30: Flash failed three
+        # consecutive retries on the generic message).
+        for i, (a, e) in enumerate(zip(actual, expected)):
+            if a != e:
+                raise ValueError(
+                    "source events differ at #%d: source_script says (%s %s %r) but shots "
+                    "carry (%s %s %r); text, actor, type, language and order must remain "
+                    "verbatim" % (i + 1, e["type"], e["character"], e["text"][:40],
+                                  a["type"], a["character"], a["text"][:40]))
+        raise ValueError("source events differ: shots carry %d events, source_script has %d; "
+                         "text, actor, type, language and order must remain verbatim"
+                         % (len(actual), len(expected)))
     if _check_execution:
         _validate_execution(out, expected)
     _replay_visibility(out)
@@ -476,6 +488,37 @@ def storyboard_warnings(asset):
         if len(speakers) == 1:
             out.append("%s 是续生成片段且全部台词由单一角色独占：已知 H3 缺陷触发形态（说话者可能从画面消失），"
                        "建议合并片段或准备重摇该镜 · single-speaker continuation clip" % shot["id"])
+    # Shouting delivery (2026-10-30 live): a furious scolding rendered at
+    # ~2.4 chars/s — less than HALF the 5.5 budget rate — and ate the
+    # ending beat. Mechanical proxy: the fraction of dialogue lines that
+    # end with an exclamation mark.
+    for shot in shots:
+        lines = [e for e in shot["events"] if e["type"] == "dialogue"]
+        shouted = [e for e in lines if e["text"].rstrip().endswith(("！", "!"))]
+        if lines and len(shouted) * 2 >= len(lines):
+            out.append("%s 台词 %d/%d 句为感叹式喊叫：实测怒斥语速约 2.5 字/秒（预算按 5.5 会截尾），"
+                       "建议上调目标时长并给收尾拍留 1 秒以上 · shouting delivery measured "
+                       "~2.5 chars/s" % (shot["id"], len(shouted), len(lines)))
+    # Same-speaker burst (2026-10-30 live): after 5 consecutive lines by one
+    # speaker the final line's lip-sync drifted to the listener's mouth
+    # (the voice stayed correct) — prompt-level "lips closed" lines did not
+    # hold. Mechanical proxy: longest run of consecutive dialogue events by
+    # the same character inside one shot.
+    for shot in shots:
+        best = run = 0
+        prev = None
+        for event in shot["events"]:
+            if event["type"] == "dialogue":
+                run = run + 1 if event["character"] == prev else 1
+                prev = event["character"]
+                best = max(best, run)
+            else:
+                run, prev = 0, None
+        if best >= 5:
+            out.append("%s 有同一角色连续 %d 句台词的连珠炮：末句口型可能漂到对面角色嘴上"
+                       "（2026-10-30 实测，声音不变嘴动漂移）；建议拆散到 ≤4 句，或把收尾反应"
+                       "拆成无台词的第二片段 · long same-speaker burst, final-line lip-drift risk"
+                       % (shot["id"], best))
     return out
 
 

@@ -1,12 +1,14 @@
 """Contract tests for user-authored role events and portable storyboard assets."""
 import copy
 import json
+import sys
 from pathlib import Path
 
 import pytest
 from .test_pov_offscreen import mods, _char
 
 FIXTURES = Path(__file__).parent / "fixtures"
+PROJECT_DIR = Path(__file__).resolve().parents[1]
 
 
 def apple():
@@ -519,3 +521,90 @@ def test_v2_light_contract_errors(mods):
         validate(_v2_with_scene_light(apple, light="custom", light_text=""))
     with pytest.raises(ValueError, match="light_text is only valid"):
         validate(_v2_with_scene_light(apple, light_text="凌晨深夜，窗外漆黑。"))
+
+
+# --------------------------------------------------------------------------- #
+# 2026-10-30 live flow-backs: shouting-rate warning, same-speaker burst
+# warning, first-mismatch detail in the verbatim error, dialogue-rewrite ⚠.
+# --------------------------------------------------------------------------- #
+def _minimal_asset(events, duration=12.0):
+    return {"shots": [{"id": "scene_01", "duration_seconds": duration,
+                       "events": events}],
+            "target_duration_seconds": duration, "continuation_overlap_frames": 22}
+
+
+def test_shouting_exclamation_ratio_warning(mods):
+    from importlib import import_module
+    contract = import_module(mods["storyboard"].__package__ + ".storyboard_contract")
+    def event(eid, kind, who, text):
+        return {"id": eid, "type": kind, "character": who, "text": text, "language": "zh"}
+    angry = _minimal_asset([
+        event("event_001", "dialogue", "character_1", "我逼逼咄人！"),
+        event("event_002", "dialogue", "character_1", "搞笑吧你！"),
+        event("event_003", "dialogue", "character_1", "你每次都站在高德地图制高点！"),
+        event("event_004", "dialogue", "character_1", "你了不起！"),
+        event("event_005", "dialogue", "character_1", "你高清！"),
+        event("event_006", "action", "character_2", "翻白眼，摊手"),
+    ])
+    warnings = contract.storyboard_warnings(angry)
+    assert any("怒斥语速" in w and "2.5" in w for w in warnings)
+    calm = _minimal_asset([
+        event("event_001", "dialogue", "character_1", "我逼逼咄人"),
+        event("event_002", "dialogue", "character_1", "搞笑吧你"),
+        event("event_003", "action", "character_2", "翻白眼，摊手"),
+    ])
+    assert not any("怒斥语速" in w for w in contract.storyboard_warnings(calm))
+
+
+def test_same_speaker_burst_lip_drift_warning(mods):
+    from importlib import import_module
+    contract = import_module(mods["storyboard"].__package__ + ".storyboard_contract")
+    def event(eid, kind, who, text):
+        return {"id": eid, "type": kind, "character": who, "text": text, "language": "zh"}
+    burst = _minimal_asset([
+        event("event_00%d" % i, "dialogue", "character_1", "台词%d" % i) for i in range(1, 6)
+    ] + [event("event_006", "action", "character_2", "翻白眼")])
+    warnings = contract.storyboard_warnings(burst)
+    assert any("连珠炮" in w and "口型" in w for w in warnings)
+    four = _minimal_asset([
+        event("event_00%d" % i, "dialogue", "character_1", "台词%d" % i) for i in range(1, 5)
+    ] + [event("event_005", "action", "character_2", "翻白眼")])
+    assert not any("连珠炮" in w for w in contract.storyboard_warnings(four))
+
+
+def test_verbatim_error_names_the_first_mismatch(mods):
+    from importlib import import_module
+    contract = import_module(mods["storyboard"].__package__ + ".storyboard_contract")
+    raw = apple()
+    raw["shots"][0]["events"][3]["text"] = "你了不起了！"
+    with pytest.raises(ValueError, match="source events differ at #4.*你了不起"):
+        contract.validate_v2(raw)
+
+
+def test_asset_diff_marks_dialogue_rewrites_with_a_warning(mods):
+    import importlib.util
+    import types as _types
+    if "_mienodes_internal.nodes.llm.storyboard_asset_generator" not in sys.modules:
+        pkg = _types.ModuleType("_mienodes_internal.nodes.llm")
+        pkg.__path__ = [str(PROJECT_DIR / "nodes" / "llm")]
+        pkg.__package__ = "_mienodes_internal.nodes.llm"
+        sys.modules["_mienodes_internal.nodes.llm"] = pkg
+        spec = importlib.util.spec_from_file_location(
+            "_mienodes_internal.nodes.llm.storyboard_asset_generator",
+            str(PROJECT_DIR / "nodes" / "llm" / "storyboard_asset_generator.py"))
+        generator = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = generator
+        spec.loader.exec_module(generator)
+    else:
+        generator = sys.modules["_mienodes_internal.nodes.llm.storyboard_asset_generator"]
+    old = apple()
+    new = json.loads(json.dumps(old))
+    flat_old = [e for s in old["shots"] for e in s["events"]]
+    target = next(e for e in flat_old if e["type"] == "dialogue")
+    for s in new["shots"]:
+        for e in s["events"]:
+            if e["id"] == target["id"]:
+                e["text"] = "了不起了！"
+    new["source_script"] = old["source_script"].replace(target["text"], "了不起了！")
+    diff = "\n".join(generator.asset_diff(old, new))
+    assert "⚠ 台词改写" in diff and "了不起了" in diff

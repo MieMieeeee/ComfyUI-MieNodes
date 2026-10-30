@@ -43,6 +43,9 @@ SHARED_MARKERS = (
     "light preset",                        # time of day lives in the light selector
     "mode=concept",                        # free-creation mode contract (2026-10-29)
     "mode=revise",                         # iterate-on-the-saved-asset contract (2026-10-29)
+    "2-2.5 characters per second",         # shouting delivery budget (2026-10-30 live)
+    "night_lamp is an INDOOR table-lamp",  # outdoor night picks late_night (2026-10-30 live)
+    "byte-identical to base_asset",        # revise-mode untouched-dialogue self-check
     "environments only",                   # scene purity: never a figure
     "a dark sedan at the curb below",      # script-asserted visible object
     "5-6 characters per second",           # measured speech-rate budget
