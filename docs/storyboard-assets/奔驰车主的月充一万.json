@@ -26,7 +26,7 @@
     "perspective": "observer"
   },
   "look": "精致二维动画风格，柔和暖色调，干净的线条与平涂阴影，现代都市短剧质感。",
-  "setting": "傍晚的高层公寓客厅：窗户朝街道一侧，从室内看出去是斜下方的高处视角，傍晚斜阳余晖透过宽窗照进室内，室内另有暖色灯光补光，整体偏暖。两人面对面坐在室内交谈，角色1在画面左侧，角色2在画面右侧，手中握着一部手机；那辆深色轿车就停在窗户正下方的路边，从楼上俯视能看到车顶。环境中任何可见文字都是中文。",
+  "setting": "从室内看出去是斜下方的高处俯视视角。两人面对面坐在室内交谈，角色1在画面左侧，角色2在画面右侧，手中握着一部手机。",
   "constraints": "全片一个生成片段，机位固定，两人始终保持左右位置与坐姿，全程都在画面内；一方说话时另一方的嘴唇保持闭合。角色2手中只有一部手机，整场戏握在同一只手里；角色1双手空着放在腿上。角色1的沉默一拍安排在最后两句台词之前，说完最后一句不再加话。画面中只有这两名角色，环境中任何可见文字都是中文。",
   "target_duration_seconds": 15.8,
   "continuation_overlap_frames": 22,
@@ -34,7 +34,7 @@
   "shots": [
     {
       "id": "scene_01",
-      "duration_seconds": 15.79,
+      "duration_seconds": 15.791666666666666,
       "events": [
         {
           "id": "event_001",
@@ -132,7 +132,7 @@
   ],
   "execution": {
     "look": "A refined two-dimensional animation style with a soft warm palette, clean linework and flat cel shading, like a contemporary urban short film.",
-    "setting": "A high-floor apartment living room in the early evening. The wide window faces the street and looks down from above onto it, and slanting sunset light comes through the glass while warm indoor light adds fill, keeping the whole frame warm. Character 1 sits on the left of frame and Character 2 sits on the right, holding a phone. A dark sedan is parked at the curb directly below the window, its roof seen from above. Every legible text in the room is in Chinese.",
+    "setting": "Character 1 sits on the left of frame and Character 2 sits on the right, facing each other, one hand holding a phone.",
     "visible_state": "Early evening light fills the room: slanting orange sunset comes through the wide window, the street below seen from above, warm indoor light adds a soft glow, and a dark sedan is parked at the curb directly below the window, its roof seen from above from the upper floor. Character 1 sits on the left of frame facing right, both hands resting open and empty on the knees. Character 2 sits on the right of frame facing left, holds the only phone in the room in one hand, the other hand resting open on the knee.",
     "voices": {
       "character_1": "young female, soft and playful timbre, mid-high register, intimate gentle pace with a teasing lift",
@@ -143,6 +143,8 @@
       "event_005": "Character 2 raises the head with one eyebrow lifted and turns the upper body slightly toward Character 1.",
       "event_009": "Character 1 opens the mouth as if to speak, then closes it and holds a quiet gaze on Character 2, both hands resting on the knees.",
       "event_010": "Character 2 leans a little closer toward Character 1 with a puzzled expression, the single phone still held in one hand."
-    }
-  }
+    },
+    "scene": "A high-floor apartment living room in the early evening. The wide window faces the street, slanting sunset light comes through the glass while warm indoor light adds fill, keeping the whole frame warm. A dark sedan is parked at the curb directly below the window, its roof visible when looking down from above. Every legible text in the room is in Chinese."
+  },
+  "scene": "傍晚的高层公寓客厅：窗户朝街道一侧，傍晚斜阳余晖透过宽窗照进室内，室内另有暖色灯光补光，整体偏暖。那辆深色轿车就停在窗户正下方的路边，从楼上俯视能看到车顶。环境中任何可见文字都是中文。"
 }

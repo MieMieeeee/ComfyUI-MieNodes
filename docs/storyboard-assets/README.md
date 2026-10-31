@@ -21,6 +21,8 @@ python scripts/import_storyboard_assets.py docs/storyboard-assets
 
 导入后资产出现在 `<library>/storyboards/<资产名>/storyboard.json`，在 ComfyUI 里用「加载剧本资产」直接选用。
 
+> **2026-10-31 清理（单一故事只留一版）**：002/003 的平铺旧版与 003 的表演变体（讽刺/疑惑邪笑/疑惑邪笑特写/纯粹开场）、001-生成音已从目录删除（git 历史可查）；各集以 `series-unified/` 的系列版为准。003-标点揭发 / 003-时钟揭发 / 003-坦白从宽 是不同笑点的独立段子，保留。004/005 的 target_duration 已按当前语速校准上调（14→14.5/15.0）。奔驰车主的月充一万 / 我叫张同 / 七岁养伤的一年 的环境描写已从 setting 迁入 scene 字段（接线场景资产时会被机械覆盖）。
+
 ## 剧集表
 
 | 编号 | 资产名 | 场景 | 梗 | 事件数 / 时长 |

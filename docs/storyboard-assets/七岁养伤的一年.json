@@ -18,7 +18,7 @@
     "perspective": "observer"
   },
   "look": "干净利落的二维动画风格，明亮通透的色彩，简洁的线条与平涂阴影，略带纪实感的构图。",
-  "setting": "正午的客厅：窗外是正午的强烈日光，明亮的自然光从宽窗涌进室内，整个画面明亮通透。一个人坐在室内正对镜头说话，讲述者位于画面中间。环境中任何可见文字都是中文。",
+  "setting": "一个人坐在室内正对镜头说话，讲述者位于画面中间。",
   "constraints": "全片一个生成片段，机位固定在讲述者正前方，讲述者始终居中正对镜头，姿态放松不挪位；画面里只有讲述者一个人，观众不出现。讲述者按顺序报出从三岁到八岁的经历，每句独立成拍，语速平稳、语气笃定，不重复也不补充。报岁数时只用一只手在胸前做点数的示意动作，另一只手安静放在腿上；说到八岁之后先停一拍、表情收住目光垂下，再给出最后两句，最后一句说完不再加话。角色全程只有讲述者一人，叙述里提到的提问者不出镜、不出声。画面中只有这一名角色，环境中任何可见文字都是中文。",
   "target_duration_seconds": 10.6,
   "continuation_overlap_frames": 22,
@@ -26,7 +26,7 @@
   "shots": [
     {
       "id": "scene_01",
-      "duration_seconds": 10.83,
+      "duration_seconds": 10.833333333333334,
       "events": [
         {
           "id": "event_001",
@@ -103,7 +103,7 @@
   ],
   "execution": {
     "look": "A clean two-dimensional animation style with bright translucent color, simple linework and flat cel shading, in a lightly documentary composition.",
-    "setting": "A living room in the midday sun. Strong noon sunlight pours in through the wide window, keeping the whole room bright and clear. Character 1 is the only person in the room, sitting in the middle of frame and talking straight to the camera. Every legible text in the room is in Chinese.",
+    "setting": "Character 1 is the only person in the room, sitting in the middle of frame and talking straight to the camera.",
     "visible_state": "Bright midday light fills the room: strong noon sunlight pours through the wide window, keeping the whole frame bright and clear. Character 1 sits facing the camera in the middle of frame with a relaxed matter-of-fact expression, both hands resting open and empty on the knees.",
     "voices": {
       "character_1": "young female, soft and playful timbre, mid-high register, intimate gentle pace with a teasing lift"
@@ -112,6 +112,8 @@
       "event_001": "Character 1 raises one hand in front of the chest and moves it in a small counting motion while naming the years, with a slightly proud, matter-of-fact expression, the other hand resting quietly on the knee.",
       "event_007": "Character 1 lets the counting hand drop, the smile fading into a brief thoughtful pause with the gaze dipping slightly.",
       "event_009": "Character 1 looks back up at the camera and shrugs the shoulders once with one open palm, keeping the delivery flat and deadpan."
-    }
-  }
+    },
+    "scene": "A living room in the midday sun. Strong noon sunlight pours in through the wide window, keeping the whole room bright and clear. Every legible text in the room is in Chinese."
+  },
+  "scene": "正午的客厅：窗外是正午的强烈日光，明亮的自然光从宽窗涌进室内，整个画面明亮通透。环境中任何可见文字都是中文。"
 }
