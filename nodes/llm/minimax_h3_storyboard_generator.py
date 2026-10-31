@@ -336,7 +336,7 @@ class MiniMaxH3StoryboardGenerator:
                        "late_night", "morning", "custom"], {"default": "follow_image", "tooltip":
                 "时段光锚（预设选择器）。follow_image=不写光文字，跟随场景图自带光线；夜戏不接场景图时"
                 "必须选夜间预设，否则 H3 默认渲染成白天。night_lamp 是室内台灯场景，户外夜景选 late_night。"
-                "custom=在下方 light_text 自定义。\n"
+                "custom=在下方 light_text 自定义。注意：接了场景资产时，光锚预设会在编译时被丢弃（场景图自带光线生效，用户的资产赢）。\n"
                 "Time-of-day light anchor (preset selector). follow_image writes no light text and "
                 "follows the wired scene image's own lighting; a night story without a visibly dark "
                 "scene image MUST pick a night preset or H3 renders daylight. night_lamp is an INDOOR "

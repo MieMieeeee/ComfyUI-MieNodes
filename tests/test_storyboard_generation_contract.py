@@ -497,12 +497,15 @@ def test_v2_wired_scene_asset_overrides_the_script_scene(mods):
     joined = "\n".join(json.loads(out[0])["shots"][0]["prompt"])
     # the script's scene prose is mechanically DROPPED...
     assert "Scene context:" not in joined
-    # ...while staging, the light anchor and the ambience swap survive
+    # ...and so is the light preset (2026-10-31 principle: the wired scene
+    # asset's own lighting wins)...
+    assert not any(line.startswith("Light:") for line in joined.split("\n"))
+    # ...while staging and the ambience swap survive
     assert "Opening staging: First shot both stand" in joined
-    assert "Light: Night: the window shows a pitch-dark sky" in joined
     assert "overall_soundscape: Quiet room tone with soft indoor air" in joined
     # the run summary says the override happened
     assert "overridden" in out[1]
+    assert "DROPPED" in out[1]
 
 
 def test_v2_custom_light_compiles_from_execution(mods):
@@ -622,7 +625,9 @@ def test_wired_scene_plus_light_preset_warns_text_beats_image(mods):
             2: _char("乙", "Second.", "female voice"),
             9: _scene("咖啡馆-真实", "A bright cafe.")})
     joined = "\n".join(out["summary_lines"])
-    assert "light preset 'late_night'" in joined and "follow_image" in joined
+    prompt = "\n".join(out["plan"]["shots"][0]["prompt"])
+    assert "light preset 'late_night' is DROPPED" in joined
+    assert not any(line.startswith("Light:") for line in prompt.split("\n"))
     raw2 = dict(apple())
     raw2.pop("light", None)
     out2 = mods["builder"].assemble_plan(
@@ -632,3 +637,23 @@ def test_wired_scene_plus_light_preset_warns_text_beats_image(mods):
             2: _char("乙", "Second.", "female voice"),
             9: _scene("咖啡馆-真实", "A bright cafe.")})
     assert "light preset" not in "\n".join(out2["summary_lines"])
+
+
+def test_wired_character_asset_overrides_script_voice_copy(mods):
+    """2026-10-31 principle: the wired character asset owns the cast — its
+    voice copy replaces the script's voice requirement in the prompt."""
+    raw = dict(apple())
+    out = mods["builder"].assemble_plan(
+        storyboard=raw, seed_base=7,
+        slot_bundles={
+            1: _char("甲", "First.", "warm gravelly elder voice from the ASSET"),
+            2: _char("乙", "Second.", "asset voice for second")})
+    prompt = "\n".join(out["plan"]["shots"][0]["prompt"])
+    assert "warm gravelly elder voice from the ASSET" in prompt
+    assert "asset voice for second" in prompt
+    joined = "\n".join(out["summary_lines"])
+    assert "overrides the script's voice copy" in joined
+    # 剧本原文音色不得残留
+    script_voice = raw["execution"]["voices"]["character_1"]
+    if script_voice:
+        assert script_voice not in prompt

@@ -362,12 +362,12 @@ class SaveAssetV2(object):
     )
     _VOICE_TIP = (
         "角色音色的英文一行描述（年龄/性别/音域/语速/质感，≤200 字符）；场景类型忽略本字段。\n"
-        "version=2 剧本经零 LLM 编译时，提示词里的音色文字来自剧本资产本身；本字段仍须非空，"
-        "并供 v1 模板轨道与 LLM（V2）轨道使用。\n"
+        "version=2 剧本经零 LLM 编译：接了角色资产时，本字段会覆盖剧本里的音色文字（用户的资产赢），"
+        "写准它音色就跟着资产走；未接线的角色用剧本自带音色。v1 模板轨道与 LLM（V2）轨道直接使用本字段。\n"
         "One-line English timbre descriptor for characters (age/gender/register/pace/texture, <=200 chars); "
-        "ignored for scenes. When a version=2 script is compiled zero-LLM, the prompt's voice text comes "
-        "from the script asset itself; this field still must be non-empty and feeds the v1 template track "
-        "and the LLM (V2) track."
+        "ignored for scenes. On the zero-LLM v2 track a WIRED character asset's voice copy overrides the "
+        "script's voice text (the user's asset wins); unwired roles keep the script's copy. The v1 template "
+        "and LLM (V2) tracks use it directly."
     )
     _AMBIENCE_PLACEHOLDER = (
         "场景氛围 · Scene ambience（英文一行 EN one line，≤400 字符 chars，仅场景 · scene only，可空）\n"

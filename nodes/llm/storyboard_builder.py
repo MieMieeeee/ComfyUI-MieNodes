@@ -726,6 +726,42 @@ def _offscreen_slots(cast: dict) -> set[int]:
     }
 
 
+def _apply_wired_asset_voice_overrides(payload, slot_bundles):
+    """The user's wired character assets own the cast (2026-10-31 principle).
+
+    The script asset is a PERFORMANCE contract: it may describe voices,
+    but the moment a character asset with its own non-empty voice copy is
+    wired, that asset's voice replaces the script's voice requirement for
+    the role in the compiled prompt — wired assets always win, exactly
+    like the scene-text and light overrides. Returns (payload, notes).
+    """
+    if payload.get("version") != 2:
+        return payload, []
+    execution = payload.get("execution") or {}
+    voices = execution.get("voices") or {}
+    role_ids = {r.get("id") for r in payload.get("roles") or []}
+    notes = []
+    replaced = dict(voices)
+    for slot in range(1, _storyboard.MAX_CHARACTER_SLOT + 1):
+        bundle = slot_bundles.get(slot)
+        if not isinstance(bundle, dict) or bundle.get("kind") != "character":
+            continue
+        role_id = "character_%d" % slot
+        asset_voice = (bundle.get("voice") or "").strip()
+        if role_id not in role_ids or not asset_voice:
+            continue
+        if replaced.get(role_id, "").strip() != asset_voice:
+            notes.append(
+                "wired character asset %r overrides the script's voice copy "
+                "for %s" % (bundle.get("name") or role_id, role_id)
+            )
+        replaced[role_id] = asset_voice
+    if not notes:
+        return payload, []
+    execution = dict(execution, voices=replaced)
+    return dict(payload, execution=execution), notes
+
+
 def _assemble_authored_plan(storyboard: dict, slot_bundles: dict) -> dict:
     """Keep an authored H3 prompt intact; references are an independent choice."""
     cast = storyboard["cast"]
@@ -765,6 +801,9 @@ def _assemble_authored_plan(storyboard: dict, slot_bundles: dict) -> dict:
         scene_ambience = (scene.get("ambience") or "").strip()
     reference_context = []
     summary_lines = ["authored prompt preserved; audio mode: " + storyboard["audio_mode"]]
+    # Wired-asset override notes (voice replacement; 2026-10-31 principle:
+    # the user's wired assets own cast and environment design).
+    summary_lines.extend(storyboard.get("wired_asset_notes") or [])
     if not generated and storyboard.get("_structured_events"):
         reference_context.extend(
             "Voice casting: (S%d) uses the voice identity from <Audio %d> only; the reference words are not dialogue."
@@ -827,23 +866,19 @@ def _assemble_authored_plan(storyboard: dict, slot_bundles: dict) -> dict:
             "(dropped at compile time); the wired scene image and its "
             "ambience stand"
         )
-        # 2026-10-31 live (LAN, cafe scene rendered pitch-dark): an explicit
-        # light preset ALSO overrides the wired scene image's own lighting —
-        # the same text-beats-image mechanism as the scene override. A story
-        # time-of-day that the scene image already carries should be
-        # follow_image instead. Loud note, never a silent strip: the light
-        # anchor may be a deliberate story fact (a night story in a bright
-        # cafe).
-        wired_light = storyboard.get("light", "follow_image")
-        if wired_light != "follow_image":
+        # 2026-10-31 principle upgrade (LAN cafe incident): a WIRED scene
+        # asset owns the environment INCLUDING its lighting — the light
+        # preset line is dropped mechanically (the image's own lighting
+        # stands), the same way scene prose is. A story time-of-day that
+        # must survive belongs in a scene image that shows it.
+        if storyboard.get("light", "follow_image") != "follow_image":
             summary_lines.append(
-                "light preset %r is compiled INTO the prompt while a scene "
-                "asset is wired: the light TEXT overrides the scene image's "
-                "own lighting (2026-10-31 live: late_night turned a bright "
-                "cafe dark and the scene looked unapplied). If the scene "
-                "image already carries the time of day, set light to "
-                "follow_image; keep the preset only when the story time "
-                "must beat the image." % wired_light
+                "light preset %r is DROPPED at compile time: the wired scene "
+                "asset's own lighting overrides it (2026-10-31 principle — "
+                "wired assets win; live incident: late_night turned a bright "
+                "cafe dark and the scene looked unapplied). Pick a scene "
+                "image that shows the story's time of day, or run scene-less."
+                % storyboard.get("light")
             )
     for index, shot in enumerate(storyboard["shots"], 1):
         # H3's temporal grid is 17*k+5 at 24 fps; nearest representable duration.
@@ -853,6 +888,8 @@ def _assemble_authored_plan(storyboard: dict, slot_bundles: dict) -> dict:
             prompt_text = "\n".join(
                 line for line in prompt_text.split("\n")
                 if not line.startswith("Scene context: ")
+                and not (storyboard.get("light", "follow_image") != "follow_image"
+                         and line.startswith("Light: "))
             )
         if fallback_line and fallback_line in prompt_text:
             prompt_text = prompt_text.replace(
@@ -930,7 +967,9 @@ def assemble_plan(
         storyboard = _validate_storyboard_bundle(storyboard)
     if storyboard.get("version") == 2:
         from ..assets.storyboard_contract import to_runtime
+        storyboard, _voice_notes = _apply_wired_asset_voice_overrides(storyboard, slot_bundles)
         storyboard = to_runtime(storyboard)
+        storyboard["wired_asset_notes"] = _voice_notes
     if storyboard.get("assembly_mode") == "authored":
         return _assemble_authored_plan(storyboard, slot_bundles)
 
@@ -1511,7 +1550,9 @@ def assemble_from_sockets(
     cleaned = _validate_storyboard_bundle(storyboard)
     if cleaned.get("version") == 2:
         from ..assets.storyboard_contract import to_runtime
+        cleaned, _voice_notes = _apply_wired_asset_voice_overrides(cleaned, slot_bundles)
         cleaned = to_runtime(cleaned)
+        cleaned["wired_asset_notes"] = _voice_notes
     # Inject the integer seed so per_scene_increment picks it up.
     cleaned = {**cleaned, "seed_base": int(seed)}
 
