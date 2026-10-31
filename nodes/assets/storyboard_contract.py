@@ -616,6 +616,10 @@ def to_runtime(asset):
         shots.append({"lines": speech, "prompt": "\n".join(lines), "duration_seconds": length / 24})
     return {"name": asset["name"], "version": 1, "assembly_mode": "authored", "audio_mode": asset.get("audio_mode", "generated"),
             "language": asset["language"], "camera_discipline": "locked", "camera_perspective": asset["camera"]["perspective"],
+            # light rides along for the builder's wired-scene conflict note
+            # (the compiled "Light: ..." line already lives in each shot's
+            # prompt; the raw key is transport metadata, not v1 contract).
+            "light": asset.get("light", "follow_image"),
             "pacing": "normal", "seed_policy": "per_scene_increment", "prompt_prefix": [],
             "cast": {names[r["id"]]: {"character_slot": indices[r["id"]], "offscreen": r["presence"] == "off_screen"} for r in roles},
             "shots": shots, "ambience": "Natural location ambience.", "setting_line": "", "spatial_layout": {},

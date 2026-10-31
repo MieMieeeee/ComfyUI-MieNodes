@@ -264,3 +264,4 @@ def test_asset_diff_reports_reworded_and_untouched_events(mods, verified_asset):
     assert "5 条逐字未动" in text or "逐字未动" in text
     assert "改写" in text and "冻结" in text
     assert "night_screen" in text  # light change reported
+

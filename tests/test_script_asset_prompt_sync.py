@@ -45,6 +45,7 @@ SHARED_MARKERS = (
     "mode=revise",                         # iterate-on-the-saved-asset contract (2026-10-29)
     "2-2.5 characters per second",         # shouting delivery budget (2026-10-30 live)
     "night_lamp is an INDOOR table-lamp",  # outdoor night picks late_night (2026-10-30 live)
+    "must beat the image",                  # light text vs wired scene image (2026-10-31 live)
     "byte-identical to base_asset",        # revise-mode untouched-dialogue self-check
     "environments only",                   # scene purity: never a figure
     "a dark sedan at the curb below",      # script-asserted visible object

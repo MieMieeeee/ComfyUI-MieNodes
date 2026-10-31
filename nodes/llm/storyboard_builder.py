@@ -827,6 +827,24 @@ def _assemble_authored_plan(storyboard: dict, slot_bundles: dict) -> dict:
             "(dropped at compile time); the wired scene image and its "
             "ambience stand"
         )
+        # 2026-10-31 live (LAN, cafe scene rendered pitch-dark): an explicit
+        # light preset ALSO overrides the wired scene image's own lighting —
+        # the same text-beats-image mechanism as the scene override. A story
+        # time-of-day that the scene image already carries should be
+        # follow_image instead. Loud note, never a silent strip: the light
+        # anchor may be a deliberate story fact (a night story in a bright
+        # cafe).
+        wired_light = storyboard.get("light", "follow_image")
+        if wired_light != "follow_image":
+            summary_lines.append(
+                "light preset %r is compiled INTO the prompt while a scene "
+                "asset is wired: the light TEXT overrides the scene image's "
+                "own lighting (2026-10-31 live: late_night turned a bright "
+                "cafe dark and the scene looked unapplied). If the scene "
+                "image already carries the time of day, set light to "
+                "follow_image; keep the preset only when the story time "
+                "must beat the image." % wired_light
+            )
     for index, shot in enumerate(storyboard["shots"], 1):
         # H3's temporal grid is 17*k+5 at 24 fps; nearest representable duration.
         frames = max(5, 17 * round((shot["duration_seconds"] * 24 - 5) / 17) + 5)

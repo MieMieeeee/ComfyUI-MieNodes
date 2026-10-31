@@ -608,3 +608,27 @@ def test_asset_diff_marks_dialogue_rewrites_with_a_warning(mods):
     new["source_script"] = old["source_script"].replace(target["text"], "了不起了！")
     diff = "\n".join(generator.asset_diff(old, new))
     assert "⚠ 台词改写" in diff and "了不起了" in diff
+
+
+def test_wired_scene_plus_light_preset_warns_text_beats_image(mods):
+    """2026-10-31 live (LAN cafe): an explicit light preset overrides the
+    wired scene image's own lighting — the run summary must say so."""
+    raw = dict(apple())
+    raw["light"] = "late_night"
+    out = mods["builder"].assemble_plan(
+        storyboard=raw, seed_base=7,
+        slot_bundles={
+            1: _char("甲", "First.", "male voice"),
+            2: _char("乙", "Second.", "female voice"),
+            9: _scene("咖啡馆-真实", "A bright cafe.")})
+    joined = "\n".join(out["summary_lines"])
+    assert "light preset 'late_night'" in joined and "follow_image" in joined
+    raw2 = dict(apple())
+    raw2.pop("light", None)
+    out2 = mods["builder"].assemble_plan(
+        storyboard=raw2, seed_base=7,
+        slot_bundles={
+            1: _char("甲", "First.", "male voice"),
+            2: _char("乙", "Second.", "female voice"),
+            9: _scene("咖啡馆-真实", "A bright cafe.")})
+    assert "light preset" not in "\n".join(out2["summary_lines"])
