@@ -331,12 +331,14 @@ class MiniMaxH3StoryboardGenerator:
             # 2026-10-29 裁定：场景/光锚是独立输入，不再塞进 setting。
             # 新 widget 一律放 optional 尾部（widget 顺序按位置序列化）。
             "scene": ("STRING", {"default": "", "multiline": True, "tooltip":
-                "场景描述（可选，中文可）。环境长什么样交给这个字段；在 V3 里接了场景资产时，"
-                "编译器会机械丢弃这里的文字（资产覆盖剧本场景），图与 ambience 生效。\n"
-                "Scene description (optional). When a scene asset is wired in V3, this text is "
-                "mechanically dropped at compile time (the asset overrides the script's scene); the "
-                "image and its ambience stand. Leave empty and wire a scene asset, or fill this and "
-                "wire nothing — never rely on both."}),
+                "场景·scene 只写环境：地点与固定陈设（例：深夜的都市街头，路灯冷白光 / 诊室和问诊桌）——"
+                "不写时段（归 light 预设）、不写画风（归 look）、不写站位（归 setting）。"
+                "在 V3 里接了场景资产时，编译器会机械丢弃这里的文字（资产覆盖剧本场景），图与 ambience 生效；"
+                "所以它只服务「不接场景资产」或「房间本身是剧情必需」两种跑法。\n"
+                "ENVIRONMENT ONLY - the place and its fixed contents (深夜的都市街头，路灯冷白; a clinic "
+                "consultation room). No time of day (light preset), no art style (look), no staging (setting). "
+                "A wired scene asset drops this text entirely at compile time; it serves scene-less runs and "
+                "story-required rooms only."}),
             "light": (["follow_image", "daylight", "golden_hour", "night_lamp", "night_screen",
                        "late_night", "morning", "custom"], {"default": "follow_image", "tooltip":
                 "时段光锚（预设选择器）。follow_image=不写光文字，跟随场景图自带光线；夜戏不接场景图时"
