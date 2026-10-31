@@ -1242,16 +1242,13 @@ function ensureStyles() {
         "color:#fff;border-color:transparent}",
         // kind 开关（角色/场景）用青色系，与资产名开关（靛蓝）区分。
         ".mie-kindrow .mie-mode-btn.active{background:linear-gradient(135deg,#2a7f8f,#3d5a80)}",
-        // 剧本分栏预览：每栏一个标题条 + 内容行；长栏（事件/风险）内部滚动。
-        ".mie-sb-sec{margin-top:6px;border:1px solid rgba(128,150,180,.25);border-radius:8px;",
-        "overflow:hidden}",
-        ".mie-sb-sec-title{padding:4px 8px;font-size:12px;font-weight:700;",
-        "background:linear-gradient(135deg,rgba(42,127,143,.35),rgba(61,90,128,.35));",
-        "color:var(--input-text,#c8c8c8)}",
-        ".mie-sb-sec-body{padding:4px 8px;font-size:11px;line-height:1.5;",
-        "white-space:pre-wrap;word-break:break-word}",
-        ".mie-sb-scroll{max-height:180px;overflow-y:auto}",
-        ".mie-sb-line{padding:1px 0}",
+        // 剧本分栏预览：老老实实从上往下堆叠（2026-11-01 用户反馈横向
+        // flex 跑形）——标题行 + pre-wrap 文本块，整块限高滚动。
+        ".mie-preview.mie-preview-sb{display:block;max-height:460px;overflow-y:auto;padding:2px 6px}",
+        ".mie-sb-h{font-size:12px;font-weight:700;margin-top:9px;line-height:1.4;",
+        "color:var(--input-text,#c8c8c8);border-bottom:1px solid rgba(128,150,180,.35);padding-bottom:2px}",
+        ".mie-sb-b{font-size:11px;line-height:1.55;white-space:pre-wrap;word-break:break-word;",
+        "padding:3px 0 0 2px}",
     ].join("");
     document.head.appendChild(pickerStyleEl);
 }
@@ -1278,33 +1275,29 @@ function renderPreviewState(node, state) {
     const kind = state.kind || ui.cfg.save || ui.cfg.preview;
     const ts = ui.payload?._ts;
     wrap.innerHTML = "";
-    // 剧本资产：分栏显示全部内容（2026-11-01 裁定——加载即显示，不等运行）。
-    if (state.mode === "existing" && kind === "storyboard"
-            && Array.isArray(state.meta?.sections) && state.meta.sections.length) {
+    // 剧本资产：从上到下分栏显示全部内容（2026-11-01 裁定：加载即显示，
+    // 不等运行；用户同日反馈：老老实实纵向堆叠，别横向 flex）。
+    const asSections = state.mode === "existing" && kind === "storyboard"
+        && Array.isArray(state.meta?.sections) && state.meta.sections.length;
+    wrap.classList.toggle("mie-preview-sb", !!asSections);
+    if (asSections) {
         const meta = state.meta;
         const head = document.createElement("div");
         head.className = "mie-pv-title";
         head.textContent = "剧本 " + meta.name;
         wrap.append(head);
         for (const sec of meta.sections) {
-            const box = document.createElement("div");
-            box.className = "mie-sb-sec";
-            const title = document.createElement("div");
-            title.className = "mie-sb-sec-title";
-            title.textContent = sec.title;
-            box.append(title);
+            const h = document.createElement("div");
+            h.className = "mie-sb-h";
+            h.textContent = sec.title;
+            wrap.append(h);
             const body = document.createElement("div");
-            body.className = "mie-sb-sec-body"
-                + (sec.lines && sec.lines.length > 8 ? " mie-sb-scroll" : "");
-            for (const line of sec.lines || []) {
-                const row = document.createElement("div");
-                row.className = "mie-sb-line";
-                row.textContent = line;
-                body.append(row);
-            }
-            box.append(body);
-            wrap.append(box);
+            body.className = "mie-sb-b";
+            body.textContent = (sec.lines || []).join("\n") || "（无）";
+            wrap.append(body);
         }
+        // 内容高度变了，重排节点让 computeLayoutSize 重新量高。
+        relayoutNode(node);
         return;
     }
     if (state.mode === "boot" || state.mode === "empty-new") {
