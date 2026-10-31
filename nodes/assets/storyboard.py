@@ -1085,11 +1085,18 @@ def read_storyboard_meta(library_dir, name):
     images (the preview panel renders text-only when image_count == 0).
     Raises ValueError on unknown names, FileNotFoundError when the
     storyboards directory is absent — same contract as
-    ``library.read_asset_meta``."""
+    ``library.read_asset_meta``.
+
+    ``sections`` (2026-11-01 ruling: the node shows the FULL content the
+    moment a name is picked, no run needed) is the structured panel data:
+    one entry per display column, each with a bilingual title and plain
+    content lines. Shared by the load-node preview and any other consumer.
+    """
     cleaned, path = load_storyboard(library_dir, name)
+    runtime = cleaned
     if cleaned.get("version") == 2:
         from .storyboard_contract import to_runtime
-        cleaned = to_runtime(cleaned)
+        runtime = to_runtime(cleaned)
     lines = sum(len(shot.get("lines") or []) for shot in cleaned.get("shots") or [])
     offscreen = sorted(
         n for n, v in (cleaned.get("cast") or {}).items()
@@ -1105,6 +1112,52 @@ def read_storyboard_meta(library_dir, name):
             (", off-screen: " + ", ".join(offscreen)) if offscreen else "",
         )
     )
+    from .storyboard_contract import allocate_frames, storyboard_warnings
+    sections = []
+    if cleaned.get("version") == 2:
+        frames = allocate_frames(cleaned)
+        overlap = cleaned.get("continuation_overlap_frames", 22)
+        delivered = (sum(frames) - overlap * (len(frames) - 1)) / 24
+        names = {r["id"]: r["name"] for r in cleaned.get("roles", [])}
+        sections.append({"title": "概要 · Overview", "lines": [
+            "片段 %d 段 · 交付 %.2f 秒 · 续接重叠 %d 帧" % (len(frames), delivered, overlap),
+            "相机 %s / %s / %s · 语言 %s · 声音 %s" % (
+                cleaned["camera"]["framing"], cleaned["camera"]["movement"],
+                cleaned["camera"]["perspective"], cleaned["language"],
+                cleaned.get("audio_mode", "generated")),
+        ]})
+        sections.append({"title": "角色 · Cast", "lines": [
+            "%s（%s%s）voice: %s" % (r["name"], r["presence"],
+                                     "" if r["position"] == "none" else "/" + r["position"],
+                                     r.get("voice") or "—")
+            for r in cleaned.get("roles", [])]})
+        event_lines = []
+        for shot, length in zip(cleaned.get("shots", []), frames):
+            event_lines.append("— %s · 原始 %.2f 秒" % (shot.get("id"), length / 24))
+            for event in shot.get("events", []):
+                event_lines.append("    [%s] %s %s：%s" % (
+                    event.get("type"), names.get(event.get("character"), event.get("character")),
+                    "" if event.get("type") == "dialogue" else "动作", event.get("text", "")))
+        sections.append({"title": "事件 · Events", "lines": event_lines})
+        style_lines = []
+        if cleaned.get("look"):
+            style_lines.append("画风 look（进提示词、不被覆盖）：" + cleaned["look"])
+        scene = (cleaned.get("scene") or "").strip()
+        style_lines.append(("场景 scene（接线场景资产时会被覆盖）：" + scene) if scene
+                           else "场景 scene：无（环境由接线场景资产提供）")
+        style_lines.append("光锚 light：%s%s" % (
+            cleaned.get("light", "follow_image"),
+            "（接线场景资产时会被丢弃，图的光线生效）"
+            if cleaned.get("light", "follow_image") != "follow_image" else "（跟随场景图）"))
+        sections.append({"title": "画风·场景·光 · Style & Scene", "lines": style_lines})
+        constraints = (cleaned.get("constraints") or "").strip()
+        sections.append({"title": "约束 · Constraints（不进编译 · not compiled）",
+                         "lines": [constraints] if constraints else ["（无）"]})
+        warnings = storyboard_warnings(cleaned)
+        if warnings:
+            sections.append({"title": "⚠ 渲染风险 · Risks", "lines": warnings})
+    else:
+        sections.append({"title": "v1 剧本（冻结轨道）", "lines": [description]})
     return {
         "name": cleaned.get("name", name),
         "kind": "storyboard",
@@ -1113,6 +1166,7 @@ def read_storyboard_meta(library_dir, name):
         # member, so the author does not have to open the JSON to find
         # out how many characters and how many scenes this board wants.
         "requirements": requirements,
+        "sections": sections,
         "image_count": 0,
         "audio_count": None,
         "picture_size": None,

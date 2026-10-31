@@ -47,6 +47,7 @@ SHARED_MARKERS = (
     "night_lamp is an INDOOR table-lamp",  # outdoor night picks late_night (2026-10-30 live)
     "own lighting overrides it mechanically",  # wired scene beats light preset (2026-10-31)
     "the asset's own voice copy replaces",     # wired character beats script voice (2026-10-31)
+    "look is art style ONLY",                  # look must not carry scene/time (2026-11-01 live)
     "byte-identical to base_asset",        # revise-mode untouched-dialogue self-check
     "environments only",                   # scene purity: never a figure
     "a dark sedan at the curb below",      # script-asserted visible object

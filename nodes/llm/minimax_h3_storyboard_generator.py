@@ -315,7 +315,12 @@ class MiniMaxH3StoryboardGenerator:
                 "接「加载剧本资产」的 storyboard 输出 · wire the Load Script Asset output here.\n"
                 "仅 revise 修订模式读取：作为基线版本，concept 里写的修改要求作用在它之上，"
                 "产出带新名字的下一版（旧资产不动）。concept/script 模式忽略此输入。"}),
-            "look": ("STRING", {"default": "Natural lighting, coherent visual style.", "multiline": True}),
+            "look": ("STRING", {"default": "Natural lighting, coherent visual style.", "multiline": True, "tooltip":
+                "画风·look 只写艺术风格（媒介/画法/色彩），绝不写场景内容或时段（「都市夜景」「室内咖啡馆」都不行）——"
+                "look 逐字进提示词且不被任何接线资产覆盖，写了环境就会压过接入的场景图（2026-11-01 真机实测）。\n"
+                "Art style ONLY (medium/technique/palette); never scene content or time of day — the look line "
+                "reaches the prompt verbatim and nothing overrides it, so an environment named here beats the "
+                "wired scene image."}),
             "setting": ("STRING", {"default": "", "multiline": True, "tooltip": "人物位置与情境；具体环境可由V3的可选场景资产提供。"}),
             "constraints": ("STRING", {"default": "", "multiline": True, "tooltip": "导演约束，原样保留。例如：只拍两人对话，不把台词中的回忆拍出来。"}),
             "continuation_overlap_frames": ("INT", {"default": 22, "min": 0, "max": 120, "tooltip": "需与Loop续接重叠帧一致；独立片段不裁剪时设0。"}),

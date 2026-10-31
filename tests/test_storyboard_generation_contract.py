@@ -657,3 +657,22 @@ def test_wired_character_asset_overrides_script_voice_copy(mods):
     script_voice = raw["execution"]["voices"]["character_1"]
     if script_voice:
         assert script_voice not in prompt
+
+
+def test_read_meta_returns_sectioned_preview(mods, tmp_path):
+    """2026-11-01: the load node shows the FULL content the moment a name
+    is picked — /meta returns one section per display column."""
+    lib = mods["storyboard"]
+    cleaned, _path, _status = lib.save_storyboard(str(tmp_path), apple())
+    meta = lib.read_storyboard_meta(str(tmp_path), cleaned["name"])
+    titles = [s["title"] for s in meta["sections"]]
+    assert any("概要" in t for t in titles)
+    assert any("角色" in t for t in titles)
+    assert any("事件" in t for t in titles)
+    assert any("画风" in t and "场景" in t for t in titles)
+    assert any("约束" in t and "不进编译" in t for t in titles)
+    events = next(s for s in meta["sections"] if "事件" in s["title"])
+    assert any("我逼逼" not in line and "苹果" in line or "递" in line for line in events["lines"])
+    style = next(s for s in meta["sections"] if "画风" in s["title"])
+    style_text = "\n".join(style["lines"])
+    assert "look" in style_text and "light" in style_text

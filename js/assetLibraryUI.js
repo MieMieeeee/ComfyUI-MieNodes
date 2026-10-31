@@ -59,8 +59,9 @@ const NODES = {
     "BuildPlanFromStoryboard|Mie": { generatorSockets: true },
     // 分镜资产与角色/场景同一套下拉体验：/mie_nodes/assets/list 的
     // storyboards 键 + 🔄 刷新 + 保存节点的 存在=覆盖/新名=创建 语义。
-    // 分镜没有图，preview 面板走文本兜底（image_count === 0 时不建 <img>）。
-    "LoadStoryboardAsset|Mie": { kinds: ["storyboards"] },
+    // preview=storyboard：选名字即拉 /meta 分栏显示全部内容（2026-11-01
+    // 裁定：加载即显示，不等运行）。
+    "LoadStoryboardAsset|Mie": { kinds: ["storyboards"], preview: "storyboard" },
     "SaveStoryboardAsset|Mie": { kinds: ["storyboards"], save: "storyboard" },
     // asset → assets：不用生成器 V2 的链路，把 Load 出来的资产包汇成
     // MIE_ASSET_ROSTER 喂给 Asset → Slots（插座同样自动生长）。
@@ -1241,6 +1242,16 @@ function ensureStyles() {
         "color:#fff;border-color:transparent}",
         // kind 开关（角色/场景）用青色系，与资产名开关（靛蓝）区分。
         ".mie-kindrow .mie-mode-btn.active{background:linear-gradient(135deg,#2a7f8f,#3d5a80)}",
+        // 剧本分栏预览：每栏一个标题条 + 内容行；长栏（事件/风险）内部滚动。
+        ".mie-sb-sec{margin-top:6px;border:1px solid rgba(128,150,180,.25);border-radius:8px;",
+        "overflow:hidden}",
+        ".mie-sb-sec-title{padding:4px 8px;font-size:12px;font-weight:700;",
+        "background:linear-gradient(135deg,rgba(42,127,143,.35),rgba(61,90,128,.35));",
+        "color:var(--input-text,#c8c8c8)}",
+        ".mie-sb-sec-body{padding:4px 8px;font-size:11px;line-height:1.5;",
+        "white-space:pre-wrap;word-break:break-word}",
+        ".mie-sb-scroll{max-height:180px;overflow-y:auto}",
+        ".mie-sb-line{padding:1px 0}",
     ].join("");
     document.head.appendChild(pickerStyleEl);
 }
@@ -1267,6 +1278,35 @@ function renderPreviewState(node, state) {
     const kind = state.kind || ui.cfg.save || ui.cfg.preview;
     const ts = ui.payload?._ts;
     wrap.innerHTML = "";
+    // 剧本资产：分栏显示全部内容（2026-11-01 裁定——加载即显示，不等运行）。
+    if (state.mode === "existing" && kind === "storyboard"
+            && Array.isArray(state.meta?.sections) && state.meta.sections.length) {
+        const meta = state.meta;
+        const head = document.createElement("div");
+        head.className = "mie-pv-title";
+        head.textContent = "剧本 " + meta.name;
+        wrap.append(head);
+        for (const sec of meta.sections) {
+            const box = document.createElement("div");
+            box.className = "mie-sb-sec";
+            const title = document.createElement("div");
+            title.className = "mie-sb-sec-title";
+            title.textContent = sec.title;
+            box.append(title);
+            const body = document.createElement("div");
+            body.className = "mie-sb-sec-body"
+                + (sec.lines && sec.lines.length > 8 ? " mie-sb-scroll" : "");
+            for (const line of sec.lines || []) {
+                const row = document.createElement("div");
+                row.className = "mie-sb-line";
+                row.textContent = line;
+                body.append(row);
+            }
+            box.append(body);
+            wrap.append(box);
+        }
+        return;
+    }
     if (state.mode === "boot" || state.mode === "empty-new") {
         wrap.innerHTML = '<div class="mie-pv-hint">（选择资产后显示预览；保存节点会先回填库里的正文<br>Select an asset to preview; save nodes prefill the library text first）</div>';
         return;
