@@ -1831,8 +1831,15 @@ class MiniMaxH3LoopPromptGeneratorV3(object):
         it feeds is a bundle, so hashing the bundle here keeps the
         generator honest when someone rewires from the canvas).
         """
+        # seed and continuation_overlap_frames are DIGESTED TOO (2026-11-01):
+        # both change the compiled plan (per-shot seeds / re-budgeted
+        # durations) without touching any input link — leaving them out made
+        # a seed-only re-roll silently reuse the cached plan, so the re-roll
+        # lever looked dead until a restart cleared the cache.
         storyboard = kwargs.get("storyboard")
-        parts = [storyboard_cache_key(storyboard)]
+        parts = [storyboard_cache_key(storyboard),
+                 "seed=%s" % kwargs.get("seed", 0),
+                 "overlap=%s" % kwargs.get("continuation_overlap_frames", -1)]
         for i in range(1, cls.MAX_SLOTS + 1):
             parts.append(_bundle_fingerprint(kwargs.get("character_%d" % i)))
         parts.append(_bundle_fingerprint(kwargs.get("scene_1")))

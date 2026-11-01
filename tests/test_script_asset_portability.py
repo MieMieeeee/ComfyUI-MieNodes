@@ -150,3 +150,19 @@ def test_generator_rejects_invalid_default_designs_before_provider(sb, value):
     with pytest.raises(ValueError, match="character_designs"):
         sb.AssetStoryboardEnhancer(connector)("an idea", 0, mode="concept", character_designs=value)
     assert not connector.calls
+
+
+def test_v3_is_changed_digests_seed_and_overlap(mods):
+    """2026-11-01: a seed-only re-roll must bust the plan cache — the old
+    digest ignored the widgets, so the re-roll lever looked dead."""
+    builder = mods["builder"]
+    base = dict(seed=1, continuation_overlap_frames=-1)
+    a = builder.MiniMaxH3LoopPromptGeneratorV3.IS_CHANGED(
+        storyboard=None, **base)
+    b = builder.MiniMaxH3LoopPromptGeneratorV3.IS_CHANGED(
+        storyboard=None, **dict(base, seed=2))
+    c = builder.MiniMaxH3LoopPromptGeneratorV3.IS_CHANGED(
+        storyboard=None, **dict(base, continuation_overlap_frames=0))
+    d = builder.MiniMaxH3LoopPromptGeneratorV3.IS_CHANGED(
+        storyboard=None, **base)
+    assert a != b and a != c and a == d
