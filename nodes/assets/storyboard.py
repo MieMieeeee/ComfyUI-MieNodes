@@ -1045,9 +1045,9 @@ def storyboard_preview(cleaned):
     lines = ["%s · %s" % (asset.get("name", "?"), "剧本资产 v%d" % asset.get("version", 2))]
     lines.append("角色 %d 位：%s" % (
         len(asset.get("roles", [])),
-        "、".join("%s(%s%s)" % (r["name"], r["presence"],
-                                "" if r["position"] == "none" else "/" + r["position"])
-                  for r in asset.get("roles", []))))
+        "、".join("角色%d=%s（%s%s）" % (index, r["name"], r["presence"],
+                                        "" if r["position"] == "none" else "/" + r["position"])
+                  for index, r in enumerate(asset.get("roles", []), 1))))
     lines.append("生成片段 %d 段 · 预计交付 %.2f 秒 · 续接重叠 %d 帧" % (
         len(frames), delivered, overlap))
     for who, design in asset.get("character_designs", {}).items():
@@ -1128,10 +1128,11 @@ def read_storyboard_meta(library_dir, name):
                 cleaned.get("audio_mode", "generated")),
         ]})
         sections.append({"title": "角色 · Cast", "lines": [
-            "%s（%s%s）voice: %s" % (r["name"], r["presence"],
-                                     "" if r["position"] == "none" else "/" + r["position"],
-                                     r.get("voice") or "—")
-            for r in cleaned.get("roles", [])]})
+            "角色%d（%s）· %s · %s%s · voice: %s" % (
+                index, r["id"], r["name"], r["presence"],
+                "" if r["position"] == "none" else "/" + r["position"],
+                r.get("voice") or "—")
+            for index, r in enumerate(cleaned.get("roles", []), 1)]})
         sections.append({"title": "默认角色设计 · Default cast（接入对应资产时覆盖）", "lines": [
             "%s：%s" % (who, description)
             for who, description in cleaned.get("character_designs", {}).items()
@@ -1144,23 +1145,30 @@ def read_storyboard_meta(library_dir, name):
                     event.get("type"), names.get(event.get("character"), event.get("character")),
                     "" if event.get("type") == "dialogue" else "动作", event.get("text", "")))
         sections.append({"title": "事件 · Events", "lines": event_lines})
-        style_lines = []
-        if cleaned.get("look"):
-            style_lines.append("画风 look（进提示词、不被覆盖）：" + cleaned["look"])
+        # 三栏各自标明编译与覆盖行为（2026-11-01 用户反馈：拆开比合并更
+        # 容易表达谁进编译、谁不会、谁可能被覆盖）。
+        look = (cleaned.get("look") or "").strip()
+        sections.append({
+            "title": "画风 · look（进提示词 · 永不被覆盖 · compiled, never overridden）",
+            "lines": [look or "（未指定：模型自选画风）"]})
         scene = (cleaned.get("scene") or "").strip()
-        style_lines.append(("场景 scene（接线场景资产时会被覆盖）：" + scene) if scene
-                           else "场景 scene：无（接入资产时使用资产，否则由模型生成）")
-        style_lines.append("光锚 light：%s%s" % (
-            cleaned.get("light", "follow_image"),
-            "（接线场景资产时会被丢弃，图的光线生效）"
-            if cleaned.get("light", "follow_image") != "follow_image" else "（跟随场景图）"))
-        sections.append({"title": "画风·场景·光 · Style & Scene", "lines": style_lines})
+        sections.append({
+            "title": "场景 · scene（默认环境 · 接线场景资产时整段丢弃 · default, dropped when wired）",
+            "lines": [scene or "（未指定默认环境：环境交给接线场景资产或模型）"]})
+        light = cleaned.get("light", "follow_image")
+        sections.append({
+            "title": "光 · light（默认时段 · 接线场景资产时丢弃 · default, dropped when wired）",
+            "lines": ["%s%s" % (light,
+                                "（跟随场景图自带光线）" if light == "follow_image"
+                                else "（自定义文案进提示词）" if light == "custom"
+                                else "（预设句进提示词）")]})
         constraints = (cleaned.get("constraints") or "").strip()
-        sections.append({"title": "约束 · Constraints（不进编译 · not compiled）",
+        sections.append({"title": "约束 · Constraints（人读 · 不进编译 · not compiled）",
                          "lines": [constraints] if constraints else ["（无）"]})
         warnings = storyboard_warnings(cleaned)
         if warnings:
-            sections.append({"title": "⚠ 渲染风险 · Risks", "lines": warnings})
+            sections.append({"title": "⚠ 渲染风险 · Risks（诊断 · 不进编译 · diagnostics only）",
+                             "lines": warnings})
     else:
         sections.append({"title": "v1 剧本（冻结轨道）", "lines": [description]})
     return {
