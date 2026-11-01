@@ -121,17 +121,17 @@
     "look": {
       "type": "string",
       "maxLength": 3000,
-      "description": "Art style and story-required light anchors only; no asset filenames, no character appearance specifics, no room furnishing lists - identity and scenery come from wired assets."
+      "description": "Art style only; never character appearance, environment or time of day."
     },
     "setting": {
       "type": "string",
       "maxLength": 3000,
-      "description": "Story-required environment cues only (time-of-day light, plot props named by events); leave empty or minimal when the wired scene asset owns the scenery. Furnishing prose absent from the scene reference gets invented inconsistently per render."
+      "description": "Performance staging only: positions and posture, without default appearance or scenery."
     },
     "constraints": {
       "type": "string",
       "maxLength": 3000,
-      "description": "Whole-film director rules; may restate the wiring split: on-screen characters required, scene and off-screen voices optional."
+      "description": "Human-facing director rules. Visual sockets are optional in generated mode; reference audio requires all role assets."
     },
     "target_duration_seconds": {
       "type": "number",
@@ -198,6 +198,29 @@
           "maxLength": 6000,
           "pattern": "^[^㐀-鿿]*$",
           "minLength": 1
+        },
+        "character_designs": {
+          "type": "object",
+          "description": "English translations with exactly the same keys as source character_designs.",
+          "propertyNames": {
+            "pattern": "^character_[1-8]$"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 6000,
+            "pattern": "^[^㐀-鿿]+$"
+          }
+        },
+        "scene": {
+          "type": "string",
+          "maxLength": 6000,
+          "pattern": "^[^㐀-鿿]*$"
+        },
+        "light": {
+          "type": "string",
+          "maxLength": 6000,
+          "pattern": "^[^㐀-鿿]*$"
         }
       },
       "required": [
@@ -216,6 +239,39 @@
       ],
       "default": "generated",
       "description": "reference requires all role assets with audio in V3, at most 3 roles; off-screen portraits are excluded."
+    },
+    "character_designs": {
+      "type": "object",
+      "description": "Optional default appearances for on-screen roles. Used only when that role has no wired character asset.",
+      "propertyNames": {
+        "pattern": "^character_[1-8]$"
+      },
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 3000
+      }
+    },
+    "scene": {
+      "type": "string",
+      "maxLength": 3000,
+      "description": "Default environment only; wired scene assets override this and the light preset."
+    },
+    "light": {
+      "enum": [
+        "follow_image",
+        "daylight",
+        "golden_hour",
+        "night_lamp",
+        "night_screen",
+        "late_night",
+        "morning",
+        "custom"
+      ]
+    },
+    "light_text": {
+      "type": "string",
+      "maxLength": 600
     }
   },
   "required": [

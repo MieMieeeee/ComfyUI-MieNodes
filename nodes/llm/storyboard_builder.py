@@ -21,7 +21,13 @@ Hard rules (mirroring PLAN_STORYBOARD_ASSET §1 + §2):
     ``prompt_prefix`` go in as the user wrote them — a hostile printer
     (CJK in an English-only field) is rejected at the JSON layer.
 
-Slot semantics (PLAN §4.2 — explicitly NOT compacting empty sockets):
+v2 slot semantics (docs/plans/2026-11-01-portable-script-assets-design.md):
+  Role/socket numbers are stable performance identities. Each visual socket
+  is optional; pictures are numbered densely over wired on-screen portraits,
+  followed by the optional scene. Never bind a missing role to another role's
+  picture. Defaults are compiled only for the corresponding unwired role.
+
+Legacy v1 slot semantics (PLAN §4.2 — NOT compacting empty sockets):
   ``character_slot`` is an ABSOLUTE picture number 1..8 (or 1..N for the
   characters the storyboard actually uses). When the cast references
   slots {1, 3} but the user wires only ``character_1`` and ``character_3``
@@ -762,6 +768,12 @@ def _apply_wired_asset_voice_overrides(payload, slot_bundles):
     return dict(payload, execution=execution), notes
 
 
+def _wired_character_pictures(slot_bundles):
+    return {slot for slot, bundle in slot_bundles.items()
+            if isinstance(bundle, dict) and bundle.get("kind") == "character"
+            and bundle.get("image") is not None}
+
+
 def _assemble_authored_plan(storyboard: dict, slot_bundles: dict) -> dict:
     """Keep an authored H3 prompt intact; references are an independent choice."""
     cast = storyboard["cast"]
@@ -773,6 +785,8 @@ def _assemble_authored_plan(storyboard: dict, slot_bundles: dict) -> dict:
     for name, info in ordered:
         slot = int(info["character_slot"])
         bundle = slot_bundles.get(slot)
+        if bundle is None and generated and storyboard.get("_structured_events"):
+            continue  # v2: each visual role independently falls back to generated design.
         if bundle is None and info.get("offscreen") and (generated or not storyboard.get("_structured_events")):
             continue
         if not isinstance(bundle, dict) or bundle.get("kind") != "character":
@@ -804,6 +818,10 @@ def _assemble_authored_plan(storyboard: dict, slot_bundles: dict) -> dict:
     # Wired-asset override notes (voice replacement; 2026-10-31 principle:
     # the user's wired assets own cast and environment design).
     summary_lines.extend(storyboard.get("wired_asset_notes") or [])
+    if storyboard.get("_structured_events"):
+        for name, info in ordered:
+            if not info.get("offscreen") and slot_bundles.get(int(info["character_slot"])) is None:
+                summary_lines.append("%s: no character asset wired; use script default design or model choice" % name)
     if not generated and storyboard.get("_structured_events"):
         reference_context.extend(
             "Voice casting: (S%d) uses the voice identity from <Audio %d> only; the reference words are not dialogue."
@@ -815,13 +833,14 @@ def _assemble_authored_plan(storyboard: dict, slot_bundles: dict) -> dict:
             "<Picture %d>" % index
             for index, slot in enumerate(picture_slots, 1) if slot != scene_slot
         )
-        reference_context += [
-            "Use %s for the characters' identities and appearance only; "
-            "do not use their backgrounds." % character_pictures,
-        ]
+        if character_pictures:
+            reference_context += [
+                "Use %s for the characters' identities and appearance only; "
+                "do not use their backgrounds." % character_pictures,
+            ]
         for name, info in ordered:
             slot = int(info["character_slot"])
-            if info.get("offscreen"):
+            if info.get("offscreen") or slot not in picture_slots:
                 continue
             picture = picture_slots.index(slot) + 1
             reference_context.append(
@@ -858,7 +877,7 @@ def _assemble_authored_plan(storyboard: dict, slot_bundles: dict) -> dict:
     # scene text. The v2 compiler emits the environment prose as
     # "Scene context: ..." lines; strip them mechanically (the image and
     # its ambience stand). Staging ("Opening staging:") and the light
-    # anchor always survive — they are story facts, not environment.
+    # anchor is also dropped below; staging remains a performance requirement.
     scene_override = scene_slot is not None and bool(storyboard.get("_structured_events"))
     if scene_override:
         summary_lines.append(
@@ -968,7 +987,7 @@ def assemble_plan(
     if storyboard.get("version") == 2:
         from ..assets.storyboard_contract import to_runtime
         storyboard, _voice_notes = _apply_wired_asset_voice_overrides(storyboard, slot_bundles)
-        storyboard = to_runtime(storyboard)
+        storyboard = to_runtime(storyboard, wired_character_slots=_wired_character_pictures(slot_bundles))
         storyboard["wired_asset_notes"] = _voice_notes
     if storyboard.get("assembly_mode") == "authored":
         return _assemble_authored_plan(storyboard, slot_bundles)
@@ -1456,9 +1475,9 @@ def _storyboard_optional_slots(max_slots: int) -> dict:
             ASSET_BUNDLE_TYPE,
             {"tooltip": (
                 "角色槽位 %d：接 Load Character Asset 的 asset 输出；"
-                "character_slot 字段决定它是哪个 Picture。\n"
-                "Character slot %d. The storyboard's character_slot "
-                "field decides which Picture it is." % (i, i)
+                "v2 中可留空，用剧本默认设计或模型生成；接入时该资产优先。\n"
+                "Character slot %d. In v2, wired identity wins; unwired uses script defaults or model choice. "
+                "Picture numbers count only connected on-screen portraits." % (i, i)
             )},
         )
     optional["scene_1"] = (
@@ -1502,9 +1521,9 @@ def _storyboard_required_inputs() -> dict:
 def collect_slot_bundles(kwargs: dict, max_slots: int) -> dict[int, dict | None]:
     """Build the slot-keyed bundle dict from the node's socket kwargs.
 
-    Empty sockets are PRESERVED as ``None`` — ``assemble_plan`` raises
-    when a cast-declared slot is unwired (PLAN §4.2 「不把空洞压紧」),
-    so a gap in the middle is a loud error, never a silent re-bind. The
+    Empty sockets are PRESERVED as ``None``. V2 resolves each empty visual
+    role using its default or model choice; v1 retains its missing-slot
+    error. Socket IDs are never re-bound to another role. The
     scene bundle is parked at ``max_slots + 1``; ``assemble_plan``
     relocates it to ``max(cast_slots) + 1`` once it knows the cast.
     """
@@ -1551,7 +1570,7 @@ def assemble_from_sockets(
     if cleaned.get("version") == 2:
         from ..assets.storyboard_contract import to_runtime
         cleaned, _voice_notes = _apply_wired_asset_voice_overrides(cleaned, slot_bundles)
-        cleaned = to_runtime(cleaned)
+        cleaned = to_runtime(cleaned, wired_character_slots=_wired_character_pictures(slot_bundles))
         cleaned["wired_asset_notes"] = _voice_notes
     # Inject the integer seed so per_scene_increment picks it up.
     cleaned = {**cleaned, "seed_base": int(seed)}

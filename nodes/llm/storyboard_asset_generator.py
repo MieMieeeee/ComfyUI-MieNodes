@@ -19,8 +19,19 @@ class AssetStoryboardEnhancer:
                  camera_movement="locked", camera_perspective="observer", language="zh",
                  look="", setting="", constraints="", continuation_overlap_frames=22,
                  seed=0, audio_mode="generated", scene="", light="follow_image",
-                 light_text="", **_unused):
+                 light_text="", character_designs="", **_unused):
         from ..assets.storyboard_contract import parse_roles, parse_script, validate_v2
+        if mode != "revise":
+            if isinstance(character_designs, str):
+                try:
+                    character_designs = json.loads(character_designs.strip() or "{}")
+                except json.JSONDecodeError as exc:
+                    raise ValueError("character_designs must be a JSON object mapping role IDs to default appearances") from exc
+            if not isinstance(character_designs, dict) or any(
+                    not isinstance(key, str) or not re.fullmatch(r"character_[1-8]", key)
+                    or not isinstance(value, str) or not value.strip()
+                    for key, value in character_designs.items()):
+                raise ValueError("character_designs must map character_1..8 to nonempty default appearances")
         if mode == "revise":
             # Revision mode (2026-10-29): the asset is the saved source of
             # truth users iterate on. Wire the previous version's storyboard
@@ -68,6 +79,8 @@ class AssetStoryboardEnhancer:
                 preferences["shot_count"] = shot_count
             if str(character_settings).strip():
                 preferences["character_settings"] = character_settings
+            if character_designs:
+                preferences["character_designs"] = character_designs
             for key, value in (("look", look), ("setting", setting), ("scene", scene),
                                ("constraints", constraints), ("light", light),
                                ("light_text", light_text)):
@@ -93,6 +106,8 @@ class AssetStoryboardEnhancer:
                       "source_script": concept.strip()}
             if audio_mode != "generated":
                 header["audio_mode"] = audio_mode
+            if character_designs:
+                header["character_designs"] = character_designs
             if str(scene).strip():
                 header["scene"] = str(scene).strip()
             if light != "follow_image":
@@ -201,7 +216,7 @@ def asset_diff(old, new, limit=5):
         lines.append("  新增 · %s「%s」" % (e["character"], e["text"][:32]))
     for e in pure_removed[:limit]:
         lines.append("  删除 · %s「%s」" % (e["character"], e["text"][:32]))
-    for field in ("look", "setting", "scene", "constraints"):
+    for field in ("look", "setting", "scene", "constraints", "character_designs"):
         if (old.get(field) or "") != (new.get(field) or ""):
             lines.append("字段 · %s 已更新 · %s updated" % (field, field))
     old_light, new_light = old.get("light", "follow_image"), new.get("light", "follow_image")
@@ -245,6 +260,8 @@ def preview_asset(asset, diff_lines=None):
     for role in asset["roles"]:
         lines.append("- %s → %s · %s · %s" %
                      (role["id"], role["name"], role["presence"], role["position"]))
+    for who, design in asset.get("character_designs", {}).items():
+        lines.append("- 默认角色设计 · %s（接入该角色资产时覆盖）：%s" % (who, design))
     scene = (asset.get("scene") or "").strip()
     if scene:
         lines += ["", "场景 · scene（接线场景资产时被覆盖 · overridden by a wired scene asset）：",

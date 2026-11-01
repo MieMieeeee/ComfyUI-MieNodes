@@ -277,7 +277,7 @@ class MiniMaxH3StoryboardGenerator:
                            "in script mode every line is a role-labelled event, locked verbatim."}),
             "character_count": ("INT", {"default": 2, "min": 1, "max": 8}),
             "character_settings": ("STRING", {"multiline": True, "default": "角色1：角色1 | 画面内 | 左侧 | adult male\n角色2：角色2 | 画面内 | 右侧 | adult female",
-                "tooltip": "每角色一行：角色1：名字 | 画面内/画外/稍后入场 | 左侧/右侧/中间/无 | 声音要求（分隔符 | 或逗号都行）。锁定模式须与角色数一致；概念模式可整栏留空由 AI 定。外观来自角色资产。\n"
+                "tooltip": "每角色一行：角色1：名字 | 画面内/画外/稍后入场 | 左侧/右侧/中间/无 | 声音要求（分隔符 | 或逗号都行）。锁定模式须与角色数一致；概念模式可整栏留空由 AI 定。外观以接入角色资产为准，未接则用默认设计或模型生成。\n"
                            "One line per role ( | or commas as separators). Locked mode: must cover every numbered role; concept mode: leave empty and the AI casts it."}),
             "shot_count": ("INT", {"default": 0, "min": 0, "max": 20,
                                   "tooltip": "生成片段数，0=自动（能装进约14秒就用最少分段；推荐）。锁定模式下事件会被逐字分组；单人独占台词的续接片段是已知崩角色形态。\n"
@@ -331,11 +331,11 @@ class MiniMaxH3StoryboardGenerator:
             # 2026-10-29 裁定：场景/光锚是独立输入，不再塞进 setting。
             # 新 widget 一律放 optional 尾部（widget 顺序按位置序列化）。
             "scene": ("STRING", {"default": "", "multiline": True, "tooltip":
-                "场景·scene 只写环境：地点与固定陈设（例：深夜的都市街头，路灯冷白光 / 诊室和问诊桌）——"
+                "场景·scene 只写默认环境：地点与固定陈设（例：都市街头和路灯 / 诊室和问诊桌）——"
                 "不写时段（归 light 预设）、不写画风（归 look）、不写站位（归 setting）。"
                 "在 V3 里接了场景资产时，编译器会机械丢弃这里的文字（资产覆盖剧本场景），图与 ambience 生效；"
-                "所以它只服务「不接场景资产」或「房间本身是剧情必需」两种跑法。\n"
-                "ENVIRONMENT ONLY - the place and its fixed contents (深夜的都市街头，路灯冷白; a clinic "
+                "未接场景资产时使用默认环境，留空由模型设计。\n"
+                "ENVIRONMENT ONLY - the default place and its fixed contents (a city street with lamps; a clinic "
                 "consultation room). No time of day (light preset), no art style (look), no staging (setting). "
                 "A wired scene asset drops this text entirely at compile time; it serves scene-less runs and "
                 "story-required rooms only."}),
@@ -352,6 +352,10 @@ class MiniMaxH3StoryboardGenerator:
                 "自定义光锚，仅在 light=custom 时填写（留空会响亮报错）；会被译成英文 execution.light。\n"
                 "Custom light anchor, only with light=custom (empty here is a loud error); "
                 "translated into the English execution.light."}),
+            "character_designs": ("STRING", {"default": "", "multiline": True, "tooltip":
+                "默认角色外观 JSON，例如 {\"character_1\":\"穿红外套的猫\"}。仅未接该角色资产时使用；"
+                "留空由模型自行设计。不要把默认外观写进站位或动作。修订模式继承上一版。\n"
+                "Optional default appearances by role ID. Wired character assets override each role's default."}),
         }}
 
     RETURN_TYPES = ("MIE_STORYBOARD", "STRING", "STRING", "INT")

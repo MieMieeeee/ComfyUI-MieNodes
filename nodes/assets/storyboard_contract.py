@@ -189,7 +189,8 @@ def validate_v2(payload, *, _check_timing=True, _check_execution=True):
         raise ValueError("storyboard version must be 2")
     allowed = {"version", "name", "language", "roles", "camera", "look", "setting", "scene",
                "light", "light_text", "constraints", "target_duration_seconds",
-               "continuation_overlap_frames", "source_script", "shots", "execution", "audio_mode"}
+               "continuation_overlap_frames", "source_script", "shots", "execution", "audio_mode",
+               "character_designs"}
     if set(payload) - allowed:
         raise ValueError("unknown storyboard fields: %s" % sorted(set(payload) - allowed))
     out = copy.deepcopy(payload)
@@ -201,10 +202,8 @@ def validate_v2(payload, *, _check_timing=True, _check_execution=True):
     # Scene / light split (2026-10-29 ruling): ``scene`` is the optional
     # environment description the builder DROPS whenever a scene asset is
     # wired (the asset overrides the text mechanically); ``setting`` narrows
-    # to initial staging + story-required spatial facts. Old assets with
-    # environment prose inside ``setting`` stay valid — their text simply
-    # rides the staging line. Default values leave NO key behind so a
-    # board that never used the split round-trips byte-identically.
+    # to performance staging + story-required spatial facts. Defaults never
+    # belong in the unconditional staging/visible-state/direction copy.
     scene = _text(payload.get("scene") or "", "scene", empty=True, maximum=3000)
     if scene:
         out["scene"] = scene
@@ -248,6 +247,13 @@ def validate_v2(payload, *, _check_timing=True, _check_execution=True):
                                            maximum=ROLE_VOICE_MAX_CHARS))
     if not any(r["presence"] == "on_screen" for r in roles):
         raise ValueError("at least one on_screen role is required")
+    if "character_designs" in out:
+        designs = out["character_designs"]
+        visible_ids = {r["id"] for r in roles if r["presence"] == "on_screen"}
+        if not isinstance(designs, dict) or not set(designs) <= visible_ids:
+            raise ValueError("character_designs must map declared on_screen role IDs to default appearances")
+        for who, description in designs.items():
+            designs[who] = _text(description, "character_designs." + who, maximum=3000)
     camera = out.get("camera")
     if not isinstance(camera, dict) or set(camera) != {"framing", "movement", "perspective"}:
         raise ValueError("camera requires framing, movement and perspective")
@@ -336,10 +342,10 @@ def _positive_visual(value, label, *, empty=False):
 def _validate_execution(asset, events):
     execution = asset.get("execution")
     required = {"look", "setting", "visible_state", "voices", "directions"}
-    allowed = required | {"scene", "light"}
+    allowed = required | {"scene", "light", "character_designs"}
     if not isinstance(execution, dict) or not required <= set(execution) <= allowed:
         raise ValueError("execution requires English look, setting, visible_state, voices and directions"
-                         " (optional scene and light)")
+                         " (optional scene, light and character_designs)")
     for key in ("look", "setting"):
         execution[key] = _english(execution[key], "execution." + key, empty=not bool(asset[key]))
         if not asset[key] and execution[key]:
@@ -362,6 +368,12 @@ def _validate_execution(asset, events):
         execution.pop("scene", None)
     if not execution["light"]:
         execution.pop("light", None)
+    designs = asset.get("character_designs", {})
+    translations = execution.get("character_designs", {})
+    if not isinstance(translations, dict) or set(translations) != set(designs):
+        raise ValueError("execution.character_designs must match source character_designs exactly")
+    for who, description in translations.items():
+        translations[who] = _english(description, "execution.character_designs." + who)
     execution["visible_state"] = _positive_visual(execution["visible_state"], "execution.visible_state")
     voices = execution["voices"]
     if not isinstance(voices, dict) or set(voices) != {r["id"] for r in asset["roles"]}:
@@ -522,14 +534,19 @@ def storyboard_warnings(asset):
     return out
 
 
-def to_runtime(asset):
-    """Compile immutable events to the existing private authored-plan executor."""
+def to_runtime(asset, *, wired_character_slots=()):
+    """Compile events with picture IDs allocated only to wired on-screen roles.
+
+    Assemblers pass the actual slot set; an empty set means text-only.
+    Role IDs and speaker tags always remain stable regardless of pictures.
+    """
     asset = validate_v2(asset)
     roles = asset["roles"]
     execution = asset["execution"]
     indices = {r["id"]: i for i, r in enumerate(roles, 1)}
     names = {r["id"]: "Character %d" % i for i, r in enumerate(roles, 1)}
-    picture_ids = [r["id"] for r in roles if r["presence"] == "on_screen"]
+    picture_ids = [r["id"] for r in roles if r["presence"] == "on_screen"
+                   and indices[r["id"]] in wired_character_slots]
     picture_of = {who: i for i, who in enumerate(picture_ids, 1)}
     openings, frames = _replay_visibility(asset), allocate_frames(asset)
     shots = []
@@ -537,7 +554,8 @@ def to_runtime(asset):
     perspective = "first-person POV toward the camera" if asset["camera"]["perspective"] == "first_person" else "an observer viewpoint, separate from the cast"
     for shot, opening, length in zip(asset["shots"], openings, frames):
         framing = asset["camera"]["framing"].replace("_", " ")
-        opening_subjects = ["%s from <Picture %d>" % (names[r["id"]], picture_of[r["id"]])
+        opening_subjects = [("%s from <Picture %d>" % (names[r["id"]], picture_of[r["id"]])
+                             if r["id"] in picture_of else names[r["id"]])
                             for r in roles if r["id"] in opening]
         if opening_subjects:
             framing += " of %s, already visible at the first frame" % ", ".join(opening_subjects)
@@ -550,8 +568,12 @@ def to_runtime(asset):
             if who in picture_of:
                 lines.append("%s is the figure in <Picture %d>; use this reference for identity and appearance only."
                              % (name, picture_of[who]))
-            else:
+            elif role["presence"] == "off_screen":
                 lines.append("%s stays exclusively off-screen as a voice." % name)
+            else:
+                design = execution.get("character_designs", {}).get(who, "")
+                lines.append("%s appearance: %s" % (name, design or
+                             "Generate a distinct appearance appropriate to the story and keep it consistent throughout."))
         lines.append("Opening cast: %s. Begin directly in this framing."
                      % (", ".join(names[r["id"]] for r in roles if r["id"] in opening) or "no visible cast before the explicit entrance"))
         absent = [names[r["id"]] for r in roles if r["id"] not in opening]

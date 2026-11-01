@@ -1077,6 +1077,8 @@ class SaveStoryboardAsset(object):
         "新版资产 version=2：角色编号连续，每条事件明确角色、类型、原文与语言。"
         "展开 events 必须逐条匹配 source_script；允许纯动作及多句对白。"
         "错误会带具体原因，不保存不完整资产。节点内外使用同一份系统指令和校验器。"
+        "角色和场景可独立留空；默认外观写 character_designs 及 execution.character_designs，"
+        "接入资产时覆盖对应默认设计。"
     )
 
     @classmethod

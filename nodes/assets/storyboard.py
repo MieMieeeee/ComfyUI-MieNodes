@@ -1000,15 +1000,14 @@ def storyboard_requirements(cleaned: dict) -> list[dict]:
             "kind": "character",
             "name": name,
             "offscreen": offscreen,
-            # An off-screen speaker's asset is OPTIONAL (2026-10-20
-            # ruling): wired means "use this voice", unwired means
-            # "declare no voice and let H3 choose". An on-screen
-            # character is always required — he is in the frame.
-            "required": not offscreen or bool(cleaned.get("_structured_events") and cleaned.get("audio_mode") == "reference"),
+            # v2 visuals are independently optional. Reference audio still
+            # requires every role's audio-bearing asset; v1 keeps its rules.
+            "required": (cleaned.get("audio_mode") == "reference"
+                         if cleaned.get("_structured_events") else not offscreen),
             "note": (
                 "Reference voice: wire this character asset with audio; off-screen images are excluded"
                 if cleaned.get("_structured_events") and cleaned.get("audio_mode") == "reference" else
-                "H3 generated voices; no reference audio is sent"
+                "Optional visual asset: wired identity wins; otherwise script default or H3 choice. H3 generated voices; no reference audio is sent"
                 if cleaned.get("audio_mode") == "generated" else
                 "画外音：接上则用他的音色，不接则由 H3 自选 · "
                 "off-screen: wire it to use its voice, or leave it empty "
@@ -1051,6 +1050,8 @@ def storyboard_preview(cleaned):
                   for r in asset.get("roles", []))))
     lines.append("生成片段 %d 段 · 预计交付 %.2f 秒 · 续接重叠 %d 帧" % (
         len(frames), delivered, overlap))
+    for who, design in asset.get("character_designs", {}).items():
+        lines.append("默认角色设计 · %s（接入该角色资产时覆盖）：%s" % (who, design))
     scene = (asset.get("scene") or "").strip()
     if scene:
         lines.append("场景 · scene（接线场景资产时会被覆盖 · overridden by a wired scene asset）：")
@@ -1131,6 +1132,10 @@ def read_storyboard_meta(library_dir, name):
                                      "" if r["position"] == "none" else "/" + r["position"],
                                      r.get("voice") or "—")
             for r in cleaned.get("roles", [])]})
+        sections.append({"title": "默认角色设计 · Default cast（接入对应资产时覆盖）", "lines": [
+            "%s：%s" % (who, description)
+            for who, description in cleaned.get("character_designs", {}).items()
+        ] or ["（未指定：未接角色资产时由模型生成）"]})
         event_lines = []
         for shot, length in zip(cleaned.get("shots", []), frames):
             event_lines.append("— %s · 原始 %.2f 秒" % (shot.get("id"), length / 24))
@@ -1144,7 +1149,7 @@ def read_storyboard_meta(library_dir, name):
             style_lines.append("画风 look（进提示词、不被覆盖）：" + cleaned["look"])
         scene = (cleaned.get("scene") or "").strip()
         style_lines.append(("场景 scene（接线场景资产时会被覆盖）：" + scene) if scene
-                           else "场景 scene：无（环境由接线场景资产提供）")
+                           else "场景 scene：无（接入资产时使用资产，否则由模型生成）")
         style_lines.append("光锚 light：%s%s" % (
             cleaned.get("light", "follow_image"),
             "（接线场景资产时会被丢弃，图的光线生效）"

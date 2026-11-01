@@ -8,6 +8,9 @@ def reference_board():
     raw = json.loads((FIXTURES / "storyboard_v2_hedgehog.json").read_text(encoding="utf-8"))
     raw["audio_mode"] = "reference"
     raw["roles"][0].update(presence="off_screen", initially_visible=False, position="none")
+    # Recasting a visible role as a voice also removes its default appearance.
+    raw.get("character_designs", {}).pop("character_1", None)
+    raw["execution"].get("character_designs", {}).pop("character_1", None)
     return raw
 
 def test_reference_mode_preserves_audio_in_role_order_and_excludes_caller_image(mods):

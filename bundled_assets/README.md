@@ -38,6 +38,4 @@ python scripts/bundle_assets.py --dry-run characters/Claude娘    # 只看会复
 - **包体**：每个角色资产 ≈2–3 MB（一张 PNG + 一段 WAV）。内置七个 Claude娘 变体约 17 MB，
   Registry 包体会同比变大；分享前请确认可接受。
 - **只放可公开分发的内容**：角色图、声线样音、剧本 JSON 都随包分发，等于公开发布。
-- 复制进来的资产若与剧本资产的角色名对不上，运行时才会报"找不到角色"——用
-  `python scripts/validate_storyboard_asset.py` 逐个校验剧本，用
-  `python scripts/import_storyboard_assets.py --help` 确认角色名对得上。
+- 剧本按 `character_1..N` 槽位绑定演员，角色名只是标签；视觉资产可以独立留空。接入资产覆盖对应默认设计，未接入使用剧本设计或模型生成。用 `python scripts/validate_storyboard_asset.py` 校验剧本；参考声音模式仍要求完整声音资产。

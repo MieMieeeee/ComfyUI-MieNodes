@@ -25,7 +25,7 @@
     "movement": "locked",
     "perspective": "observer"
   },
-  "look": "High-detail photorealistic 3D CGI, soft natural indoor light.",
+  "look": "High-detail photorealistic 3D CGI with coherent materials and palette.",
   "setting": "The two characters stand facing each other.",
   "constraints": "角色2全程持有苹果。角色1不接苹果、不吃苹果。没有和解，不添加其他角色。",
   "target_duration_seconds": 20,
@@ -123,7 +123,7 @@
     }
   ],
   "execution": {
-    "look": "High-detail photorealistic 3D CGI, soft natural indoor light.",
+    "look": "High-detail photorealistic 3D CGI with coherent materials and palette.",
     "setting": "The two characters stand facing each other.",
     "voices": {
       "character_1": "adult male, low mid-range pitch",
@@ -136,5 +136,6 @@
       "event_010": "Character 2 draws the apple back to her chest, keeps holding it in one hand, and points at Character 1 with her free hand, angrily."
     },
     "visible_state": "Only Character 2 holds the single red apple throughout. Character 1 keeps both hands visibly empty. Their exchange remains unresolved, with only the two declared characters visible."
-  }
+  },
+  "light": "daylight"
 }

@@ -114,6 +114,14 @@
       "character_2": "elderly male, low and mildly raspy"
     },
     "directions": {},
-    "visible_state": "Only Character 1 and Character 2 remain seated on the sofa in the present. Both keep their hands visibly empty while talking. The entire story is conveyed through their spoken exchange."
+    "visible_state": "Only Character 1 and Character 2 remain seated on the sofa in the present. Both keep their hands visibly empty while talking. The entire story is conveyed through their spoken exchange.",
+    "character_designs": {
+      "character_1": "A young kitten.",
+      "character_2": "An elderly cat."
+    }
+  },
+  "character_designs": {
+    "character_1": "年轻的小猫。",
+    "character_2": "年长的猫。"
   }
 }

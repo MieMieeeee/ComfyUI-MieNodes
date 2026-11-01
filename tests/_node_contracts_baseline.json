@@ -2043,6 +2043,7 @@
     "hidden": [],
     "optional": [
       "audio_mode",
+      "character_designs",
       "constraints",
       "continuation_overlap_frames",
       "light",
