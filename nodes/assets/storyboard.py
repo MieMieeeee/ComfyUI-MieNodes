@@ -1120,7 +1120,22 @@ def read_storyboard_meta(library_dir, name):
         overlap = cleaned.get("continuation_overlap_frames", 22)
         delivered = (sum(frames) - overlap * (len(frames) - 1)) / 24
         names = {r["id"]: r["name"] for r in cleaned.get("roles", [])}
+        # 概要先讲这是出什么戏（2026-11-01 用户反馈：打开千层套路001 只见
+        # 技术参数，看不出剧本是什么）。剧本没有剧情字段，但对白即剧情：
+        # 按顺序连读全部台词就是最忠实的梗概；纯动作戏则数动作。
+        dialogues = [e["text"] for shot in cleaned.get("shots", [])
+                     for e in shot.get("events", []) if e.get("type") == "dialogue"]
+        actions = sum(1 for shot in cleaned.get("shots", [])
+                      for e in shot.get("events", []) if e.get("type") != "dialogue")
+        if dialogues:
+            synopsis = "／".join("「%s」" % d for d in dialogues)
+            if len(synopsis) > 160:
+                synopsis = synopsis[:160] + "…"
+            synopsis = "剧情（对白连读）：" + synopsis
+        else:
+            synopsis = "剧情：纯动作戏（%d 个动作事件，无台词）" % actions
         sections.append({"title": "概要 · Overview", "lines": [
+            synopsis,
             "片段 %d 段 · 交付 %.2f 秒 · 续接重叠 %d 帧" % (len(frames), delivered, overlap),
             "相机 %s / %s / %s · 语言 %s · 声音 %s" % (
                 cleaned["camera"]["framing"], cleaned["camera"]["movement"],

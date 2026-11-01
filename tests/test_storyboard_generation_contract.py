@@ -667,6 +667,9 @@ def test_read_meta_returns_sectioned_preview(mods, tmp_path):
     meta = lib.read_storyboard_meta(str(tmp_path), cleaned["name"])
     titles = [s["title"] for s in meta["sections"]]
     assert any("概要" in t for t in titles)
+    overview = next(s for s in meta["sections"] if "概要" in s["title"])
+    assert overview["lines"][0].startswith("剧情（对白连读）")
+    assert "「" in overview["lines"][0]
     assert any("角色" in t for t in titles)
     assert any("事件" in t for t in titles)
     assert any(t.startswith("画风 · look（进提示词") for t in titles)
