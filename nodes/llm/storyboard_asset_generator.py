@@ -163,7 +163,14 @@ class AssetStoryboardEnhancer:
                         raise ValueError("validation: requested shot_count was not honored")
                 elif candidate.get("continuation_overlap_frames") != continuation_overlap_frames:
                     raise ValueError("validation: caller-owned continuation_overlap_frames changed")
-                return validate_v2(candidate)
+                from ..assets.storyboard_review import review_asset_independence
+                validated = validate_v2(candidate)
+                issues = review_asset_independence(validated)
+                if issues:
+                    issue = issues[0]
+                    raise ValueError("%s: %s Offending text: %s" % (
+                        issue["path"], issue["reason"], issue["excerpt"]))
+                return validated
             except (ValueError, TypeError, KeyError) as exc:
                 error = str(exc)
                 if attempt < 2:

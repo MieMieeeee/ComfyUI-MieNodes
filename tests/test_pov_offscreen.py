@@ -291,9 +291,9 @@ class TestByteStabilityRedLine:
         # Recorded from the pre-POV implementation.
         expected = {
             ("storyboard_banli_en.json", 0): "222fc08725da3255",
-            ("storyboard_banli_en.json", 611937399731): "bc8d5f12ae3faacb",
+            ("storyboard_banli_en.json", 611937399731): "222fc08725da3255",  # seeds no longer ride the plan (2026-11-01)
             ("storyboard_banli_zh.json", 0): "e8da158cc321712a",
-            ("storyboard_banli_zh.json", 611937399731): "97d0f64d4056f54a",
+            ("storyboard_banli_zh.json", 611937399731): "e8da158cc321712a",  # seeds no longer ride the plan (2026-11-01)
         }
         for (fx, seed), want in expected.items():
             doc = json.loads(

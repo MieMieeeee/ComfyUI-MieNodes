@@ -28,13 +28,15 @@ def test_authored_asset_keeps_six_lines_and_exact_prompt(mods):
 
 def test_v3_reproduces_single_image_without_reference_audio_or_scene(mods):
     char = character()
-    out = mods["builder"].MiniMaxH3LoopPromptGeneratorV3().generate_v3(board(), seed=123, character_2=char)
+    out = mods["builder"].MiniMaxH3LoopPromptGeneratorV3().generate_v3(board(), character_2=char)
     plan = json.loads(out[0])
     assert plan["prompt_prefix"] == []
     assert len(plan["shots"]) == 1
     assert "\n".join(plan["shots"][0]["prompt"]) == board()["shots"][0]["prompt"]
     assert plan["shots"][0]["length"] == 362
-    assert plan["shots"][0]["seed"] == "123"
+    # 2026-11-01: the assembly node has no seed input — v1 authored boards
+    # keep their pinned seeds (base 0); v2 plans carry none at all.
+    assert plan["shots"][0]["seed"] == "0"
     assert out[3].shape[0] == 1
     assert len(out[4]) == 1
     assert out[4][0]["image"] is char["image"]
@@ -45,10 +47,10 @@ def test_v3_reproduces_single_image_without_reference_audio_or_scene(mods):
 def test_generated_voice_ignores_asset_voice_and_audio(mods):
     char = character()
     node = mods["builder"].MiniMaxH3LoopPromptGeneratorV3()
-    first = node.generate_v3(board(), seed=123, character_2=char)
+    first = node.generate_v3(board(), character_2=char)
     char["audio"] = None
     char["voice"] = ""
-    second = node.generate_v3(board(), seed=123, character_2=char)
+    second = node.generate_v3(board(), character_2=char)
     assert first[0] == second[0]
 
 

@@ -152,35 +152,26 @@ def test_generator_rejects_invalid_default_designs_before_provider(sb, value):
     assert not connector.calls
 
 
-def test_v3_is_changed_digests_seed_and_overlap(mods):
-    """2026-11-01: a seed-only re-roll must bust the plan cache — the old
-    digest ignored the widgets, so the re-roll lever looked dead."""
+def test_v3_is_changed_is_pure_content(mods):
+    """2026-11-01 final ruling: the assembly node carries NO seed/overlap
+    widgets — its digest is storyboard + wired bundles, nothing else."""
     builder = mods["builder"]
-    base = dict(seed=1, continuation_overlap_frames=-1)
-    a = builder.MiniMaxH3LoopPromptGeneratorV3.IS_CHANGED(
-        storyboard=None, **base)
-    b = builder.MiniMaxH3LoopPromptGeneratorV3.IS_CHANGED(
-        storyboard=None, **dict(base, seed=2))
-    c = builder.MiniMaxH3LoopPromptGeneratorV3.IS_CHANGED(
-        storyboard=None, **dict(base, continuation_overlap_frames=0))
-    d = builder.MiniMaxH3LoopPromptGeneratorV3.IS_CHANGED(
-        storyboard=None, **base)
-    assert a != b and a != c and a == d
+    a = builder.MiniMaxH3LoopPromptGeneratorV3.IS_CHANGED(storyboard=None)
+    b = builder.MiniMaxH3LoopPromptGeneratorV3.IS_CHANGED(storyboard=None)
+    assert a == b
+    req = builder.MiniMaxH3LoopPromptGeneratorV3.INPUT_TYPES()["required"]
+    assert sorted(req) == ["storyboard"]
 
 
-def test_seed_minus_one_leaves_plan_seedless_for_chain_base_seed(mods):
-    """2026-11-01 ruling: seeds belong to the Plan node's base_seed
-    machinery — seed=-1 compiles shots WITHOUT a seed key; >=0 keeps
-    the legacy pinned per-shot seeds."""
+def test_v2_plans_never_carry_seeds(mods):
+    """2026-11-01 ruling: the assembly node is PURE assembly — v2 plans
+    carry no per-shot seeds at all (the chain Plan node's base_seed owns
+    seeding; Review Gate rerolls single scenes)."""
     builder = mods["builder"]
     node = builder.MiniMaxH3LoopPromptGeneratorV3()
-    base = dict(character_1=_char("甲", "First.", "male"),
-                character_2=_char("乙", "Second.", "female"))
-    out = node.generate_v3(apple(), seed=-1, **base)
+    out = node.generate_v3(apple(),
+                           character_1=_char("甲", "First.", "male"),
+                           character_2=_char("乙", "Second.", "female"))
     shots = json.loads(out[0])["shots"]
     assert shots and all("seed" not in s for s in shots)
-    out2 = node.generate_v3(apple(), seed=5, **base)
-    shots2 = json.loads(out2[0])["shots"]
-    assert all("seed" in s for s in shots2)
-    assert [int(s["seed"]) for s in shots2] == [5, 5 + len(shots2) - 1][:len(shots2)] or \
-        [int(s["seed"]) for s in shots2] == [5 + i for i in range(len(shots2))]
+

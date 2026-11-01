@@ -83,7 +83,7 @@ def test_v2_compiles_through_real_v3_without_changing_dialogue(mods):
     first = _char("tabby", "A tabby cat.", "male")
     second = _char("cream", "A cream cat.", "female")
     out = mods["builder"].MiniMaxH3LoopPromptGeneratorV3().generate_v3(
-        raw, seed=77, character_1=first, character_2=second)
+        raw, character_1=first, character_2=second)
     plan = json.loads(out[0])
     text = "\n".join("\n".join(s["prompt"]) for s in plan["shots"])
     for e in flat(raw):

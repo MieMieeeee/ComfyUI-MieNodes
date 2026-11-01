@@ -344,31 +344,18 @@ class TestV3MatchesBuild:
             b["name"] for b in v3_out[4]
         ]
 
-    def test_differing_seed_changes_only_the_seeds(self, sb_modules):
+    def test_v1_boards_keep_pinned_zero_based_seeds(self, sb_modules):
+        """2026-11-01 ruling: the assembly node is pure assembly — v2 plans
+        carry NO seeds (see test_script_asset_portability); the FROZEN v1
+        track keeps its pinned 0-based seeds for the legacy chain contract."""
         builder = sb_modules["builder"]
         storyboard = _load(EN_STORYBOARD)
         node = builder.MiniMaxH3LoopPromptGeneratorV3()
         a = json.loads(
-            node.generate_v3(
-                storyboard, seed=100, **_socket_kwargs(_bundles()),
-            )[0],
+            node.generate_v3(storyboard, **_socket_kwargs(_bundles()))[0],
         )
-        b = json.loads(
-            node.generate_v3(
-                storyboard, seed=200, **_socket_kwargs(_bundles()),
-            )[0],
-        )
-        assert [s["prompt"] for s in a["shots"]] == [
-            s["prompt"] for s in b["shots"]
-        ]
-        assert [s["seed"] for s in a["shots"]] == ["100", "101", "102", "103"]
-        assert [s["seed"] for s in b["shots"]] == ["200", "201", "202", "203"]
-
-
-# --------------------------------------------------------------------------- #
-# §6.3 — zh storyboard renders
-# --------------------------------------------------------------------------- #
-class TestZhStoryboard:
+        assert a["shots"] and all(s.get("seed") == str(i)
+                                  for i, s in enumerate(a["shots"]))
     def test_zh_fixture_passes_validator(self, sb_modules, zh_storyboard):
         cleaned = sb_modules["storyboard_lib"].validate_storyboard_payload(
             zh_storyboard,
@@ -513,7 +500,7 @@ class TestRegistrationAndUI:
             "STRING", "STRING", "STRING", "IMAGE", "MIE_ASSET_ROSTER",
         )
         spec = v3.INPUT_TYPES()
-        assert sorted(spec["required"]) == ["continuation_overlap_frames", "seed", "storyboard"]
+        assert sorted(spec["required"]) == ["storyboard"]
         # Same socket names as the Build node (wire-compatible).
         assert sorted(spec["optional"]) == sorted(
             builder.BuildPlanFromStoryboard.INPUT_TYPES()["optional"],

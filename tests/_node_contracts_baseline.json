@@ -358,8 +358,6 @@
       "scene_1"
     ],
     "required": [
-      "continuation_overlap_frames",
-      "seed",
       "storyboard"
     ],
     "return_names": [
@@ -1923,8 +1921,6 @@
       "scene_1"
     ],
     "required": [
-      "continuation_overlap_frames",
-      "seed",
       "storyboard"
     ],
     "return_names": [

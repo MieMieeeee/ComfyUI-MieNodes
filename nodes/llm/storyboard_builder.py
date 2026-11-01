@@ -931,12 +931,10 @@ def _assemble_authored_plan(storyboard: dict, slot_bundles: dict) -> dict:
             )
         shot_entry = {"id": "scene_%02d" % index, "prompt": prompt_text.split("\n"),
                       "length": frames}
-        # 2026-11-01 ruling: seed ownership lives on the chain's Plan node
-        # (its base_seed derives a distinct seed per shot WITHOUT an
-        # explicit one, and Review Gate can reroll single scenes). seed=-1
-        # writes NO per-shot seed so that machinery works; >=0 pins seeds
-        # for byte-reproducible runs (legacy behavior).
-        if int(storyboard.get("seed_base", 0)) >= 0:
+        # 2026-11-01 ruling: v2 plans NEVER carry seeds — the chain Plan
+        # node's base_seed derives one per shot and Review Gate rerolls
+        # single scenes. v1 authored boards keep their pinned seeds.
+        if not storyboard.get("_structured_events"):
             shot_entry["seed"] = _seed_for(storyboard, index)
         shots.append(shot_entry)
     # What the run summary should name: on the v2 track the wired scene's
@@ -1517,7 +1515,9 @@ def _storyboard_optional_slots(max_slots: int) -> dict:
 
 
 def _storyboard_required_inputs() -> dict:
-    """``storyboard`` + ``seed``. Shared by both node classes."""
+    """``storyboard`` only (2026-11-01: pure assembly — seeds belong to the
+    chain Plan node's base_seed; the overlap budget rides the script JSON
+    default). Shared by both node classes."""
     return {
         "storyboard": (
             "MIE_STORYBOARD",
@@ -1528,33 +1528,6 @@ def _storyboard_required_inputs() -> dict:
                 "audio_mode=generated sends images without reference audio."
             )},
         ),
-        "continuation_overlap_frames": ("INT", {
-            "default": -1,
-            "min": -1,
-            "max": 120,
-            "tooltip": (
-                "续接重叠帧：组装侧配置（2026-11-01 裁定——剧本只是提供 JSON，"
-                "这个数字归本节点/链路管）。-1=沿用剧本 JSON 里的默认值；"
-                "0..120=覆盖剧本值并按新值重新分配时长网格，summary 会注明覆盖。\n"
-                "Continuation overlap frames: an ASSEMBLY-side setting. -1 keeps the "
-                "script JSON's stored default; 0..120 overrides it (durations are "
-                "re-budgeted and the run summary notes the override)."
-            ),
-        }),
-        "seed": ("INT", {
-            "default": -1,
-            "min": -1,
-            "max": 0xFFFFFFFFFFFFFFFF,
-            "tooltip": (
-                "种子（2026-11-01 裁定：种子归链路 Plan 节点管）。\n"
-                "-1（默认）= plan 不写每镜种子，由 MiniMax H3 Plan 节点的 base_seed "
-                "自动为每镜派生不同种子，Review Gate 还能单镜重摇；\n"
-                ">=0 = 把 seed+i 逐镜写死进 plan（兼容旧的锁定种子/字节复现用法）。\n"
-                "Seed: -1 (default) writes NO per-shot seed — the Plan node's base_seed "
-                "derives one per shot and Review Gate can reroll single scenes; >=0 pins "
-                "seed+i per shot (legacy reproducible mode)."
-            ),
-        }),
     }
 
 
@@ -1586,7 +1559,6 @@ def assemble_from_sockets(
     *,
     storyboard: dict,
     kwargs: dict,
-    seed: int,
     max_slots: int,
 ) -> dict:
     """The shared body of both zero-LLM nodes (PLAN §4.2 / V3 §4.2).
@@ -1607,33 +1579,16 @@ def assemble_from_sockets(
     # Validate the storyboard bundle. The load node already ran
     # validation, but a stray hand-edited bundle is not unusual.
     cleaned = _validate_storyboard_bundle(storyboard)
-    # Assembly-side overlap override (2026-11-01 ruling): the script JSON
-    # stores a default; this node owns the actual number. Applied before
-    # to_runtime so the frame grid re-budgets under the new value; the
-    # mismatch note surfaces in the run summary.
-    overlap_override = kwargs.pop("continuation_overlap_frames", -1)
-    overlap_note = ""
-    if (isinstance(overlap_override, int) and not isinstance(overlap_override, bool)
-            and 0 <= overlap_override <= 120
-            and cleaned.get("version") == 2
-            and cleaned.get("continuation_overlap_frames") != overlap_override):
-        overlap_note = ("continuation_overlap_frames overridden by the plan node: "
-                        "%s -> %s (durations re-budgeted)"
-                        % (cleaned.get("continuation_overlap_frames"), overlap_override))
-        cleaned = dict(cleaned, continuation_overlap_frames=overlap_override)
     if cleaned.get("version") == 2:
         from ..assets.storyboard_contract import to_runtime
         cleaned, _voice_notes = _apply_wired_asset_voice_overrides(cleaned, slot_bundles)
         cleaned = to_runtime(cleaned, wired_character_slots=_wired_character_pictures(slot_bundles),
                               wired_scene=_wired_scene_asset(slot_bundles))
         cleaned["wired_asset_notes"] = _voice_notes
-    # Inject the integer seed so per_scene_increment picks it up.
-    cleaned = {**cleaned, "seed_base": int(seed)}
 
     out = assemble_plan(
         storyboard=cleaned,
         slot_bundles=slot_bundles,
-        seed_base=int(seed),
         _skip_validation=True,  # we just validated above
     )
 
@@ -1719,8 +1674,6 @@ def assemble_from_sockets(
         % cleaned.get("name"),
         "ambience: " + out["ambience"],
     ]
-    if overlap_note:
-        summary_bits.append(overlap_note)
     summary_bits.extend(out["summary_lines"])
     if size_note:
         summary_bits.append(size_note)
@@ -1785,11 +1738,10 @@ class BuildPlanFromStoryboard(object):
     FUNCTION = "build"
     CATEGORY = CATEGORY
 
-    def build(self, storyboard, seed=0, **kwargs):
+    def build(self, storyboard, **kwargs):
         out = assemble_from_sockets(
             storyboard=storyboard,
             kwargs=kwargs,
-            seed=int(seed),
             max_slots=self.MAX_SLOTS,
         )
         return (
@@ -1850,19 +1802,16 @@ class MiniMaxH3LoopPromptGeneratorV3(object):
         # a seed-only re-roll silently reuse the cached plan, so the re-roll
         # lever looked dead until a restart cleared the cache.
         storyboard = kwargs.get("storyboard")
-        parts = [storyboard_cache_key(storyboard),
-                 "seed=%s" % kwargs.get("seed", 0),
-                 "overlap=%s" % kwargs.get("continuation_overlap_frames", -1)]
+        parts = [storyboard_cache_key(storyboard)]
         for i in range(1, cls.MAX_SLOTS + 1):
             parts.append(_bundle_fingerprint(kwargs.get("character_%d" % i)))
         parts.append(_bundle_fingerprint(kwargs.get("scene_1")))
         return "|".join(parts)
 
-    def generate_v3(self, storyboard, seed=0, **kwargs):
+    def generate_v3(self, storyboard, **kwargs):
         out = assemble_from_sockets(
             storyboard=storyboard,
             kwargs=kwargs,
-            seed=int(seed),
             max_slots=self.MAX_SLOTS,
         )
         return (
