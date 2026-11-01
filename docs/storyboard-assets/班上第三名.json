@@ -26,7 +26,6 @@
     "perspective": "observer"
   },
   "look": "精致二维动画风格，明亮清爽的色彩，干净的线条与平涂阴影，现代都市日常短剧质感。",
-  "setting": "午后明亮的自然光从画面一侧斜照进来，混着柔和的暖色环境光，整体明亮温暖。",
   "constraints": "全片一个生成片段，机位固定，两人始终保持左右位置与坐姿，全程都在画面内；一方说话时另一方的嘴唇保持闭合。全程中文对话，语气自然：角色1嘴硬心软，角色2自信又死要面子。台词逐句说出，每句之间留短暂停顿；角色2先得意，最后一句时笑容收住。画面中只有这两名角色。",
   "target_duration_seconds": 8.2,
   "continuation_overlap_frames": 22,
@@ -34,7 +33,7 @@
   "shots": [
     {
       "id": "scene_01",
-      "duration_seconds": 8.2,
+      "duration_seconds": 8.0,
       "events": [
         {
           "id": "event_001",
@@ -97,7 +96,6 @@
   ],
   "execution": {
     "look": "A refined two-dimensional animation style with a bright clean palette, clean linework and flat cel shading, in the look of a contemporary urban slice-of-life short film.",
-    "setting": "Bright afternoon daylight comes in from one side of the frame together with soft warm ambient light, keeping the whole image bright and warm.",
     "visible_state": "Bright afternoon daylight comes in from one side together with soft warm ambient light, keeping the whole frame bright and warm. Character 1 sits on the left of frame facing right, sitting back in her chair with a cool, guarded look and her chin slightly lifted. Character 2 sits on the right of frame facing left, leaning forward a little with his forearms resting on the table and a broad open grin.",
     "voices": {
       "character_1": "young female, sweet high-mid register, restrained and cool, steady pace, clear articulation",
@@ -108,7 +106,10 @@
       "event_004": "Character 2 breaks into a broad grin with a proud, playful look in his eyes.",
       "event_006": "Character 1 raises her brows and pulls a skeptical half-smile.",
       "event_008": "Character 2's grin fades into a sheepish look as his gaze drifts off to the side."
-    }
+    },
+    "setting": ""
   },
-  "audio_mode": "reference"
+  "audio_mode": "reference",
+  "light": "daylight",
+  "setting": ""
 }
