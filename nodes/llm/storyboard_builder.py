@@ -609,6 +609,8 @@ def _seed_for(storyboard: dict, shot_index_one_based: int) -> str:
     i)`` where i is zero-based. ``same_across_scenes`` = ``str(seed_base)``
     for every scene."""
     base = int(storyboard.get("seed_base", 0))
+    if base < 0:
+        base = 0  # v1 frozen track always pins seeds; -1 (chain-owned) falls back to 0
     policy = storyboard.get("seed_policy", "per_scene_increment")
     if policy == "same_across_scenes":
         return str(base)
@@ -927,8 +929,16 @@ def _assemble_authored_plan(storyboard: dict, slot_bundles: dict) -> dict:
             prompt_text = prompt_text.replace(
                 fallback_line, "overall_soundscape: " + scene_ambience
             )
-        shots.append({"id": "scene_%02d" % index, "prompt": prompt_text.split("\n"),
-                      "length": frames, "seed": _seed_for(storyboard, index)})
+        shot_entry = {"id": "scene_%02d" % index, "prompt": prompt_text.split("\n"),
+                      "length": frames}
+        # 2026-11-01 ruling: seed ownership lives on the chain's Plan node
+        # (its base_seed derives a distinct seed per shot WITHOUT an
+        # explicit one, and Review Gate can reroll single scenes). seed=-1
+        # writes NO per-shot seed so that machinery works; >=0 pins seeds
+        # for byte-reproducible runs (legacy behavior).
+        if int(storyboard.get("seed_base", 0)) >= 0:
+            shot_entry["seed"] = _seed_for(storyboard, index)
+        shots.append(shot_entry)
     # What the run summary should name: on the v2 track the wired scene's
     # ambience is what actually landed (the runtime dict's own "ambience"
     # is an untouchable placeholder); a v1 authored board keeps its own
@@ -1532,14 +1542,17 @@ def _storyboard_required_inputs() -> dict:
             ),
         }),
         "seed": ("INT", {
-            "default": 0,
-            "min": 0,
+            "default": -1,
+            "min": -1,
             "max": 0xFFFFFFFFFFFFFFFF,
             "tooltip": (
-                "整数种子；per_scene_increment 模式下第 i 场 = seed+i，"
-                "same_across_scenes 模式下每场都用 seed。\n"
-                "Integer seed; per_scene_increment = seed + i "
-                "(scene i); same_across_scenes = seed every scene."
+                "种子（2026-11-01 裁定：种子归链路 Plan 节点管）。\n"
+                "-1（默认）= plan 不写每镜种子，由 MiniMax H3 Plan 节点的 base_seed "
+                "自动为每镜派生不同种子，Review Gate 还能单镜重摇；\n"
+                ">=0 = 把 seed+i 逐镜写死进 plan（兼容旧的锁定种子/字节复现用法）。\n"
+                "Seed: -1 (default) writes NO per-shot seed — the Plan node's base_seed "
+                "derives one per shot and Review Gate can reroll single scenes; >=0 pins "
+                "seed+i per shot (legacy reproducible mode)."
             ),
         }),
     }

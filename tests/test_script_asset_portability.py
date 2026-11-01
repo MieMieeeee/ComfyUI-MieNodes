@@ -166,3 +166,21 @@ def test_v3_is_changed_digests_seed_and_overlap(mods):
     d = builder.MiniMaxH3LoopPromptGeneratorV3.IS_CHANGED(
         storyboard=None, **base)
     assert a != b and a != c and a == d
+
+
+def test_seed_minus_one_leaves_plan_seedless_for_chain_base_seed(mods):
+    """2026-11-01 ruling: seeds belong to the Plan node's base_seed
+    machinery — seed=-1 compiles shots WITHOUT a seed key; >=0 keeps
+    the legacy pinned per-shot seeds."""
+    builder = mods["builder"]
+    node = builder.MiniMaxH3LoopPromptGeneratorV3()
+    base = dict(character_1=_char("甲", "First.", "male"),
+                character_2=_char("乙", "Second.", "female"))
+    out = node.generate_v3(apple(), seed=-1, **base)
+    shots = json.loads(out[0])["shots"]
+    assert shots and all("seed" not in s for s in shots)
+    out2 = node.generate_v3(apple(), seed=5, **base)
+    shots2 = json.loads(out2[0])["shots"]
+    assert all("seed" in s for s in shots2)
+    assert [int(s["seed"]) for s in shots2] == [5, 5 + len(shots2) - 1][:len(shots2)] or \
+        [int(s["seed"]) for s in shots2] == [5 + i for i in range(len(shots2))]
