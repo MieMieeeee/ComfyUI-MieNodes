@@ -513,7 +513,7 @@ class TestRegistrationAndUI:
             "STRING", "STRING", "STRING", "IMAGE", "MIE_ASSET_ROSTER",
         )
         spec = v3.INPUT_TYPES()
-        assert sorted(spec["required"]) == ["seed", "storyboard"]
+        assert sorted(spec["required"]) == ["continuation_overlap_frames", "seed", "storyboard"]
         # Same socket names as the Build node (wire-compatible).
         assert sorted(spec["optional"]) == sorted(
             builder.BuildPlanFromStoryboard.INPUT_TYPES()["optional"],

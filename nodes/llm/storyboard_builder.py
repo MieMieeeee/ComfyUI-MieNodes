@@ -899,16 +899,29 @@ def _assemble_authored_plan(storyboard: dict, slot_bundles: dict) -> dict:
                 "image that shows the story's time of day, or run scene-less."
                 % storyboard.get("light")
             )
+        # 2026-11-01 ruling (user, on the cafe-真实 vs 赛璐璐 look clash):
+        # a wired scene asset owns the visual world INCLUDING its art style.
+        # The script's look line is a DEFAULT — dropped verbatim when a
+        # scene is wired so the scene image's own style stands; scene-less
+        # renders keep it.
+        if (storyboard.get("look_text") or "").strip():
+            summary_lines.append(
+                "script look is DROPPED at compile time: the wired scene "
+                "asset's own art style overrides it (2026-11-01 — the script "
+                "look is a default, like scene and light)"
+            )
     for index, shot in enumerate(storyboard["shots"], 1):
         # H3's temporal grid is 17*k+5 at 24 fps; nearest representable duration.
         frames = max(5, 17 * round((shot["duration_seconds"] * 24 - 5) / 17) + 5)
         prompt_text = shot["prompt"]
         if scene_override:
+            look_line = (storyboard.get("look_text") or "").strip()
             prompt_text = "\n".join(
                 line for line in prompt_text.split("\n")
                 if not line.startswith("Scene context: ")
                 and not (storyboard.get("light", "follow_image") != "follow_image"
                          and line.startswith("Light: "))
+                and not (look_line and line.strip() == look_line)
             )
         if fallback_line and fallback_line in prompt_text:
             prompt_text = prompt_text.replace(
@@ -1504,6 +1517,19 @@ def _storyboard_required_inputs() -> dict:
                 "audio_mode=generated sends images without reference audio."
             )},
         ),
+        "continuation_overlap_frames": ("INT", {
+            "default": -1,
+            "min": -1,
+            "max": 120,
+            "tooltip": (
+                "续接重叠帧：组装侧配置（2026-11-01 裁定——剧本只是提供 JSON，"
+                "这个数字归本节点/链路管）。-1=沿用剧本 JSON 里的默认值；"
+                "0..120=覆盖剧本值并按新值重新分配时长网格，summary 会注明覆盖。\n"
+                "Continuation overlap frames: an ASSEMBLY-side setting. -1 keeps the "
+                "script JSON's stored default; 0..120 overrides it (durations are "
+                "re-budgeted and the run summary notes the override)."
+            ),
+        }),
         "seed": ("INT", {
             "default": 0,
             "min": 0,
@@ -1567,6 +1593,20 @@ def assemble_from_sockets(
     # Validate the storyboard bundle. The load node already ran
     # validation, but a stray hand-edited bundle is not unusual.
     cleaned = _validate_storyboard_bundle(storyboard)
+    # Assembly-side overlap override (2026-11-01 ruling): the script JSON
+    # stores a default; this node owns the actual number. Applied before
+    # to_runtime so the frame grid re-budgets under the new value; the
+    # mismatch note surfaces in the run summary.
+    overlap_override = kwargs.pop("continuation_overlap_frames", -1)
+    overlap_note = ""
+    if (isinstance(overlap_override, int) and not isinstance(overlap_override, bool)
+            and 0 <= overlap_override <= 120
+            and cleaned.get("version") == 2
+            and cleaned.get("continuation_overlap_frames") != overlap_override):
+        overlap_note = ("continuation_overlap_frames overridden by the plan node: "
+                        "%s -> %s (durations re-budgeted)"
+                        % (cleaned.get("continuation_overlap_frames"), overlap_override))
+        cleaned = dict(cleaned, continuation_overlap_frames=overlap_override)
     if cleaned.get("version") == 2:
         from ..assets.storyboard_contract import to_runtime
         cleaned, _voice_notes = _apply_wired_asset_voice_overrides(cleaned, slot_bundles)
@@ -1664,6 +1704,8 @@ def assemble_from_sockets(
         % cleaned.get("name"),
         "ambience: " + out["ambience"],
     ]
+    if overlap_note:
+        summary_bits.append(overlap_note)
     summary_bits.extend(out["summary_lines"])
     if size_note:
         summary_bits.append(size_note)

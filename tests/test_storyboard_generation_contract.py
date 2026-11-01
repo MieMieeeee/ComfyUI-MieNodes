@@ -672,7 +672,10 @@ def test_read_meta_returns_sectioned_preview(mods, tmp_path):
     assert "「" in overview["lines"][0]
     assert any("角色" in t for t in titles)
     assert any("事件" in t for t in titles)
-    assert any(t.startswith("画风 · look（进提示词") for t in titles)
+    assert any(t.startswith("画风 · look（默认画风") for t in titles)
+    assert any(t.startswith("时长 · Duration") for t in titles)
+    assert any(t.startswith("相机 · Camera") for t in titles)
+    assert not any("续接重叠" in line for s in meta["sections"] for line in s["lines"])
     assert any(t.startswith("场景 · scene（默认环境") for t in titles)
     assert any(t.startswith("光 · light（默认时段") for t in titles)
     cast = next(s for s in meta["sections"] if "角色 · Cast" in s["title"])

@@ -250,9 +250,9 @@ def preview_asset(asset, diff_lines=None):
     frames = allocate_frames(asset)
     delivered = (sum(frames) - asset["continuation_overlap_frames"] * (len(frames) - 1)) / 24
     lines = ["# 剧本资产 · " + asset["name"], "",
-             "%d 个角色 · %d 个生成片段 · %d 个镜头 · 预计交付 %.3f 秒 · 续接重叠 %d 帧" %
+             "%d 个角色 · %d 个生成片段 · %d 个镜头 · 预计交付 %.3f 秒" %
              (len(names), len(frames), sum(1 + len(s.get("camera_cuts", [])) for s in asset["shots"]),
-              delivered, asset["continuation_overlap_frames"]), ""]
+              delivered), ""]
     for warning in storyboard_warnings(asset):
         lines += ["⚠ " + warning, ""]
     if diff_lines:

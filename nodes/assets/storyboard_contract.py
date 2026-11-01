@@ -642,6 +642,11 @@ def to_runtime(asset, *, wired_character_slots=()):
             # (the compiled "Light: ..." line already lives in each shot's
             # prompt; the raw key is transport metadata, not v1 contract).
             "light": asset.get("light", "follow_image"),
+            # look text rides along so the builder can DROP the exact line
+            # when a wired scene asset owns the visual world (2026-11-01
+            # ruling: the script look is a DEFAULT; a wired scene image's
+            # own style wins, like its lighting and environment).
+            "look_text": (asset.get("execution") or {}).get("look", ""),
             "pacing": "normal", "seed_policy": "per_scene_increment", "prompt_prefix": [],
             "cast": {names[r["id"]]: {"character_slot": indices[r["id"]], "offscreen": r["presence"] == "off_screen"} for r in roles},
             "shots": shots, "ambience": "Natural location ambience.", "setting_line": "", "spatial_layout": {},

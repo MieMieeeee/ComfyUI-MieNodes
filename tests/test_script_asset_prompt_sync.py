@@ -48,6 +48,7 @@ SHARED_MARKERS = (
     "own lighting overrides it mechanically",  # wired scene beats light preset (2026-10-31)
     "the asset's own voice copy replaces",     # wired character beats script voice (2026-10-31)
     "look is art style ONLY",                  # look must not carry scene/time (2026-11-01 live)
+    "a wired scene asset drops the look line entirely",  # look is a default (2026-11-01)
     "one job each",                            # four-field content contract (2026-11-01)
     "the ENVIRONMENT ONLY",                    # scene = place + fixed contents (2026-11-01)
     "byte-identical to base_asset",        # revise-mode untouched-dialogue self-check

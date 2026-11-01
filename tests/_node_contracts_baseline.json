@@ -358,6 +358,7 @@
       "scene_1"
     ],
     "required": [
+      "continuation_overlap_frames",
       "seed",
       "storyboard"
     ],
@@ -1922,6 +1923,7 @@
       "scene_1"
     ],
     "required": [
+      "continuation_overlap_frames",
       "seed",
       "storyboard"
     ],

@@ -1048,8 +1048,7 @@ def storyboard_preview(cleaned):
         "、".join("角色%d=%s（%s%s）" % (index, r["name"], r["presence"],
                                         "" if r["position"] == "none" else "/" + r["position"])
                   for index, r in enumerate(asset.get("roles", []), 1))))
-    lines.append("生成片段 %d 段 · 预计交付 %.2f 秒 · 续接重叠 %d 帧" % (
-        len(frames), delivered, overlap))
+    lines.append("生成片段 %d 段 · 预计交付 %.2f 秒" % (len(frames), delivered))
     for who, design in asset.get("character_designs", {}).items():
         lines.append("默认角色设计 · %s（接入该角色资产时覆盖）：%s" % (who, design))
     scene = (asset.get("scene") or "").strip()
@@ -1134,14 +1133,16 @@ def read_storyboard_meta(library_dir, name):
             synopsis = "剧情（对白连读）：" + synopsis
         else:
             synopsis = "剧情：纯动作戏（%d 个动作事件，无台词）" % actions
-        sections.append({"title": "概要 · Overview", "lines": [
-            synopsis,
-            "片段 %d 段 · 交付 %.2f 秒 · 续接重叠 %d 帧" % (len(frames), delivered, overlap),
-            "相机 %s / %s / %s · 语言 %s · 声音 %s" % (
+        sections.append({"title": "概要 · Overview", "lines": [synopsis]})
+        # 时长/相机各自成栏；续接重叠不在这里显示——它是组装/链路侧的
+        # 配置（2026-11-01 用户裁定：剧本只是提供 JSON，重叠归 Plan 节点）。
+        sections.append({"title": "时长 · Duration", "lines": [
+            "片段 %d 段 · 交付 %.2f 秒" % (len(frames), delivered)]})
+        sections.append({"title": "相机 · Camera", "lines": [
+            "%s / %s / %s · 语言 %s · 声音 %s" % (
                 cleaned["camera"]["framing"], cleaned["camera"]["movement"],
                 cleaned["camera"]["perspective"], cleaned["language"],
-                cleaned.get("audio_mode", "generated")),
-        ]})
+                cleaned.get("audio_mode", "generated"))]})
         sections.append({"title": "角色 · Cast", "lines": [
             "角色%d（%s）· %s · %s%s · voice: %s" % (
                 index, r["id"], r["name"], r["presence"],
@@ -1164,7 +1165,7 @@ def read_storyboard_meta(library_dir, name):
         # 容易表达谁进编译、谁不会、谁可能被覆盖）。
         look = (cleaned.get("look") or "").strip()
         sections.append({
-            "title": "画风 · look（进提示词 · 永不被覆盖 · compiled, never overridden）",
+            "title": "画风 · look（默认画风 · 接线场景资产时丢弃 · default, dropped when a scene is wired）",
             "lines": [look or "（未指定：模型自选画风）"]})
         scene = (cleaned.get("scene") or "").strip()
         sections.append({
