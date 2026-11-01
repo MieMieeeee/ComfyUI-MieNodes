@@ -768,6 +768,11 @@ def _apply_wired_asset_voice_overrides(payload, slot_bundles):
     return dict(payload, execution=execution), notes
 
 
+def _wired_scene_asset(slot_bundles):
+    return any(isinstance(b, dict) and b.get("kind") == "scene"
+               for b in slot_bundles.values())
+
+
 def _wired_character_pictures(slot_bundles):
     return {slot for slot, bundle in slot_bundles.items()
             if isinstance(bundle, dict) and bundle.get("kind") == "character"
@@ -914,15 +919,10 @@ def _assemble_authored_plan(storyboard: dict, slot_bundles: dict) -> dict:
         # H3's temporal grid is 17*k+5 at 24 fps; nearest representable duration.
         frames = max(5, 17 * round((shot["duration_seconds"] * 24 - 5) / 17) + 5)
         prompt_text = shot["prompt"]
-        if scene_override:
-            look_line = (storyboard.get("look_text") or "").strip()
-            prompt_text = "\n".join(
-                line for line in prompt_text.split("\n")
-                if not line.startswith("Scene context: ")
-                and not (storyboard.get("light", "follow_image") != "follow_image"
-                         and line.startswith("Light: "))
-                and not (look_line and line.strip() == look_line)
-            )
+        # 2026-11-01 third-party review (P1): the scene/light/look lines are
+        # no longer stripped here — to_runtime skips EMITTING them whenever a
+        # scene asset is wired, so multi-line field values cannot leak past
+        # the override the way the old per-line deletion allowed.
         if fallback_line and fallback_line in prompt_text:
             prompt_text = prompt_text.replace(
                 fallback_line, "overall_soundscape: " + scene_ambience
@@ -1000,7 +1000,8 @@ def assemble_plan(
     if storyboard.get("version") == 2:
         from ..assets.storyboard_contract import to_runtime
         storyboard, _voice_notes = _apply_wired_asset_voice_overrides(storyboard, slot_bundles)
-        storyboard = to_runtime(storyboard, wired_character_slots=_wired_character_pictures(slot_bundles))
+        storyboard = to_runtime(storyboard, wired_character_slots=_wired_character_pictures(slot_bundles),
+                                  wired_scene=_wired_scene_asset(slot_bundles))
         storyboard["wired_asset_notes"] = _voice_notes
     if storyboard.get("assembly_mode") == "authored":
         return _assemble_authored_plan(storyboard, slot_bundles)
@@ -1610,7 +1611,8 @@ def assemble_from_sockets(
     if cleaned.get("version") == 2:
         from ..assets.storyboard_contract import to_runtime
         cleaned, _voice_notes = _apply_wired_asset_voice_overrides(cleaned, slot_bundles)
-        cleaned = to_runtime(cleaned, wired_character_slots=_wired_character_pictures(slot_bundles))
+        cleaned = to_runtime(cleaned, wired_character_slots=_wired_character_pictures(slot_bundles),
+                              wired_scene=_wired_scene_asset(slot_bundles))
         cleaned["wired_asset_notes"] = _voice_notes
     # Inject the integer seed so per_scene_increment picks it up.
     cleaned = {**cleaned, "seed_base": int(seed)}

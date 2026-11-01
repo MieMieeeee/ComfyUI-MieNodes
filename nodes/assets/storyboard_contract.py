@@ -534,11 +534,17 @@ def storyboard_warnings(asset):
     return out
 
 
-def to_runtime(asset, *, wired_character_slots=()):
+def to_runtime(asset, *, wired_character_slots=(), wired_scene=False):
     """Compile events with picture IDs allocated only to wired on-screen roles.
 
     Assemblers pass the actual slot set; an empty set means text-only.
     Role IDs and speaker tags always remain stable regardless of pictures.
+
+    ``wired_scene`` (2026-11-01 third-party review, P1): when a scene asset
+    is wired, the replaceable DEFAULT fields — look, scene prose and the
+    light line — are simply NOT EMITTED (field-level conditional output).
+    The previous post-hoc line deletion could never match multi-line field
+    values, leaving residue while the summary claimed an override.
     """
     asset = validate_v2(asset)
     roles = asset["roles"]
@@ -561,7 +567,9 @@ def to_runtime(asset, *, wired_character_slots=()):
             framing += " of %s, already visible at the first frame" % ", ".join(opening_subjects)
         lines = ["integrated_multimodal_description: [Shot 1] %s, %s, %s." %
                  (framing, movement, perspective)]
-        if execution["look"]:
+        if execution["look"] and not wired_scene:
+            # Replaceable DEFAULT (2026-11-01): a wired scene asset owns the
+            # visual world's style; scene-less renders keep the look line.
             lines.append(execution["look"])
         for role in roles:
             who, name = role["id"], names[role["id"]]
@@ -584,14 +592,17 @@ def to_runtime(asset, *, wired_character_slots=()):
                 lines.append("%s begins at %s of frame." % (names[role["id"]], role["position"]))
         if execution["setting"]:
             lines.append("Opening staging: " + execution["setting"])
-        if execution.get("scene"):
-            # The optional environment line. The builder STRIPS this line
-            # whenever a scene asset is wired (2026-10-29 ruling: the wired
-            # asset overrides the script's scene text mechanically).
+        if execution.get("scene") and not wired_scene:
+            # The optional environment line — a replaceable DEFAULT, not
+            # emitted at all when a scene asset is wired (2026-10-29 ruling;
+            # 2026-11-01 field-level conditional output replaces the old
+            # post-hoc line strip, which never matched multi-line prose).
             lines.append("Scene context: " + execution["scene"])
         light = asset.get("light", "follow_image")
         light_line = (execution.get("light") or "") if light == "custom" else LIGHT_PROMPTS.get(light, "")
-        if light_line:
+        if light_line and not wired_scene:
+            # The light line is a replaceable DEFAULT too — dropped entirely
+            # when a scene asset is wired (its own lighting stands).
             lines.append("Light: " + light_line)
         if shot is not asset["shots"][0]:
             lines.append("Continue the current blocking, completed action state and prop ownership from the preceding clip.")

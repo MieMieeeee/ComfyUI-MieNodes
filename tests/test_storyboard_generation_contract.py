@@ -683,3 +683,36 @@ def test_read_meta_returns_sectioned_preview(mods, tmp_path):
     assert any("约束" in t and "不进编译" in t for t in titles)
     events = next(s for s in meta["sections"] if "事件" in s["title"])
     assert any("我逼逼" not in line and "苹果" in line or "递" in line for line in events["lines"])
+
+
+def test_multiline_defaults_fully_yield_to_a_wired_scene(mods):
+    """2026-11-01 third-party review P1: multi-line look / scene / custom
+    light must vanish COMPLETELY when a scene asset is wired — the old
+    per-line strip leaked every line after the first."""
+    def build(kind):
+        raw = _v2_with_scene_light(apple)
+        raw["look"] = "画风第一行\n画风第二行"
+        raw["execution"]["look"] = "Style line one.\nStyle line two."
+        raw["scene"] = "喷泉广场第一行\n喷泉广场第二行"
+        raw["execution"]["scene"] = "A fountain plaza line one.\nLine two."
+        raw["light"] = "custom"
+        raw["light_text"] = "红光第一行\n红光第二行"
+        raw["execution"]["light"] = "Red glow line one.\nRed glow line two."
+        node = mods["builder"].MiniMaxH3LoopPromptGeneratorV3()
+        bundles = {"character_1": _char("甲", "First.", "male"),
+                   "character_2": _char("乙", "Second.", "female")}
+        if kind == "scene":
+            bundles["scene_1"] = _scene("广场", "A plaza.", "soft air")
+        out = node.generate_v3(raw, **bundles)
+        return "\n".join(json.loads(out[0])["shots"][0]["prompt"])
+    wired = build("scene")
+    for residue in ("Style line one", "Style line two", "fountain plaza",
+                    "Line two", "Red glow line one", "Red glow line two",
+                    "Scene context:", "Light:"):
+        assert residue not in wired, residue
+    # 不接场景：三段默认完整保留（含多行）
+    plain = build("none")
+    for kept in ("Style line one", "Style line two", "fountain plaza",
+                 "Red glow line one"):
+        assert kept in plain, kept
+    assert "Scene context:" in plain and "Light:" in plain

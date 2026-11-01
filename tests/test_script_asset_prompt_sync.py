@@ -49,13 +49,14 @@ SHARED_MARKERS = (
     "the asset's own voice copy replaces",     # wired character beats script voice (2026-10-31)
     "look is art style ONLY",                  # look must not carry scene/time (2026-11-01 live)
     "a wired scene asset drops the look line entirely",  # look is a default (2026-11-01)
+    "the assembly node decides",               # overlap: JSON default, node decides (2026-11-01 P2)
     "one job each",                            # four-field content contract (2026-11-01)
     "the ENVIRONMENT ONLY",                    # scene = place + fixed contents (2026-11-01)
     "byte-identical to base_asset",        # revise-mode untouched-dialogue self-check
     "environments only",                   # scene purity: never a figure
     "a dark sedan at the curb below",      # script-asserted visible object
     "5-6 characters per second",           # measured speech-rate budget
-    "trims the first 22 frames",           # continuation blind window
+    "the assembly node decides",               # overlap: JSON default, node decides (2026-11-01 P2)
     "<d>",                                 # dialogue tag ownership
     "audio_mode",                          # generated/reference split
 )
