@@ -62,6 +62,12 @@ IGNORE_DIRS = {
     "notes",
 }
 
+# Glob patterns for directories never copied (and never mirror-deleted):
+# QC frame-extract debris from render verification rounds.
+IGNORE_DIR_PATTERNS = (
+    "_tmp_*",
+)
+
 # File names never copied from src; dst copies are preserved when present.
 PRESERVE_DST_FILES = {
     "mie_llm_keys.json",
@@ -78,7 +84,9 @@ IGNORE_FILE_PATTERNS = (
 
 
 def _should_ignore_dir(name: str) -> bool:
-    return name in IGNORE_DIRS
+    return name in IGNORE_DIRS or any(
+        fnmatch.fnmatch(name, pat) for pat in IGNORE_DIR_PATTERNS
+    )
 
 
 def _should_ignore_file(name: str) -> bool:
