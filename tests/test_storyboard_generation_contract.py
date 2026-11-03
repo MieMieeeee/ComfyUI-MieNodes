@@ -93,7 +93,7 @@ def test_v2_compiles_through_real_v3_without_changing_dialogue(mods):
     assert "(S2)" in text and "(S1)" in text
     assert all(a.get("audio") is None for a in out[4])
     delivered = sum(s["length"] for s in plan["shots"]) - 22
-    assert abs(delivered / 24 - 20) <= 0.36
+    assert abs(delivered / 24 - 22) <= 0.36
 
 
 def test_v2_hedgehogs_remain_speech_not_extra_cast(mods):
@@ -309,6 +309,70 @@ def test_storyboard_warnings_exempt_offscreen_sole_speaker_continuation(mods):
     assert not any("单一角色独占" in w for w in contract.storyboard_warnings(raw))
     raw["roles"][1]["presence"] = "on_screen"
     assert any(w.startswith("scene_02") and "单一角色独占" in w
+               for w in contract.storyboard_warnings(raw))
+
+
+def test_punctuation_only_dialogue_warns_it_will_render_as_a_chime(mods):
+    from importlib import import_module
+    contract = import_module(mods["storyboard"].__package__ + ".storyboard_contract")
+    def event(eid, kind, who, text):
+        return {"id": eid, "type": kind, "character": who, "text": text, "language": "zh"}
+    raw = {"roles": [
+        {"id": "character_1", "presence": "on_screen"},
+        {"id": "character_2", "presence": "on_screen"},
+    ], "shots": [{"id": "scene_01", "duration_seconds": 8, "events": [
+        event("event_001", "dialogue", "character_2", "？？？"),
+        event("event_002", "dialogue", "character_2", "嗯？你说啥？")]},
+    ], "target_duration_seconds": 8, "continuation_overlap_frames": 22}
+    # 2026-11-03 live: a line with no speakable syllables became a
+    # message-received chime; the speakable reaction line stays silent.
+    chimes = [w for w in contract.storyboard_warnings(raw) if "提示音" in w]
+    assert len(chimes) == 1
+    assert chimes[0].startswith("scene_01") and "？？？" in chimes[0]
+    assert not any("嗯" in w for w in chimes)
+
+
+def test_unwired_crowd_cast_size_warns_about_the_opening_frame(mods):
+    from importlib import import_module
+    contract = import_module(mods["storyboard"].__package__ + ".storyboard_contract")
+    def event(eid, kind, who, text):
+        return {"id": eid, "type": kind, "character": who, "text": text, "language": "zh"}
+    raw = {"roles": [
+        {"id": "character_%d" % i, "presence": "on_screen"} for i in range(1, 5)
+    ], "shots": [{"id": "scene_01", "duration_seconds": 12, "events": [
+        event("event_001", "dialogue", "character_1", "今天谁当班？"),
+        event("event_002", "dialogue", "character_2", "我当班，怎么了？")]},
+    ], "target_duration_seconds": 12, "continuation_overlap_frames": 22}
+    # 2026-11-03 live: text-only rendering drew three of four declared
+    # buyers into the frame at 0.0 s; three on-screen roles stay quiet.
+    assert any("画内角色 4 名" in w and "开场帧" in w
+               for w in contract.storyboard_warnings(raw))
+    raw["roles"][3]["presence"] = "off_screen"
+    assert not any("画内角色" in w for w in contract.storyboard_warnings(raw))
+
+
+def test_action_budget_warning_uses_live_beat_and_travel_costs(mods):
+    from importlib import import_module
+    contract = import_module(mods["storyboard"].__package__ + ".storyboard_contract")
+    def event(eid, kind, who, text):
+        return {"id": eid, "type": kind, "character": who, "text": text, "language": "zh"}
+    shot = {"id": "scene_01", "duration_seconds": 6.0, "events": [
+        event("event_001", "dialogue", "character_1", "你现在方便说话吗"),
+        event("event_002", "enter", "character_2", "他推门走进来。"),
+        event("event_003", "action", "character_2", "他站定。"),
+        event("event_004", "action", "character_2", "他皱眉。"),
+        event("event_005", "action", "character_1", "他挂断电话。")]}
+    raw = {"roles": [
+        {"id": "character_1", "presence": "on_screen"},
+        {"id": "character_2", "presence": "on_screen"},
+    ], "shots": [shot], "target_duration_seconds": 6.0,
+        "continuation_overlap_frames": 22}
+    # The floor-rate budget (0.5 s per beat) still fits comfortably; the
+    # live-measured costs (2026-11-03: ~1.2 s per beat, ~2 s per entrance)
+    # do not — that fourfold gap is what crushed a 7-event opening into
+    # a 0.94 s first line.
+    assert contract.estimate_shot_seconds(shot, rate=5.5) < 6.0 - 0.5
+    assert any(w.startswith("scene_01") and "动作每拍约 1.2 秒" in w
                for w in contract.storyboard_warnings(raw))
 
 

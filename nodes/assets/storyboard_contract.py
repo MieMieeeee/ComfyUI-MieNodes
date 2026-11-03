@@ -414,21 +414,29 @@ def _replay_visibility(asset):
     return openings
 
 
-def estimate_shot_seconds(shot, rate=8.0):
+def estimate_shot_seconds(shot, rate=8.0, beat_seconds=0.5, travel_seconds=None):
     """Content seconds the duration estimator demands for one shot.
 
     ``rate`` is CJK characters per second. The default (8) is the
     feasibility floor the allocator uses; live renders measured H3
     delivering Chinese at 4.5-6.3 characters per second, so the
     conservative rate (5.5) is what a review must budget against.
+    ``beat_seconds`` follows the same floor-versus-review split for
+    non-dialogue events: the floor assumes 0.5 s per beat, while live
+    renders (2026-11-03) measured simple beats at ~1.2 s and
+    entrances/exits at ~2 s (``travel_seconds``), so the review-side
+    warning budgets 1.2/2.0.
     """
+    travel = beat_seconds if travel_seconds is None else travel_seconds
     seconds = 0.0
     for event in shot["events"]:
         if event["type"] == "dialogue":
             seconds += len(re.findall(r"[\u3400-\u9fff]", event["text"])) / rate
             seconds += len(re.findall(r"[A-Za-z]+(?:'[A-Za-z]+)?", event["text"])) / 3 + 0.2
+        elif event["type"] in ("enter", "exit"):
+            seconds += travel
         else:
-            seconds += 0.5
+            seconds += beat_seconds
     return seconds
 
 
@@ -465,9 +473,13 @@ def storyboard_warnings(asset):
     """Mechanical render-risk diagnostics for a validated v2 asset.
 
     Loud notes only; they never change validation or compilation. Mirrors
-    the two live-render defect classes recorded in 2026-10: budgets pinned
-    at the feasibility floor clip the final beat, and a continuation clip
-    whose dialogue is owned by one character can drop that speaker.
+    the live-render defect classes recorded in 2026-10 (budgets pinned at
+    the feasibility floor clip the final beat; a continuation clip whose
+    dialogue is owned by one visible character can drop that speaker) and
+    2026-11-03 (a dialogue line with no speakable syllables renders as a
+    notification chime; action beats cost ~1.2 s and entrances ~2 s, four
+    times the floor's 0.5 s; an unwired cast of four or more leaks into
+    the opening frame).
     """
     shots, overlap = asset["shots"], asset["continuation_overlap_frames"]
     count = len(shots)
@@ -488,12 +500,15 @@ def storyboard_warnings(asset):
                        " · shot budget at the floor" % (shot["id"], effective, need))
         # A clip whose speech fills it loses its SHORTEST line: H3 drops a
         # clause rather than overrun the budget. Budget against the measured
-        # delivery rate (5-6 characters per second), not the 8 the
-        # feasibility floor assumes.
-        slow_need = estimate_shot_seconds(shot, rate=5.5)
+        # delivery rate (5-6 characters per second) and the measured action
+        # cost (~1.2 s per beat, ~2 s per entrance or exit, 2026-11-03),
+        # not the 8-chars/s + 0.5 s/beat the feasibility floor assumes.
+        slow_need = estimate_shot_seconds(shot, rate=5.5, beat_seconds=1.2,
+                                          travel_seconds=2.0)
         if effective - slow_need < 0.5:
-            out.append("%s 台词按慢速语速需要约 %.2f 秒，本镜只有 %.2f 秒：塞满的片段会被丢掉最短的一句"
-                       " · speech budget too tight for a slow delivery"
+            out.append("%s 台词与动作按实测成本需要约 %.2f 秒（慢速语速、动作每拍约 1.2 秒），"
+                       "本镜只有 %.2f 秒：塞满的片段会被丢掉最短的一句"
+                       " · speech and action budget too tight for a slow delivery"
                        % (shot["id"], slow_need, effective))
     # 2026-11-03: the vanish failure needs a VISIBLE sole speaker; an
     # off-screen voice cannot vanish from a frame it was never in, so a
@@ -536,6 +551,29 @@ def storyboard_warnings(asset):
                        "（2026-10-30 实测，声音不变嘴动漂移）；建议拆散到 ≤4 句，或把收尾反应"
                        "拆成无台词的第二片段 · long same-speaker burst, final-line lip-drift risk"
                        % (shot["id"], best))
+    # Punctuation-only dialogue (2026-11-03 live): a line with no speakable
+    # syllables (？？？ / …… / ——) has nothing to voice, and H3's audio
+    # model rendered it as a message-received chime instead of silence.
+    # Pauses belong in action events; audible reactions need words.
+    for shot in shots:
+        for event in shot["events"]:
+            if event["type"] == "dialogue" and not any(
+                    ch.isalnum() for ch in event["text"]):
+                out.append("%s 台词「%s」不含可发音字符：H3 会把它渲染成提示音而非沉默"
+                           "（2026-11-03 实测「？？？」成消息提示音）；停顿请改用动作事件、"
+                           "反应请给出台词 · punctuation-only dialogue renders as a "
+                           "notification chime" % (shot["id"], event["text"]))
+    # Text-only crowds (2026-11-03 live): with no portraits wired the
+    # compiler still prints every on-screen role's appearance, and H3 drew
+    # three of four buyers into the frame at 0.0 s although the staging
+    # said otherwise. Warnings cannot see wiring, so this fires on cast
+    # size alone and scopes the risk to unwired roles.
+    on_screen = [r for r in asset.get("roles", ())
+                 if r.get("presence", "on_screen") == "on_screen"]
+    if len(on_screen) >= 4:
+        out.append("画内角色 %d 名：未接参考图时 H3 倾向把全员提前画进开场帧（2026-11-03 实测 "
+                   "4 名中 3 名第 0 秒已在画面里）；建议为主要角色接参考图或精简画内阵容"
+                   " · text-only crowds leak into the opening frame" % len(on_screen))
     return out
 
 

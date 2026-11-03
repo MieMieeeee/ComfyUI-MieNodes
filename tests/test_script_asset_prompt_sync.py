@@ -44,6 +44,7 @@ SHARED_MARKERS = (
     "mode=concept",                        # free-creation mode contract (2026-10-29)
     "mode=revise",                         # iterate-on-the-saved-asset contract (2026-10-29)
     "2-2.5 characters per second",         # shouting delivery budget (2026-10-30 live)
+    "1.2 s per action beat",               # action/entrance budget (2026-11-03 live)
     "night_lamp is an INDOOR table-lamp",  # outdoor night picks late_night (2026-10-30 live)
     "own lighting overrides it mechanically",  # wired scene beats light preset (2026-10-31)
     "the asset's own voice copy replaces",     # wired character beats script voice (2026-10-31)

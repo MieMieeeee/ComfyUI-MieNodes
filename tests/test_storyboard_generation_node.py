@@ -14,7 +14,7 @@ def options(raw):
                          (i, r["name"], "左侧" if i == 1 else "右侧", r["voice"])
                          for i, r in enumerate(raw["roles"], 1))
     return dict(name=raw["name"], character_count=2, character_settings=settings,
-                target_duration_seconds=20, camera_framing="two_shot", camera_movement="locked",
+                target_duration_seconds=raw["target_duration_seconds"], camera_framing="two_shot", camera_movement="locked",
                 camera_perspective="observer", look=raw["look"], setting=raw["setting"],
                 constraints=raw["constraints"], continuation_overlap_frames=22, language="zh")
 
