@@ -288,6 +288,30 @@ def test_storyboard_warnings_flag_floor_budget_and_single_speaker_continuations(
     assert any("零缓冲" in w for w in contract.storyboard_warnings(lone))
 
 
+def test_storyboard_warnings_exempt_offscreen_sole_speaker_continuation(mods):
+    from importlib import import_module
+    contract = import_module(mods["storyboard"].__package__ + ".storyboard_contract")
+    def event(eid, kind, who, text):
+        return {"id": eid, "type": kind, "character": who, "text": text, "language": "zh"}
+    raw = {"roles": [
+        {"id": "character_1", "presence": "on_screen"},
+        {"id": "character_2", "presence": "off_screen"},
+    ], "shots": [
+        {"id": "scene_01", "duration_seconds": 8, "events": [
+            event("event_001", "dialogue", "character_1", "你看见楼下停的那辆奔驰了吗"),
+            event("event_002", "dialogue", "character_2", "现在要结婚了给我送来了请帖要我随礼")]},
+        {"id": "scene_02", "duration_seconds": 8, "events": [
+            event("event_003", "dialogue", "character_2", "我只是在城另一头上班，回不去了")]},
+    ], "target_duration_seconds": 16, "continuation_overlap_frames": 22}
+    # An off-screen voice cannot vanish from a frame it was never in
+    # (2026-11-03): the voiceover-owned continuation clip is not the
+    # trigger shape, while the same shape with a visible speaker is.
+    assert not any("单一角色独占" in w for w in contract.storyboard_warnings(raw))
+    raw["roles"][1]["presence"] = "on_screen"
+    assert any(w.startswith("scene_02") and "单一角色独占" in w
+               for w in contract.storyboard_warnings(raw))
+
+
 def test_storyboard_warnings_flag_a_shot_pinned_below_one_pause_unit(mods):
     from importlib import import_module
     contract = import_module(mods["storyboard"].__package__ + ".storyboard_contract")

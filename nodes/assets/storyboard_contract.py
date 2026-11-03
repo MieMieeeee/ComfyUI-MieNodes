@@ -495,9 +495,14 @@ def storyboard_warnings(asset):
             out.append("%s 台词按慢速语速需要约 %.2f 秒，本镜只有 %.2f 秒：塞满的片段会被丢掉最短的一句"
                        " · speech budget too tight for a slow delivery"
                        % (shot["id"], slow_need, effective))
+    # 2026-11-03: the vanish failure needs a VISIBLE sole speaker; an
+    # off-screen voice cannot vanish from a frame it was never in, so a
+    # voiceover-only continuation clip is not the trigger shape.
+    presence = {r["id"]: r.get("presence", "on_screen")
+                for r in asset.get("roles", ())}
     for shot in shots[1:]:
         speakers = {event["character"] for event in shot["events"] if event["type"] == "dialogue"}
-        if len(speakers) == 1:
+        if len(speakers) == 1 and presence.get(next(iter(speakers))) != "off_screen":
             out.append("%s 是续生成片段且全部台词由单一角色独占：已知 H3 缺陷触发形态（说话者可能从画面消失），"
                        "建议合并片段或准备重摇该镜 · single-speaker continuation clip" % shot["id"])
     # Shouting delivery (2026-10-30 live): a furious scolding rendered at
