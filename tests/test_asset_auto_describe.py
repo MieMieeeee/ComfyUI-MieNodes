@@ -284,3 +284,25 @@ def test_clean_trims_at_sentence_boundary():
     assert out.endswith(".") and not out.endswith("windo")
     # under the cap: untouched
     assert _clean("short text", 300) == "short text"
+
+
+def test_draft_between_800_and_2000_saves(tmp_library):
+    """2026-11-04 live crash: the captioner returned an 863-char
+    description — legal under the Auto cleaner's 2000 cap (raised
+    2026-10-14 in f3ee2a2) but fatal under validate_description, which
+    that commit forgot to raise past 800. The save died AFTER both LLM
+    calls. The cleaner now uses the library's DESCRIPTION_MAX_CHARS
+    directly — one constant, both layers — and drafts in the old dead
+    zone (801..2000) must save verbatim."""
+    mod = _load_node_module()
+    draft = "A felt rabbit doll with button eyes. " * 23 + "She is worn."
+    assert len(draft) == 863  # the exact live size
+    conn = _Conn([draft, "adult neutral, soft mid-register warmth"])
+    node = mod.SaveCharacterAssetAutoV2()
+    name, description, voice, _, status, bundle = node.save_auto(
+        conn, name="毛毡兔",
+        image=png_bytes_list_to_image_tensor([make_png()]),
+    )
+    assert description == draft  # sentence-final, nothing trimmed
+    assert bundle["description"] == draft
+    assert (tmp_library / "characters" / "毛毡兔" / "character.json").exists()

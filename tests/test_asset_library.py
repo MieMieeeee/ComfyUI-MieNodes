@@ -597,8 +597,21 @@ def test_invalid_names_rejected(lib_dir):
 def test_text_lengths_validated(lib_dir):
     with pytest.raises(ValueError, match="description"):
         library.save_character(str(lib_dir), "x", "", "v", [make_png()], [make_wav()])
-    with pytest.raises(ValueError, match="800"):
-        library.save_character(str(lib_dir), "x", "a" * 801, "v", [make_png()], [make_wav()])
+    # constant-driven, not hard-coded: the cap moved 800 -> 2000 on
+    # 2026-11-04 to rejoin the Auto drafter's cleaner (which had drifted
+    # ahead on 2026-10-14); the test must follow the constant, not a
+    # number that can drift again.
+    with pytest.raises(ValueError, match=str(library.DESCRIPTION_MAX_CHARS)):
+        library.save_character(
+            str(lib_dir), "x", "a" * (library.DESCRIPTION_MAX_CHARS + 1),
+            "v", [make_png()], [make_wav()],
+        )
+    # exactly at the cap is legal — the drafter's sentence-boundary trim
+    # can legally land there
+    library.save_character(
+        str(lib_dir), "cap", "a" * library.DESCRIPTION_MAX_CHARS,
+        "v", [make_png()], [make_wav()],
+    )
     with pytest.raises(ValueError, match="voice"):
         library.save_character(str(lib_dir), "x", "d", "", [make_png()], [make_wav()])
     with pytest.raises(ValueError, match="200"):

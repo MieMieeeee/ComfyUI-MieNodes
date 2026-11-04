@@ -42,6 +42,7 @@ try:
         upload_audio_to_audio,
         upload_image_to_tensor,
     )
+    from _mienodes_internal.nodes.assets.library import DESCRIPTION_MAX_CHARS
 except ImportError:
     from ..assets.nodes import (
         SaveAssetV2,
@@ -51,6 +52,7 @@ except ImportError:
         upload_audio_to_audio,
         upload_image_to_tensor,
     )
+    from ..assets.library import DESCRIPTION_MAX_CHARS
 
 ASSETS_CATEGORY = "🐑 MieNodes/🐑 Assets"
 
@@ -150,10 +152,13 @@ def draft_description(connector, tensor, kind, hint=""):
         )
     reply = _reply_text(connector.invoke(_messages(system, user_text, urls),
                                          max_tokens=16384))
-    # 800 -> 2000: the captioner's 60-100-word contract is ~500-700
-    # chars, but detailed wardrobe runs longer; a hard 800 cut shipped
-    # truncated stumps into the library (see _clean).
-    description = _clean(reply, 2000)
+    # The cap is the LIBRARY's DESCRIPTION_MAX_CHARS (2026-11-04 live: a
+    # hard-coded 2000 here drifted from the validator's 800, and an
+    # 863-char draft crashed the save AFTER the LLM calls). The
+    # captioner's 60-100-word contract is ~500-700 chars; detailed
+    # wardrobe runs longer — _clean trims at the last sentence boundary
+    # inside the cap, never mid-word.
+    description = _clean(reply, DESCRIPTION_MAX_CHARS)
     if not description:
         raise RuntimeError("the LLM returned an empty description draft")
     return description

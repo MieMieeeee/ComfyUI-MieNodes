@@ -47,7 +47,13 @@ PLUGIN_ROOT = Path(__file__).resolve().parents[2]
 NAME_MAX_CHARS = 40
 APPEARANCE_MAX_CHARS = 800
 VOICE_MAX_CHARS = 200
-DESCRIPTION_MAX_CHARS = 800
+# 2026-11-04 live crash: the Auto drafter's cleaner was raised to 2000 on
+# 2026-10-14 (f3ee2a2) but this validator stayed at 800, so an 863-char
+# caption draft passed the cleaner and died HERE, after the LLM calls.
+# The captioner's 60-100-word contract runs ~500-700 chars; detailed
+# wardrobe runs longer. The Auto node imports THIS constant — one number,
+# both layers, no drift.
+DESCRIPTION_MAX_CHARS = 2000
 AMBIENCE_MAX_CHARS = 400
 
 CHARACTERS_DIRNAME = "characters"
@@ -224,10 +230,11 @@ def validate_voice(voice):
 
 
 def validate_description(description):
-    """Return the stripped scene description (1-800 chars), or raise ValueError.
+    """Return the stripped description (1-2000 chars), or raise ValueError.
 
-    Same length class as ``appearance``: both replace a vision-model caption,
-    so both are held to the captioner's original 60-100 word budget.
+    The Auto drafter cleans to this same cap at the last sentence boundary,
+    so anything it returns saves. ``appearance`` (pre-V2 JSON field) keeps
+    the old 800 budget; it is never re-validated on read.
     """
     if not isinstance(description, str):
         raise ValueError(
