@@ -442,3 +442,56 @@ def test_enhancer_happy_path_runs_full_pipeline(scail2, monkeypatch):
     assert out == "An enhanced SCAIL-2 animation prompt."
     # Exactly two LLM calls: caption then enhance.
     assert len(invocations) == 2
+
+
+def test_enhancer_escalates_budget_on_length_starvation(scail2, monkeypatch):
+    """2026-11-04 wiring check: the shared invoke_budget helper must sit
+    under SCAIL-2's _invoke too. The enhance stage starves 4096 on the
+    think chain (finish_reason='length', empty reply) -> one doubled
+    retry at 8192 delivers the answer; the caption stage is unaffected.
+    SCAIL-2's 4096/4096 defaults are the lowest in the family, so it is
+    the most likely next live starvation."""
+    _, gen = scail2
+
+    class FakeTensor:
+        pass
+
+    class StarvedConnector:
+        model = "fake-model"
+        last_finish_reason = None
+
+        def __init__(self):
+            self.budgets = []
+            self.n = 0
+
+        def get_state(self):
+            return "fake-state"
+
+        def invoke(self, messages, *, seed, temperature, max_tokens):
+            self.budgets.append(max_tokens)
+            self.n += 1
+            if self.n == 1:  # caption stage: healthy
+                self.last_finish_reason = "stop"
+                return "A caption of the driving video frames."
+            if self.n == 2:  # enhance at 4096: starved by the think chain
+                self.last_finish_reason = "length"
+                return ""
+            self.last_finish_reason = "stop"
+            return "An enhanced SCAIL-2 animation prompt."
+
+    monkeypatch.setattr(
+        gen,
+        "image_tensor_batch_to_data_urls",
+        lambda t: ["data:image/jpeg;base64,AAAA"] * 8 if t is not None else [],
+    )
+    conn = StarvedConnector()
+    enhancer = gen.Scail2PromptEnhancer(conn, num_frames=8)
+    out = enhancer(
+        "motion_transfer - 动作迁移",
+        "the girl is dancing",
+        driving_video=FakeTensor(),
+        reference_images=FakeTensor(),
+        seed=42,
+    )
+    assert out == "An enhanced SCAIL-2 animation prompt."
+    assert conn.budgets == [4096, 4096, 8192]  # caption, enhance, retry

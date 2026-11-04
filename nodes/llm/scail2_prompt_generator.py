@@ -11,7 +11,6 @@ the same output shape (single ``STRING``).
 from __future__ import annotations
 
 import hashlib
-import time
 from typing import Any, Optional
 
 try:
@@ -60,6 +59,13 @@ except ImportError:
         parse_task_code,
     )
 
+try:
+    from _mienodes_internal.nodes.llm.invoke_budget import (
+        invoke_with_budget_escalation,
+    )
+except ImportError:
+    from .invoke_budget import invoke_with_budget_escalation
+
 
 MY_CATEGORY = "\ud83d\udc11 MieNodes/\ud83d\udc11 Prompt Generator"
 
@@ -74,7 +80,10 @@ MY_CATEGORY = "\ud83d\udc11 MieNodes/\ud83d\udc11 Prompt Generator"
 # headroom. Giving more than needed costs nothing — the model stops as soon
 # as the answer is done; only worst-case latency grows. (512 was the
 # original default and was too tight; 2048 still edge-case-exhausted on long
-# driving-video captions; 4096 leaves comfortable room.)
+# driving-video captions; 4096 leaves comfortable room.) _invoke also
+# auto-escalates on finish_reason='length' (shared invoke_budget helper),
+# so even a budget that still edge-case-exhausts self-heals with a doubled
+# retry instead of failing the queue.
 _DEFAULT_MAX_TOKENS_CAPTION = 4096
 _DEFAULT_MAX_TOKENS_ENHANCE = 4096
 
@@ -172,24 +181,14 @@ class Scail2PromptEnhancer:
         try:
             if self._timeout_override is not None:
                 self.llm.timeout = self._timeout_override
-            t0 = time.perf_counter()
-            out = self.llm.invoke(
+            return invoke_with_budget_escalation(
+                self.llm,
                 messages,
-                seed=seed,
-                temperature=self.temperature,
                 max_tokens=max_tokens,
+                temperature=self.temperature,
+                seed=seed,
+                stage_label=f"Scail2 {stage}",
             )
-            elapsed = time.perf_counter() - t0
-            model_name = getattr(self.llm, "model", "?")
-            if not out:
-                mie_log(
-                    f"Scail2 {stage}: model={model_name} returned empty after {elapsed:.2f}s"
-                )
-                return ""
-            mie_log(
-                f"Scail2 {stage}: model={model_name} ok in {elapsed:.2f}s response_chars={len(out)}"
-            )
-            return out.strip()
         finally:
             if prev_timeout is not None:
                 self.llm.timeout = prev_timeout

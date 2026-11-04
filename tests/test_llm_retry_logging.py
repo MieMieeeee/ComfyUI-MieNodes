@@ -270,6 +270,58 @@ def test_response_returns_empty_when_both_content_and_reasoning_empty(llm_module
     assert out == ""
 
 
+def test_finish_reason_is_exposed_to_callers(llm_module):
+    """2026-11-04: the H3 enhancer auto-escalates ITS max_tokens budget on
+    finish_reason='length' (reasoning starved the answer). The connector
+    records the finish_reason of every 200 response so callers can react —
+    and a success after an empty must never leave a stale 'length'
+    behind."""
+    conn = _conn(llm_module)
+    conn.allow_reasoning_fallback = False  # structured caller: empty stays empty
+    starved = MagicMock()
+    starved.status_code = 200
+    starved.json.return_value = {
+        "choices": [{
+            "message": {"content": ""},
+            "finish_reason": "length",
+        }]
+    }
+    ok = MagicMock()
+    ok.status_code = 200
+    ok.json.return_value = {
+        "choices": [{
+            "message": {"content": "the answer"},
+            "finish_reason": "stop",
+        }]
+    }
+    with patch.object(llm_module, "mie_log"), \
+         patch("services.llm.time.sleep"), \
+         patch("services.llm.requests.post", side_effect=[starved, ok]), \
+         patch("services.llm.resolve_token", return_value="tok"):
+        assert conn.invoke([{"role": "user", "content": "hi"}]) == ""
+        assert conn.last_finish_reason == "length"
+        assert conn.invoke([{"role": "user", "content": "hi"}]) == "the answer"
+        assert conn.last_finish_reason == "stop"
+
+
+def test_finish_reason_absent_is_none_and_logs_unknown(llm_module):
+    captured = []
+    conn = _conn(llm_module)
+    conn.allow_reasoning_fallback = False
+    resp = MagicMock()
+    resp.status_code = 200
+    resp.json.return_value = {"choices": [{"message": {"content": ""}}]}
+    with patch.object(llm_module, "mie_log", side_effect=lambda m: captured.append(m)), \
+         patch("services.llm.time.sleep"), \
+         patch("services.llm.requests.post", return_value=resp), \
+         patch("services.llm.resolve_token", return_value="tok"):
+        out = conn.invoke([{"role": "user", "content": "hi"}])
+    assert out == ""
+    assert conn.last_finish_reason is None
+    # the empty-reply log keeps its historical '<unknown>' shape
+    assert "finish_reason='<unknown>'" in "\n".join(captured)
+
+
 def test_reasoning_string_field_uses_the_same_fallback(llm_module):
     """OpenRouter and some OpenAI gateways name the thought ``reasoning``,
     not ``reasoning_content``. Default callers still receive it."""

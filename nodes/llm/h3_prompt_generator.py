@@ -23,7 +23,6 @@ logging + timeout patterns.
 from __future__ import annotations
 
 import hashlib
-import time
 from typing import Any, Optional
 
 try:
@@ -96,6 +95,13 @@ except ImportError:
         user_t2v_prompt,
     )
 
+try:
+    from _mienodes_internal.nodes.llm.invoke_budget import (
+        invoke_with_budget_escalation,
+    )
+except ImportError:
+    from .invoke_budget import invoke_with_budget_escalation
+
 
 MY_CATEGORY = "\ud83d\udc11 MieNodes/\ud83d\udc11 Prompt Generator"
 
@@ -105,12 +111,16 @@ MY_CATEGORY = "\ud83d\udc11 MieNodes/\ud83d\udc11 Prompt Generator"
 # <think> chain consumes the whole budget the model returns an empty
 # content — this is the #1 cause of "H3 enhance[...]: returned empty
 # after Xs" logs in the wild (e.g. M3 thinking for ~60s on a long i2v
-# prompt and exhausting 4096 before the answer). So both budgets are sized
-# to hold the think chain AND the ~350-800-word H3 answer with headroom.
+# prompt and exhausting 4096 before the answer; then again on 2026-11-04
+# exhausting even 8192 on enhance[i2v_first]). So both budgets are sized
+# to hold the think chain AND the ~350-800-word H3 answer with headroom —
+# the enhance default matches the H3-loop doctrine (16384) — and _invoke
+# AUTO-ESCALATES on finish_reason='length' anyway, so old saved workflows
+# that still carry 8192 self-heal instead of failing the queue.
 # Giving more than needed costs nothing — the model stops as soon as the
 # answer is done; only worst-case latency grows.
-_DEFAULT_MAX_TOKENS_CAPTION = 4096
-_DEFAULT_MAX_TOKENS_ENHANCE = 8192
+_DEFAULT_MAX_TOKENS_CAPTION = 8192
+_DEFAULT_MAX_TOKENS_ENHANCE = 16384
 
 # Default number of frames sampled from the reference video for stage 1
 # (caption). Matches the SCAIL-2 default of 8. Renamed from ``num_frames``
@@ -266,7 +276,8 @@ class H3PromptEnhancer:
         self._timeout_override = int(timeout) if timeout else None
 
     # ------------------------------------------------------------------ #
-    # Internal: one LLM call with timeout / log plumbing
+    # Internal: one LLM call with timeout plumbing; budget + logging live
+    # in the shared invoke_budget helper (length-starvation auto-retry).
     # ------------------------------------------------------------------ #
     def _invoke(
         self,
@@ -280,24 +291,14 @@ class H3PromptEnhancer:
         try:
             if self._timeout_override is not None:
                 self.llm.timeout = self._timeout_override
-            t0 = time.perf_counter()
-            out = self.llm.invoke(
+            return invoke_with_budget_escalation(
+                self.llm,
                 messages,
-                seed=seed,
-                temperature=self.temperature,
                 max_tokens=max_tokens,
+                temperature=self.temperature,
+                seed=seed,
+                stage_label=f"H3 {stage}",
             )
-            elapsed = time.perf_counter() - t0
-            model_name = getattr(self.llm, "model", "?")
-            if not out:
-                mie_log(
-                    f"H3 {stage}: model={model_name} returned empty after {elapsed:.2f}s"
-                )
-                return ""
-            mie_log(
-                f"H3 {stage}: model={model_name} ok in {elapsed:.2f}s response_chars={len(out)}"
-            )
-            return out.strip()
         finally:
             if prev_timeout is not None:
                 self.llm.timeout = prev_timeout

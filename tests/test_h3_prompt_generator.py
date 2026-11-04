@@ -401,3 +401,81 @@ def test_enhancer_empty_llm_response_falls_back(h3, monkeypatch):
     enhancer = gen.H3PromptEnhancer(_Conn())
     out = enhancer("t2v - 文生视频", "a neon city")
     assert out == "a neon city"
+
+
+# --------------------------------------------------------------------------- #
+# Length-starvation auto-escalation (shared invoke_budget helper)
+#
+# 2026-11-04 live: MiniMax-M3 burned the WHOLE 8192-token budget on its
+# think chain and enhance[i2v_first] returned empty with
+# finish_reason='length' after 51s. The caller owns the budget, so _invoke
+# now doubles it and retries until the answer fits (or the 32768 widget
+# ceiling). Old saved workflows still carrying 8192 self-heal.
+# --------------------------------------------------------------------------- #
+class _StarvedConn(FakeConnector):
+    """Connector double with a scriptable finish_reason, mirroring the
+    connector's new last_finish_reason attribute."""
+
+    def __init__(self, script):
+        # script: list of (finish_reason_after_call, reply_text)
+        self.script = list(script)
+        self.budgets = []
+        self.last_finish_reason = None
+
+    def invoke(self, messages, *, seed, temperature, max_tokens):
+        self.budgets.append(max_tokens)
+        self.last_finish_reason, reply = self.script.pop(0)
+        return reply
+
+
+def test_enhancer_escalates_budget_on_length_starvation(h3, monkeypatch):
+    """The live 2026-11-04 shape: empty at 8192 with finish_reason=length
+    -> one doubled retry at 16384 delivers the answer."""
+    _, gen = h3
+    monkeypatch.setattr(
+        gen, "image_tensor_batch_to_data_urls",
+        lambda t: ["data:image/jpeg;base64,AAAA"] if t is not None else [],
+    )
+    conn = _StarvedConn([
+        ("length", ""),  # 8192 starved by the think chain
+        ("stop", "An H3 I2VA structured prompt."),
+    ])
+    enhancer = gen.H3PromptEnhancer(conn, max_tokens_enhance=8192)
+    out = enhancer(
+        "i2v_first - 图生视频(首帧)", "she walks away",
+        first_frame=_FakeTensor(), seed=1,
+    )
+    assert out == "An H3 I2VA structured prompt."
+    assert conn.budgets == [8192, 16384]
+
+
+def test_no_escalation_when_finish_reason_is_not_length(h3, monkeypatch):
+    """A provider-side empty reply (any finish_reason but 'length') must
+    NOT burn doubled-budget retries — one call, then the original-prompt
+    fallback. (Connectors without the last_finish_reason attribute are
+    covered by test_enhancer_empty_llm_response_falls_back above.)"""
+    _, gen = h3
+    monkeypatch.setattr(
+        gen, "image_tensor_batch_to_data_urls",
+        lambda t: [] if t is None else ["data:image/jpeg;base64,AAAA"],
+    )
+    conn = _StarvedConn([("content_filter", "")])
+    enhancer = gen.H3PromptEnhancer(conn)
+    out = enhancer("t2v - 文生视频", "a neon city")
+    assert out == "a neon city"
+    assert conn.budgets == [gen._DEFAULT_MAX_TOKENS_ENHANCE]
+
+
+def test_escalation_stops_at_the_ceiling(h3, monkeypatch):
+    """Still empty at the 32768 ceiling -> give up (original-prompt
+    fallback), never exceed the widget maximum."""
+    _, gen = h3
+    monkeypatch.setattr(
+        gen, "image_tensor_batch_to_data_urls",
+        lambda t: [] if t is None else ["data:image/jpeg;base64,AAAA"],
+    )
+    conn = _StarvedConn([("length", ""), ("length", "")])
+    enhancer = gen.H3PromptEnhancer(conn, max_tokens_enhance=16384)
+    out = enhancer("t2v - 文生视频", "a neon city")
+    assert out == "a neon city"  # empty everywhere -> original fallback
+    assert conn.budgets == [16384, 32768]

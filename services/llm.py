@@ -90,6 +90,11 @@ class GeneralLLMServiceConnector:
         self.config_file = config_file
         self.config_key = config_key
         self.prefer_local_config = prefer_local_config
+        # finish_reason of the LAST 200 response (None = absent/unknown).
+        # Informational plumbing for callers: 'length' on an empty reply
+        # means their max_tokens budget starved the answer — the caller
+        # (which owns the budget) may escalate and retry.
+        self.last_finish_reason = None
 
     @property
     def api_token(self):
@@ -411,6 +416,17 @@ class GeneralLLMServiceConnector:
 
                 if response.status_code == 200:
                     response_data = response.json()
+                    # Expose the finish_reason to callers on EVERY 200
+                    # (so a later success never leaves a stale 'length'
+                    # behind). 'length' on an empty reply is the caller's
+                    # signal to raise ITS max_tokens budget and retry —
+                    # only the caller knows its own budget doctrine.
+                    try:
+                        self.last_finish_reason = response_data["choices"][
+                            0
+                        ].get("finish_reason")
+                    except (KeyError, IndexError, TypeError):
+                        self.last_finish_reason = None
                     try:
                         message = response_data["choices"][0]["message"]
                     except (KeyError, IndexError) as e:
@@ -432,11 +448,8 @@ class GeneralLLMServiceConnector:
                         # whole max_tokens budget before the answer
                         # started (raise the caller's budget); anything
                         # else = provider-side empty reply.
-                        try:
-                            finish = response_data["choices"][0].get(
-                                "finish_reason"
-                            )
-                        except (KeyError, IndexError):
+                        finish = self.last_finish_reason
+                        if finish is None:
                             finish = "<unknown>"
                         mie_log(
                             f"{tag} empty reply; finish_reason={finish!r} "

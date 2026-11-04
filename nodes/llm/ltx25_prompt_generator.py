@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import hashlib
 import re
-import time
 from typing import Any, Optional
 
 try:
@@ -58,6 +57,13 @@ except ImportError:
         load_system_prompt,
         parse_mode,
     )
+
+try:
+    from _mienodes_internal.nodes.llm.invoke_budget import (
+        invoke_with_budget_escalation,
+    )
+except ImportError:
+    from .invoke_budget import invoke_with_budget_escalation
 
 
 MY_CATEGORY = "\U0001F411 MieNodes/\U0001F411 Prompt Generator"
@@ -166,24 +172,14 @@ class LTX25PromptEnhancer:
         try:
             if self._timeout_override is not None:
                 self.llm.timeout = self._timeout_override
-            t0 = time.perf_counter()
-            out = self.llm.invoke(
+            return invoke_with_budget_escalation(
+                self.llm,
                 messages,
-                seed=seed,
-                temperature=temperature,
                 max_tokens=self.max_tokens,
+                temperature=temperature,
+                seed=seed,
+                stage_label=f"LTX25 {stage}",
             )
-            elapsed = time.perf_counter() - t0
-            model_name = getattr(self.llm, "model", "?")
-            if not out:
-                mie_log(
-                    f"LTX25 {stage}: model={model_name} returned empty after {elapsed:.2f}s"
-                )
-                return ""
-            mie_log(
-                f"LTX25 {stage}: model={model_name} ok in {elapsed:.2f}s response_chars={len(out)}"
-            )
-            return out.strip()
         finally:
             if prev_timeout is not None:
                 self.llm.timeout = prev_timeout
