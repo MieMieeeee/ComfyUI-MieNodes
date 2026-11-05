@@ -24,6 +24,8 @@ from pathlib import Path
 
 import pytest
 
+from .critic_connector import NO_FINDINGS, is_critic_call
+
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 
 
@@ -68,11 +70,20 @@ def mods():
 
 
 class FakeConnector:
-    def __init__(self, replies):
+    def __init__(self, replies, critic_replies=None):
         self.replies = list(replies)
+        self.critic_replies = list(critic_replies or [])
         self.calls = []
+        self.critic_calls = []
 
     def invoke(self, messages, seed=0, temperature=0.2, max_tokens=8192):
+        if is_critic_call(messages):
+            # The continuity critic is a SECOND READER, not a pipeline
+            # stage: it answers from its own queue, and it is NOT counted
+            # among the pipeline calls.
+            self.critic_calls.append(messages)
+            return (self.critic_replies.pop(0) if self.critic_replies
+                    else NO_FINDINGS)
         self.calls.append(messages)
         return self.replies.pop(0)
 
@@ -86,24 +97,14 @@ def verified_asset():
 
 
 def _planner(mods, replies):
-    """The concept-mode planner with the continuity critic switched off.
+    """The concept-mode planner, exactly as the node runs it.
 
-    These tests exercise the CONTRACT path (caller-owned fields, event
-    fidelity, the repair turn). The critic is a second reader with its
-    own provider call and its own test file
-    (test_script_asset_critic.py); leaving it on here would only blur
-    the call counts.
+    The continuity critic is ON (the shipped default) and answers from
+    the connector's own critic queue, so the contract assertions below
+    stay readable while the asset-generation line is exercised against
+    the real implementation.
     """
-    class _ConceptPlanner:
-        def __init__(self, enhancer):
-            self._enhancer = enhancer
-            self.llm = enhancer.llm
-
-        def __call__(self, *args, **kwargs):
-            kwargs.setdefault("critic", "off")
-            return self._enhancer(*args, **kwargs)
-
-    return _ConceptPlanner(mods["generator"].AssetStoryboardEnhancer(FakeConnector(replies)))
+    return mods["generator"].AssetStoryboardEnhancer(FakeConnector(replies))
 
 
 def test_concept_mode_authors_a_full_asset_from_free_text(mods, verified_asset):
@@ -282,3 +283,14 @@ def test_asset_diff_reports_reworded_and_untouched_events(mods, verified_asset):
     assert "改写" in text and "冻结" in text
     assert "night_screen" in text  # light change reported
 
+
+
+def test_concept_mode_also_reaches_the_continuity_critic(mods, verified_asset):
+    """Concept mode is the free-authoring path; the critic reads it too."""
+    reply = dict(verified_asset)
+    reply["name"] = "我的新剧本"
+    planner = _planner(mods, [json.dumps(reply, ensure_ascii=False)])
+    planner("一个点子", 0, mode="concept", name="我的新剧本")
+    assert len(planner.llm.critic_calls) == 1
+    assert planner.llm.critic_calls[0][0]["content"].startswith(
+        "You are a SKEPTICAL QA reviewer")

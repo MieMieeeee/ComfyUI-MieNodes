@@ -13,15 +13,13 @@ def options(raw):
     settings = "\n".join("角色%d：%s | 画面内 | %s | %s" %
                          (i, r["name"], "左侧" if i == 1 else "右侧", r["voice"])
                          for i, r in enumerate(raw["roles"], 1))
-    # critic="off": these tests exercise the CONTRACT path (field shapes,
-    # event fidelity, the repair turn). The continuity critic is a second
-    # reader with its own file (test_script_asset_critic.py) and its own
-    # extra provider call, which would only blur the call counts here.
+    # No `critic` override here: the continuity critic runs with its
+    # shipped default (on). The scripted connector answers it from its
+    # own critic queue, so the pipeline call counts stay as they are.
     return dict(name=raw["name"], character_count=2, character_settings=settings,
                 target_duration_seconds=raw["target_duration_seconds"], camera_framing="two_shot", camera_movement="locked",
                 camera_perspective="observer", look=raw["look"], setting=raw["setting"],
-                constraints=raw["constraints"], continuation_overlap_frames=22, language="zh",
-                critic="off")
+                constraints=raw["constraints"], continuation_overlap_frames=22, language="zh")
 
 
 def enhancer(sb, conn):
@@ -96,3 +94,16 @@ def test_preview_text_carries_render_risk_warnings(sb):
         (Path(__file__).parent / "fixtures" / "storyboard_v2_hedgehog.json").read_text(encoding="utf-8"))
     assert "⚠" in sb.preview_asset(hedgehog)
     assert "⚠" not in sb.preview_asset(apple())
+
+
+def test_the_generation_line_really_reaches_the_continuity_critic(sb, mods):
+    """The shipped default is critic=on, so the asset line must actually
+    call the second reader — and a clean asset must come back unheeded
+    (no repair round, no extra pipeline call)."""
+    raw = apple()
+    conn = ScriptedConnector([json.dumps(raw, ensure_ascii=False)])
+    asset = enhancer(sb, conn)(raw["source_script"], 2, seed=4, **options(raw))
+    assert len(conn.critic_calls) == 1
+    assert conn.critic_calls[0][0]["content"].startswith("You are a SKEPTICAL QA reviewer")
+    assert len(conn.calls) == 1          # one asset call, no re-roll
+    assert asset["version"] == 2
