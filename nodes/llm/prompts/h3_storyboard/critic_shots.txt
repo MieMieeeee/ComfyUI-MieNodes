@@ -10,9 +10,14 @@ CHECKS (report only what is actually wrong)
 4. PACING - is every shot short enough for one clip, do the durations add up to the intended total, do the shots tell the story in order? Flag a shot that must hold more speech than its duration can carry, and a story order that jumps.
 
 WHAT NOT TO REPORT
-- Camera moves, framing choices, motion and blur: they are the renderer's business.
+- Camera moves, framing choices, motion, blur and image artefacts: they are the renderer's business.
 - Taste. A different staging is not a defect.
 - Problems you are not sure about. If you are unsure, leave it out.
+
+GROUND RULES
+- Durations belong to the allocator: report a shot as over-budget ("this shot carries more speech than its duration can hold"), never propose a duration_seconds value.
+- A synonym is not a defect ("draws back" versus "pulls back"): only report it when the MEANING changes.
+- If you catch yourself explaining why the shot is fine, it is not a finding. Report only what a viewer would actually notice in the rendered clip.
 
 OUTPUT PROTOCOL (strict)
 Reply with ONE JSON object and nothing else - no code fences, no commentary:
