@@ -25,6 +25,8 @@ from pathlib import Path
 
 import pytest
 
+from .critic_connector import NO_FINDINGS, is_critic_call
+
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 PROMPTS_DIR = PROJECT_DIR / "nodes" / "llm" / "prompts"
 LLM_DIR = PROJECT_DIR / "nodes" / "llm"
@@ -339,13 +341,22 @@ class _StubLLM:
         "shot",
     )
 
-    def __init__(self, replies):
+    def __init__(self, replies, critic_replies=None):
         self.replies = list(replies)
+        self.critic_replies = list(critic_replies or [])
         self.calls = []  # list of (stage_label, messages)
+        self.critic_calls = []
         self.model = "stub"
         self.timeout = None
 
     def invoke(self, messages, *, seed=None, temperature=None, max_tokens=None):
+        if is_critic_call(messages):
+            # The continuity critic is a SECOND READER, not a pipeline
+            # stage: it answers from its own queue, and it is NOT counted
+            # among the pipeline calls, so the stage order stays intact.
+            self.critic_calls.append(messages)
+            return (self.critic_replies.pop(0) if self.critic_replies
+                    else NO_FINDINGS)
         call_index = len(self.calls)
         stage = (
             self._STAGE_BY_INDEX[call_index]

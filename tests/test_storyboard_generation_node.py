@@ -13,10 +13,15 @@ def options(raw):
     settings = "\n".join("角色%d：%s | 画面内 | %s | %s" %
                          (i, r["name"], "左侧" if i == 1 else "右侧", r["voice"])
                          for i, r in enumerate(raw["roles"], 1))
+    # critic="off": these tests exercise the CONTRACT path (field shapes,
+    # event fidelity, the repair turn). The continuity critic is a second
+    # reader with its own file (test_script_asset_critic.py) and its own
+    # extra provider call, which would only blur the call counts here.
     return dict(name=raw["name"], character_count=2, character_settings=settings,
                 target_duration_seconds=raw["target_duration_seconds"], camera_framing="two_shot", camera_movement="locked",
                 camera_perspective="observer", look=raw["look"], setting=raw["setting"],
-                constraints=raw["constraints"], continuation_overlap_frames=22, language="zh")
+                constraints=raw["constraints"], continuation_overlap_frames=22, language="zh",
+                critic="off")
 
 
 def enhancer(sb, conn):

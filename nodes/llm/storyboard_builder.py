@@ -1579,6 +1579,13 @@ def assemble_from_sockets(
     # Validate the storyboard bundle. The load node already ran
     # validation, but a stray hand-edited bundle is not unusual.
     cleaned = _validate_storyboard_bundle(storyboard)
+    # The continuity critic (2026-11-05) runs here too, WITHOUT a model:
+    # a saved asset may predate the critic, and the cross-shot checks are
+    # free. The notes travel in the run summary; the plan is untouched.
+    critic_notes: list[str] = []
+    if cleaned.get("version") == 2:
+        from ..assets.storyboard_critic import critique_warnings, review_asset_critique
+        critic_notes = critique_warnings(review_asset_critique(cleaned))
     if cleaned.get("version") == 2:
         from ..assets.storyboard_contract import to_runtime
         cleaned, _voice_notes = _apply_wired_asset_voice_overrides(cleaned, slot_bundles)
@@ -1675,6 +1682,9 @@ def assemble_from_sockets(
         "ambience: " + out["ambience"],
     ]
     summary_bits.extend(out["summary_lines"])
+    if critic_notes:
+        summary_bits.append("critic · 连续性复核：")
+        summary_bits.extend(critic_notes)
     if size_note:
         summary_bits.append(size_note)
     summary = "\n".join(summary_bits)

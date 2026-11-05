@@ -107,6 +107,30 @@ except (ImportError, ModuleNotFoundError, ValueError):
     _spec.loader.exec_module(_mod)
     _ns_lazy = _mod.normalize_shots
 
+
+def _load_critic_modules():
+    """(deterministic critic, model critic), loaded from their files.
+
+    The continuity critic (2026-11-05) lives in two stdlib-only modules.
+    They are loaded by FILE PATH for the same reason as ``_ns_lazy``
+    above: the package __init__ pulls in the ComfyUI runtime, and the
+    standalone test loaders import this file without a parent package.
+    """
+    import importlib.util as _ilu
+    here = os.path.dirname(os.path.abspath(__file__))
+    modules = []
+    for _name, _path in (
+        ("_mienodes_internal_critic_shim",
+         os.path.join(os.path.dirname(here), "assets", "storyboard_critic.py")),
+        ("_mienodes_internal_critic_llm_shim",
+         os.path.join(here, "storyboard_critic.py")),
+    ):
+        _spec = _ilu.spec_from_file_location(_name, _path)
+        _mod = _ilu.module_from_spec(_spec)
+        _spec.loader.exec_module(_mod)
+        modules.append(_mod)
+    return modules[0], modules[1]
+
 try:
     from _mienodes_internal.core.utils import mie_log
 except ImportError:
@@ -1751,6 +1775,10 @@ class H3LoopPromptEnhancer:
         # caller is about to fall back to the narrator storyboard.
         self._dialogue_extract_warnings: list[str] = []
         self._shot_fallback_notes: list[str] = []
+        # The continuity critic (2026-11-05) reads the finished board and
+        # buys a repair round for what a viewer would notice. Off by
+        # default here; the node's widget decides.
+        self.critic_enabled = True
 
     def _record_usage(self, stage: str, messages, reply: str) -> None:
         prompt_text = "\n".join(
@@ -2822,19 +2850,29 @@ class H3LoopPromptEnhancer:
         storyboard_budget = max(self.max_tokens, 16384)
         last_error: Optional[Exception] = None
         last_head = "<no reply>"
+        retry_hint = ""
+        last_raw = ""
         for attempt in range(1 + _PARSE_RETRIES):
             _check_interrupt(f"storyboard[attempt {attempt + 1}]")
             attempt_messages = messages
             if attempt > 0:
-                attempt_messages = messages + [
-                    {
-                        "role": "user",
-                        "content": (
-                            "Your previous reply could not be parsed. Reply with ONLY the JSON array. "
-                            + PARSE_RETRY_CORRECTION
-                        ),
-                    }
-                ]
+                if retry_hint:
+                    # The critic named the problem: show the board it read
+                    # and ask for the concrete fix.
+                    attempt_messages = messages + [
+                        {"role": "assistant", "content": last_raw},
+                        {"role": "user", "content": retry_hint},
+                    ]
+                else:
+                    attempt_messages = messages + [
+                        {
+                            "role": "user",
+                            "content": (
+                                "Your previous reply could not be parsed. Reply with ONLY the JSON array. "
+                                + PARSE_RETRY_CORRECTION
+                            ),
+                        }
+                    ]
             raw = postprocess_reply(
                 self._invoke(
                     attempt_messages,
@@ -2849,6 +2887,7 @@ class H3LoopPromptEnhancer:
                 last_head = "<empty reply>"
                 continue
             last_head = raw[:200]
+            last_raw = raw
             try:
                 raw_shots = extract_json_array(raw)
             except ValueError as exc:
@@ -2860,11 +2899,49 @@ class H3LoopPromptEnhancer:
             shots, warnings = normalize_shots(raw_shots, int(scene_count))
             digest = ", ".join(s["id"] for s in shots)
             log_pipeline(f"auto-storyboard built {len(shots)} shots: {digest}")
+            if not self.critic_enabled:
+                return shots, warnings
+            # The continuity critic (2026-11-05): a second reader over the
+            # finished board. Critical findings buy one repair round; when
+            # the budget is spent the board is kept with the notes.
+            feedback, notes = self._critique_shots(shots, concept, seed)
+            warnings = list(warnings) + notes
+            if not feedback:
+                return shots, warnings
+            last_error = ValueError(feedback)
+            log_pipeline(f"auto-storyboard critic: {feedback[:200]!r}")
+            if attempt < _PARSE_RETRIES:
+                retry_hint = ("Storyboard critic: %s\nFix ONLY these problems and reply with "
+                              "ONLY the JSON array of shots." % feedback[:1200])
+                continue
             return shots, warnings
         raise RuntimeError(
             f"auto-storyboard reply unparseable after {1 + _PARSE_RETRIES} attempts: "
             f"{last_error}; last reply head: {last_head!r}"
         )
+
+    def _critique_shots(self, shots, concept, seed):
+        """(feedback, notes) - the continuity critic over a finished board.
+
+        ``feedback`` is non-empty only when something a viewer would
+        notice has to be repaired; ``notes`` are the softer observations
+        that travel with the board in the run summary.
+        """
+        deterministic, model_critic = _load_critic_modules()
+        issues = deterministic.review_shot_list_critique(shots)
+        notes = deterministic.critique_warnings(issues)
+        hard = [i for i in issues if i["severity"] == deterministic.HARD]
+        if hard:
+            return ("The board contradicts itself:\n" +
+                    "\n".join("- %s：%s" % (i["path"], i["reason"]) for i in hard[:5])), notes
+        result = model_critic.run_shot_list_critic(self.llm, shots, concept=concept or "",
+                                                   temperature=0.0, max_tokens=2048,
+                                                   timeout=self._timeout_override, seed=seed)
+        notes = notes + model_critic.findings_warnings(result)
+        critical = model_critic.critical_findings(result)
+        if not critical:
+            return "", notes
+        return model_critic.findings_feedback(critical), notes
 
     # ------------------------------------------------------------------ #
     # Stage 2, per-shot mode
@@ -3461,9 +3538,11 @@ class H3LoopPromptEnhancer:
         camera_discipline: str = "auto",
         offscreen_names=None,
         speaker_references=None,
+        critic: str = "on",
     ) -> dict:
         warnings: list[str] = []
         self._shot_fallback_notes = []
+        self.critic_enabled = str(critic or "on").lower() != "off"
         pacing_key = _PACING_LABEL_TO_KEY.get(
             (pacing or "").split(" - ", 1)[0].strip().lower(), "normal"
         )
@@ -4985,6 +5064,25 @@ class MiniMaxH3LoopPromptGenerator:
                         ),
                     },
                 ),
+                # 连续性审片（2026-11-05）：旧轨自动分镜也一样要有人跨镜头
+                # 复核一遍。纯文本审片，不碰渲染。
+                "critic": (
+                    ["on", "off"],
+                    {
+                        "default": "on",
+                        "tooltip": (
+                            "连续性审片 · continuity critic:\n"
+                            "on：自动分镜生成后再让一个“读者”复核一遍（覆盖、连续性、"
+                            "单镜可演、节奏），发现观众看得见的矛盾就回修重摇；"
+                            "每次多一次模型调用（约 30~60 秒），修不好则保留原分镜并附警告。\n"
+                            "off：不做复核（快、零额外调用）。\n"
+                            "on: a second reader checks the auto-storyboard across shots "
+                            "(coverage, continuity, one beat per shot, pacing) and repairs "
+                            "what a viewer would notice. One extra model call; an "
+                            "unrepaired board is kept with the notes attached."
+                        ),
+                    },
+                ),
             },
         }
 
@@ -5021,6 +5119,7 @@ class MiniMaxH3LoopPromptGenerator:
         pacing: str = _PACING_LABELS[1],
         enhance_user_input: str = _ENHANCE_USER_INPUT_LABELS[0],
         camera_discipline: str = CAMERA_DISCIPLINES[0],
+        critic: str = "on",
     ):
         enhancer = H3LoopPromptEnhancer(
             llm_service_connector,
@@ -5046,6 +5145,7 @@ class MiniMaxH3LoopPromptGenerator:
             pacing=pacing,
             enhance_user_input=parse_enhance_user_input(enhance_user_input),
             camera_discipline=camera_discipline,
+            critic=critic,
         )
         return (
             out["plan_json"],
@@ -5077,6 +5177,7 @@ class MiniMaxH3LoopPromptGenerator:
         pacing: str = _PACING_LABELS[1],
         enhance_user_input: str = _ENHANCE_USER_INPUT_LABELS[0],
         camera_discipline: str = CAMERA_DISCIPLINES[0],
+        critic: str = "on",
     ):
         h = hashlib.md5(usedforsecurity=False)
         for part in (
@@ -5098,6 +5199,10 @@ class MiniMaxH3LoopPromptGenerator:
             pacing,
             str(parse_enhance_user_input(enhance_user_input)),
             parse_camera_discipline(camera_discipline),
+            # The critic widget changes the board (it can trigger a repair
+            # round), so it belongs in the cache key like every other
+            # output-shaping widget.
+            str(critic or "on"),
             (references_text or "").strip(),
         ):
             h.update((part or "").encode("utf-8"))

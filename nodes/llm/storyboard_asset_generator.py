@@ -12,6 +12,8 @@ class AssetStoryboardEnhancer:
     def __init__(self, llm_service_connector, *, temperature=0.2, max_tokens=8192, timeout=120):
         self.llm = llm_service_connector
         self.temperature, self.max_tokens, self.timeout = float(temperature), int(max_tokens), timeout
+        # Critic notes for the LAST call (the node prints them).
+        self.warnings = []
 
     def __call__(self, concept, shot_count, *, mode="script", base_asset=None,
                  character_count=2, character_settings="",
@@ -19,7 +21,7 @@ class AssetStoryboardEnhancer:
                  camera_movement="locked", camera_perspective="observer", language="zh",
                  look="", setting="", constraints="", continuation_overlap_frames=22,
                  seed=0, audio_mode="generated", scene="", light="follow_image",
-                 light_text="", character_designs="", **_unused):
+                 light_text="", character_designs="", critic="on", **_unused):
         from ..assets.storyboard_contract import parse_roles, parse_script, validate_v2
         if mode != "revise":
             if isinstance(character_designs, str):
@@ -132,6 +134,14 @@ class AssetStoryboardEnhancer:
         user = json.dumps(payload, ensure_ascii=False)
         messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
         error = "no response"
+        # The critic stage (2026-11-05) sits AFTER the contract: the asset
+        # is schema-valid first, then a second reader looks across the
+        # shots. A contract failure is fatal after three attempts (the
+        # asset is the contract); a critic failure is not - the last
+        # contract-valid asset is returned with the notes attached.
+        contract_valid = None
+        notes = []
+        critic_on = str(critic or "on").lower() != "off"
         for attempt in range(3):
             previous_timeout = getattr(self.llm, "timeout", None)
             try:
@@ -170,7 +180,7 @@ class AssetStoryboardEnhancer:
                     issue = issues[0]
                     raise ValueError("%s: %s Offending text: %s" % (
                         issue["path"], issue["reason"], issue["excerpt"]))
-                return validated
+                contract_valid = validated
             except (ValueError, TypeError, KeyError) as exc:
                 error = str(exc)
                 if attempt < 2:
@@ -179,6 +189,49 @@ class AssetStoryboardEnhancer:
                                             "Asset validation failed: %s. Correct this specific error. "
                                             "Keep asset_header and locked_events unchanged; return only the complete JSON object."
                                             % error[:800]}]
+                    continue
+                break
+            # --- contract satisfied; now the critic reads across shots ---
+            feedback = ""
+            notes = []
+            if critic_on:
+                from ..assets.storyboard_critic import (HARD, critique_warnings,
+                                                        review_asset_critique)
+                issues = review_asset_critique(validated)
+                notes = critique_warnings(issues)
+                hard = [i for i in issues if i["severity"] == HARD]
+                if hard:
+                    feedback = ("The execution copy contradicts itself:\n" +
+                                "\n".join("- %s：%s" % (i["path"], i["reason"])
+                                          for i in hard[:5]))
+                else:
+                    from .storyboard_critic import (critical_findings, findings_feedback,
+                                                    findings_warnings, run_asset_critic)
+                    result = run_asset_critic(self.llm, validated, temperature=0.0,
+                                              max_tokens=2048, timeout=self.timeout, seed=seed)
+                    notes = notes + findings_warnings(result)
+                    critical = critical_findings(result)
+                    if critical:
+                        feedback = findings_feedback(critical)
+            if not feedback:
+                self.warnings = notes
+                return validated
+            error = feedback
+            if attempt < 2:
+                messages = messages + [{"role": "assistant", "content": raw},
+                                       {"role": "user", "content":
+                                        "Storyboard critic: %s\nFix ONLY these problems. Keep every "
+                                        "event (id, type, character, text, language) and every "
+                                        "caller-owned field unchanged; return only the complete JSON object."
+                                        % feedback[:1200]}]
+                continue
+            break
+        if contract_valid is not None:
+            # The contract holds, the critic did not get its way: ship the
+            # asset with the notes instead of failing the whole node.
+            self.warnings = notes + ["⚠ critic：连续性复核未在 3 次内通过，已交付通过契约校验的版本 · "
+                                     "critic could not be satisfied; the contract-valid asset was kept"]
+            return contract_valid
         raise RuntimeError("storyboard asset validation failed after 3 attempts: " + error)
 
 
@@ -251,7 +304,7 @@ def asset_diff(old, new, limit=5):
     return lines
 
 
-def preview_asset(asset, diff_lines=None):
+def preview_asset(asset, diff_lines=None, warnings=None):
     from ..assets.storyboard_contract import allocate_frames, storyboard_warnings
     names = {r["id"]: r["name"] for r in asset["roles"]}
     frames = allocate_frames(asset)
@@ -262,6 +315,8 @@ def preview_asset(asset, diff_lines=None):
               delivered), ""]
     for warning in storyboard_warnings(asset):
         lines += ["⚠ " + warning, ""]
+    for warning in (warnings or []):
+        lines += [str(warning), ""]
     if diff_lines:
         lines += ["", "## " + diff_lines[0]] + diff_lines[1:]
     for role in asset["roles"]:

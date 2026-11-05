@@ -356,6 +356,18 @@ class MiniMaxH3StoryboardGenerator:
                 "默认角色外观 JSON，例如 {\"character_1\":\"穿红外套的猫\"}。仅未接该角色资产时使用；"
                 "留空由模型自行设计。不要把默认外观写进站位或动作。修订模式继承上一版。\n"
                 "Optional default appearances by role ID. Wired character assets override each role's default."}),
+            # 连续性审片（2026-11-05）：资产过了契约校验之后，再让一个"读者"
+            # 跨镜头复核一遍（纯文本，不需要视觉模型）。发现自相矛盾或缺戏
+            # 会自动回修重摇；3 次内修不好就交付通过契约校验的版本 + 警告。
+            "critic": (["on", "off"], {"default": "on", "tooltip":
+                "连续性审片 · continuity critic:\n"
+                "on：资产通过契约校验后再做一次跨镜头复核（覆盖、连续性、单镜可演、节奏），"
+                "发现观众看得见的矛盾自动回修重摇；每次生成多一次模型调用（约 30~60 秒），"
+                "修不好则交付通过校验的版本并附警告。off：只做契约校验（快、零额外调用）。\n"
+                "on: after the contract passes, a second reader checks the asset across shots "
+                "(coverage, continuity, one beat per segment, pacing) and repairs what a viewer "
+                "would notice. One extra model call per generation; an unrepaired asset is still "
+                "delivered with the notes attached. off: contract only."}),
         }}
 
     RETURN_TYPES = ("MIE_STORYBOARD", "STRING", "STRING", "INT")
@@ -376,7 +388,7 @@ class MiniMaxH3StoryboardGenerator:
             from .storyboard_asset_generator import asset_diff
             diff_lines = asset_diff(base_asset, asset)
         import json
-        text = preview_asset(asset, diff_lines=diff_lines)
+        text = preview_asset(asset, diff_lines=diff_lines, warnings=planner.warnings)
         return asset, json.dumps(asset, ensure_ascii=False, indent=2), text, len(asset["shots"])
 
     @classmethod

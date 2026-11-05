@@ -86,7 +86,24 @@ def verified_asset():
 
 
 def _planner(mods, replies):
-    return mods["generator"].AssetStoryboardEnhancer(FakeConnector(replies))
+    """The concept-mode planner with the continuity critic switched off.
+
+    These tests exercise the CONTRACT path (caller-owned fields, event
+    fidelity, the repair turn). The critic is a second reader with its
+    own provider call and its own test file
+    (test_script_asset_critic.py); leaving it on here would only blur
+    the call counts.
+    """
+    class _ConceptPlanner:
+        def __init__(self, enhancer):
+            self._enhancer = enhancer
+            self.llm = enhancer.llm
+
+        def __call__(self, *args, **kwargs):
+            kwargs.setdefault("critic", "off")
+            return self._enhancer(*args, **kwargs)
+
+    return _ConceptPlanner(mods["generator"].AssetStoryboardEnhancer(FakeConnector(replies)))
 
 
 def test_concept_mode_authors_a_full_asset_from_free_text(mods, verified_asset):
