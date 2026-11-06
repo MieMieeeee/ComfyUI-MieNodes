@@ -5,9 +5,9 @@
 # These are what a fresh ComfyUI install actually needs: sixteen node
 # modules import them at module level, so without them the pack does not
 # load at all.
-comfyui-mie-llm>=0.1.3
-comfyui-mie-prompt>=0.1.3
-comfyui-mie-craft>=0.1.3
+comfyui-mie-llm>=0.1.4
+comfyui-mie-prompt>=0.1.4
+comfyui-mie-craft>=0.1.4
 
 # The pack's own runtime dependencies.
 #
