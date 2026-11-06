@@ -438,19 +438,20 @@ def test_speech_budget_warning_flags_a_clip_packed_for_a_slow_delivery(mods):
 def test_bundled_assets_answer_names_the_user_library_does_not_have(mods, tmp_path, monkeypatch):
     """Assets shipped inside the plugin are a fallback, never an override."""
     import importlib
-    import shutil
     from importlib import import_module
+    from .test_asset_library import make_png
     library = importlib.import_module(mods["storyboard"].__package__ + ".library")
     storyboard = importlib.import_module(mods["storyboard"].__package__ + ".storyboard")
     plugin_root = tmp_path / "plugin"
     (plugin_root / "asset_library" / "characters").mkdir(parents=True)
     (plugin_root / "bundled_assets" / "characters" / "内置猫").mkdir(parents=True)
     (plugin_root / "bundled_assets" / "characters" / "内置猫" / "images").mkdir()
-    # a character entry needs at least one real PNG to pass the library's own check
-    png = next(Path("C:/PP/V9/V9-Large/ComfyUI_Mie_2026_V9.0_Large/ComfyUI/custom_nodes/"
-                    "comfyui_mienodes/asset_library/characters").rglob("*.png"), None)
-    if png is not None:
-        shutil.copy(png, plugin_root / "bundled_assets" / "characters" / "内置猫" / "images" / "01.png")
+    # A character entry needs at least one real PNG to pass the library's
+    # own check. It used to copy one out of a deployed install on a hard
+    # coded path, which meant the probe was silently empty anywhere else
+    # and the test asserted against nothing.
+    (plugin_root / "bundled_assets" / "characters" / "内置猫" / "images" / "01.png").write_bytes(
+        make_png())
     (plugin_root / "bundled_assets" / "characters" / "内置猫" / "character.json").write_text(
         json.dumps({"name": "内置猫", "description": "bundled probe", "voice": "young female"},
                    ensure_ascii=False), encoding="utf-8")

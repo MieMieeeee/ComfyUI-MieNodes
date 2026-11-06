@@ -4,7 +4,7 @@ from pathlib import Path
 
 def load_runner(monkeypatch):
     monkeypatch.setattr("sys.argv", ["runner", "unused", "unused"])
-    spec = importlib.util.spec_from_file_location("klein_ui_runner", Path(__file__).parents[1] / "_run_ui_workflow.py")
+    spec = importlib.util.spec_from_file_location("klein_ui_runner", Path(__file__).parents[1] / "scripts" / "run_ui_workflow.py")
     runner = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(runner)
     monkeypatch.setattr(runner, "api", lambda _: {"input": {"required": {"text": ["STRING", {}]}}})
