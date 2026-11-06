@@ -975,6 +975,7 @@ def _chapter_manifest_digest(manifest):
 | Phase 1 / P0-b | ✅ **已做**（三处各按自己的规则改） | ① 遗留恢复：多份 ⇒ **拒绝猜测并保留全部文件**（单份行为不变）；② 封印清单：改按**内容里的 `sealed_at`** 排序；③ reference cache：**描述符的 signature 必须与文件名一致**，上游已测的歧义守卫**原样保留**。<br>**逐项负对照**：上游原实现三条**全红**，我们的实现三条**全绿**（`tests/_mie_mtime_selection_unit_test.py`） |
 | Phase 1 / P0-c…P0-f | ✅ **已做** | **P0-c** size 分层（<64MB 一律直接哈希）；**P0-d** 36 处 / 13 文件四类排查（①缓存跳过 2、②身份等值比较 13、③最新者胜 6、④年龄清理+报告 15）—— 真正危险的两类共 8 处**全部处理完毕**；**P0-e** `checkpoint_identity.py`（`GetVolumeInformationW` 识别 FAT/exFAT、映射盘、ino=0 ⇒ 信号不可信就不用）；**P0-f** 已发布修订产物 write-once + 恢复路径显式豁免。**排查中另发现两处此前未列入清单的**：第二个缓存守卫（导出 PNG/WAV，`chain_nodes.py:24923`）与第五处"最新者胜"（`run_manager.py:447`） |
 | Phase 2 改名 | ✅ **已做** | 86 个类型加 `\|MieH3`；模块级施加（全仓一个名字空间）；新增 `fork_identity.py`、`tools/gen_rename_map.py`（自动生成 + `--check`）、`tools/apply_rename.py`、`tools/migrate_workflows.py`；**本机实测：两包同装，148（上游）+ 86（我们）= 234，零冲突** ✓ |
+| **Phase 4 抽 Core** | ✅ **已做** | **`ComfyUI-Mie-Core` 已建**（纯 pip 包：23 个 py / 15,338 行 + 31 个数据文件）。搬入：LLM 连接器与预算、H3 prompt 与计划构建器、剧本契约与 critic 两半、生成器、零 LLM 组装器、对话切分器、资产库与剧本资产，以及 h3 / h3_loop / h3_storyboard 三个 prompt 家族。MieNodes 侧改为 shim（**全量 2050 passed，与基线一致**）；引擎侧新增三个薄壳节点 `MieH3LoadScriptAsset` / `MieH3ScriptToPlan` / `MieH3LoadAssetRoster`。**本机三包共存实测：上游 148 + 引擎 86 + MieNodes 163，零冲突**；**跨包集成实测：MieNodes 的剧本与资产 → 引擎编译出计划，字节级可复现** ✓ |
 | Q-F′ | ✅ **已裁定** | 本仓未来 **public** ⇒ CI 上云。落地：§10.3 的基线闸门（`ubuntu-latest` + `windows-latest`）。**发布到 Comfy Registry 仍暂缓**（Q-E） |
 
 ### Phase 0 — 建 fork（0.5 天）
@@ -1063,6 +1064,25 @@ def _chapter_manifest_digest(manifest):
 - [ ] `MieH3ScriptToPlan` 实现 provider 访问器
 
 **判据**：§5.6 六条验收全过。
+
+### 8.1 抽 Core 时的三个实操教训（2026-11-06）
+
+**① 兼容 shim 不能用星号导入。** MieNodes 的测试会伸进私有名
+（`library._png_dimensions`），星号导入会丢掉所有下划线开头的名字。
+最终用的是 **PEP 562 的模块级 `__getattr__`**：任何属性访问都回落到 Core。
+但它**不能转发赋值** ⇒ 凡是 patch 实现状态的测试，必须直接 patch Core 的模块。
+（试过"模块子类"与"模块替换"两种更激进的写法：前者的 `__getattr__` 对模块不生效，
+后者会让 `__name__` / `__file__` 变成 Core 的，坏得更多。）
+
+**② Core 必须装进 ComfyUI 自己的 python。** 装到系统 python 时，
+引擎包在本机 ComfyUI 里 **IMPORT FAILED** —— 日志里只有一行，没有异常栈。
+`python_embeded/python.exe -m pip install -e F:/ComfyUI-Mie-Core` 之后才正常。
+**这是计划里那条部署要求（"ComfyUI 的 python 环境里也要 pip install -e"）的第一次实地验证。**
+
+**③ 搬 prompt 家族会动到"两份系统指令必须同步"那条纪律。**
+`docs/script_asset_system_prompt.txt` 在 MieNodes、prompt 家族在 Core，
+同步检查变成跨仓 ⇒ MieNodes 的 loader 改为**先查本仓、再回落 Core**，
+并且**两边都扫描**，这样通用下拉框里的条目一个不少。
 
 ### Phase 4 — 抽 Core + 搬资产层（4–5 天，**含安装与配套，不只是搬文件**）
 
@@ -1389,7 +1409,7 @@ provider 的 planJson 来源（→ 后端路由）、R4/Phase 5 矛盾（→ 一
 | SYNC PAIR 守护变跨仓 | 降级为**跨仓内容一致性断言**（R13） |
 | Core 作为 ComfyUI 包解决不了 import | **D12** 纯 pip 包 + `pip install -e` |
 | "同一个 commit" 做不到 | 改**同一变更窗口** |
-| Phase 4 依赖面漏 cv2 | 采纳并加强：三个都是**死 import** ⇒ 直接删（D14） |
+| Phase 4 抽 Core | ✅ **已做** | **`ComfyUI-Mie-Core` 已建**（纯 pip 包，23 个 py / 15,338 行 + 31 个数据文件）。搬入：LLM 连接器与预算、H3 prompt 与计划构建器、剧本契约与 critic 两半、生成器、零 LLM 组装器、对话切分器、资产库与剧本资产、h3/h3_loop/h3_storyboard 三个 prompt 家族。MieNodes 侧改为 shim（**全量 2050 passed，与基线一致**）；引擎侧新增三个薄壳节点 `MieH3LoadScriptAsset` / `MieH3ScriptToPlan` / `MieH3LoadAssetRoster`。**本机三包共存实测：上游 148 + 引擎 86 + MieNodes 163，零冲突**；**跨包集成实测：MieNodes 的剧本与资产 → 引擎编译出计划，字节级可复现** ✓ |
 | `core/utils.py` 品牌专属 | 不搬 |
 | 预览路由加 `plan_sha256` | 采纳 |
 | `script_ref` 路径穿越 | 采纳 + 列入验收 |
