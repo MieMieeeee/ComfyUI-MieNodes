@@ -70,4 +70,4 @@ jobs:
 
       - name: Run the suite
         shell: bash
-        run: python -m pytest tests/ -q
+        run: python -m pytest tests/ -q -rs
