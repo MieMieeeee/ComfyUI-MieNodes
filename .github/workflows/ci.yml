@@ -1,0 +1,53 @@
+name: CI
+
+# The pack carries the authoring shims: the asset library, the script
+# contract, the plan assembler and the LLM connectors now live in the three
+# packages on PyPI. Installing them from PyPI - not from a local checkout -
+# is what makes this a real test of what a user gets.
+#
+# The suite is a plain pytest run: no ComfyUI, no GPU, no model.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    name: unit (python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install the authoring packages from PyPI
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "comfyui-mie-craft==0.1.0"
+
+      - name: Install the test dependencies
+        shell: bash
+        run: |
+          python -m pip install pytest
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install numpy pillow deepdiff
+
+      - name: Run the suite
+        shell: bash
+        run: python -m pytest tests/ -q
