@@ -3,7 +3,12 @@ name = "comfyui_mienodes"
 description = "Offering a series of utility nodes designed to simplify workflows and enhance efficiency"
 version = "1.5.2"
 license = { file = "LICENSE" }
-dependencies = []
+dependencies = [
+    # The authoring layer - the asset library, the script contract, the
+    # plan assembler and the LLM connectors - moved to the shared core.
+    # It has to be on PyPI before this pack is published again.
+    "comfyui-mie-core>=0.1.0",
+]
 
 [project.urls]
 Repository = "https://github.com/MieMieeeee/ComfyUI-MieNodes"
