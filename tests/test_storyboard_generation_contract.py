@@ -468,12 +468,41 @@ def test_bundled_assets_answer_names_the_user_library_does_not_have(mods, tmp_pa
     # The implementation now lives in ComfyUI-Mie-Core, so the patch has to
     # land there: a monkeypatch on the compatibility shim would stay on the
     # shim and change nothing.
+    #
+    # The library reads its plugin root at CALL time now, from
+    # MIE_PLUGIN_ROOT, falling back to PLUGIN_ROOT. A pack that ships the
+    # seed library sets that variable when it loads - and another test in
+    # this suite does load the pack - so the variable has to be pointed
+    # here too, or the resolution would follow whichever pack set it
+    # last.
+    monkeypatch.setenv("MIE_PLUGIN_ROOT", str(plugin_root))
     monkeypatch.setattr(core_library, "PLUGIN_ROOT", plugin_root)
     monkeypatch.setattr(core_storyboard, "_library", core_library)
     names = library.list_characters("", plugin_root=plugin_root).get("names", "").splitlines()
     assert "内置猫" in names
     sb_names = storyboard.list_storyboards("").get("names", "").splitlines()
     assert "内置分镜" in sb_names
+
+
+def test_library_root_follows_the_pack_not_the_import_order(monkeypatch, tmp_path):
+    """The library resolves its plugin root when it is asked, not when it
+    was imported.
+
+    Two packs share mie_craft.assets.library, and the engine pack's
+    directory name sorts before this one's - so the engine imports the
+    library first. The root used to be frozen at that moment, which left
+    the user's library resolving to site-packages, and the asset library
+    came back empty. The pack that ships the library claims the root with
+    MIE_PLUGIN_ROOT, and the library has to read it at call time.
+    """
+    from mie_craft.assets import library as core_library
+
+    claimed = tmp_path / "claimed-root"
+    monkeypatch.setenv("MIE_PLUGIN_ROOT", str(claimed))
+
+    assert core_library.resolve_plugin_root() == claimed
+    assert core_library.fixed_library_root() == claimed / "asset_library"
+    assert core_library.resolve_library_dir("") == str(claimed / "asset_library")
 
 
 # --------------------------------------------------------------------------- #
