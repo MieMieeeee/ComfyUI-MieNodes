@@ -40,6 +40,7 @@ PACKAGES = (
 )
 
 VERSION_RE = re.compile(r'^version\s*=\s*"([^"]+)"', re.MULTILINE)
+VERSION_ASSIGN_RE = re.compile(r'^__version__\s*=\s*"[^"]*"', re.MULTILINE)
 
 
 def repo_roots() -> list[pathlib.Path]:
@@ -89,6 +90,23 @@ def write_version(root: pathlib.Path, version: str) -> None:
     text = path.read_text(encoding="utf-8")
     text = VERSION_RE.sub('version = "%s"' % version, text, count=1)
     path.write_text(text, encoding="utf-8")
+    write_package_version(root, version)
+
+
+def write_package_version(root: pathlib.Path, version: str) -> None:
+    """Keep ``__version__`` in the package in step with pyproject.toml.
+
+    Without this the published wheel reports the version it had when the
+    train started: ``import mie_llm`` said 0.1.0 while the wheel on PyPI
+    was 0.1.1, and nobody noticed because only pip was reading the real one.
+    """
+    for init in root.glob("*/__init__.py"):
+        text = init.read_text(encoding="utf-8")
+        if "__version__" not in text:
+            continue
+        text = VERSION_ASSIGN_RE.sub('__version__ = "%s"' % version, text, count=1)
+        init.write_text(text, encoding="utf-8")
+        print("  %s -> %s" % (init.relative_to(root), version))
 
 
 def git(root: pathlib.Path, *args: str, capture: bool = False) -> str:
@@ -132,6 +150,24 @@ def main() -> int:
                 "%s=%s" % (root.name, version)
                 for root, version in zip(roots, versions)), file=sys.stderr)
             return 1
+        # A package that reports a different version than the one it was
+        # published under is a wheel that lies about itself at runtime.
+        drift = []
+        for root, version in zip(roots, versions):
+            for init in root.glob("*/__init__.py"):
+                text = init.read_text(encoding="utf-8")
+                match = VERSION_ASSIGN_RE.search(text)
+                if not match:
+                    continue
+                found = re.search(r'"([^"]+)"', match.group(0)).group(1)
+                if found != version:
+                    drift.append("%s says %s, pyproject says %s" % (
+                        init.relative_to(root), found, version))
+        if drift:
+            print("the package versions drift from pyproject:", file=sys.stderr)
+            for line in drift:
+                print("  " + line, file=sys.stderr)
+            return 1
         print("the three packages are at %s" % versions[0])
         return 0
 
@@ -139,7 +175,11 @@ def main() -> int:
         version = bump(versions[0], args.bump)
         for root in roots:
             write_version(root, version)
+            # Both files go into one commit: the package's __version__ and
+            # pyproject's version must never disagree, not even for a moment
+            # between the two commits.
             git(root, "add", "pyproject.toml")
+            git(root, "add", "-A", "--", "*.py")
             git(root, "commit", "-m", "chore: release %s" % version)
         print("bumped the three packages to %s" % version)
         return 0
