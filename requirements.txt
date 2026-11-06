@@ -1,10 +1,27 @@
-imagehash
-pillow
+# The authoring layer - the asset library, the script contract, the plan
+# assembler, the prompt templates and the LLM connectors - is three packages
+# on PyPI. They are released as one train with one version.
+#
+# These are what a fresh ComfyUI install actually needs: sixteen node
+# modules import them at module level, so without them the pack does not
+# load at all.
+comfyui-mie-llm>=0.1.3
+comfyui-mie-prompt>=0.1.3
+comfyui-mie-craft>=0.1.3
+
+# The pack's own runtime dependencies.
+#
+# ComfyUI supplies torch, numpy, Pillow, requests and pyyaml itself, so
+# they are not listed here. What it does not supply is below.
 toml
 deepdiff
-requests
-tdqm
-huggingface_hub
-pyyaml
+tqdm
+imagehash
 opencv-python
+aiohttp>=3.11.8
+
+# Optional features, imported lazily inside the functions that use them:
+# the model downloader, hand-dropped mp3 samples, and the TTS nodes.
+huggingface_hub
 soundfile
+torchaudio
