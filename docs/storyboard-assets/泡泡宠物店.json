@@ -1,0 +1,124 @@
+{
+  "version": 2,
+  "name": "泡泡宠物店",
+  "language": "zh",
+  "audio_mode": "generated",
+  "roles": [
+    {
+      "id": "character_1",
+      "name": "卖家",
+      "presence": "on_screen",
+      "initially_visible": true,
+      "position": "center",
+      "voice": "adult male, low-mid register, even pace"
+    },
+    {
+      "id": "character_2",
+      "name": "买家",
+      "presence": "off_screen",
+      "initially_visible": false,
+      "position": "none",
+      "voice": "young female, bright high register, fast clipped pace"
+    }
+  ],
+  "camera": {
+    "framing": "medium_close_up",
+    "movement": "locked",
+    "perspective": "observer"
+  },
+  "look": "手绘二维动画风格，细腻线条与柔和阴影，夜里偏冷的色调。",
+  "setting": "角色1站在柜台后面，手机贴在耳边，肩膀松着；不耐烦时手指在柜台的快递单上敲两下；最后整个人往后缩半步。",
+  "scene": "宠物店柜台内景：木头柜台，柜台上放着一叠快递单和唯一一包没拆的狗粮，身后是一排敞开的宠物笼，每个笼子里只有一条叠好的毯子。",
+  "light": "custom",
+  "light_text": "夜里的宠物店柜台，唯一光源是柜台上方的一盏暖黄吊灯，手机屏幕在脸上映出一点冷光。",
+  "constraints": "全片一段生成，是一通电话：买家只出声不出镜，画面里只有卖家一个角色。反转在前：开场是店铺式的慵懒招呼，买家那句话含糊得像在自言自语，卖家没听明白才不耐烦；买家当场喊出「没有狗」，卖家的脸一下子白了。最后停在卖家的慌乱道歉上，不要再往后演。全片不要出现第二个人、不要出现狗、不要出现宠物笼里的动物，柜台上只有那一包狗粮。画面里只有这一部手机。不要出现任何提示音、铃声或音乐声；买家的困惑要出声说，不要写成无声的省略号或问号，否则会被做成手机提示音。不出现字幕、气泡与文字。",
+  "target_duration_seconds": 17.2,
+  "continuation_overlap_frames": 0,
+  "source_script": "角色1动作：角色1懒洋洋地把手机举到耳边，肩膀松着，另一只手搭在柜台上。\n角色1：喂，这里是泡泡宠物店\n角色2：喂，花一万多买狗你就给我发一包狗粮？\n角色1动作：角色1的眉头皱起来，手指在柜台上的快递单上敲了两下，答话又急又冲。\n角色1：那你想要几包\n角色2：我说只有一包狗粮！没有狗！\n角色1动作：角色1的脸一下子白了，从柜台后缩了半步，手机差点从手里滑掉。\n角色1：啊啊……不好意思。",
+  "shots": [
+    {
+      "id": "scene_01",
+      "duration_seconds": 17.208333333333332,
+      "events": [
+        {
+          "id": "event_001",
+          "type": "action",
+          "character": "character_1",
+          "text": "角色1懒洋洋地把手机举到耳边，肩膀松着，另一只手搭在柜台上。",
+          "language": "zh"
+        },
+        {
+          "id": "event_002",
+          "type": "dialogue",
+          "character": "character_1",
+          "text": "喂，这里是泡泡宠物店",
+          "language": "zh"
+        },
+        {
+          "id": "event_003",
+          "type": "dialogue",
+          "character": "character_2",
+          "text": "喂，花一万多买狗你就给我发一包狗粮？",
+          "language": "zh"
+        },
+        {
+          "id": "event_004",
+          "type": "action",
+          "character": "character_1",
+          "text": "角色1的眉头皱起来，手指在柜台上的快递单上敲了两下，答话又急又冲。",
+          "language": "zh"
+        },
+        {
+          "id": "event_005",
+          "type": "dialogue",
+          "character": "character_1",
+          "text": "那你想要几包",
+          "language": "zh"
+        },
+        {
+          "id": "event_006",
+          "type": "dialogue",
+          "character": "character_2",
+          "text": "我说只有一包狗粮！没有狗！",
+          "language": "zh"
+        },
+        {
+          "id": "event_007",
+          "type": "action",
+          "character": "character_1",
+          "text": "角色1的脸一下子白了，从柜台后缩了半步，手机差点从手里滑掉。",
+          "language": "zh"
+        },
+        {
+          "id": "event_008",
+          "type": "dialogue",
+          "character": "character_1",
+          "text": "啊啊……不好意思。",
+          "language": "zh"
+        }
+      ]
+    }
+  ],
+  "execution": {
+    "look": "Hand-drawn two-dimensional animation style, fine linework and soft shading, a cool-leaning nighttime palette.",
+    "setting": "Character 1 stands behind the counter with the phone held against the ear and the shoulders relaxed; the paw taps twice on the delivery slips on the counter when impatience comes; at the end the whole body shrinks half a step back from the counter.",
+    "scene": "Inside a pet shop at the counter: a wooden counter, a stack of delivery slips and the single unopened pack of dog food on the counter top, and behind him a row of open pet cages, each holding only a folded blanket.",
+    "light": "A pet shop counter at night, lit only by the warm yellow glow of a pendant lamp above the counter, with a little cold light from the phone screen on the face.",
+    "visible_state": "Character 1 stands behind the counter at the center of the frame, the only phone in the room held flat against the ear, the shoulders relaxed and one paw resting on the counter; a single unopened pack of dog food and a stack of delivery slips lie on the counter in front, and behind him the cages stand open, each holding only a folded blanket.",
+    "voices": {
+      "character_1": "adult male, low-mid register, even pace",
+      "character_2": "young female, bright high register, fast clipped pace"
+    },
+    "directions": {
+      "event_001": "Character 1 lifts the only phone in the room to the ear lazily, the shoulders relaxed, one paw resting on the counter, the eyes half lidded.",
+      "event_004": "Character 1's brow furrows, one paw tapping twice on the delivery slips on the counter, the shoulders dropping as the answer comes out clipped and impatient.",
+      "event_007": "Character 1 goes pale, shrinking half a step back from the counter with the phone almost slipping, the eyes wide."
+    },
+    "character_designs": {
+      "character_1": "A plump gray British shorthair cat with round eyes, wearing a red collar and a cream apron."
+    }
+  },
+  "character_designs": {
+    "character_1": "一只胖乎乎的灰色英短猫，圆眼睛，戴一条红色项圈，系着一条米白色围裙。"
+  }
+}

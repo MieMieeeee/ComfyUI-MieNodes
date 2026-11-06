@@ -22,6 +22,7 @@ import numpy as np
 import pytest
 
 from .critic_connector import NO_FINDINGS, is_critic_call
+from mie_core.prompts import prompt_path, prompt_root
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 PROMPTS_DIR = PROJECT_DIR / "nodes" / "llm" / "prompts"
@@ -766,7 +767,7 @@ def test_empty_roster_template_is_byte_identical_to_pre_roster(lp, monkeypatch):
         lp.__file__ if hasattr(lp, "__file__") else "."
     )
     template_path = (
-        PROJECT_DIR / "nodes" / "llm" / "prompts" / "h3_loop" / "shot_user_template.txt"
+        prompt_root() / "h3_loop" / "shot_user_template.txt"
     )
     new_text = template_path.read_text(encoding="utf-8")
     substituted = new_text.replace("{asset_roster_block}", "")

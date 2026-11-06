@@ -1,9 +1,15 @@
+import os
 import sys
 import types
 from pathlib import Path
 
 _INTERNAL_PACKAGE = "_mienodes_internal"
 _ROOT_DIR = Path(__file__).resolve().parent
+
+# The shared core resolves its bundled assets against the plugin root. This
+# pack ships the seed library, so it claims the root for as long as it is
+# loaded. The library reads it once, at import.
+os.environ.setdefault("MIE_PLUGIN_ROOT", str(_ROOT_DIR))
 if _INTERNAL_PACKAGE not in sys.modules:
     _pkg = types.ModuleType(_INTERNAL_PACKAGE)
     _pkg.__path__ = [str(_ROOT_DIR)]

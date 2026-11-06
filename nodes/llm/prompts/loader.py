@@ -15,6 +15,24 @@ from pathlib import Path
 
 _PROMPTS_ROOT = Path(__file__).resolve().parent
 
+# The H3, H3 loop and storyboard prompt families moved to
+# ComfyUI-Mie-Core, because the plan builder that reads them is shared with
+# the H3 engine. This loader still serves every other family, and it falls
+# back to the core so that a prompt that lives there is still found - and
+# still listed in the dropdown.
+_CORE_PROMPTS_ROOT = None
+
+
+def _core_prompts_root():
+    global _CORE_PROMPTS_ROOT
+    if _CORE_PROMPTS_ROOT is None:
+        try:
+            from mie_core.prompts import prompt_root
+            _CORE_PROMPTS_ROOT = prompt_root()
+        except ImportError:
+            _CORE_PROMPTS_ROOT = Path()
+    return _CORE_PROMPTS_ROOT
+
 # Matches a str.format-style placeholder only: "{}" or "{identifier}" such as
 # "{prompt}", "{image_num}", "{language_name}". Deliberately does NOT match JSON
 # embedded in a prompt (e.g. {"camera": {...}}), so a prompt that merely
@@ -25,7 +43,14 @@ _PLACEHOLDER_RE = re.compile(r"\{[a-zA-Z_]*\}")
 
 
 def _resolve(logical_name: str, suffix: str) -> Path:
-    return _PROMPTS_ROOT / f"{logical_name.replace('.', '/')}{suffix}"
+    name = f"{logical_name.replace('.', '/')}{suffix}"
+    local = _PROMPTS_ROOT / name
+    if local.is_file():
+        return local
+    shared = _core_prompts_root() / name
+    if shared.is_file():
+        return shared
+    return local
 
 
 @lru_cache(maxsize=None)
@@ -57,13 +82,16 @@ def load_prompt_dict(logical_name: str) -> dict:
 
 
 def _txt_logical_names() -> list[str]:
-    names: list[str] = []
-    for p in sorted(_PROMPTS_ROOT.glob("**/*.txt")):
-        if p.name.startswith("_"):  # _t2i_note.txt etc. are build blocks
+    names: set[str] = set()
+    for root in (_PROMPTS_ROOT, _core_prompts_root()):
+        if not root or not root.is_dir():
             continue
-        rel = p.relative_to(_PROMPTS_ROOT).with_suffix("")
-        names.append(str(rel).replace("\\", "/"))
-    return names
+        for p in sorted(root.glob("**/*.txt")):
+            if p.name.startswith("_"):  # _t2i_note.txt etc. are build blocks
+                continue
+            rel = p.relative_to(root).with_suffix("")
+            names.add(str(rel).replace("\\", "/"))
+    return sorted(names)
 
 
 def list_builtin_prompts() -> list[str]:

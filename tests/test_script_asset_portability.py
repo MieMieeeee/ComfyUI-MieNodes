@@ -7,6 +7,7 @@ import pytest
 from .test_pov_offscreen import mods, _char
 from .test_h3_storyboard_generator import sb
 from .test_storyboard_generation_contract import apple, _scene
+from mie_core.prompts import prompt_path
 
 def designed():
     raw = apple()
@@ -94,7 +95,7 @@ def test_v2_socket_requirements_report_optional_visuals(mods):
 
 def test_schema_accepts_designs_and_scene_light(mods):
     jsonschema = pytest.importorskip("jsonschema")
-    schema = json.loads((Path(__file__).resolve().parents[1] / "nodes/llm/prompts/h3_storyboard/asset.schema.json").read_text("utf-8"))
+    schema = json.loads(prompt_path("h3_storyboard/asset.schema.json").read_text("utf-8"))
     jsonschema.Draft202012Validator(schema).validate(designed())
 
 
@@ -114,8 +115,11 @@ def test_generator_locks_default_designs_and_preview(sb, mods):
 
 def test_both_system_instructions_define_optional_visuals():
     root = Path(__file__).resolve().parents[1]
-    for name in ["docs/script_asset_system_prompt.txt", "nodes/llm/prompts/h3_storyboard/system_asset.txt"]:
-        text = (root / name).read_text("utf-8")
+    # The two copies of the script system instruction: the documented one in
+    # this repository and the one the generator reads, which now lives in the
+    # shared core. They must stay in step.
+    for text in ((root / "docs/script_asset_system_prompt.txt").read_text("utf-8"),
+                 prompt_path("h3_storyboard/system_asset.txt").read_text("utf-8")):
         assert "on-screen characters are REQUIRED" not in text
         assert "character_designs" in text
         assert "Each visual socket is independently OPTIONAL" in text

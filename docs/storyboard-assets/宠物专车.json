@@ -1,0 +1,159 @@
+{
+  "version": 2,
+  "name": "宠物专车",
+  "language": "zh",
+  "audio_mode": "generated",
+  "roles": [
+    {
+      "id": "character_1",
+      "name": "卖家",
+      "presence": "on_screen",
+      "initially_visible": true,
+      "position": "center",
+      "voice": "adult male, low-mid register, even unhurried pace"
+    },
+    {
+      "id": "character_2",
+      "name": "买家",
+      "presence": "off_screen",
+      "initially_visible": false,
+      "position": "none",
+      "voice": "young female, bright high register, fast clipped pace"
+    }
+  ],
+  "camera": {
+    "framing": "medium_close_up",
+    "movement": "locked",
+    "perspective": "observer"
+  },
+  "look": "手绘二维动画风格，细腻线条与柔和阴影，夜戏偏冷的色调。",
+  "setting": "角色1坐在画面中央，手机贴在耳边，肩膀松着；说话时手从耳边放下又贴回去，最后保持举着手机的姿势不动。",
+  "scene": "夜晚的客厅：一张旧沙发、一盏落地灯，墙上贴满花花绿绿的海报。",
+  "light": "custom",
+  "light_text": "夜里的客厅，唯一光源是落地灯的暖黄光，手机屏幕在脸上映出一点冷光。",
+  "constraints": "全片两段生成，是一通电话：买家只出声不出镜，画面里只有卖家。第二段是续接段，第一拍是买家在电话那头的一声不说话，买家的沉默不算台词也不许出现人声。第二段里卖家先赔笑、再笑场、最后抛出宠物专车的承诺，顺序不可调。买家全程不出镜，只在画面外说话；画面里只出现这一只手机，就是贴在耳朵上的那一部。全片不要出现第二个人、不要出现狗、不要出现宠物专车，只用台词和表情讲这件事。结尾卖家举着手机等回话，等不到，脸上的笑慢慢没有。不出现字幕、气泡与文字。",
+  "target_duration_seconds": 23.8,
+  "continuation_overlap_frames": 22,
+  "source_script": "角色1动作：角色1把手机贴在耳边，肩膀松着，听着电话那头说话。\n角色2：喂？花一万多买狗你就给我发一包狗粮？\n角色1：那你想几包。\n角色2：没有狗……\n角色1：？\n角色2：？？？\n角色1动作：角色1听见那头没动静，把手机从耳边拿开一点，又贴回去。\n角色1：咳咳……不好意思不好意思。\n角色1动作：角色1把脸转开，肩膀抖了两下。\n角色1：哈哈哈哈哈哈哈哈哈。\n角色1：狗粮是快递跑得快，狗狗是宠物专车，随后就到。\n角色1动作：角色1握着手机贴在耳边等回话，脸上的笑慢慢没了。",
+  "shots": [
+    {
+      "id": "scene_01",
+      "duration_seconds": 8.708333333333334,
+      "events": [
+        {
+          "id": "event_001",
+          "type": "action",
+          "character": "character_1",
+          "text": "角色1把手机贴在耳边，肩膀松着，听着电话那头说话。",
+          "language": "zh"
+        },
+        {
+          "id": "event_002",
+          "type": "dialogue",
+          "character": "character_2",
+          "text": "喂？花一万多买狗你就给我发一包狗粮？",
+          "language": "zh"
+        },
+        {
+          "id": "event_003",
+          "type": "dialogue",
+          "character": "character_1",
+          "text": "那你想几包。",
+          "language": "zh"
+        },
+        {
+          "id": "event_004",
+          "type": "dialogue",
+          "character": "character_2",
+          "text": "没有狗……",
+          "language": "zh"
+        },
+        {
+          "id": "event_005",
+          "type": "dialogue",
+          "character": "character_1",
+          "text": "？",
+          "language": "zh"
+        }
+      ]
+    },
+    {
+      "id": "scene_02",
+      "duration_seconds": 15.791666666666666,
+      "events": [
+        {
+          "id": "event_006",
+          "type": "dialogue",
+          "character": "character_2",
+          "text": "？？？",
+          "language": "zh"
+        },
+        {
+          "id": "event_007",
+          "type": "action",
+          "character": "character_1",
+          "text": "角色1听见那头没动静，把手机从耳边拿开一点，又贴回去。",
+          "language": "zh"
+        },
+        {
+          "id": "event_008",
+          "type": "dialogue",
+          "character": "character_1",
+          "text": "咳咳……不好意思不好意思。",
+          "language": "zh"
+        },
+        {
+          "id": "event_009",
+          "type": "action",
+          "character": "character_1",
+          "text": "角色1把脸转开，肩膀抖了两下。",
+          "language": "zh"
+        },
+        {
+          "id": "event_010",
+          "type": "dialogue",
+          "character": "character_1",
+          "text": "哈哈哈哈哈哈哈哈哈。",
+          "language": "zh"
+        },
+        {
+          "id": "event_011",
+          "type": "dialogue",
+          "character": "character_1",
+          "text": "狗粮是快递跑得快，狗狗是宠物专车，随后就到。",
+          "language": "zh"
+        },
+        {
+          "id": "event_012",
+          "type": "action",
+          "character": "character_1",
+          "text": "角色1握着手机贴在耳边等回话，脸上的笑慢慢没了。",
+          "language": "zh"
+        }
+      ]
+    }
+  ],
+  "execution": {
+    "look": "Hand-drawn two-dimensional animation style, fine linework and soft shading, a cool-leaning nighttime palette.",
+    "setting": "Character 1 sits at the center of the frame with the phone held against the ear and the shoulders relaxed; the hand drops away from the phone and comes back during the call, and the phone stays raised at the end.",
+    "scene": "A living room at night: an old sofa, a floor lamp, and a wall covered with colorful posters.",
+    "light": "A living room at night, lit only by the warm yellow glow of a floor lamp, with a little cold light from the phone screen on the face.",
+    "visible_state": "Character 1 sits at the center of the frame with the only phone in the room held flat against the ear, the shoulders relaxed and one eyebrow slightly raised; the room behind falls out of focus.",
+    "voices": {
+      "character_1": "adult male, low-mid register, even unhurried pace",
+      "character_2": "young female, bright high register, fast clipped pace"
+    },
+    "directions": {
+      "event_001": "Character 1 holds the only phone in the room flat against the ear and listens, the shoulders relaxed and one eyebrow slightly raised, the room behind falling out of focus.",
+      "event_007": "Character 1 hears nothing from the other end, pauses, lowers the phone a little and brings it back to the ear, waiting for an answer.",
+      "event_009": "Character 1 turns the head away from the phone, the shoulders shaking with suppressed laughter, the phone staying at the ear.",
+      "event_012": "Character 1 holds the phone against the ear and waits, the grin fading slowly until the face is blank and quiet, the eyes on the middle distance."
+    },
+    "character_designs": {
+      "character_1": "A plump gray British shorthair cat with round eyes, wearing a red collar."
+    }
+  },
+  "character_designs": {
+    "character_1": "一只胖乎乎的灰色英短猫，圆眼睛，戴一条红色项圈。"
+  }
+}

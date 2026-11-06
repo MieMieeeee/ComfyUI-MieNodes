@@ -21,6 +21,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from mie_core.llm import client as core_llm_client
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 LLM_PATH = PROJECT_DIR / "services" / "llm.py"
@@ -123,7 +124,7 @@ def test_ask_posts_state_and_questions(llm_module):
     r = MagicMock()
     r.status_code = 200
     r.json.return_value = _LIVE_SHAPE
-    with patch.object(llm_module, "mie_log"), \
+    with patch.object(core_llm_client, "mie_log"), \
          patch("services.llm.requests.post", return_value=r) as fake_post:
         c = llm_module.SiliconFlowJevConnectorGeneral("x", "Kev-4B", max_retries=1)
         questions = {"urgency": {"type": "noul", "instructions": "urgent?"}}
@@ -140,7 +141,7 @@ def test_ask_retries_on_5xx(llm_module):
     r5.status_code, r5.text = 503, "busy"
     r2.status_code = 200
     r2.json.return_value = _LIVE_SHAPE
-    with patch.object(llm_module, "mie_log"), \
+    with patch.object(core_llm_client, "mie_log"), \
          patch("services.llm.time.sleep"), \
          patch("services.llm.requests.post", side_effect=[r5, r2]):
         c = llm_module.SiliconFlowJevConnectorGeneral("x", "Kev-4B")
@@ -156,7 +157,7 @@ def test_invoke_requires_questions_and_serializes_answers(llm_module):
     # Without questions: loud pointer to the right node, not a silent 400.
     with pytest.raises(Exception, match="CallJevDecision"):
         c.invoke([{"role": "user", "content": "hi"}])
-    with patch.object(llm_module, "mie_log"), \
+    with patch.object(core_llm_client, "mie_log"), \
          patch("services.llm.requests.post", return_value=r):
         out = c.invoke([{"role": "user", "content": "hi"}],
                        questions={"q": {"type": "noul", "instructions": "?"}})
@@ -181,7 +182,7 @@ def test_call_jev_decision_returns_full_json(llm_module):
     node = llm_module.CallJevDecision()
     questions = json.dumps({"urgency": {"type": "noul",
                                         "instructions": "urgent?"}})
-    with patch.object(llm_module, "mie_log"), \
+    with patch.object(core_llm_client, "mie_log"), \
          patch("services.llm.requests.post", return_value=r):
         out = node.execute(_jev_conn(llm_module), "customer email", questions)[0]
     assert json.loads(out) == _LIVE_SHAPE

@@ -26,6 +26,7 @@ from pathlib import Path
 import pytest
 
 from .critic_connector import NO_FINDINGS, is_critic_call
+from mie_core.prompts import prompt_path
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 PROMPTS_DIR = PROJECT_DIR / "nodes" / "llm" / "prompts"
@@ -80,10 +81,10 @@ def lp():
 # Stage 1 — prompt assets declare the new contract
 # --------------------------------------------------------------------------- #
 def test_enhancer_prompt_declares_spatial_layout_rule():
-    txt = (PROMPTS_DIR / "h3_loop" / "user_input_enhancer_compose.txt").read_text(
+    txt = prompt_path("h3_loop/user_input_enhancer_compose.txt").read_text(
         encoding="utf-8"
     )
-    lock = (PROMPTS_DIR / "h3_loop" / "user_input_enhancer_lock.txt").read_text(
+    lock = prompt_path("h3_loop/user_input_enhancer_lock.txt").read_text(
         encoding="utf-8"
     )
     assert "Spatial layout" in lock
@@ -108,7 +109,7 @@ def test_enhancer_prompt_declares_spatial_layout_rule():
 
 
 def test_prefix_synth_system_declares_spatial_layout_rule():
-    txt = (PROMPTS_DIR / "h3_loop" / "prefix_synth_system.txt").read_text(
+    txt = prompt_path("h3_loop/prefix_synth_system.txt").read_text(
         encoding="utf-8"
     )
     assert "Spatial layout" in txt, (
@@ -127,7 +128,7 @@ def test_prefix_synth_system_declares_spatial_layout_rule():
 
 
 def test_shot_user_template_has_spatial_layout_directive_slot():
-    txt = (PROMPTS_DIR / "h3_loop" / "shot_user_template.txt").read_text(
+    txt = prompt_path("h3_loop/shot_user_template.txt").read_text(
         encoding="utf-8"
     )
     assert "{spatial_layout_directive}" in txt, (

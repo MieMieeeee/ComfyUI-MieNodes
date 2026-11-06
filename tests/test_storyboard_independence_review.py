@@ -8,6 +8,7 @@ from .test_pov_offscreen import mods
 from .test_h3_storyboard_generator import sb, ScriptedConnector
 from .test_storyboard_generation_node import options
 from .test_storyboard_generation_contract import apple
+from mie_core.prompts import prompt_path
 
 def reviewer(mods):
     return importlib.import_module(mods["storyboard"].__package__ + ".storyboard_review")
@@ -63,7 +64,10 @@ def test_generator_fails_after_repeated_visual_pollution(sb, mods):
 
 def test_both_prompts_require_counterfactual_review():
     root = Path(__file__).resolve().parents[1]
-    for rel in ["docs/script_asset_system_prompt.txt", "nodes/llm/prompts/h3_storyboard/system_asset.txt"]:
-        text = (root / rel).read_text("utf-8")
+    # The two copies of the script system instruction: the documented one in
+    # this repository and the one the generator reads, which now lives in the
+    # shared core. They must stay in step.
+    for text in ((root / "docs/script_asset_system_prompt.txt").read_text("utf-8"),
+                 prompt_path("h3_storyboard/system_asset.txt").read_text("utf-8")):
         assert "COUNTERFACTUAL REPLACEMENT REVIEW" in text
         assert "deep-night urban backdrop" in text

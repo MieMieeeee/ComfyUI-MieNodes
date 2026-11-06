@@ -22,6 +22,7 @@ import types
 from pathlib import Path
 
 import pytest
+from mie_core.prompts import prompt_path, prompt_root
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 FIXTURES = PROJECT_DIR / "tests" / "fixtures"
@@ -979,7 +980,7 @@ class TestWiringRequirements:
 class TestAddendumAndAdvice:
     def test_addendum_carries_the_three_part_contract(self):
         raw = (
-            PROJECT_DIR / "nodes" / "llm" / "prompts" / "h3_loop"
+            prompt_root() / "h3_loop"
             / "ref2v_addendum.txt"
         ).read_text(encoding="utf-8")
         # The prompt is hard-wrapped, so match on whitespace-collapsed

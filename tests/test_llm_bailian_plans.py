@@ -26,6 +26,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from mie_core.llm import client as core_llm_client
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 LLM_PATH = PROJECT_DIR / "services" / "llm.py"
@@ -259,7 +260,7 @@ def test_token_plan_invoke_posts_to_token_plan_url(llm_module):
     r = MagicMock()
     r.status_code = 200
     r.json.return_value = {"choices": [{"message": {"content": "hello"}}]}
-    with patch.object(llm_module, "mie_log"), \
+    with patch.object(core_llm_client, "mie_log"), \
          patch("services.llm.requests.post", return_value=r) as fake_post, \
          patch("services.llm.resolve_token", return_value="x"):
         c = llm_module.BailianTokenPlanConnectorGeneral("x", "qwen3-max")
@@ -276,7 +277,7 @@ def test_coding_plan_invoke_posts_to_coding_plan_url(llm_module):
     r = MagicMock()
     r.status_code = 200
     r.json.return_value = {"choices": [{"message": {"content": "code ok"}}]}
-    with patch.object(llm_module, "mie_log"), \
+    with patch.object(core_llm_client, "mie_log"), \
          patch("services.llm.requests.post", return_value=r) as fake_post, \
          patch("services.llm.resolve_token", return_value="x"):
         c = llm_module.BailianCodingPlanConnectorGeneral("x", "qwen3-coder-plus")
@@ -298,7 +299,7 @@ def test_token_plan_5xx_is_retried_with_body_snippet(llm_module):
     r2.json.return_value = {"choices": [{"message": {"content": "retry ok"}}]}
 
     captured = []
-    with patch.object(llm_module, "mie_log", side_effect=lambda m: captured.append(m)), \
+    with patch.object(core_llm_client, "mie_log", side_effect=lambda m: captured.append(m)), \
          patch("services.llm.time.sleep"), \
          patch("services.llm.requests.post", side_effect=[r5, r2]), \
          patch("services.llm.resolve_token", return_value="x"):

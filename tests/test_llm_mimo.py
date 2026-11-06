@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from mie_core.llm import client as core_llm_client
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 LLM_PATH = PROJECT_DIR / "services" / "llm.py"
@@ -213,7 +214,7 @@ def test_invoke_posts_to_standard_url_and_returns_content(llm_module):
     r.json.return_value = {
         "choices": [{"message": {"content": "hello from MiMo"}}]
     }
-    with patch.object(llm_module, "mie_log"), \
+    with patch.object(core_llm_client, "mie_log"), \
          patch("services.llm.requests.post", return_value=r) as fake_post, \
          patch("services.llm.resolve_token", return_value="x"):
         c = llm_module.MiMoConnectorGeneral("tok", "mimo-v2.5-pro")
@@ -234,7 +235,7 @@ def test_invoke_posts_to_token_plan_url(llm_module):
     r.json.return_value = {
         "choices": [{"message": {"content": "ok"}}]
     }
-    with patch.object(llm_module, "mie_log"), \
+    with patch.object(core_llm_client, "mie_log"), \
          patch("services.llm.requests.post", return_value=r) as fake_post, \
          patch("services.llm.resolve_token", return_value="tp-test"):
         c = llm_module.MiMoTokenPlanConnectorGeneral("tp-test", "mimo-v2.5-pro")
@@ -259,7 +260,7 @@ def test_5xx_response_is_retried_with_body_snippet(llm_module):
     }
 
     captured = []
-    with patch.object(llm_module, "mie_log", side_effect=lambda m: captured.append(m)), \
+    with patch.object(core_llm_client, "mie_log", side_effect=lambda m: captured.append(m)), \
          patch("services.llm.time.sleep"), \
          patch("services.llm.requests.post", side_effect=[r5, r2]), \
          patch("services.llm.resolve_token", return_value="tok"):
@@ -287,7 +288,7 @@ def test_think_block_is_stripped_from_mimo_response(llm_module):
             }
         }]
     }
-    with patch.object(llm_module, "mie_log"), \
+    with patch.object(core_llm_client, "mie_log"), \
          patch("services.llm.requests.post", return_value=r), \
          patch("services.llm.resolve_token", return_value="tok"):
         c = llm_module.MiMoConnectorGeneral("tok", "mimo-v2.5-pro")

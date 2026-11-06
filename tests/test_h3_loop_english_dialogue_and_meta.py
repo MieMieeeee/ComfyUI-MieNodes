@@ -335,7 +335,7 @@ def test_single_call_policy_follows_the_lines(mods):
 
 
 def test_shot_template_has_no_hardcoded_chinese_default():
-    txt = (PROMPTS_DIR / "h3_loop" / "shot_user_template.txt").read_text(
+    txt = prompt_path("h3_loop/shot_user_template.txt").read_text(
         encoding="utf-8"
     )
     assert "Chinese by default" not in txt
@@ -555,7 +555,7 @@ def test_spatial_layout_strips_picture_prefix_fragments(mods):
 
 
 def test_caption_prompt_describes_character_not_sheet():
-    txt = (PROMPTS_DIR / "h3" / "caption_reference.txt").read_text(
+    txt = prompt_path("h3/caption_reference.txt").read_text(
         encoding="utf-8"
     )
     assert "NOT OF THE SHEET" in txt
@@ -563,7 +563,7 @@ def test_caption_prompt_describes_character_not_sheet():
 
 
 def test_prefix_spatial_pin_uses_roster_names():
-    txt = (PROMPTS_DIR / "h3_loop" / "prefix_synth_system.txt").read_text(
+    txt = prompt_path("h3_loop/prefix_synth_system.txt").read_text(
         encoding="utf-8"
     )
     assert "ROSTER NAMES" in txt
@@ -584,6 +584,7 @@ def test_prefix_spatial_pin_uses_roster_names():
 # prefix -> six-section shots (Subjects 1-3 only) -> label policy OK.
 # --------------------------------------------------------------------------- #
 import numpy as np  # noqa: E402  (test-local, after module constants)
+from mie_core.prompts import prompt_path
 
 WF_RAW_INPUT = (
     "镜头从图2的白猫视角对着图3的小猫，图1的黑猫在图3的小猫旁边。\n"
@@ -983,14 +984,14 @@ def test_scrub_caption_sheet_language_live_phrases(mods):
 
 
 def test_shot_addendum_has_no_chinese_default():
-    txt = (PROMPTS_DIR / "h3_loop" / "shot_system_addendum.txt").read_text(
+    txt = prompt_path("h3_loop/shot_system_addendum.txt").read_text(
         encoding="utf-8"
     )
     assert "default spoken lines to Chinese" not in txt
 
 
 def test_prefix_system_never_states_dialogue_language():
-    txt = (PROMPTS_DIR / "h3_loop" / "prefix_synth_system.txt").read_text(
+    txt = prompt_path("h3_loop/prefix_synth_system.txt").read_text(
         encoding="utf-8"
     )
     assert "NEVER states a spoken-dialogue language" in txt

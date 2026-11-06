@@ -1,0 +1,86 @@
+KEYS: ['prompt_prefix', 'shots']
+N shots: 3
+================================================================================
+SHOT scene_01 len 345
+integrated_multimodal_description: [Shot 1] medium shot of Character 1, already visible at the first frame, gentle camera follow motivated by the action, an observer viewpoint, separate from the cast.
+Handmade felt-puppet stop-motion style, fuzzy felt surface texture, soft highlights and a shallow-focus macro feel.
+Character 1 appearance: A small white felt rabbit with round eyes, wearing a red pinafore-style coat with a white collar and a wooden price tag reading $100 at the chest.
+Character 2 appearance: A small white felt rabbit with round eyes, wearing a yellow dress with a gold star badge at the chest and a wooden price tag reading $50 at the chest.
+Character 3 appearance: A small white felt rabbit with round eyes, wearing a blue dress with a white apron and a wooden price tag reading $25 at the chest.
+Character 4 appearance: A small white felt rabbit with round eyes, wearing a green dress with a green hood and a wooden price tag reading $1 at the chest.
+Opening cast: Character 1. Begin directly in this framing.
+Not visible at the opening: Character 2, Character 3, Character 4. Only explicit entrance events may add them.
+Character 1 begins at center of frame.
+Opening staging: Character 1 stands at the center of the frame with colored chips scattered on the ground in front of it; the other characters walk in from the right one after another, stop in front of the chips, and stay where they stand after turning to stone.
+Scene context: A tabletop miniature set: a dark red rug laid over a burlap cloth surface, with a few small colorful mushroom lamps standing around it.
+Light: A tabletop miniature set at night, lit only by the warm orange glow of small mushroom lamps inside the set; the light is soft and warm and the background falls out of focus.
+Only the explicitly tagged dialogue is spoken. Do not speak stage directions or role labels.
+Perform the following events once, in the exact written order; one speaker at a time, without overlapping or repeating lines.
+Each specified prop exists in its stated quantity and stays with its stated holder. An offered object stays with the offering actor until an explicit accepted handover; refusal leaves the other actor empty-handed.
+During dialogue-only events, keep incidental reference props with their initial holder and limit movement to natural speaking reactions.
+The image contains exactly the declared visible cast in the present setting. Spoken stories remain audio within this present conversation.
+Visible state: Character 1 stands at the center of the frame, leaning forward with one paw stretched down toward the colored chips scattered on the ground, a woven basket in the other paw and a $100 wooden price tag at the chest; as a gray stone figure the reaching pose, the basket and the tag stay exactly as they are. The other rabbits in the background are gray stone figures standing frozen where they stopped, earlier victims each with a wooden price tag, and the colored chips lie on the ground between the living rabbit and the right edge of the frame.
+Character 1 performs this action: Character 1 is the only rabbit in the frame, standing at the center in front of the scattered chips with one woven basket in the paw, lowering the head toward the chips and reaching the other paw down toward the nearest chip as tears run down the face; a wooden price tag reading $100 hangs at the chest.
+Character 1 speaks as (S1), thin high voice, breathy mid register, fast uneven pace: <d>[Chinese] 啊啊啊！</d> Character 1's lips move naturally with this line.
+Character 1 performs this action: Character 1's body hardens from the paws upward into a gray stone figure, the reaching pose staying fixed, the woven basket and the $100 price tag held in place.
+Character 2 enters the frame: Character 2 walks in from the right edge of the frame carrying one woven basket, the only living rabbit in the frame while the gray stone figure of Character 1 stands frozen mid-reach wearing the $100 price tag, and stops at the edge of the chips with a wooden price tag reading $50 hanging at the chest.
+Character 2 speaks as (S2), clear mid voice, mid register, even measured pace: <d>[Chinese] 市场血流成河，正是抄底好时机！</d> Character 2's lips move naturally with this line.
+While this line is spoken, Character 1's lips remain completely closed.
+Character 2 performs this action: Character 2 squats down, pushes the mouth of the woven basket along the ground and sweeps the scattered chips into it one by one until a small heap of chips sits inside.
+Character 2 performs this action: Character 2's body hardens from the paws upward into a gray stone figure, the squatting pose staying fixed, the loaded basket and the $50 price tag held in place.
+overall_soundscape: Natural room tone, breathing and synchronized movement sounds.
+non_diegetic_music: No non-diegetic music.
+================================================================================
+SHOT scene_02 len 345
+integrated_multimodal_description: [Shot 1] medium shot of Character 1, Character 2, already visible at the first frame, gentle camera follow motivated by the action, an observer viewpoint, separate from the cast.
+Handmade felt-puppet stop-motion style, fuzzy felt surface texture, soft highlights and a shallow-focus macro feel.
+Character 1 appearance: A small white felt rabbit with round eyes, wearing a red pinafore-style coat with a white collar and a wooden price tag reading $100 at the chest.
+Character 2 appearance: A small white felt rabbit with round eyes, wearing a yellow dress with a gold star badge at the chest and a wooden price tag reading $50 at the chest.
+Character 3 appearance: A small white felt rabbit with round eyes, wearing a blue dress with a white apron and a wooden price tag reading $25 at the chest.
+Character 4 appearance: A small white felt rabbit with round eyes, wearing a green dress with a green hood and a wooden price tag reading $1 at the chest.
+Opening cast: Character 1, Character 2. Begin directly in this framing.
+Not visible at the opening: Character 3, Character 4. Only explicit entrance events may add them.
+Opening staging: Character 1 stands at the center of the frame with colored chips scattered on the ground in front of it; the other characters walk in from the right one after another, stop in front of the chips, and stay where they stand after turning to stone.
+Scene context: A tabletop miniature set: a dark red rug laid over a burlap cloth surface, with a few small colorful mushroom lamps standing around it.
+Light: A tabletop miniature set at night, lit only by the warm orange glow of small mushroom lamps inside the set; the light is soft and warm and the background falls out of focus.
+Continue the current blocking, completed action state and prop ownership from the preceding clip.
+Only the explicitly tagged dialogue is spoken. Do not speak stage directions or role labels.
+Perform the following events once, in the exact written order; one speaker at a time, without overlapping or repeating lines.
+Each specified prop exists in its stated quantity and stays with its stated holder. An offered object stays with the offering actor until an explicit accepted handover; refusal leaves the other actor empty-handed.
+During dialogue-only events, keep incidental reference props with their initial holder and limit movement to natural speaking reactions.
+The image contains exactly the declared visible cast in the present setting. Spoken stories remain audio within this present conversation.
+Visible state: Character 1 stands at the center of the frame, leaning forward with one paw stretched down toward the colored chips scattered on the ground, a woven basket in the other paw and a $100 wooden price tag at the chest; as a gray stone figure the reaching pose, the basket and the tag stay exactly as they are. The other rabbits in the background are gray stone figures standing frozen where they stopped, earlier victims each with a wooden price tag, and the colored chips lie on the ground between the living rabbit and the right edge of the frame.
+Character 3 enters the frame: Character 3 walks in from the right carrying one woven basket, the only living rabbit in the frame while the two gray stone figures stand frozen along the left wearing the $100 and the $50 price tags, and stops beside them at the edge of the chips with a wooden price tag reading $25 hanging at the chest.
+Character 3 speaks as (S3), bright mid voice, mid register, brisk even pace: <d>[Chinese] 跌到二十五了，遍地黄金！</d> Character 3's lips move naturally with this line.
+While this line is spoken, Character 1's lips remain completely closed and Character 2's lips remain completely closed.
+Character 3 performs this action: Character 3 squats down next to the stone figures and sweeps the chips on the ground into the woven basket with a paw.
+Character 3 performs this action: Character 3's body hardens from the paws upward into a gray stone figure, the squatting pose staying fixed, the basket and the $25 price tag held in place.
+Character 4 enters the frame: Character 4 walks in from the right carrying one woven basket, the only living rabbit in the frame while the three gray stone figures stand frozen along the left wearing the $100, the $50 and the $25 price tags, and stops in front of them at the edge of the chips with a wooden price tag reading $1 hanging at the chest.
+Character 4 speaks as (S4), soft low mid voice, mid register, slow even pace: <d>[Chinese] ……市场血流成河，恐慌情绪蔓延。</d> Character 4's lips move naturally with this line.
+While this line is spoken, Character 1's lips remain completely closed and Character 2's lips remain completely closed and Character 3's lips remain completely closed.
+overall_soundscape: Natural room tone, breathing and synchronized movement sounds.
+non_diegetic_music: No non-diegetic music.
+================================================================================
+SHOT scene_03 len 158
+integrated_multimodal_description: [Shot 1] medium shot of Character 1, Character 2, Character 3, Character 4, already visible at the first frame, gentle camera follow motivated by the action, an observer viewpoint, separate from the cast.
+Handmade felt-puppet stop-motion style, fuzzy felt surface texture, soft highlights and a shallow-focus macro feel.
+Character 1 appearance: A small white felt rabbit with round eyes, wearing a red pinafore-style coat with a white collar and a wooden price tag reading $100 at the chest.
+Character 2 appearance: A small white felt rabbit with round eyes, wearing a yellow dress with a gold star badge at the chest and a wooden price tag reading $50 at the chest.
+Character 3 appearance: A small white felt rabbit with round eyes, wearing a blue dress with a white apron and a wooden price tag reading $25 at the chest.
+Character 4 appearance: A small white felt rabbit with round eyes, wearing a green dress with a green hood and a wooden price tag reading $1 at the chest.
+Opening cast: Character 1, Character 2, Character 3, Character 4. Begin directly in this framing.
+Opening staging: Character 1 stands at the center of the frame with colored chips scattered on the ground in front of it; the other characters walk in from the right one after another, stop in front of the chips, and stay where they stand after turning to stone.
+Scene context: A tabletop miniature set: a dark red rug laid over a burlap cloth surface, with a few small colorful mushroom lamps standing around it.
+Light: A tabletop miniature set at night, lit only by the warm orange glow of small mushroom lamps inside the set; the light is soft and warm and the background falls out of focus.
+Continue the current blocking, completed action state and prop ownership from the preceding clip.
+Only the explicitly tagged dialogue is spoken. Do not speak stage directions or role labels.
+Perform the following events once, in the exact written order; one speaker at a time, without overlapping or repeating lines.
+Each specified prop exists in its stated quantity and stays with its stated holder. An offered object stays with the offering actor until an explicit accepted handover; refusal leaves the other actor empty-handed.
+During dialogue-only events, keep incidental reference props with their initial holder and limit movement to natural speaking reactions.
+The image contains exactly the declared visible cast in the present setting. Spoken stories remain audio within this present conversation.
+Visible state: Character 1 stands at the center of the frame, leaning forward with one paw stretched down toward the colored chips scattered on the ground, a woven basket in the other paw and a $100 wooden price tag at the chest; as a gray stone figure the reaching pose, the basket and the tag stay exactly as they are. The other rabbits in the background are gray stone figures standing frozen where they stopped, earlier victims each with a wooden price tag, and the colored chips lie on the ground between the living rabbit and the right edge of the frame.
+Character 4 performs this action: Character 4 squats down, pushes the woven basket along the ground and gathers the last few chips into it.
+[Shot 2] wide shot, gentle camera follow motivated by the action, an observer viewpoint, separate from the cast. Cut directly to this framing within the same scene.
+Character 4 performs this action: Character 4's body hardens from the paws upward into a gray stone figure, the squatting pose staying fixed, the basket and the $1 price tag held in place; the view then pulls back and lifts to a high overhead angle over the four gray stone figures standing on the rug - the one with the $100 price tag, the one with the $50 price tag, the one with the $25 price tag and Character 4 with the $1 price tag - and beyond them a field of gray stone rabbit figures covering the whole ground far into the distance, every one of them already turned to stone.
+overall_soundscape: Natural room tone, breathing and synchronized movement sounds.
+non_diegetic_music: No non-diegetic music.

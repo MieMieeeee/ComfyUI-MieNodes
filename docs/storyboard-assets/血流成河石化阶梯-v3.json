@@ -1,0 +1,223 @@
+{
+  "version": 2,
+  "name": "血流成河石化阶梯-v3",
+  "language": "zh",
+  "audio_mode": "generated",
+  "roles": [
+    {
+      "id": "character_1",
+      "name": "百元兔子",
+      "presence": "on_screen",
+      "initially_visible": true,
+      "position": "center",
+      "voice": "thin high voice, breathy mid register, fast uneven pace"
+    },
+    {
+      "id": "character_2",
+      "name": "五十元兔子",
+      "presence": "on_screen",
+      "initially_visible": false,
+      "position": "none",
+      "voice": "clear mid voice, mid register, even measured pace"
+    },
+    {
+      "id": "character_3",
+      "name": "二十五元兔子",
+      "presence": "on_screen",
+      "initially_visible": false,
+      "position": "none",
+      "voice": "bright mid voice, mid register, brisk even pace"
+    },
+    {
+      "id": "character_4",
+      "name": "一元兔子",
+      "presence": "on_screen",
+      "initially_visible": false,
+      "position": "none",
+      "voice": "soft low mid voice, mid register, slow even pace"
+    }
+  ],
+  "camera": {
+    "framing": "medium_shot",
+    "movement": "gentle_follow",
+    "perspective": "observer"
+  },
+  "look": "手工毛毡玩偶定格动画风格，绒面毛毡质感，柔和高光与浅景深微距感。",
+  "setting": "角色1站在画面中央，面前的地上散落着筹码；其余角色先后从画面右侧走入，停在筹码前面，石化后留在原地不动。",
+  "scene": "桌面微缩布景：麻布台面上铺着一块暗红色地毯，地毯周围立着几盏彩色的小蘑菇灯。",
+  "light": "custom",
+  "light_text": "夜里的桌面微缩布景，唯一光源是布景中几盏小蘑菇灯的暖橙色柔光，光线柔和温暖，背景自然虚化。",
+  "constraints": "全片三段生成：第一段角色1与角色2，第二段角色3与角色4，第三段角色4石化后拉高俯拍。画面里只有一只活着的兔子，背景里其余的兔子全是灰色的石像，是之前被套牢的人，保持着停下时的姿势。每只活着的兔子进场后伸手去捡地上的筹码，等价格跌过自己胸前那块牌子的价钱，就从爪子开始一层层变成灰色石像，保持当时的姿势、竹篮和牌子不动，留在原地成为下一段的背景，后一只必须真的从画面外走进来。价签是剧情必需道具，角色1 $100、角色2 $50、角色3 $25、角色4 $1，石像身上的价签也要始终清楚可读。最后一段角色4蹲下捡筹码之后硬切到全景（约在最后一段4秒处），镜头缓缓拉高升起，俯拍整片铺满地面的灰色石像群像，每一只都已经是石化的。前两段镜头平稳。台词与收尾节拍必须完整落在续接重叠之后。哭喊短促不拖长气声；角色2与角色3的喊话是兴奋而不是怒斥，语速偏快；角色4那句是平静的陈述，语速慢。不出现字幕、气泡与文字。",
+  "target_duration_seconds": 33.5,
+  "continuation_overlap_frames": 22,
+  "source_script": "角色1动作：角色1抱着竹篮站在那堆筹码前面，低头盯着地上的筹码，伸出一只爪子想去捡，泪水从脸上滑下来。\n角色1：啊啊啊！\n角色1动作：角色1的身体从爪子开始发硬，一层层变成灰色的石像，保持着伸手够筹码的姿势定在原地。\n角色2入场：角色2提着一个竹篮从画面右侧走进来，径直走到那堆筹码前面。\n角色2：市场血流成河，正是抄底好时机！\n角色2动作：角色2蹲下身，把竹篮口贴着地面，一枚一枚把筹码拨进篮子里。\n角色2动作：角色2的身体从爪子开始发硬，一层层变成灰色的石像，保持着蹲着拨筹码的姿势定在原地。\n角色3入场：角色3提着一个竹篮从画面右侧走进来，在那两尊石像旁边停下。\n角色3：跌到二十五了，遍地黄金！\n角色3动作：角色3蹲下来，把地上的筹码一枚一枚拨进自己的竹篮。\n角色3动作：角色3的身体从爪子开始发硬，一层层变成灰色的石像，保持着蹲着拨筹码的姿势定在原地。\n角色4入场：角色4提着一个竹篮从画面右侧走进来，走到那排石像前面停下。\n角色4：……市场血流成河，恐慌情绪蔓延。\n角色4动作：角色4蹲下身，把竹篮口伸向地上仅剩的几枚筹码。\n角色4动作：角色4的身体从爪子开始发硬，变成灰色石像，保持着蹲着够筹码的姿势定在原地。",
+  "shots": [
+    {
+      "id": "scene_01",
+      "duration_seconds": 14.375,
+      "events": [
+        {
+          "id": "event_001",
+          "type": "action",
+          "character": "character_1",
+          "text": "角色1抱着竹篮站在那堆筹码前面，低头盯着地上的筹码，伸出一只爪子想去捡，泪水从脸上滑下来。",
+          "language": "zh"
+        },
+        {
+          "id": "event_002",
+          "type": "dialogue",
+          "character": "character_1",
+          "text": "啊啊啊！",
+          "language": "zh"
+        },
+        {
+          "id": "event_003",
+          "type": "action",
+          "character": "character_1",
+          "text": "角色1的身体从爪子开始发硬，一层层变成灰色的石像，保持着伸手够筹码的姿势定在原地。",
+          "language": "zh"
+        },
+        {
+          "id": "event_004",
+          "type": "enter",
+          "character": "character_2",
+          "text": "角色2提着一个竹篮从画面右侧走进来，径直走到那堆筹码前面。",
+          "language": "zh"
+        },
+        {
+          "id": "event_005",
+          "type": "dialogue",
+          "character": "character_2",
+          "text": "市场血流成河，正是抄底好时机！",
+          "language": "zh"
+        },
+        {
+          "id": "event_006",
+          "type": "action",
+          "character": "character_2",
+          "text": "角色2蹲下身，把竹篮口贴着地面，一枚一枚把筹码拨进篮子里。",
+          "language": "zh"
+        },
+        {
+          "id": "event_007",
+          "type": "action",
+          "character": "character_2",
+          "text": "角色2的身体从爪子开始发硬，一层层变成灰色的石像，保持着蹲着拨筹码的姿势定在原地。",
+          "language": "zh"
+        }
+      ]
+    },
+    {
+      "id": "scene_02",
+      "duration_seconds": 14.375,
+      "events": [
+        {
+          "id": "event_008",
+          "type": "enter",
+          "character": "character_3",
+          "text": "角色3提着一个竹篮从画面右侧走进来，在那两尊石像旁边停下。",
+          "language": "zh"
+        },
+        {
+          "id": "event_009",
+          "type": "dialogue",
+          "character": "character_3",
+          "text": "跌到二十五了，遍地黄金！",
+          "language": "zh"
+        },
+        {
+          "id": "event_010",
+          "type": "action",
+          "character": "character_3",
+          "text": "角色3蹲下来，把地上的筹码一枚一枚拨进自己的竹篮。",
+          "language": "zh"
+        },
+        {
+          "id": "event_011",
+          "type": "action",
+          "character": "character_3",
+          "text": "角色3的身体从爪子开始发硬，一层层变成灰色的石像，保持着蹲着拨筹码的姿势定在原地。",
+          "language": "zh"
+        },
+        {
+          "id": "event_012",
+          "type": "enter",
+          "character": "character_4",
+          "text": "角色4提着一个竹篮从画面右侧走进来，走到那排石像前面停下。",
+          "language": "zh"
+        },
+        {
+          "id": "event_013",
+          "type": "dialogue",
+          "character": "character_4",
+          "text": "……市场血流成河，恐慌情绪蔓延。",
+          "language": "zh"
+        }
+      ]
+    },
+    {
+      "id": "scene_03",
+      "duration_seconds": 6.583333333333334,
+      "camera_cuts": [
+        {
+          "before_event": "event_015",
+          "framing": "wide_shot"
+        }
+      ],
+      "events": [
+        {
+          "id": "event_014",
+          "type": "action",
+          "character": "character_4",
+          "text": "角色4蹲下身，把竹篮口伸向地上仅剩的几枚筹码。",
+          "language": "zh"
+        },
+        {
+          "id": "event_015",
+          "type": "action",
+          "character": "character_4",
+          "text": "角色4的身体从爪子开始发硬，变成灰色石像，保持着蹲着够筹码的姿势定在原地。",
+          "language": "zh"
+        }
+      ]
+    }
+  ],
+  "execution": {
+    "look": "Handmade felt-puppet stop-motion style, fuzzy felt surface texture, soft highlights and a shallow-focus macro feel.",
+    "setting": "Character 1 stands at the center of the frame with colored chips scattered on the ground in front of it; the other characters walk in from the right one after another, stop in front of the chips, and stay where they stand after turning to stone.",
+    "scene": "A tabletop miniature set: a dark red rug laid over a burlap cloth surface, with a few small colorful mushroom lamps standing around it.",
+    "light": "A tabletop miniature set at night, lit only by the warm orange glow of small mushroom lamps inside the set; the light is soft and warm and the background falls out of focus.",
+    "visible_state": "Character 1 stands at the center of the frame, leaning forward with one paw stretched down toward the colored chips scattered on the ground, a woven basket in the other paw and a $100 wooden price tag at the chest; as a gray stone figure the reaching pose, the basket and the tag stay exactly as they are. The other rabbits in the background are gray stone figures standing frozen where they stopped, earlier victims each with a wooden price tag, and the colored chips lie on the ground between the living rabbit and the right edge of the frame.",
+    "voices": {
+      "character_1": "thin high voice, breathy mid register, fast uneven pace",
+      "character_2": "clear mid voice, mid register, even measured pace",
+      "character_3": "bright mid voice, mid register, brisk even pace",
+      "character_4": "soft low mid voice, mid register, slow even pace"
+    },
+    "directions": {
+      "event_001": "Character 1 is the only rabbit in the frame, standing at the center in front of the scattered chips with one woven basket in the paw, lowering the head toward the chips and reaching the other paw down toward the nearest chip as tears run down the face; a wooden price tag reading $100 hangs at the chest.",
+      "event_003": "Character 1's body hardens from the paws upward into a gray stone figure, the reaching pose staying fixed, the woven basket and the $100 price tag held in place.",
+      "event_004": "Character 2 walks in from the right edge of the frame carrying one woven basket, the only living rabbit in the frame while the gray stone figure of Character 1 stands frozen mid-reach wearing the $100 price tag, and stops at the edge of the chips with a wooden price tag reading $50 hanging at the chest.",
+      "event_006": "Character 2 squats down, pushes the mouth of the woven basket along the ground and sweeps the scattered chips into it one by one until a small heap of chips sits inside.",
+      "event_007": "Character 2's body hardens from the paws upward into a gray stone figure, the squatting pose staying fixed, the loaded basket and the $50 price tag held in place.",
+      "event_008": "Character 3 walks in from the right carrying one woven basket, the only living rabbit in the frame while the two gray stone figures stand frozen along the left wearing the $100 and the $50 price tags, and stops beside them at the edge of the chips with a wooden price tag reading $25 hanging at the chest.",
+      "event_010": "Character 3 squats down next to the stone figures and sweeps the chips on the ground into the woven basket with a paw.",
+      "event_011": "Character 3's body hardens from the paws upward into a gray stone figure, the squatting pose staying fixed, the basket and the $25 price tag held in place.",
+      "event_012": "Character 4 walks in from the right carrying one woven basket, the only living rabbit in the frame while the three gray stone figures stand frozen along the left wearing the $100, the $50 and the $25 price tags, and stops in front of them at the edge of the chips with a wooden price tag reading $1 hanging at the chest.",
+      "event_014": "Character 4 squats down, pushes the woven basket along the ground and gathers the last few chips into it.",
+      "event_015": "Character 4's body hardens from the paws upward into a gray stone figure, the squatting pose staying fixed, the basket and the $1 price tag held in place; the view then pulls back and lifts to a high overhead angle over the four gray stone figures standing on the rug - the one with the $100 price tag, the one with the $50 price tag, the one with the $25 price tag and Character 4 with the $1 price tag - and beyond them a field of gray stone rabbit figures covering the whole ground far into the distance, every one of them already turned to stone."
+    },
+    "character_designs": {
+      "character_1": "A small white felt rabbit with round eyes, wearing a red pinafore-style coat with a white collar and a wooden price tag reading $100 at the chest.",
+      "character_2": "A small white felt rabbit with round eyes, wearing a yellow dress with a gold star badge at the chest and a wooden price tag reading $50 at the chest.",
+      "character_3": "A small white felt rabbit with round eyes, wearing a blue dress with a white apron and a wooden price tag reading $25 at the chest.",
+      "character_4": "A small white felt rabbit with round eyes, wearing a green dress with a green hood and a wooden price tag reading $1 at the chest."
+    }
+  },
+  "character_designs": {
+    "character_1": "一只白色毛毡小兔，圆眼睛，穿红色围裙外衣，戴白色小领子，胸前挂着写着「$100」的木牌。",
+    "character_2": "一只白色毛毡小兔，圆眼睛，穿黄色连衣裙，胸前别着一枚金色星星徽章，胸前挂着写着「$50」的木牌。",
+    "character_3": "一只白色毛毡小兔，圆眼睛，穿蓝色连衣裙，系白色围裙，胸前挂着写着「$25」的木牌。",
+    "character_4": "一只白色毛毡小兔，圆眼睛，穿绿色连衣裙，戴绿色兜帽，胸前挂着写着「$1」的木牌。"
+  }
+}

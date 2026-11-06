@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from mie_core.llm import client as core_llm_client
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 LLM_PATH = PROJECT_DIR / "services" / "llm.py"
@@ -73,7 +74,7 @@ def _make_5xx_then_200():
 
 def test_5xx_retry_logs_body_snippet_and_per_attempt(llm_module):
     captured = []
-    with patch.object(llm_module, "mie_log", side_effect=lambda m: captured.append(m)), \
+    with patch.object(core_llm_client, "mie_log", side_effect=lambda m: captured.append(m)), \
          patch("services.llm.time.sleep"), \
          patch("services.llm.requests.post", side_effect=_make_5xx_then_200()), \
          patch("services.llm.resolve_token", return_value="tok"):
@@ -101,7 +102,7 @@ def test_timeout_path_logs_elapsed_and_raises_after_max_retries(llm_module):
     def raise_timeout(*a, **k):
         raise requests.exceptions.Timeout("read timed out after 30s")
 
-    with patch.object(llm_module, "mie_log", side_effect=lambda m: captured.append(m)), \
+    with patch.object(core_llm_client, "mie_log", side_effect=lambda m: captured.append(m)), \
          patch("services.llm.time.sleep") as fake_sleep, \
          patch("services.llm.requests.post", side_effect=raise_timeout), \
          patch("services.llm.resolve_token", return_value="tok"):
@@ -151,7 +152,7 @@ def _run_with_response(llm_module, response_json, captured):
     resp = MagicMock()
     resp.status_code = 200
     resp.json.return_value = response_json
-    with patch.object(llm_module, "mie_log", side_effect=lambda m: captured.append(m)), \
+    with patch.object(core_llm_client, "mie_log", side_effect=lambda m: captured.append(m)), \
          patch("services.llm.time.sleep"), \
          patch("services.llm.requests.post", return_value=resp), \
          patch("services.llm.resolve_token", return_value="tok"):
@@ -197,7 +198,7 @@ def test_structured_caller_ignores_reasoning_when_content_empty(llm_module):
             }
         }]
     }
-    with patch.object(llm_module, "mie_log", side_effect=lambda m: captured.append(m)), \
+    with patch.object(core_llm_client, "mie_log", side_effect=lambda m: captured.append(m)), \
          patch("services.llm.time.sleep"), \
          patch("services.llm.requests.post", return_value=resp), \
          patch("services.llm.resolve_token", return_value="tok"):
@@ -294,7 +295,7 @@ def test_finish_reason_is_exposed_to_callers(llm_module):
             "finish_reason": "stop",
         }]
     }
-    with patch.object(llm_module, "mie_log"), \
+    with patch.object(core_llm_client, "mie_log"), \
          patch("services.llm.time.sleep"), \
          patch("services.llm.requests.post", side_effect=[starved, ok]), \
          patch("services.llm.resolve_token", return_value="tok"):
@@ -311,7 +312,7 @@ def test_finish_reason_absent_is_none_and_logs_unknown(llm_module):
     resp = MagicMock()
     resp.status_code = 200
     resp.json.return_value = {"choices": [{"message": {"content": ""}}]}
-    with patch.object(llm_module, "mie_log", side_effect=lambda m: captured.append(m)), \
+    with patch.object(core_llm_client, "mie_log", side_effect=lambda m: captured.append(m)), \
          patch("services.llm.time.sleep"), \
          patch("services.llm.requests.post", return_value=resp), \
          patch("services.llm.resolve_token", return_value="tok"):
@@ -380,7 +381,7 @@ def test_structured_caller_ignores_thought_parts_and_reasoning_field(llm_module)
             }
         }]
     }
-    with patch.object(llm_module, "mie_log", side_effect=lambda m: captured.append(m)), \
+    with patch.object(core_llm_client, "mie_log", side_effect=lambda m: captured.append(m)), \
          patch("services.llm.time.sleep"), \
          patch("services.llm.requests.post", return_value=resp), \
          patch("services.llm.resolve_token", return_value="tok"):
@@ -399,7 +400,7 @@ def test_unclosed_think_is_not_a_structured_answer(llm_module):
             "message": {"content": "<think>only the chain, no closer"}
         }]
     }
-    with patch.object(llm_module, "mie_log"), \
+    with patch.object(core_llm_client, "mie_log"), \
          patch("services.llm.time.sleep"), \
          patch("services.llm.requests.post", return_value=resp), \
          patch("services.llm.resolve_token", return_value="tok"):
@@ -413,7 +414,7 @@ def _gemini_invoke(llm_module, parts, *, allow_fallback):
     resp.json.return_value = {
         "candidates": [{"content": {"parts": parts}}]
     }
-    with patch.object(llm_module, "mie_log"), \
+    with patch.object(core_llm_client, "mie_log"), \
          patch("services.llm.time.sleep"), \
          patch("services.llm.requests.post", return_value=resp), \
          patch("services.llm.resolve_token", return_value="tok"):

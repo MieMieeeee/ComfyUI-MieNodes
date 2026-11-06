@@ -4,7 +4,7 @@
 The two system prompts below are a SYNC PAIR (2026-10 ruling: shared rules
 land in BOTH files in the same commit):
 
-* ``nodes/llm/prompts/h3_storyboard/system_asset.txt`` — used inside
+* ``h3_storyboard/system_asset.txt`` — used inside
   ComfyUI by the 剧本资产生成器 node (asset_header + locked_events input).
 * ``docs/script_asset_system_prompt.txt`` — used outside ComfyUI.
 
@@ -26,9 +26,10 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from mie_core.prompts import prompt_path
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
-NODE_PROMPT = PROJECT_DIR / "nodes" / "llm" / "prompts" / "h3_storyboard" / "system_asset.txt"
+NODE_PROMPT = prompt_path("h3_storyboard/system_asset.txt")
 DOCS_PROMPT = PROJECT_DIR / "docs" / "script_asset_system_prompt.txt"
 
 CRAFT_HEADING = "CRAFT RULES FROM LIVE RENDERS"

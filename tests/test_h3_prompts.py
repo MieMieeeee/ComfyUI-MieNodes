@@ -31,6 +31,7 @@ import types
 from pathlib import Path
 
 import pytest
+from mie_core.prompts import prompt_path
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 H3_GEN_PATH = PROJECT_DIR / "nodes" / "llm" / "h3_prompt_generator.py"
@@ -120,7 +121,7 @@ def test_prompt_files_exist():
         "examples_t2v.txt",
         "examples_i2v.txt",
     }
-    on_disk = {p.name for p in (PROMPTS_DIR / "h3").iterdir()}
+    on_disk = {p.name for p in prompt_path("h3").iterdir()}
     missing = expected - on_disk
     assert not missing, f"missing prompt files: {missing}"
 

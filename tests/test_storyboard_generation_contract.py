@@ -6,6 +6,9 @@ from pathlib import Path
 
 import pytest
 from .test_pov_offscreen import mods, _char
+from mie_core.prompts import prompt_path
+from mie_core.assets import library as core_library
+from mie_core.assets import script_asset as core_storyboard
 
 FIXTURES = Path(__file__).parent / "fixtures"
 PROJECT_DIR = Path(__file__).resolve().parents[1]
@@ -168,7 +171,7 @@ def test_v2_explicit_entrance_is_not_overridden_by_first_frame_pins(mods):
 
 
 def test_portable_system_instruction_contains_valid_asset_example(mods):
-    resource = Path(__file__).parents[1] / "nodes/llm/prompts/h3_storyboard/system_asset.txt"
+    resource = prompt_path("h3_storyboard/system_asset.txt")
     example = next(line for line in resource.read_text(encoding="utf-8").splitlines() if line.startswith('{"version":2'))
     asset = mods["storyboard"].validate_storyboard_payload(json.loads(example))
     assert asset["roles"][0]["presence"] == "off_screen"
@@ -461,8 +464,11 @@ def test_bundled_assets_answer_names_the_user_library_does_not_have(mods, tmp_pa
     (plugin_root / "bundled_assets" / "storyboards" / "内置分镜" / "storyboard.json").write_text(
         json.dumps(payload, ensure_ascii=False), encoding="utf-8")
 
-    monkeypatch.setattr(library, "PLUGIN_ROOT", plugin_root)
-    monkeypatch.setattr(storyboard, "_library", library)
+    # The implementation now lives in ComfyUI-Mie-Core, so the patch has to
+    # land there: a monkeypatch on the compatibility shim would stay on the
+    # shim and change nothing.
+    monkeypatch.setattr(core_library, "PLUGIN_ROOT", plugin_root)
+    monkeypatch.setattr(core_storyboard, "_library", core_library)
     names = library.list_characters("", plugin_root=plugin_root).get("names", "").splitlines()
     assert "内置猫" in names
     sb_names = storyboard.list_storyboards("").get("names", "").splitlines()

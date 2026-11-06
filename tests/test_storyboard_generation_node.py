@@ -7,6 +7,7 @@ import pytest
 from .test_h3_storyboard_generator import sb, ScriptedConnector
 from .test_pov_offscreen import mods
 from .test_storyboard_generation_contract import apple
+from mie_core.prompts import prompt_path
 
 
 def options(raw):
@@ -33,7 +34,7 @@ def test_generator_emits_valid_asset_and_uses_one_portable_instruction(sb, mods)
     conn = ScriptedConnector([json.dumps(raw, ensure_ascii=False)])
     asset = enhancer(sb, conn)(raw["source_script"], 2, seed=4, **options(raw))
     assert asset == mods["storyboard"].validate_storyboard_payload(asset)
-    resource = Path(sb.__file__).parent / "prompts/h3_storyboard/system_asset.txt"
+    resource = prompt_path("h3_storyboard/system_asset.txt")
     assert conn.calls[0][0]["content"] == resource.read_text(encoding="utf-8")
     assert len(conn.calls) == 1
 

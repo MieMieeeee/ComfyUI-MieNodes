@@ -1,0 +1,285 @@
+{
+  "version": 2,
+  "name": "血流成河套牢队列",
+  "language": "zh",
+  "audio_mode": "generated",
+  "roles": [
+    {
+      "id": "character_1",
+      "name": "红牌兔子",
+      "presence": "on_screen",
+      "initially_visible": true,
+      "position": "center",
+      "voice": "thin high voice, breathy mid register, fast uneven pace"
+    },
+    {
+      "id": "character_2",
+      "name": "黄裙兔子",
+      "presence": "on_screen",
+      "initially_visible": false,
+      "position": "none",
+      "voice": "clear mid voice, mid register, even measured pace"
+    },
+    {
+      "id": "character_3",
+      "name": "蓝牌兔子",
+      "presence": "on_screen",
+      "initially_visible": false,
+      "position": "none",
+      "voice": "bright mid voice, mid register, brisk even pace"
+    },
+    {
+      "id": "character_4",
+      "name": "绿牌兔子",
+      "presence": "on_screen",
+      "initially_visible": false,
+      "position": "none",
+      "voice": "soft low mid voice, mid register, slow even pace"
+    },
+    {
+      "id": "character_5",
+      "name": "紫牌兔子",
+      "presence": "on_screen",
+      "initially_visible": false,
+      "position": "none",
+      "voice": ""
+    }
+  ],
+  "camera": {
+    "framing": "medium_shot",
+    "movement": "locked",
+    "perspective": "observer"
+  },
+  "look": "手工毛毡玩偶定格动画风格，绒面毛毡质感，柔和高光与浅景深微距感。",
+  "setting": "角色1被锁在画面中央，脖子上的金属链连着身后木桩上的挂锁；其余角色先后从画面右侧走入，地上的筹码铺在角色1与画面右边缘之间。",
+  "scene": "桌面微缩布景：麻布台面上铺着一块暗红色地毯，地毯周围立着几盏彩色的小蘑菇灯。",
+  "light": "custom",
+  "light_text": "夜里的桌面微缩布景，唯一光源是布景中几盏小蘑菇灯的暖橙色柔光，光线柔和温暖，背景自然虚化。",
+  "constraints": "全片四段生成，依次对应漫画四格，顺序不可调。第一段只有角色1，他在原地挣扎并大喊。第二段角色2提篮从右侧走入，看也不看被锁住的角色1，宣布抄底后蹲下捡筹码，角色1在她身后继续哭喊。第三段角色3提篮走入并喊出更低的价位后也蹲下捡筹码，角色2抱着满篮筹码崩溃大哭。第四段角色5与角色4先后走入排进队伍，角色4念完台词后硬切到全景（约在第四段3秒处），露出越排越长的队伍，最后角色4蹲下把地上仅剩的筹码扫进篮子，循环闭合。每段第一拍安排进场动作，台词与捡筹码的节拍必须完整落在续接重叠之后。角色1脖子上的铁链与挂锁全片只此一副，链子自然垂挂，位置不变；每个竹篮只属于一名持有者，筹码不换手。哭喊短促，不拖长气声；角色2与角色3的喊话是兴奋而不是怒斥，语速偏快。不出现字幕、气泡、文字与额外角色。",
+  "target_duration_seconds": 29.0,
+  "continuation_overlap_frames": 22,
+  "source_script": "角色1动作：角色1猛地向前一扑，伸出一只爪子去够地上的筹码。\n角色1：啊啊啊！\n角色2入场：角色2提着一个竹篮从画面右侧走进空地，从角色1身旁走过，看都不看他一眼。\n角色2：市场血流成河，正是抄底好时机！\n角色1：啊啊啊！\n角色2动作：角色2蹲下身，把竹篮口贴着地面，一枚一枚把筹码拨进篮子里。\n角色3入场：角色3提着一个竹篮走进画面，在角色2身旁停下。\n角色3：跌到二十五了，遍地黄金！\n角色3动作：角色3也蹲下来，把地上的筹码一枚一枚拨进自己的竹篮。\n角色1动作：角色1在原地拼命前扑，爪子够不到筹码，泪水从脸上滑下来。\n角色2：啊啊啊！\n角色2动作：角色2抱起装满筹码的竹篮贴在胸前，篮子里的筹码从篮口溢出来。\n角色5入场：角色5跟在角色3身后走进来，一句话也不说。\n角色4入场：角色4提着一个竹篮走到队伍最前面，在地上那堆筹码旁边停住。\n角色4：……市场血流成河，恐慌情绪蔓延。\n角色1动作：角色1被锁在队伍最后面，挣扎着往前扑，泪水糊了脸。\n角色1：啊啊啊！\n角色2动作：角色2抱着满篮筹码站在队伍里，低着头。\n角色3动作：角色3提着装满筹码的竹篮站在队伍里，看着地面。\n角色5动作：角色5站在队伍里，空着双手，安安静静地等着。\n角色4动作：角色4蹲下身，把竹篮口伸向地上仅剩的几枚筹码。",
+  "shots": [
+    {
+      "id": "scene_01",
+      "duration_seconds": 3.75,
+      "events": [
+        {
+          "id": "event_001",
+          "type": "action",
+          "character": "character_1",
+          "text": "角色1猛地向前一扑，伸出一只爪子去够地上的筹码。",
+          "language": "zh"
+        },
+        {
+          "id": "event_002",
+          "type": "dialogue",
+          "character": "character_1",
+          "text": "啊啊啊！",
+          "language": "zh"
+        }
+      ]
+    },
+    {
+      "id": "scene_02",
+      "duration_seconds": 9.416666666666666,
+      "events": [
+        {
+          "id": "event_003",
+          "type": "enter",
+          "character": "character_2",
+          "text": "角色2提着一个竹篮从画面右侧走进空地，从角色1身旁走过，看都不看他一眼。",
+          "language": "zh"
+        },
+        {
+          "id": "event_004",
+          "type": "dialogue",
+          "character": "character_2",
+          "text": "市场血流成河，正是抄底好时机！",
+          "language": "zh"
+        },
+        {
+          "id": "event_005",
+          "type": "dialogue",
+          "character": "character_1",
+          "text": "啊啊啊！",
+          "language": "zh"
+        },
+        {
+          "id": "event_006",
+          "type": "action",
+          "character": "character_2",
+          "text": "角色2蹲下身，把竹篮口贴着地面，一枚一枚把筹码拨进篮子里。",
+          "language": "zh"
+        }
+      ]
+    },
+    {
+      "id": "scene_03",
+      "duration_seconds": 9.416666666666666,
+      "events": [
+        {
+          "id": "event_007",
+          "type": "enter",
+          "character": "character_3",
+          "text": "角色3提着一个竹篮走进画面，在角色2身旁停下。",
+          "language": "zh"
+        },
+        {
+          "id": "event_008",
+          "type": "dialogue",
+          "character": "character_3",
+          "text": "跌到二十五了，遍地黄金！",
+          "language": "zh"
+        },
+        {
+          "id": "event_009",
+          "type": "action",
+          "character": "character_3",
+          "text": "角色3也蹲下来，把地上的筹码一枚一枚拨进自己的竹篮。",
+          "language": "zh"
+        },
+        {
+          "id": "event_010",
+          "type": "action",
+          "character": "character_1",
+          "text": "角色1在原地拼命前扑，爪子够不到筹码，泪水从脸上滑下来。",
+          "language": "zh"
+        },
+        {
+          "id": "event_011",
+          "type": "dialogue",
+          "character": "character_2",
+          "text": "啊啊啊！",
+          "language": "zh"
+        },
+        {
+          "id": "event_012",
+          "type": "action",
+          "character": "character_2",
+          "text": "角色2抱起装满筹码的竹篮贴在胸前，篮子里的筹码从篮口溢出来。",
+          "language": "zh"
+        }
+      ]
+    },
+    {
+      "id": "scene_04",
+      "duration_seconds": 9.416666666666666,
+      "camera_cuts": [
+        {
+          "before_event": "event_016",
+          "framing": "wide_shot"
+        }
+      ],
+      "events": [
+        {
+          "id": "event_013",
+          "type": "enter",
+          "character": "character_5",
+          "text": "角色5跟在角色3身后走进来，一句话也不说。",
+          "language": "zh"
+        },
+        {
+          "id": "event_014",
+          "type": "enter",
+          "character": "character_4",
+          "text": "角色4提着一个竹篮走到队伍最前面，在地上那堆筹码旁边停住。",
+          "language": "zh"
+        },
+        {
+          "id": "event_015",
+          "type": "dialogue",
+          "character": "character_4",
+          "text": "……市场血流成河，恐慌情绪蔓延。",
+          "language": "zh"
+        },
+        {
+          "id": "event_016",
+          "type": "action",
+          "character": "character_1",
+          "text": "角色1被锁在队伍最后面，挣扎着往前扑，泪水糊了脸。",
+          "language": "zh"
+        },
+        {
+          "id": "event_017",
+          "type": "dialogue",
+          "character": "character_1",
+          "text": "啊啊啊！",
+          "language": "zh"
+        },
+        {
+          "id": "event_018",
+          "type": "action",
+          "character": "character_2",
+          "text": "角色2抱着满篮筹码站在队伍里，低着头。",
+          "language": "zh"
+        },
+        {
+          "id": "event_019",
+          "type": "action",
+          "character": "character_3",
+          "text": "角色3提着装满筹码的竹篮站在队伍里，看着地面。",
+          "language": "zh"
+        },
+        {
+          "id": "event_020",
+          "type": "action",
+          "character": "character_5",
+          "text": "角色5站在队伍里，空着双手，安安静静地等着。",
+          "language": "zh"
+        },
+        {
+          "id": "event_021",
+          "type": "action",
+          "character": "character_4",
+          "text": "角色4蹲下身，把竹篮口伸向地上仅剩的几枚筹码。",
+          "language": "zh"
+        }
+      ]
+    }
+  ],
+  "execution": {
+    "look": "Handmade felt-puppet stop-motion style, fuzzy felt surface texture, soft highlights and a shallow-focus macro feel.",
+    "setting": "Character 1 is locked at the center of the frame, the metal chain around the neck running back to a padlock on a wooden stake behind; the other characters walk in from the right one after another, and the chips lie on the ground between Character 1 and the right edge of the frame.",
+    "scene": "A tabletop miniature set: a dark red rug laid over a burlap cloth surface, with a few small colorful mushroom lamps standing around it.",
+    "light": "A tabletop miniature set at night, lit only by the warm orange glow of small mushroom lamps inside the set; the light is soft and warm and the background falls out of focus.",
+    "visible_state": "Character 1 stands at the center of the frame, leaning forward with one paw holding a small woven basket at the side and the other paw stretched down toward the colored chips scattered on the ground; a single metal chain runs from the collar around the neck to one padlock fastened to a short wooden stake behind, and tears run down the face. Character 2, Character 3 and Character 4 each carry one woven basket of their own, and each basket stays with the character who holds it. The lineup and the filled baskets follow the ordered actions.",
+    "voices": {
+      "character_1": "thin high voice, breathy mid register, fast uneven pace",
+      "character_2": "clear mid voice, mid register, even measured pace",
+      "character_3": "bright mid voice, mid register, brisk even pace",
+      "character_4": "soft low mid voice, mid register, slow even pace",
+      "character_5": ""
+    },
+    "directions": {
+      "event_001": "Character 1 leans far forward from the waist, one paw stretched down toward the colored chips on the ground while the other paw holds the small woven basket at the side; the single chain at the neck runs back to the one padlock on the wooden stake, and the open mouth trembles as tears slide down the face.",
+      "event_003": "Character 2 walks in from the right edge of the frame carrying one woven basket in a paw, steps past Character 1 while keeping the eyes on the chips ahead, and stops at the edge of the scattered chips.",
+      "event_006": "Character 2 squats down, pushes the mouth of the woven basket along the ground and sweeps the scattered chips into it one by one until a small heap of chips sits inside.",
+      "event_007": "Character 3 walks in from the right carrying one woven basket and stops beside Character 2, looking down at the chips on the ground.",
+      "event_009": "Character 3 squats down next to Character 2 and sweeps the chips on the ground into the woven basket with a paw.",
+      "event_010": "Character 1 keeps straining forward from the same spot, paws lifted toward the chips, tears running down the face and the mouth open wide.",
+      "event_012": "Character 2 lifts the loaded woven basket against the chest, chips spilling over the rim, and looks up with the face wet and the mouth open.",
+      "event_013": "Character 5 walks in from the right at the back of the group and stops behind the others in a queue, standing quietly with empty paws.",
+      "event_014": "Character 4 walks in from the right carrying one woven basket and stops at the front of the queue, closest to the chips on the ground.",
+      "event_016": "Character 1 thrashes where the chain holds him at the back of the queue, paws scraping at the ground and the mouth wide open, the chain and padlock staying fastened behind.",
+      "event_018": "Character 2 stands in the line holding the loaded woven basket against the chest with the head lowered.",
+      "event_019": "Character 3 stands in the line holding a woven basket filled with chips, looking down at the ground.",
+      "event_020": "Character 5 stands in the line with empty paws, the head turned toward the front of the line.",
+      "event_021": "Character 4 squats down at the front of the line, pushes the woven basket along the ground and gathers the last few chips into it."
+    },
+    "character_designs": {
+      "character_1": "A small white felt rabbit with round eyes, wearing a red pinafore-style coat and a wooden price tag reading $100 at the chest.",
+      "character_2": "A small white felt rabbit with round eyes, wearing a yellow dress with a gold star badge and a wooden price tag reading $50 at the chest.",
+      "character_3": "A small white felt rabbit with round eyes, wearing a blue dress and a wooden price tag reading $25 at the chest.",
+      "character_4": "A small white felt rabbit with round eyes, wearing a green dress and a wooden price tag reading $1 at the chest.",
+      "character_5": "A small white felt rabbit with round eyes, wearing a purple dress and a wooden price tag reading $10 at the chest."
+    }
+  },
+  "character_designs": {
+    "character_1": "一只白色毛毡小兔，圆眼睛，穿红色围裙外衣，胸前挂着写着「$100」的木牌。",
+    "character_2": "一只白色毛毡小兔，圆眼睛，穿黄色连衣裙，胸前有金色星星徽章，挂着写着「$50」的木牌。",
+    "character_3": "一只白色毛毡小兔，圆眼睛，穿蓝色连衣裙，挂着写着「$25」的木牌。",
+    "character_4": "一只白色毛毡小兔，圆眼睛，穿绿色连衣裙，挂着写着「$1」的木牌。",
+    "character_5": "一只白色毛毡小兔，圆眼睛，穿紫色连衣裙，挂着写着「$10」的木牌。"
+  }
+}
