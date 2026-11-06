@@ -13,8 +13,8 @@ from __future__ import annotations
 import re
 from typing import Any, Optional
 
-from mie_core.script.builder import *  # noqa: F401,F403
-from mie_core.script.builder import (
+from mie_craft.script.builder import *  # noqa: F401,F403
+from mie_craft.script.builder import (
     _storyboard_optional_slots,
     _storyboard_required_inputs,
 )

@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from mie_core.prompts import prompt_path
+from mie_prompt.prompts import prompt_path
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 NODE_PROMPT = prompt_path("h3_storyboard/system_asset.txt")

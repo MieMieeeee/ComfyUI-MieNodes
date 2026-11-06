@@ -22,7 +22,7 @@ import numpy as np
 import pytest
 
 from .critic_connector import NO_FINDINGS, is_critic_call
-from mie_core.prompts import prompt_path, prompt_root
+from mie_prompt.prompts import prompt_path, prompt_root
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 PROMPTS_DIR = PROJECT_DIR / "nodes" / "llm" / "prompts"

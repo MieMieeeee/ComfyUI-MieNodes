@@ -26,7 +26,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-from mie_core.llm import client as core_llm_client
+from mie_llm import client as core_llm_client
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 LLM_PATH = PROJECT_DIR / "services" / "llm.py"

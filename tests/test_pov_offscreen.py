@@ -22,7 +22,7 @@ import types
 from pathlib import Path
 
 import pytest
-from mie_core.prompts import prompt_path, prompt_root
+from mie_prompt.prompts import prompt_path, prompt_root
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 FIXTURES = PROJECT_DIR / "tests" / "fixtures"

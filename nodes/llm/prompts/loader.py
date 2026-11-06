@@ -27,7 +27,7 @@ def _core_prompts_root():
     global _CORE_PROMPTS_ROOT
     if _CORE_PROMPTS_ROOT is None:
         try:
-            from mie_core.prompts import prompt_root
+            from mie_prompt.prompts import prompt_root
             _CORE_PROMPTS_ROOT = prompt_root()
         except ImportError:
             _CORE_PROMPTS_ROOT = Path()

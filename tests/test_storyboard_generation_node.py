@@ -7,7 +7,7 @@ import pytest
 from .test_h3_storyboard_generator import sb, ScriptedConnector
 from .test_pov_offscreen import mods
 from .test_storyboard_generation_contract import apple
-from mie_core.prompts import prompt_path
+from mie_prompt.prompts import prompt_path
 
 
 def options(raw):

@@ -30,7 +30,7 @@
 
 1. **fork** 它成 `ComfyUI-Mie-H3-Engine`（保住 148k 行难啃的生成核心，并修好它在 Windows 上的缺陷）；
 2. 把自己的**生成逻辑 / 剧本契约 / 资产库 / LLM 连接器**抽成一个**可 pip 安装的共享核心包**
-   `ComfyUI-Mie-Core`——引擎包、MieNodes、产品层三者都是它的壳；
+   **`ComfyUI-Mie-LLM` / `ComfyUI-Mie-Prompt` / `ComfyUI-Mie-Craft`**——引擎包、MieNodes、产品层三者都是它的壳；
 3. 起一个**独立 FastAPI 短剧平台**（网页写剧本 → 生成 → 出片，不打开 ComfyUI 界面）；
 4. 用一条 `plan_json` 字符串缝合"剧本 → 生成"；
 5. 给 ComfyUI 侧的 Scene Prompt Editor 一个**只读预览**通道。
@@ -122,7 +122,7 @@ GitHub API   pushed_at = 2026-10-14T11:08:20Z      (距今 22 天)
 | D2 | 产品层 = **独立 FastAPI 进程** | §6 |
 | D3 | 分镜资产**对接 Scene Prompts 做预览**；Plan Studio 不参与修改 | §5 |
 | D4 | 节点类型名**一律加我们的后缀** | §4 |
-| D5 | 共享核心包 `ComfyUI-Mie-Core` | §3.4 |
+| D5 | 共享核心包 **`ComfyUI-Mie-LLM` / `ComfyUI-Mie-Prompt` / `ComfyUI-Mie-Craft`** | §3.4 |
 | **D6** | **不再从上游拉代码**（2026-11-06 裁定）：`upstream` remote **只作溯源参考，永不合并**。原策略“用 merge 不用 rebase”随之作废 | §12 R1 |
 | D7 | 产品层 **v1 包含站内剧本生成** | §6.2 |
 | D8 | 部署拓扑 **v1 同机** | §6.1 |
@@ -218,17 +218,17 @@ GitHub API   pushed_at = 2026-10-14T11:08:20Z      (距今 22 天)
 调用点：产品层编译器、引擎 plan builder、引擎 PromptServer 预览路由、
 引擎 `MieH3ScriptToPlan` 节点壳。**四处，一段代码。**
 
-### 3.4 共享核心包 `ComfyUI-Mie-Core`（D5 / D12）
+### 3.4 共享核心包 **`ComfyUI-Mie-LLM` / `ComfyUI-Mie-Prompt` / `ComfyUI-Mie-Craft`**（D5 / D12）
 
 **形态：Core 是纯 pip 包，不是 ComfyUI 自定义节点包。**
 
 > Manager 的安装方式是**复制进 `custom_nodes/`**，目录名带连字符，
-> **不会**进 site-packages ⇒ MieNodes / 引擎照样 `import mie_core` 失败。
+> **不会**进 site-packages ⇒ MieNodes / 引擎照样 `import mie_llm / mie_prompt / mie_craft` 失败。
 > 而且 Core 没有任何节点，"可被 Manager 安装"没有收益。
 
 **因此：**
 
-- [ ] Core 仓是**标准 Python 包**（`pyproject.toml` 声明包布局 `mie_core/`），
+- [ ] Core 仓是**标准 Python 包**（`pyproject.toml` 声明包布局 `mie_llm/`、`mie_prompt/`、`mie_craft/`），
       **不是** ComfyUI 自定义节点包
 - [ ] Core 仓**同时**放在 `custom_nodes/` 目录下（蹭既有的**局域网目录同步**机制）
 - [ ] **ComfyUI 的 python 环境里 `pip install -e <Core 目录>`**——本机、局域网各一次
@@ -468,7 +468,7 @@ node.mieH3PlanProvider = () => ({
   与内存态任务表；**生产模式关 `--reload`**（否则又是双进程陷阱）。
   ⚠️ 但 **`workers=1` 只保证单进程，异步请求仍会交错** ⇒
   **产品层自己的队列要另加一把进程内锁**（R21/R22），不能依赖"单 worker 所以串行"的假设。
-- **导入机制**：产品层 venv `pip install -e <Core 目录>`，`import mie_core`。
+- **导入机制**：产品层 venv `pip install -e <Core 目录>`，`import mie_llm / mie_prompt / mie_craft`。
   不做 sys.path 注入，不要求产品层机器 clone 引擎仓。
 - **依赖体量（D14）**：`services/llm.py` 顶层 `import numpy, cv2, torch`
   ——**实测三个都是死 import**（AST 审计 + 原始 grep 双重确认：三个名字在全文
@@ -480,7 +480,7 @@ node.mieH3PlanProvider = () => ({
   **跨机是 v2 的问题**。
 - **⚠️ 同步 `requests` 会卡住事件循环（第四轮补）**：Starlette 把普通 `def` 路由
   丢进线程池，但把 `async def` **直接在事件循环里跑**。
-  若生成与 critic 写成 `async def` 再调同步的 `mie_core` / `requests`，
+  若生成与 critic 写成 `async def` 再调同步的 `mie_llm / mie_prompt / mie_craft` / `requests`，
   **几十秒内预览、任务轮询、空闲标志都会停**。
   ⇒ **这两条路由用同步 `def`**，或在 `async def` 里用 `anyio.to_thread.run_sync` 包起来。
 - **锁的边界（第四轮补）**：产品层那把锁**只包住"看 `/queue` + 提交"那一小段**。
@@ -975,7 +975,7 @@ def _chapter_manifest_digest(manifest):
 | Phase 1 / P0-b | ✅ **已做**（三处各按自己的规则改） | ① 遗留恢复：多份 ⇒ **拒绝猜测并保留全部文件**（单份行为不变）；② 封印清单：改按**内容里的 `sealed_at`** 排序；③ reference cache：**描述符的 signature 必须与文件名一致**，上游已测的歧义守卫**原样保留**。<br>**逐项负对照**：上游原实现三条**全红**，我们的实现三条**全绿**（`tests/_mie_mtime_selection_unit_test.py`） |
 | Phase 1 / P0-c…P0-f | ✅ **已做** | **P0-c** size 分层（<64MB 一律直接哈希）；**P0-d** 36 处 / 13 文件四类排查（①缓存跳过 2、②身份等值比较 13、③最新者胜 6、④年龄清理+报告 15）—— 真正危险的两类共 8 处**全部处理完毕**；**P0-e** `checkpoint_identity.py`（`GetVolumeInformationW` 识别 FAT/exFAT、映射盘、ino=0 ⇒ 信号不可信就不用）；**P0-f** 已发布修订产物 write-once + 恢复路径显式豁免。**排查中另发现两处此前未列入清单的**：第二个缓存守卫（导出 PNG/WAV，`chain_nodes.py:24923`）与第五处"最新者胜"（`run_manager.py:447`） |
 | Phase 2 改名 | ✅ **已做** | 86 个类型加 `\|MieH3`；模块级施加（全仓一个名字空间）；新增 `fork_identity.py`、`tools/gen_rename_map.py`（自动生成 + `--check`）、`tools/apply_rename.py`、`tools/migrate_workflows.py`；**本机实测：两包同装，148（上游）+ 86（我们）= 234，零冲突** ✓ |
-| **Phase 4 抽 Core** | ✅ **已做** | **`ComfyUI-Mie-Core` 已建**（纯 pip 包：23 个 py / 15,338 行 + 31 个数据文件）。搬入：LLM 连接器与预算、H3 prompt 与计划构建器、剧本契约与 critic 两半、生成器、零 LLM 组装器、对话切分器、资产库与剧本资产，以及 h3 / h3_loop / h3_storyboard 三个 prompt 家族。MieNodes 侧改为 shim（**全量 2050 passed，与基线一致**）；引擎侧新增三个薄壳节点 `MieH3LoadScriptAsset` / `MieH3ScriptToPlan` / `MieH3LoadAssetRoster`。**本机三包共存实测：上游 148 + 引擎 86 + MieNodes 163，零冲突**；**跨包集成实测：MieNodes 的剧本与资产 → 引擎编译出计划，字节级可复现** ✓ |
+| **Phase 4 抽共享层** | ✅ **已做，并拆成三个包** | **`ComfyUI-Mie-LLM`**（1,492 行，LLM 连接器 + 预算 + 助手，零内部依赖）、**`ComfyUI-Mie-Prompt`**（1,531 行，提示词模板 + 加载器 + 三个 prompt 家族）、**`ComfyUI-Mie-Craft`**（12,283 行，资产库 + 剧本契约 + **零 LLM 组装器** + critic 两半 + 对话节奏 + 计划构建）。**拆分按依赖图，无环**：LLM ← Prompt ← Craft。MieNodes 侧改为 shim（**全量 2050 passed，与基线一致**）；引擎侧三个薄壳节点 `MieH3LoadScriptAsset` / `MieH3ScriptToPlan` / `MieH3LoadAssetRoster`。**本机四包共存实测：上游 148 + 引擎 86 + MieNodes 163，零冲突**；**跨包集成：MieNodes 的剧本与资产 → 引擎编译出计划，字节级可复现** ✓ |
 | Q-F′ | ✅ **已裁定** | 本仓未来 **public** ⇒ CI 上云。落地：§10.3 的基线闸门（`ubuntu-latest` + `windows-latest`）。**发布到 Comfy Registry 仍暂缓**（Q-E） |
 
 ### Phase 0 — 建 fork（0.5 天）
@@ -1086,7 +1086,7 @@ def _chapter_manifest_digest(manifest):
 
 ### Phase 4 — 抽 Core + 搬资产层（4–5 天，**含安装与配套，不只是搬文件**）
 
-- [ ] 建 `ComfyUI-Mie-Core` 仓（**纯 pip 包**，D12）
+- [ ] 建 **`ComfyUI-Mie-LLM` / `ComfyUI-Mie-Prompt` / `ComfyUI-Mie-Craft`** 仓（**纯 pip 包**，D12）
 - [ ] 按 §7.1 搬 11 项（含生成器全族 D11；LLM 拆分 D13）
 - [ ] **删掉 `services/llm.py` 的三个死重依赖**（numpy / cv2 / torch，D14）
 - [ ] **重指 `asset_auto_describe.py` 的 `library` import 到 Core**（D26）
@@ -1103,7 +1103,7 @@ def _chapter_manifest_digest(manifest):
 - 同剧本 + 同资产 + 同 seed ⇒ 同 `plan_json` 字节
 - 真机跑通一条完整短剧（≥3 镜，含台词与参考图）
 - **live combo matrix 改跑后缀名节点**（`MIE_LIVE_E2E=1`）
-- Core 安装后，**ComfyUI 侧与产品层侧都能 `import mie_core`**
+- Core 安装后，**ComfyUI 侧与产品层侧都能 `import mie_llm / mie_prompt / mie_craft`**
 
 > **import 重指的实际范围**（第三轮核实并修正）：生产代码里只有**两处**真正 import 它：
 > **根 `__init__.py:19`**（注册 26 个节点类）与 **`services/__init__.py:1`
@@ -1116,7 +1116,7 @@ def _chapter_manifest_digest(manifest):
 ### Phase 5 — 产品层后端（3–5 天）
 
 - [ ] FastAPI 骨架 + §6.2 路由；`uvicorn workers=1`（D24）、端口 8199
-- [ ] `pip install -e Core`，`import mie_core`
+- [ ] `pip install -e Core`，`import mie_llm / mie_prompt / mie_craft`
 - [ ] 资产库读写**进程内直接调用**，不走 HTTP
 - [ ] 站内剧本生成路由（调用 **Core 的生成器本体**）
 - [ ] critic 路由：两半
@@ -1409,7 +1409,7 @@ provider 的 planJson 来源（→ 后端路由）、R4/Phase 5 矛盾（→ 一
 | SYNC PAIR 守护变跨仓 | 降级为**跨仓内容一致性断言**（R13） |
 | Core 作为 ComfyUI 包解决不了 import | **D12** 纯 pip 包 + `pip install -e` |
 | "同一个 commit" 做不到 | 改**同一变更窗口** |
-| Phase 4 抽 Core | ✅ **已做** | **`ComfyUI-Mie-Core` 已建**（纯 pip 包，23 个 py / 15,338 行 + 31 个数据文件）。搬入：LLM 连接器与预算、H3 prompt 与计划构建器、剧本契约与 critic 两半、生成器、零 LLM 组装器、对话切分器、资产库与剧本资产、h3/h3_loop/h3_storyboard 三个 prompt 家族。MieNodes 侧改为 shim（**全量 2050 passed，与基线一致**）；引擎侧新增三个薄壳节点 `MieH3LoadScriptAsset` / `MieH3ScriptToPlan` / `MieH3LoadAssetRoster`。**本机三包共存实测：上游 148 + 引擎 86 + MieNodes 163，零冲突**；**跨包集成实测：MieNodes 的剧本与资产 → 引擎编译出计划，字节级可复现** ✓ |
+| Phase 4 抽 Core | ✅ **已做** | ****`ComfyUI-Mie-LLM` / `ComfyUI-Mie-Prompt` / `ComfyUI-Mie-Craft`** 已建**（纯 pip 包，23 个 py / 15,338 行 + 31 个数据文件）。搬入：LLM 连接器与预算、H3 prompt 与计划构建器、剧本契约与 critic 两半、生成器、零 LLM 组装器、对话切分器、资产库与剧本资产、h3/h3_loop/h3_storyboard 三个 prompt 家族。MieNodes 侧改为 shim（**全量 2050 passed，与基线一致**）；引擎侧新增三个薄壳节点 `MieH3LoadScriptAsset` / `MieH3ScriptToPlan` / `MieH3LoadAssetRoster`。**本机三包共存实测：上游 148 + 引擎 86 + MieNodes 163，零冲突**；**跨包集成实测：MieNodes 的剧本与资产 → 引擎编译出计划，字节级可复现** ✓ |
 | `core/utils.py` 品牌专属 | 不搬 |
 | 预览路由加 `plan_sha256` | 采纳 |
 | `script_ref` 路径穿越 | 采纳 + 列入验收 |
@@ -1467,7 +1467,7 @@ provider 的 planJson 来源（→ 后端路由）、R4/Phase 5 矛盾（→ 一
 |---|---|
 | **暗礁 1：哈希不能排序，但不要加 `_mie_seq`** | **采纳并按三条路径分别改写 §8.6.1**：① `:28453-28458` 是 **journal 之前的遗留兜底**（上游注释 `:28439-28442` 明说），journal 路径 `:28395-28421` **已经安全**（按记录的 `temporary` 名 `os.replace`，journal 损坏 ⇒ 拒绝）⇒ 遗留兜底里多份临时文件 ⇒ **拒绝猜测**，恰好一份才用；文件名里的 32 位 hex 是**该临时文件自己的摘要**，**没有"父级期望哈希"**；② `:22055` 的清单**内容里带 `sealed_at`**（`:21868-21878`），摘要**排除** `sealed_at`/`chapter_manifest_id`/`chapter_manifest_path`（`:21818-21832`）⇒ 调用方给了 `snapshot_id` 就**按 id 取**，没给就**比文件内的 `sealed_at`**；③ `:4940` 是**语义查找**（调用方没有文件哈希，候选已按契约过滤）⇒ **剩一份就用，剩多份拒绝猜测**。**通则写入文档：哈希只判等值不作排序；没有"父级期望哈希"就不猜；绝不加 `_mie_seq`（会改变摘要与文件名，等于另造一份快照）。** `expected_sha256` 对上号**只适用于调用方事先记下目标哈希的路径**（如 PNG 导出守卫 `:24681`） |
 | **暗礁 2：改名必须扫 `web/`** | **采纳，§4.5 重写**。实测上游 `web/` 硬编码 **47 个类型名、20+ 个文件**（`MiniMaxH3ChainPlan`×14、`MiniMaxH3ChainPlanModern`×13、`MiniMaxH3ChainPlanStudio`×11 …）。只改 Python ⇒ 扩展挂不上 `|MieH3` 节点，两包同装时还会**挂到上游原名节点上**。规则：用 `node_rename_map.json` 做**全字匹配**；**不要按 `MiniMaxH3` 前缀扫**（会误伤节点 id 如 `MiniMaxH3ContexLoop.cancelRerollControl`、扩展 id、仓库 URL、注释） |
-| **暗礁 3：同步 `requests` 会卡住事件循环** | **采纳，写入 §6.1 + R23**：Starlette 把 `def` 路由丢线程池、把 `async def` **直接在事件循环里跑** ⇒ 生成与 critic 写成 `async def` 再调同步 `mie_core`/`requests`，**几十秒内预览、轮询、空闲标志全停** ⇒ 这两条路由用**同步 `def`**，或 `anyio.to_thread.run_sync`。**锁只包住"看 `/queue` + 提交"那一小段**；生成路由在线程池里用 `threading.Lock`，**不在等 LLM 的几十秒里持锁**；锁仍只串行本进程，人手在 8188 的提交不进这把锁，两次 HTTP 之间的空窗仍在（R24） |
+| **暗礁 3：同步 `requests` 会卡住事件循环** | **采纳，写入 §6.1 + R23**：Starlette 把 `def` 路由丢线程池、把 `async def` **直接在事件循环里跑** ⇒ 生成与 critic 写成 `async def` 再调同步 `mie_llm / mie_prompt / mie_craft`/`requests`，**几十秒内预览、轮询、空闲标志全停** ⇒ 这两条路由用**同步 `def`**，或 `anyio.to_thread.run_sync`。**锁只包住"看 `/queue` + 提交"那一小段**；生成路由在线程池里用 `threading.Lock`，**不在等 LLM 的几十秒里持锁**；锁仍只串行本进程，人手在 8188 的提交不进这把锁，两次 HTTP 之间的空窗仍在（R24） |
 | **Q-F′ 的三条硬约束** | **采纳，写入 §14**：① **GitHub 托管 runner 是虚拟盘** ⇒ Windows 卷类型 / 映射盘 / 符号链接权限 / 原地覆写**测不到**，这几组探针**必须在本机和局域网真实盘上跑**；② **Git hook 顶不上**——`pre-push`/`post-commit` 可被 `--no-verify` 跳过，且**不随 clone 走**；③ **`MIE_LIVE_E2E=1` 是真机渲染矩阵**，与跨仓内容一致性断言**不是一个量级**，不算进"几分钟巡检"；**纯逻辑单测不依赖那块盘**。⇒ 两支：**① 允许私有仓** ⇒ 只把 Core 上 Actions、引擎包留局域网跑 `tools/check_release.py`；**② 任何代码都不上云** ⇒ **没有 Actions 这一档**。**仍只有用户能拍** |
 | **从哪切** | **采纳，写入 §9 开头**：**Phase 0 → 只落地 P0-a**（`checkpoint_verification` → `strict`）——当天能做的生产修复，**不等 Q-F′**、**不动三处恢复逻辑**；**P0-b 等 §8.6.1 三条规则定稿后再动**；**Phase 4 的 `services/llm.py` 拆分不修静默错渲染**；**改名脚本可在 fork 之后做，但第一次扫描必须含 `web/`** |
 

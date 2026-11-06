@@ -1,4 +1,4 @@
-from mie_core.utils import (
+from mie_llm.utils import (
     compute_hash,
     convert_size,
     is_image_file,
@@ -6,7 +6,7 @@ from mie_core.utils import (
     mie_log,
     resolve_token,
 )
-from mie_core.media import (
+from mie_llm.media import (
     build_multimodal_user_content,
     image_tensor_batch_to_data_urls,
     image_tensor_to_data_url,

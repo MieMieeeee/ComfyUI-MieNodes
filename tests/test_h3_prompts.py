@@ -31,7 +31,7 @@ import types
 from pathlib import Path
 
 import pytest
-from mie_core.prompts import prompt_path
+from mie_prompt.prompts import prompt_path
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 H3_GEN_PATH = PROJECT_DIR / "nodes" / "llm" / "h3_prompt_generator.py"

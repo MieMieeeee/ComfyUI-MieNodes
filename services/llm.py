@@ -4,8 +4,8 @@ The connectors themselves now live in ComfyUI-Mie-Core; this module is the
 ComfyUI shell around them.
 """
 
-from mie_core.llm.client import *  # noqa: F401,F403
-from mie_core.llm.client import (
+from mie_llm.client import *  # noqa: F401,F403
+from mie_llm.client import (
     BailianCodingPlanConnectorGeneral,
     BailianTokenPlanConnectorGeneral,
     BailianLLMServiceConnector,

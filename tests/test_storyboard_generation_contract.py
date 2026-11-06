@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pytest
 from .test_pov_offscreen import mods, _char
-from mie_core.prompts import prompt_path
-from mie_core.assets import library as core_library
-from mie_core.assets import script_asset as core_storyboard
+from mie_prompt.prompts import prompt_path
+from mie_craft.assets import library as core_library
+from mie_craft.assets import script_asset as core_storyboard
 
 FIXTURES = Path(__file__).parent / "fixtures"
 PROJECT_DIR = Path(__file__).resolve().parents[1]

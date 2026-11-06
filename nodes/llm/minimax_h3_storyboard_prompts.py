@@ -1,17 +1,17 @@
-"""Compatibility shim - the implementation now lives in ComfyUI-Mie-Core.
+"""Compatibility shim - the implementation now lives in mie_prompt.
 
 The storyboard prompt builder and its genre categories.
 
 Every attribute - including the private helpers the tests reach into -
-resolves through the core module, through a module-level ``__getattr__``.
+resolves through the package module, through a module-level ``__getattr__``.
 A star import would drop every underscore-prefixed name.
 
 Note for tests: a monkeypatch on THIS module lands on the shim, not on the
 implementation, so a test that needs to change the implementation's state
-must patch the core module directly.
+must patch the package module directly.
 """
 
-from mie_core.script import storyboard_prompts as _impl
+from mie_prompt import storyboard_prompts as _impl
 
 
 def __getattr__(name):

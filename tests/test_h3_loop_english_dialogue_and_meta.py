@@ -584,7 +584,7 @@ def test_prefix_spatial_pin_uses_roster_names():
 # prefix -> six-section shots (Subjects 1-3 only) -> label policy OK.
 # --------------------------------------------------------------------------- #
 import numpy as np  # noqa: E402  (test-local, after module constants)
-from mie_core.prompts import prompt_path
+from mie_prompt.prompts import prompt_path
 
 WF_RAW_INPUT = (
     "镜头从图2的白猫视角对着图3的小猫，图1的黑猫在图3的小猫旁边。\n"
