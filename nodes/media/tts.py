@@ -3,7 +3,6 @@ import urllib.request
 import urllib.error
 import os
 import tempfile
-import torchaudio
 import torch
 try:
     from _mienodes_internal.core.utils import mie_log, resolve_token

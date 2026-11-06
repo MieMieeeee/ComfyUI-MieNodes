@@ -21,7 +21,6 @@ opencv-python
 aiohttp>=3.11.8
 
 # Optional features, imported lazily inside the functions that use them:
-# the model downloader, hand-dropped mp3 samples, and the TTS nodes.
+# the model downloader and hand-dropped mp3 samples.
 huggingface_hub
 soundfile
-torchaudio

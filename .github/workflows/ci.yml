@@ -35,19 +35,20 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Install the authoring packages from PyPI
+      - name: Install what a user gets
         shell: bash
         run: |
+          # ComfyUI installs a custom node from its requirements.txt, so
+          # that file is what a fresh install actually gets. Installing
+          # it here means the runner tests the same set of packages the
+          # user's ComfyUI would, and the file cannot drift from what
+          # the pack needs without the suite noticing.
+          #
+          # The authoring packages come from PyPI here, exactly as they
+          # do for a user.
           python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
           python -m pip install "comfyui-mie-craft==0.1.3"
-
-      - name: Install the pack's own dependencies
-        shell: bash
-        run: |
-          # toml, deepdiff and tqdm are the pack's, not the authoring
-          # packages'. They were undeclared in pyproject.toml, so the
-          # runner only found them by failing.
-          python -m pip install toml deepdiff tqdm
 
       - name: Install the test dependencies
         shell: bash
@@ -59,10 +60,6 @@ jobs:
           # the qwen captioner test exercises that path for real. The
           # headless build is the one that belongs on a runner.
           python -m pip install opencv-python-headless
-          # The asset library's HTTP endpoints are aiohttp handlers.
-          # ComfyUI requires aiohttp itself, so the pack inherits it -
-          # but the runner does not have ComfyUI.
-          python -m pip install "aiohttp>=3.11.8"
           # A schema test that validates a designed asset against the
           # shipped JSON schema. Without this it skips, and the schema
           # would go unchecked.
