@@ -7,9 +7,16 @@ dependencies = [
     # The authoring layer - the asset library, the script contract, the
     # plan assembler, the prompt templates and the LLM connectors - is three
     # packages on PyPI. They are released as one train with one version.
-    "comfyui-mie-llm>=0.1.0",
-    "comfyui-mie-prompt>=0.1.0",
-    "comfyui-mie-craft>=0.1.0",
+    "comfyui-mie-llm>=0.1.1",
+    "comfyui-mie-prompt>=0.1.1",
+    "comfyui-mie-craft>=0.1.1",
+    # The pack's own runtime dependencies, imported at module level.
+    # ComfyUI supplies torch, numpy, pillow, opencv, torchaudio and
+    # requests itself; these three are ours and were undeclared, so a
+    # fresh install only learned about them by failing.
+    "toml",
+    "deepdiff",
+    "tqdm",
 ]
 
 [project.urls]

@@ -27,6 +27,10 @@ except ImportError:
 
 try:
     from aiohttp import web
+except ImportError:  # dev / pytest: no ComfyUI process
+    web = None
+
+try:
     from server import PromptServer
 except ImportError:  # dev / pytest: no ComfyUI process
     PromptServer = None
@@ -50,7 +54,7 @@ def _open_folder_in_file_manager(path):
 
 
 def _register() -> None:
-    if PromptServer is None:
+    if PromptServer is None or web is None:
         return
     routes = PromptServer.instance.routes
 

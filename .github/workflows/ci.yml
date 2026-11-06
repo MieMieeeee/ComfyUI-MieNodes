@@ -39,14 +39,34 @@ jobs:
         shell: bash
         run: |
           python -m pip install --upgrade pip
-          python -m pip install "comfyui-mie-craft==0.1.0"
+          python -m pip install "comfyui-mie-craft==0.1.1"
+
+      - name: Install the pack's own dependencies
+        shell: bash
+        run: |
+          # toml, deepdiff and tqdm are the pack's, not the authoring
+          # packages'. They were undeclared in pyproject.toml, so the
+          # runner only found them by failing.
+          python -m pip install toml deepdiff tqdm
 
       - name: Install the test dependencies
         shell: bash
         run: |
           python -m pip install pytest
           python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
-          python -m pip install numpy pillow deepdiff
+          python -m pip install numpy pillow
+          # The image helpers of mie_llm.media encode through opencv, and
+          # the qwen captioner test exercises that path for real. The
+          # headless build is the one that belongs on a runner.
+          python -m pip install opencv-python-headless
+          # The asset library's HTTP endpoints are aiohttp handlers.
+          # ComfyUI requires aiohttp itself, so the pack inherits it -
+          # but the runner does not have ComfyUI.
+          python -m pip install "aiohttp>=3.11.8"
+          # A schema test that validates a designed asset against the
+          # shipped JSON schema. Without this it skips, and the schema
+          # would go unchecked.
+          python -m pip install jsonschema
 
       - name: Run the suite
         shell: bash
