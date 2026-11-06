@@ -2,12 +2,13 @@ name: Publish to Comfy registry
 
 # The automatic trigger is removed: a push to main that touches
 # pyproject.toml used to publish straight away. That is not safe right now.
-# The authoring layer moved to ComfyUI-Mie-Core (2026-11-06), which this
-# pack needs at runtime but which is not yet on PyPI, so a published build
-# would install and then fail to import.
+# The authoring layer moved out of this pack (2026-11-06) and is three
+# packages on PyPI now: comfyui-mie-llm, comfyui-mie-prompt and
+# comfyui-mie-craft, all at one version.
 #
 # Publishing again needs:
-#   1. ComfyUI-Mie-Core on PyPI, and the dependency declared here;
+#   1. the dependency declared in pyproject.toml to be installable from
+#      PyPI (it is), and the version here to match;
 #   2. REGISTRY_ACCESS_TOKEN in this repository's secrets;
 #   3. this workflow run by hand.
 
