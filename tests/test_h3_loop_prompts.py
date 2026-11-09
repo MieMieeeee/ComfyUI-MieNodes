@@ -1347,6 +1347,75 @@ def test_all_speaking_scene_summary_wording_unchanged(lp):
     assert "[reference generation] 黑白, 银白 are visible and speaking." in text
 
 
+def test_reference_relation_sentence_built_from_manifest_labels(lp):
+    """F4 (2026-11-09 review): ONE appended summary sentence stating the
+    clip's reference relations, built only from labels the manifest
+    already defines; empty manifest -> empty sentence -> callers append
+    nothing and the summary keeps its historical bytes."""
+    manifest = [
+        {"slot": "Picture 1", "about": "maid", "role": "identity"},
+        {"slot": "Picture 2", "about": "woman", "role": "identity"},
+        {"slot": "Picture 3", "about": "shop", "role": "environment"},
+        {"slot": "Video 1", "about": "dance", "role": "destination"},
+    ]
+    s = lp.reference_relation_sentence(manifest)
+    assert s == (
+        "Reference relations: <Subject 1> -> <Picture 1> and "
+        "<Subject 2> -> <Picture 2> bind identity and appearance; "
+        "<Picture 3> set the destination environment; "
+        "<Video 1> supply choreography and timing only."
+    )
+    assert lp.reference_relation_sentence(None) == ""
+    assert lp.reference_relation_sentence([{"about": "x"}]) == ""
+    # presence_summary appends the sentence; the base stays byte-for-byte.
+    base = lp.presence_summary(
+        on_screen_names=["黑白"], speaking_names=["黑白"], offscreen_names=[])
+    appended = lp.presence_summary(
+        on_screen_names=["黑白"], speaking_names=["黑白"],
+        offscreen_names=[], reference_sentence=s)
+    assert appended == base + " " + s
+
+
+_SIX_LINES = [
+    "subject_definitions:", "x",
+    "", "summary:", "y",
+    "", "retention_analysis:", "fully_preserved face.",
+    "", "detailed_description:", "d",
+    "", "overall_soundscape:", "s",
+    "", "non_diegetic_music:", "m",
+]
+
+
+def test_install_shot_speech_appends_reference_relation_to_summary(lp):
+    """F4: the six-section installer appends the reference-relation
+    sentence to the summary; without a manifest the summary is untouched
+    (the no-manifest path is pinned by the historical wording tests)."""
+    manifest = [
+        {"slot": "Picture 1", "about": "maid", "role": "identity"},
+        {"slot": "Picture 3", "about": "shop", "role": "environment"},
+    ]
+    out = lp.install_shot_speech(
+        list(_SIX_LINES),
+        ["黑白 speaks as (S1) a voice <d>[Chinese] 老板，怎么办？</d>",
+         "银白 speaks as (S2) a voice <d>[Chinese] 倒掉</d>"],
+        schema="six_section",
+        spatial_layout={"黑白": "left", "银白": "right"},
+        speaker_identities={"黑白": "A maid.", "银白": "A woman."},
+        line_speakers=["黑白", "银白"],
+        voiceover=False,
+        manifest=manifest,
+    )
+    text = "\n".join(out)
+    assert "[reference generation] 黑白, 银白 are visible and speaking." in text
+    assert (
+        "Reference relations: <Subject 1> -> <Picture 1> bind identity "
+        "and appearance; <Picture 3> set the destination environment."
+        in text
+    )
+    # spoken content never enters the relation sentence
+    assert "倒掉" not in text.split("Reference relations:")[1].split("\n")[0]
+
+
 def test_complete_layout_from_turn_order(lp):
     """2026-10-15 combo matrix on MiniMax-M3: most facts replies carried
     no layout (or a partial one) and the scenes shipped without spatial

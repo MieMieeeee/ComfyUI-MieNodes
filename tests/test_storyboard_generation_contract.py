@@ -50,6 +50,33 @@ def test_invalid_internal_camera_cuts_are_rejected(mods, cut):
         mods["storyboard"].validate_storyboard_payload(raw)
 
 
+def test_internal_camera_cut_gets_fixed_state_carry_over(mods):
+    """F5 (2026-11-09 review): the intra-segment cut line is followed by
+    a fixed, compiler-written carry-over sentence. It uses only
+    asset-known state (who is on screen at the cut per the processed
+    entrance/exit events) plus a category-level no-reset rule — it never
+    invents a pose or prop, and it never reuses execution visible_state
+    (that field is the OPENING state, not the cut's end state)."""
+    raw = apple()
+    raw["shots"][0]["events"] += raw["shots"][1]["events"]
+    raw["shots"] = raw["shots"][:1]
+    raw["shots"][0]["camera_cuts"] = [{"before_event": "event_008", "framing": "close_up"}]
+    out = mods["builder"].MiniMaxH3LoopPromptGeneratorV3().generate_v3(
+        raw, character_1=_char("one", "one actor", "male"),
+        character_2=_char("two", "second actor", "female"))
+    prompt = "\n".join(json.loads(out[0])["shots"][0]["prompt"])
+    carry = prompt[prompt.index("Cut continuity:"):]
+    assert carry.startswith("Cut continuity: ")
+    assert "continue exactly as the action has reached them" in carry
+    assert "positions, held props, and the scene carry over unchanged, and only the framing changes." in carry
+    # the carry-over sits between the cut line and the event it precedes
+    assert prompt.index("[Shot 2]") < prompt.index("Cut continuity:")
+    assert prompt.index("Cut continuity:") < prompt.index(raw["execution"]["directions"]["event_008"])
+    # no reuse of the opening visible_state as the cut's end state
+    tail = prompt[prompt.index("Cut continuity:"):]
+    assert "Visible state" not in tail[: len(carry)]
+
+
 def test_v2_accepts_ordered_actions_and_seven_locked_dialogue_lines(mods):
     raw = apple()
     cleaned = mods["storyboard"].validate_storyboard_payload(raw)

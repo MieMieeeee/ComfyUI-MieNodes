@@ -2964,6 +2964,8 @@ class H3LoopPromptEnhancer:
         shot: dict,
         duration_seconds: float,
         clip_index: int,
+        manifest=None,
+        referenced_pictures=None,
     ) -> list[str]:
         """Scrub model-written speech and install the locked lines."""
         scrubbed_text, scrub_notes = scrub_dialogue_from_prompt_text(
@@ -3005,6 +3007,7 @@ class H3LoopPromptEnhancer:
                 offscreen_names=offscreen, spatial_layout=spatial_layout,
                 speaker_identities=speaker_identities, picture_cues=cues,
                 opening_setting=shot.get("_opening_setting"), schema=schema,
+                manifest=manifest, referenced_pictures=referenced_pictures,
             )
         voiceover = _speakers_are_voiceover(
             list(line_speakers or []) or [turn_speaker or ""]
@@ -3037,6 +3040,8 @@ class H3LoopPromptEnhancer:
             duration_seconds=float(duration_seconds or 0.0),
             clip_index=int(clip_index or 1),
             voiceover=voiceover,
+            manifest=manifest,
+            referenced_pictures=referenced_pictures,
         )
         errors = validate_dialogue_invariantity(
             [{"prompt": lines_out}],
@@ -3252,6 +3257,8 @@ class H3LoopPromptEnhancer:
                         shot=shot,
                         duration_seconds=float(duration_seconds or 0.0),
                         clip_index=int(clip_index or 1),
+                        manifest=effective_manifest,
+                        referenced_pictures=referenced_pictures,
                     )
                 return lines_out
             except ValueError as exc:
@@ -3286,6 +3293,8 @@ class H3LoopPromptEnhancer:
             shot=shot,
             duration_seconds=float(duration_seconds or 0.0),
             clip_index=int(clip_index or 1),
+            manifest=effective_manifest,
+            referenced_pictures=referenced_pictures,
         )
 
     # ------------------------------------------------------------------ #

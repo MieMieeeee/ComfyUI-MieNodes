@@ -989,6 +989,29 @@ def test_build_reference_directive_ref2va_video(lp):
     assert "retention_analysis" in text
 
 
+def test_video_motion_directive_and_fallback_use_attribute_transfer(lp):
+    """F7+F6 (2026-11-09 review): a video slot is a MOTION source, not a
+    destination environment — its retention marker is attribute_transfer
+    (upstream §4.1 visual vocabulary), with the guard that a performance
+    playing out over time is never 'partially_preserved'. Environment
+    picture slots keep `reference - use as the destination environment`
+    (route 乙, per the official Ref2V Basic / Studio samples)."""
+    manifest = [
+        {"slot": "Picture 1", "about": "face", "role": "identity"},
+        {"slot": "Picture 2", "about": "room", "role": "environment"},
+        {"slot": "Video 1", "about": "dance", "role": "destination"},
+    ]
+    text = lp.build_reference_directive("ref2va", manifest, 1, 10)
+    assert "'attribute_transfer - choreography and timing'" in text
+    assert "never 'partially_preserved'" in text
+    fallback = "\n".join(lp.build_fallback_shot_lines(lp.SCHEMA_SIX, manifest=manifest))
+    assert "<Video 1>: attribute_transfer - choreography and" in fallback
+    assert "'partially_preserved'" in fallback
+    assert "<Picture 2>: reference - use as the destination environment" in fallback
+    # identity slots are untouched by this change
+    assert "<Subject 1> -> <Picture 1>: fully_preserved -" in fallback
+
+
 def test_ensure_keyframe_idiom_token_free_paraphrase_still_appends(lp):
     """Live E2E regression: the LLM writes token-free paraphrases like
     'aligning with the warrior's opening stance on the final frame' —
