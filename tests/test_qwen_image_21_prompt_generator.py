@@ -1050,8 +1050,8 @@ def test_edit_template_requires_english_body():
     """The edit-mode system prompt must explicitly require the rewrite
     body to be English regardless of the user's input language, so
     Qwen-Image-2.1 gets the prompt shape its renderer is tuned for."""
-    path = PROJECT_DIR / "nodes" / "llm" / "prompts" / "qwen_image_21" / "_enhance_edit.txt"
-    text = path.read_text(encoding="utf-8")
+    from mie_prompt.prompts.loader import load_prompt_text
+    text = load_prompt_text("qwen_image_21/_enhance_edit")
     assert "一律使用英文" in text or "always English" in text or "一律英文" in text
     # Verbatim rule is preserved.
     assert "verbatim" in text.lower()
@@ -1062,8 +1062,8 @@ def test_edit_template_requires_english_body():
 def test_multi_ref_template_requires_english_body():
     """The multi_ref-mode system prompt must also default to English
     body + verbatim rule + caption-as-data handling."""
-    path = PROJECT_DIR / "nodes" / "llm" / "prompts" / "qwen_image_21" / "_enhance_multi_ref.txt"
-    text = path.read_text(encoding="utf-8")
+    from mie_prompt.prompts.loader import load_prompt_text
+    text = load_prompt_text("qwen_image_21/_enhance_multi_ref")
     assert "一律使用英文" in text or "always English" in text or "一律英文" in text
     assert "verbatim" in text.lower()
     assert "DATA" in text or "标注" in text or "caption" in text.lower()
@@ -1242,9 +1242,9 @@ def test_reply_block_passes_through_untouched(mod):
 def test_edit_prompts_open_a_sheet_as_one_pose():
     """New-scene rewrites from a turnaround must open by revoking the
     sheet layout. Local edits are explicitly left on the framing rule."""
-    root = PROJECT_DIR / "nodes" / "llm" / "prompts" / "qwen_image_21"
-    for name in ("_enhance_edit.txt", "_enhance_multi_ref.txt"):
-        text = (root / name).read_text(encoding="utf-8")
+    from mie_prompt.prompts.loader import load_prompt_text
+    for name in ("_enhance_edit", "_enhance_multi_ref"):
+        text = load_prompt_text("qwen_image_21/" + name)
         assert "One person, one pose." in text
         assert "Do not copy the character-sheet layout" in text
         assert "局部编辑" in text
@@ -1289,18 +1289,23 @@ def test_sheet_caption_is_scrubbed_before_rewrite(mod, tmp_path):
 # --------------------------------------------------------------------------- #
 # T2I optimization plan (2026-09-28) — structural constraints
 # --------------------------------------------------------------------------- #
-_T2I_PROMPT_PATH = PROJECT_DIR / "nodes" / "llm" / "prompts" / "qwen_image_21" / "_enhance_t2i.txt"
-_T2I_RGBA_PROMPT_PATH = PROJECT_DIR / "nodes" / "llm" / "prompts" / "qwen_image_21" / "_enhance_t2i_rgba.txt"
+def _load_qwen(name):
+    from mie_prompt.prompts.loader import load_prompt_text
+    return load_prompt_text("qwen_image_21/" + name)
+
+
+_T2I_PROMPT_TEXT = _load_qwen("_enhance_t2i")
+_T2I_RGBA_PROMPT_TEXT = _load_qwen("_enhance_t2i_rgba")
 
 
 @pytest.fixture(scope="module")
 def t2i_prompt_text():
-    return _T2I_PROMPT_PATH.read_text(encoding="utf-8")
+    return _T2I_PROMPT_TEXT
 
 
 @pytest.fixture(scope="module")
 def t2i_rgba_prompt_text():
-    return _T2I_RGBA_PROMPT_PATH.read_text(encoding="utf-8")
+    return _T2I_RGBA_PROMPT_TEXT
 
 
 def test_t2i_has_step_2_5_skeleton_menu(t2i_prompt_text):
