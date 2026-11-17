@@ -42,6 +42,20 @@ Core 的多模态接口以 "dataURL 字符串进出" 为界（webapp/autodraft.p
 ## 4. 批次
 
 ### 批 1 · 零 tensor 纯文本逻辑（最小风险，先打通"webapp 可 import"）
+
+> **执行修正（2026-11-17）**：
+> 1. enhancer 落 **mie_craft**（`mie_craft/loop_enhancer.py`）而非 mie_prompt——它依赖
+>    `mie_craft.h3_loop_prompts.parse_reference_mode`，放 mie_prompt 会造成 Prompt→Craft
+>    反向依赖（依赖方向 LLM ← Prompt ← Craft 不许倒）。
+> 2. **loader 合一挪到批 2c 收尾**：本地 prompts/ 还有 17 族未上移，过早 shim 化会 404。
+>    批 2 每迁一族改该族 import 为 `from mie_prompt.prompts.loader import ...`，全部迁完
+>    删除本地 loader。
+> 3. `custom_system_prompt.py` **留本仓**：其存取层绑定宿主仓路径（user_system_prompts.json
+>    在仓根）+ tensor 采样，按拆分线不迁；Core 侧等 webapp 需求牵引再定。
+> 4. 实现侧两处行为修复随迁：`_CACHE_ROOT_OVERRIDE` 优先级提到最高（原实现里调用方
+>    cache_root 参数压过全局 override，隔离失效）；ComfyUI 缓存根由壳解析显式传入。
+>    MieNodes 测试三处 fixture 改 patch `mie_craft.loop_enhancer`（shim 上 patch 无效，
+>    与 h3_prompts 迁移时的教训一致）。
 - 对象：`translator.py`、`custom_system_prompt.py`、`dialogue_segmenter.py`、
   `invoke_budget.py`、`minimax_h3_loop_user_input_enhancer.py` 的文本构造/解析部分。
 - 动作：逻辑进 mie_prompt（新模块或并入现有），本仓文件变 shim

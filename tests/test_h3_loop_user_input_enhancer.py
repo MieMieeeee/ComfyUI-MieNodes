@@ -84,12 +84,15 @@ def enh():
 
 @pytest.fixture(autouse=True)
 def _isolate_enhancer_cache(enh, tmp_path):
-    enh.clear_enhancer_cache()
-    previous = enh._CACHE_ROOT_OVERRIDE
-    enh._CACHE_ROOT_OVERRIDE = str(tmp_path)
+    # The implementation lives in mie_craft.loop_enhancer now; the module
+    # state has to be moved THERE (patching the shim moves nothing).
+    import mie_craft.loop_enhancer as impl
+    impl.clear_enhancer_cache()
+    previous = impl._CACHE_ROOT_OVERRIDE
+    impl._CACHE_ROOT_OVERRIDE = str(tmp_path)
     yield
-    enh.clear_enhancer_cache()
-    enh._CACHE_ROOT_OVERRIDE = previous
+    impl.clear_enhancer_cache()
+    impl._CACHE_ROOT_OVERRIDE = previous
 
 
 def _sockets(out):

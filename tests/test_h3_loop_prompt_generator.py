@@ -83,12 +83,14 @@ def _isolate_inline_enhancer_cache(lg, tmp_path):
     enh = sys.modules[
         "_mienodes_internal.nodes.llm.minimax_h3_loop_user_input_enhancer"
     ]
-    enh.clear_enhancer_cache()
-    previous = enh._CACHE_ROOT_OVERRIDE
-    enh._CACHE_ROOT_OVERRIDE = str(tmp_path)
+    # Implementation moved to mie_craft: module state must move THERE.
+    import mie_craft.loop_enhancer as _impl
+    _impl.clear_enhancer_cache()
+    previous = _impl._CACHE_ROOT_OVERRIDE
+    _impl._CACHE_ROOT_OVERRIDE = str(tmp_path)
     yield
-    enh.clear_enhancer_cache()
-    enh._CACHE_ROOT_OVERRIDE = previous
+    _impl.clear_enhancer_cache()
+    _impl._CACHE_ROOT_OVERRIDE = previous
 
 
 class FakeConnector:

@@ -91,15 +91,15 @@ def _isolate_inline_enhancer_cache(mods, tmp_path):
     A second run used to consume that entry and shift every scripted
     reply by one, so the enhancer text landed in a caption.
     """
-    enh = sys.modules[
-        "_mienodes_internal.nodes.llm.minimax_h3_loop_user_input_enhancer"
-    ]
-    enh.clear_enhancer_cache()
-    previous = enh._CACHE_ROOT_OVERRIDE
-    enh._CACHE_ROOT_OVERRIDE = str(tmp_path)
+    # Implementation lives in mie_craft.loop_enhancer now: the module
+    # state has to move THERE (the shim's globals move nothing).
+    import mie_craft.loop_enhancer as impl
+    impl.clear_enhancer_cache()
+    previous = impl._CACHE_ROOT_OVERRIDE
+    impl._CACHE_ROOT_OVERRIDE = str(tmp_path)
     yield
-    enh.clear_enhancer_cache()
-    enh._CACHE_ROOT_OVERRIDE = previous
+    impl.clear_enhancer_cache()
+    impl._CACHE_ROOT_OVERRIDE = previous
 
 
 # The user's scenario, in the enhancer's canonical rewrite shape:
