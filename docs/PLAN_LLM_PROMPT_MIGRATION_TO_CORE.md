@@ -75,6 +75,21 @@ Core 的多模态接口以 "dataURL 字符串进出" 为界（webapp/autodraft.p
   不动节点契约——D9 的冻结资产节点不在本计划范围）。
 
 ### 批 3 · 多模态 generator 拆接口
+
+> **执行结论（2026-11-17）：无需拆分——接口早已在 Core。**
+> `build_multimodal_user_content`（文本 + dataURL 列表 → OpenAI 风格 content）
+> 与 `image_tensor_batch_to_data_urls`（IMAGE tensor → dataURL 列表）本来就住在
+> **mie_llm.media**；MieNodes 的 `core/utils.py` 只是 re-export，各 generator 壳
+> 已经在用它。计划里"在 mie_prompt 定义 multimodal 接口"的前提不成立——接口在
+> 更下层的 mie_llm，位置更对：Core 不依赖 ComfyUI，media 只认 dataURL 与 tensor
+> 形状，不认 ComfyUI。
+>
+> 批 3 因此收敁为**核实**（接口存在、两端可用、各 generator 已在用），
+> 而不是新写一层。若日后 webapp 要"任意族提示词增强"，直接用
+> `mie_llm.media.build_multimodal_user_content` + `mie_prompt` 的族文本即可。
+>
+> 遗留的真实耦合只剩 tensor 工具本身（`image_tensor_*`），按 engine PLAN §618
+> 留在 MieNodes ——它依赖 ComfyUI 的 IMAGE 约定。
 - 对象：`prompt_generator.py` 底座、`moss_image_prompt_generator.py` 等 tensor 节点。
 - 动作：mie_prompt 定义 multimodal 调用接口（文本+dataURL 列表进、回复出）；
   本仓壳只做 IMAGE→dataURL（继续用本仓 core.utils）+ INPUT_TYPES。
