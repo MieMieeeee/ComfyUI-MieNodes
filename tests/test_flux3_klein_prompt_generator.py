@@ -41,7 +41,9 @@ import pytest
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 PROMPTS_DIR = PROJECT_DIR / "nodes" / "llm" / "prompts"
 LLM_DIR = PROJECT_DIR / "nodes" / "llm"
-FLUX3_DIR = PROMPTS_DIR / "flux3_klein"
+from mie_prompt.prompts import prompt_root as _prompt_root
+
+FLUX3_DIR = _prompt_root() / "flux3_klein"
 
 sys.path.insert(0, str(PROJECT_DIR / "tests"))
 

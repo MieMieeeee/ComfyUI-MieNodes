@@ -40,7 +40,10 @@ import pytest
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 PROMPTS_DIR = PROJECT_DIR / "nodes" / "llm" / "prompts"
 LLM_DIR = PROJECT_DIR / "nodes" / "llm"
-MOSS_DIR = PROMPTS_DIR / "moss_image"
+# The family lives in mie_prompt now (batch 2c).
+from mie_prompt.prompts import prompt_root as _prompt_root
+
+MOSS_DIR = _prompt_root() / "moss_image"
 
 sys.path.insert(0, str(PROJECT_DIR / "tests"))
 

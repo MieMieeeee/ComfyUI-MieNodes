@@ -28,7 +28,10 @@ PROJECT_DIR = Path(__file__).resolve().parents[1]
 SCAIL2_GEN_PATH = PROJECT_DIR / "nodes" / "llm" / "scail2_prompt_generator.py"
 SCAIL2_PROMPTS_PATH = PROJECT_DIR / "nodes" / "llm" / "scail2_prompts.py"
 UTILS_PATH = PROJECT_DIR / "core" / "utils.py"
-PROMPTS_DIR = PROJECT_DIR / "nodes" / "llm" / "prompts"
+# The families live in mie_prompt now (batch 2b).
+from mie_prompt.prompts import prompt_root as _prompt_root
+
+PROMPTS_DIR = _prompt_root()
 
 def _load_scail2():
     """Inject a fake ``_mienodes_internal`` package tree and load the two

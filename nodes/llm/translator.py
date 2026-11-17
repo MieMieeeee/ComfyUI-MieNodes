@@ -1,10 +1,14 @@
+"""ComfyUI shell - the translation text domain lives in mie_prompt.
+
+``build_messages`` and the language table moved to
+``mie_prompt.translator`` (batch 2c); the node stays here.
+"""
+
+from __future__ import annotations
+
+from mie_prompt.translator import TARGET_LANGUAGE_MAP, build_messages  # noqa: F401
+
 MY_CATEGORY = "🐑 MieNodes/🐑 Translator"
-
-
-try:
-    from _mienodes_internal.nodes.llm.prompts.loader import load_prompt_text
-except ImportError:
-    from .prompts.loader import load_prompt_text
 
 
 class TextTranslator(object):
@@ -26,34 +30,9 @@ class TextTranslator(object):
     FUNCTION = "translate_text"
     CATEGORY = MY_CATEGORY
 
-    target_language_map = {
-        "zh": "Chinese",
-        "en": "English",
-        "es": "Spanish",
-        "fr": "French",
-        "de": "German",
-        "ja": "Japanese",
-        "ko": "Korean",
-        "ru": "Russian",
-        "it": "Italian",
-        "pt": "Portuguese",
-    }
+    target_language_map = TARGET_LANGUAGE_MAP
 
     def translate_text(self, llm_service_connector, text, target_language):
-        language_name = self.target_language_map.get(target_language, target_language)
-        messages = [
-            {
-                "role": "system",
-                "content": load_prompt_text("translator/system_template").format(
-                    language_name=language_name
-                ),
-            },
-            {
-                "role": "user",
-                "content": text,
-            },
-        ]
+        messages = build_messages(text, target_language)
         translated_text = llm_service_connector.invoke(messages)
         return translated_text.strip(),
-
-

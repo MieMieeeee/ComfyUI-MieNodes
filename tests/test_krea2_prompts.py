@@ -36,7 +36,10 @@ from test_plugin_imports import load_plugin_module, PACKAGE_NAME  # noqa: E402
 
 KREA2_PROMPTS_PATH = PROJECT_DIR / "nodes" / "llm" / "krea2_prompts.py"
 KREA2_GEN_PATH = PROJECT_DIR / "nodes" / "llm" / "krea2_prompt_generator.py"
-KREA2_PROMPTS_DIR = PROJECT_DIR / "nodes" / "llm" / "prompts" / "krea2"
+# The family lives in mie_prompt now (batch 2b).
+from mie_prompt.prompts import prompt_root as _prompt_root
+
+KREA2_PROMPTS_DIR = _prompt_root() / "krea2"
 
 
 @pytest.fixture(scope="module")
