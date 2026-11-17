@@ -93,57 +93,21 @@ def _register() -> None:
 
     @routes.post("/mie_nodes/assets/delete")
     async def delete_asset(request):  # noqa: ANN001 - aiohttp handler
-        """Delete one asset from the FIXED library (interactive 🗑 button).
+        """Asset deletes moved to the product layer.
 
-        Body {"name": "...", "kind": "character"|"scene"}; the library
-        directory resolves server-side exactly like /list — client paths
-        are never read. The queue-executed Delete nodes share the same
-        library functions; this endpoint is the no-queue UI path."""
-        try:
-            post = await request.json()
-        except Exception:
-            return web.json_response(
-                {"ok": False, "error": "JSON body required"}, status=400
-            )
-        name = str(post.get("name") or "").strip()
-        kind = str(post.get("kind") or "").strip()
-        if not name:
-            return web.json_response(
-                {"ok": False, "error": "name is required"}, status=400
-            )
-        if kind not in ("character", "scene", "storyboard"):
-            return web.json_response(
-                {"ok": False, "error": "kind must be character, scene or storyboard"},
-                status=400,
-            )
-        try:
-            from _mienodes_internal.nodes.assets.nodes import (
-                NAME_PLACEHOLDER,
-                NEW_NAME_SENTINEL,
-                STORYBOARD_NAME_PLACEHOLDER,
-            )
-        except ImportError:
-            from .nodes import (
-                NAME_PLACEHOLDER,
-                NEW_NAME_SENTINEL,
-                STORYBOARD_NAME_PLACEHOLDER,
-            )
-        if (name in NAME_PLACEHOLDER or name == NEW_NAME_SENTINEL
-                or name in STORYBOARD_NAME_PLACEHOLDER):
-            return web.json_response(
-                {"ok": False, "error": "pick a real asset name first"}, status=400
-            )
-        if kind == "storyboard":
-            fn = storyboard.delete_storyboard
-        elif kind == "scene":
-            fn = library.delete_scene
-        else:
-            fn = library.delete_character
-        try:
-            result = fn("", name)
-        except Exception as e:
-            return web.json_response({"ok": False, "error": str(e)})
-        return web.json_response({"ok": True, **result})
+        The queue-executed Delete node still calls the core library. This
+        HTTP route used to delete immediately, which was a second writer.
+        """
+        return web.json_response(
+            {
+                "ok": False,
+                "error": (
+                    "资产删除已转到短剧工作台（默认端口 8199）。"
+                    "这个地址不再删除文件。"
+                ),
+            },
+            status=405,
+        )
 
     @routes.post("/mie_nodes/assets/upload_audio")
     async def upload_audio(request):  # noqa: ANN001 - aiohttp handler

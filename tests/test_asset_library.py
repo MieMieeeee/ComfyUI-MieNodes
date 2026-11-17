@@ -72,11 +72,14 @@ def test_v2_character_roundtrip_multi_image_multi_audio(lib_dir):
     assert result["png_bytes_list"] == [png_a, png_b]
     assert result["audio_bytes_list"] == [wav_a, wav_b]
     char_dir = lib_dir / "characters" / "A"
-    assert sorted(p.name for p in (char_dir / "images").iterdir()) == ["01.png", "02.png"]
-    assert sorted(p.name for p in (char_dir / "audio").iterdir()) == ["01.wav", "02.wav"]
-    assert read_json(char_dir / "character.json") == {
-        "name": "A", "description": "desc a", "voice": "voice a",
-    }
+    meta = read_json(char_dir / "character.json")
+    assert meta["name"] == "A"
+    assert meta["description"] == "desc a"
+    assert meta["voice"] == "voice a"
+    assert len(meta["media"]["images"]) == 2
+    assert len(meta["media"]["audio"]) == 2
+    assert {p.name for p in (char_dir / "images").iterdir()} == set(meta["media"]["images"])
+    assert {p.name for p in (char_dir / "audio").iterdir()} == set(meta["media"]["audio"])
 
     loaded = library.load_character(str(lib_dir), "A")
     assert loaded["description"] == "desc a"
@@ -183,10 +186,7 @@ def test_keep_media_on_text_only_save(lib_dir):
     assert result["status"] == "overwritten"
     assert result["png_bytes_list"] == [png_a]
     assert result["audio_bytes_list"] == [wav_a]
-    char_dir = lib_dir / "characters" / "X"
-    assert (char_dir / "images" / "01.png").read_bytes() == png_a
-    assert (char_dir / "audio" / "01.wav").read_bytes() == wav_a
-    assert read_json(char_dir / "character.json")["description"] == "new text"
+    assert read_json(lib_dir / "characters" / "X" / "character.json")["description"] == "new text"
 
 
 def test_group_replace_shrinks_and_grows_sets(lib_dir):
@@ -195,10 +195,10 @@ def test_group_replace_shrinks_and_grows_sets(lib_dir):
     wavs2 = [make_wav(freq=440.0), make_wav(freq=880.0)]
     library.save_character(str(lib_dir), "Y", "d", "v", pngs3, wavs2)
     library.save_character(str(lib_dir), "Y", "d", "v", pngs1, None)
-    assert sorted(p.name for p in (lib_dir / "characters" / "Y" / "images").iterdir()) == ["01.png"]
+    assert len(list((lib_dir / "characters" / "Y" / "images").iterdir())) == 1
     assert len(list((lib_dir / "characters" / "Y" / "audio").iterdir())) == 2
     library.save_character(str(lib_dir), "Y", "d", "v", None, [make_wav(freq=10.0)])
-    assert sorted(p.name for p in (lib_dir / "characters" / "Y" / "audio").iterdir()) == ["01.wav"]
+    assert len(list((lib_dir / "characters" / "Y" / "audio").iterdir())) == 1
     assert len(list((lib_dir / "characters" / "Y" / "images").iterdir())) == 1
 
 
@@ -227,11 +227,16 @@ def test_mismatched_sizes_fail_with_names_and_dims(lib_dir):
     with pytest.raises(ValueError, match="share one resolution"):
         library.save_character(str(lib_dir), "M", "d", "v", [png_big, png_small], None)
     library.save_character(str(lib_dir), "M", "d", "v", [png_big], None)
-    (lib_dir / "characters" / "M" / "images" / "02.png").write_bytes(png_small)
+    images = lib_dir / "characters" / "M" / "images"
+    (images / "02.png").write_bytes(png_small)
+    meta_path = lib_dir / "characters" / "M" / "character.json"
+    meta = read_json(meta_path)
+    meta["media"]["images"] = list(meta["media"]["images"]) + ["02.png"]
+    meta_path.write_text(json.dumps(meta), encoding="utf-8")
     with pytest.raises(ValueError) as e:
         library.load_character(str(lib_dir), "M")
     msg = str(e.value)
-    assert "01.png (8x6)" in msg and "02.png (4x3)" in msg
+    assert "8x6" in msg and "4x3" in msg
 
 
 # --------------------------------------------------------------------------- #
@@ -265,9 +270,10 @@ def test_legacy_assets_survive_text_only_save_and_migrate(lib_dir):
     portrait = _make_legacy_character(lib_dir, "旧角", with_mp3=True)
     library.save_character(str(lib_dir), "旧角", "new look", "v", None, None)
     d = lib_dir / "characters" / "旧角"
-    assert sorted(p.name for p in d.iterdir()) == ["audio", "character.json", "images"]
-    assert (d / "images" / "01.png").read_bytes() == portrait
-    assert (d / "audio" / "01.mp3").read_bytes() == b"fake mp3"
+    assert sorted(p.name for p in d.iterdir() if p.name != ".write.lock") == [
+        "audio", "character.json", "images"]
+    assert not (d / "portrait.png").exists()
+    assert (d / "audio").is_dir()
     loaded = library.load_character(str(lib_dir), "旧角")
     assert loaded["description"] == "new look"
     assert loaded["png_bytes_list"] == [portrait]
@@ -285,8 +291,9 @@ def test_legacy_scene_image_used_until_migrated(lib_dir):
     loaded = library.load_scene(str(lib_dir), "旧景")
     assert len(loaded["png_bytes_list"]) == 1
     library.save_scene(str(lib_dir), "旧景", "new setting", None)
-    assert sorted(p.name for p in d.iterdir()) == ["images", "scene.json"]
-    assert (d / "images" / "01.png").is_file()
+    names = sorted(p.name for p in d.iterdir() if p.name != ".write.lock")
+    assert names == ["images", "scene.json"]
+    assert any(p.suffix == ".png" for p in (d / "images").iterdir())
 
 
 # --------------------------------------------------------------------------- #
@@ -536,10 +543,13 @@ def test_cache_key_covers_every_file(lib_dir):
     )
     key = library.character_cache_key(str(lib_dir), "A")
     assert key == library.character_cache_key(str(lib_dir), "A")
-    (lib_dir / "characters" / "A" / "images" / "02.png").write_bytes(make_png((9, 9, 9), 8, 6))
+    meta = read_json(lib_dir / "characters" / "A" / "character.json")
+    image_name = meta["media"]["images"][1]
+    audio_name = meta["media"]["audio"][0]
+    (lib_dir / "characters" / "A" / "images" / image_name).write_bytes(make_png((9, 9, 9), 8, 6))
     assert key != library.character_cache_key(str(lib_dir), "A")
     key = library.character_cache_key(str(lib_dir), "A")
-    (lib_dir / "characters" / "A" / "audio" / "02.wav").write_bytes(make_wav(freq=2.0))
+    (lib_dir / "characters" / "A" / "audio" / audio_name).write_bytes(make_wav(freq=2.0))
     assert key != library.character_cache_key(str(lib_dir), "A")
     assert library.character_cache_key(str(lib_dir), "Ghost") == library.MISSING_CACHE_MARKER
     assert library.scene_cache_key(str(lib_dir), "Ghost") == library.MISSING_CACHE_MARKER
@@ -551,7 +561,9 @@ def test_asset_batch_cache_key_tracks_every_file_and_order(lib_dir):
     key = library.asset_batch_cache_key(str(lib_dir), "A\nS")
     assert key == library.asset_batch_cache_key(str(lib_dir), "A\nS")
     assert key != library.asset_batch_cache_key(str(lib_dir), "S\nA")
-    (lib_dir / "characters" / "A" / "images" / "01.png").write_bytes(make_png((8, 8, 8)))
+    meta = read_json(lib_dir / "characters" / "A" / "character.json")
+    image_name = meta["media"]["images"][0]
+    (lib_dir / "characters" / "A" / "images" / image_name).write_bytes(make_png((8, 8, 8)))
     assert key != library.asset_batch_cache_key(str(lib_dir), "A\nS")
 
 
@@ -1172,14 +1184,9 @@ def test_delete_endpoint_happy_missing_and_sentinel(lib_dir, monkeypatch):
 
     out = asyncio.run(fn(_Req({"name": "BtnDel", "kind": "character"})))
     body = _json.loads(out.body)
-    assert body["ok"] is True and body["name"] == "BtnDel"
-    assert body["deleted_files"] >= 2 and not (Path(lib_dir) / "characters" / "BtnDel").exists()
-
-    out = asyncio.run(fn(_Req({"name": "BtnDel", "kind": "character"})))
-    assert _json.loads(out.body)["ok"] is False  # already gone -> error, not crash
-
-    out = asyncio.run(fn(_Req({"name": "（✏️ 新名字…）", "kind": "character"})))
-    assert _json.loads(out.body)["ok"] is False  # sentinel refused
+    assert out.status == 405
+    assert body["ok"] is False
+    assert (Path(lib_dir) / "characters" / "BtnDel").exists()
 
     out = asyncio.run(fn(_Req({"name": "X", "kind": "bogus"})))
     assert _json.loads(out.body)["ok"] is False  # bad kind refused

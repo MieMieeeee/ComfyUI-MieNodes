@@ -99,7 +99,7 @@ def test_character_auto_drafts_and_saves(tmp_library):
     # really saved to the fixed library
     char_dir = tmp_library / "characters" / "孙女"
     assert (char_dir / "character.json").exists()
-    assert (char_dir / "images" / "01.png").exists()
+    assert any(p.suffix == ".png" for p in (char_dir / "images").iterdir())
 
 
 def test_filled_fields_save_verbatim_zero_llm_calls(tmp_library):
@@ -210,7 +210,7 @@ def test_upload_picker_feeds_draft_and_save(tmp_library, monkeypatch):
         conn, name="橘猫", image_upload="uploaded.png",
     )
     assert "bookshelf" in description
-    assert (tmp_library / "characters" / "橘猫" / "images" / "01.png").exists()
+    assert any(p.suffix == ".png" for p in (tmp_library / "characters" / "橘猫" / "images").iterdir())
     assert "LLM drafted description" in status
 
 
