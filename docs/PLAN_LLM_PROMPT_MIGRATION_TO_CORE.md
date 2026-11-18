@@ -8,6 +8,14 @@
 - 已拍板的产品决定：loader 合一以 Core（mie_prompt）为准；webapp 侧的"任意族提示词增强"
   接口**暂不做**（迁移不为其预留接口形状，但结果天然解锁它）。
 
+> **2026-11-18 核对**：批 1、2a、2b、2c 已实施；批 3 按下文修正为核实既有接口。
+> 当前 `mie_prompt/prompts/` 有 21 个族目录（含后加的 h3_image），本仓只保留 loader 与
+> package shim。完成标准里的“目录清空”应理解为移除族文本，不删除兼容入口；
+> translator、storyboard_builder、custom_system_prompt 等节点壳按职责保留。
+> 后续已完成全族 enhancer、十个通用生成方法和 H3 loop/storyboard 编排迁移，三个共享包已发布并安装 0.2.0。收尾记录见
+> `F:/ComfyUI-Mie-H3-Engine/notes/split-completion-2026-11-18.md`。首轮审计边界见
+> `F:/ComfyUI-Mie-H3-Engine/notes/split-implementation-audit-2026-11-18.md`。
+
 ## 1. 现状盘点（2026-11-17 实测）
 
 `nodes/llm/` 共 35 个 py：**7 个已是指向 mie_prompt/mie_llm 的 shim**，28 个实体。

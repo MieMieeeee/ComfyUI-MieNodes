@@ -1480,3 +1480,8 @@ def test_t2i_rgba_size_cap_preserved(t2i_rgba_prompt_text):
     # New structural caps from the plan.
     assert "4" in text and "7" in text  # 4-7 sentences range
     assert "sentence cap 40" in text or "cap 40 words" in text or "forty words" in text.lower()
+@pytest.fixture(autouse=True)
+def isolate_caption_cache(mod, tmp_path, monkeypatch):
+    # The node creates its own captioner; isolate that path too.
+    root = str(tmp_path / "caption_cache")
+    monkeypatch.setattr(mod._impl, "caption_cache_disk_root", lambda: root)

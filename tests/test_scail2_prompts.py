@@ -422,7 +422,7 @@ def test_enhancer_happy_path_runs_full_pipeline(scail2, monkeypatch):
     # Decouple from the real image-encoding path: any non-None media is
     # treated as a non-empty batch of frames / references.
     monkeypatch.setattr(
-        gen,
+        gen._impl,
         "image_tensor_batch_to_data_urls",
         lambda t: ["data:image/jpeg;base64,AAAA"] * 8 if t is not None else [],
     )
@@ -483,7 +483,7 @@ def test_enhancer_escalates_budget_on_length_starvation(scail2, monkeypatch):
             return "An enhanced SCAIL-2 animation prompt."
 
     monkeypatch.setattr(
-        gen,
+        gen._impl,
         "image_tensor_batch_to_data_urls",
         lambda t: ["data:image/jpeg;base64,AAAA"] * 8 if t is not None else [],
     )

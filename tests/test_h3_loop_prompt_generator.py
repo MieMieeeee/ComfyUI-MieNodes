@@ -997,7 +997,7 @@ def test_summary_is_logged_via_log_pipeline(lg, monkeypatch):
     request/token/warning footprint lands in the console + h3_loop.log
     without wiring a Show-Anything node."""
     logged: list[str] = []
-    monkeypatch.setattr(lg, "log_pipeline", lambda msg: logged.append(str(msg)))
+    monkeypatch.setattr(lg._impl, "log_pipeline", lambda msg: logged.append(str(msg)))
     conn = ScriptedConnector([
         _extract_dialogue_empty(),
         _auto_storyboard_reply(1),

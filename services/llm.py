@@ -4,6 +4,8 @@ The connectors themselves now live in ComfyUI-Mie-Core; this module is the
 ComfyUI shell around them.
 """
 
+from pathlib import Path
+
 from mie_llm.client import *  # noqa: F401,F403
 from mie_llm.client import (
     BailianCodingPlanConnectorGeneral,
@@ -40,6 +42,14 @@ except ImportError:
 MY_CATEGORY = "🐑 MieNodes/🐑 LLM Service Config"
 
 
+def _host_config_file(filename):
+    """Resolve node-relative settings before calling the host-neutral client."""
+    config = Path(filename or "mie_llm_keys.json").expanduser()
+    if not config.is_absolute():
+        config = Path(__file__).resolve().parents[1] / config
+    return str(config)
+
+
 class SetGeneralLLMServiceConnector(object):
     """Generic OpenAI-compatible escape hatch (user supplies base URL + model).
 
@@ -74,7 +84,7 @@ class SetGeneralLLMServiceConnector(object):
     CATEGORY = MY_CATEGORY
 
     def execute(self, api_url, api_token, model_select, config_file="mie_llm_keys.json", config_key="openai_compatible", prefer_local_config=True):
-        return (GeneralLLMServiceConnector(api_url, api_token, model_select, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
+        return (GeneralLLMServiceConnector(api_url, api_token, model_select, config_file=_host_config_file(config_file), config_key=config_key, prefer_local_config=prefer_local_config),)
 class SetSiliconFlowLLMServiceConnector(object):
     @classmethod
     def INPUT_TYPES(cls):
@@ -129,7 +139,7 @@ class SetSiliconFlowLLMServiceConnector(object):
         model = model_select if model_select != "Custom" else custom_model
         if not model:
             model = "deepseek-ai/DeepSeek-V4-Flash"  # 默认模型
-        return (SiliconFlowConnectorGeneral(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
+        return (SiliconFlowConnectorGeneral(api_token, model, config_file=_host_config_file(config_file), config_key=config_key, prefer_local_config=prefer_local_config),)
 class SetZhiPuLLMServiceConnector(object):
     @classmethod
     def INPUT_TYPES(cls):
@@ -178,7 +188,7 @@ class SetZhiPuLLMServiceConnector(object):
         model = model_select if model_select != "Custom" else custom_model
         if not model:
             model = "glm-5.3"  # 默认模型
-        return (ZhiPuConnectorGeneral(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
+        return (ZhiPuConnectorGeneral(api_token, model, config_file=_host_config_file(config_file), config_key=config_key, prefer_local_config=prefer_local_config),)
 class SetZhiPuCodeLLMServiceConnector(object):
     @classmethod
     def INPUT_TYPES(cls):
@@ -226,7 +236,7 @@ class SetZhiPuCodeLLMServiceConnector(object):
         model = model_select if model_select != "Custom" else custom_model
         if not model:
             model = "glm-5.3"
-        return (ZhiPuCodeConnectorGeneral(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
+        return (ZhiPuCodeConnectorGeneral(api_token, model, config_file=_host_config_file(config_file), config_key=config_key, prefer_local_config=prefer_local_config),)
 class SetKimiLLMServiceConnector(object):
     @classmethod
     def INPUT_TYPES(cls):
@@ -268,7 +278,7 @@ class SetKimiLLMServiceConnector(object):
         model = model_select if model_select != "Custom" else custom_model
         if not model:
             model = "kimi-k3"  # 默认模型
-        return (KimiConnectorGeneral(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
+        return (KimiConnectorGeneral(api_token, model, config_file=_host_config_file(config_file), config_key=config_key, prefer_local_config=prefer_local_config),)
 class SetDeepSeekLLMServiceConnector(object):
     @classmethod
     def INPUT_TYPES(cls):
@@ -308,7 +318,7 @@ class SetDeepSeekLLMServiceConnector(object):
         model = model_select if model_select != "Custom" else custom_model
         if not model:
             model = "deepseek-flash"  # 默认模型
-        return (DeepSeekConnectorGeneral(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
+        return (DeepSeekConnectorGeneral(api_token, model, config_file=_host_config_file(config_file), config_key=config_key, prefer_local_config=prefer_local_config),)
 class SetMiniMaxLLMServiceConnector(object):
     """Standard MiniMax Open Platform connector.
 
@@ -360,7 +370,7 @@ class SetMiniMaxLLMServiceConnector(object):
         model = model_select if model_select != "Custom" else custom_model
         if not model:
             model = "MiniMax-M2.7"
-        return (MiniMaxConnectorGeneral(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
+        return (MiniMaxConnectorGeneral(api_token, model, config_file=_host_config_file(config_file), config_key=config_key, prefer_local_config=prefer_local_config),)
 class SetMiniMaxTokenPlanLLMServiceConnector(object):
     """MiniMax Token Plan / Coding Plan connector.
 
@@ -413,7 +423,7 @@ class SetMiniMaxTokenPlanLLMServiceConnector(object):
         model = model_select if model_select != "Custom" else custom_model
         if not model:
             model = "MiniMax-M3.1-Flash-Preview"
-        return (MiniMaxTokenPlanConnectorGeneral(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
+        return (MiniMaxTokenPlanConnectorGeneral(api_token, model, config_file=_host_config_file(config_file), config_key=config_key, prefer_local_config=prefer_local_config),)
 class SetMiMoLLMServiceConnector(object):
     """Standard Xiaomi MiMo Open Platform connector.
 
@@ -463,7 +473,7 @@ class SetMiMoLLMServiceConnector(object):
         model = model_select if model_select != "Custom" else custom_model
         if not model:
             model = "mimo-v2.6-pro"
-        return (MiMoConnectorGeneral(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
+        return (MiMoConnectorGeneral(api_token, model, config_file=_host_config_file(config_file), config_key=config_key, prefer_local_config=prefer_local_config),)
 class SetMiMoTokenPlanLLMServiceConnector(object):
     """Xiaomi MiMo Token Plan / Coding Plan connector.
 
@@ -513,7 +523,7 @@ class SetMiMoTokenPlanLLMServiceConnector(object):
         model = model_select if model_select != "Custom" else custom_model
         if not model:
             model = "mimo-v2.6-pro"
-        return (MiMoTokenPlanConnectorGeneral(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
+        return (MiMoTokenPlanConnectorGeneral(api_token, model, config_file=_host_config_file(config_file), config_key=config_key, prefer_local_config=prefer_local_config),)
 class SetDoubaoLLMServiceConnector(object):
     """ByteDance Volcano Ark (火山方舟) Doubao connector.
 
@@ -563,7 +573,7 @@ class SetDoubaoLLMServiceConnector(object):
         model = model_select if model_select != "Custom" else custom_model
         if not model:
             model = "doubao-seed-2-0-pro-260215"
-        return (DoubaoConnectorGeneral(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
+        return (DoubaoConnectorGeneral(api_token, model, config_file=_host_config_file(config_file), config_key=config_key, prefer_local_config=prefer_local_config),)
 class SetQianfanLLMServiceConnector(object):
     """Baidu Qianfan (百度千帆) ERNIE connector.
 
@@ -615,7 +625,7 @@ class SetQianfanLLMServiceConnector(object):
         model = model_select if model_select != "Custom" else custom_model
         if not model:
             model = "ernie-5.1"
-        return (QianfanConnectorGeneral(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
+        return (QianfanConnectorGeneral(api_token, model, config_file=_host_config_file(config_file), config_key=config_key, prefer_local_config=prefer_local_config),)
 class SetSparkLLMServiceConnector(object):
     """iFLYTEK Spark (讯飞星火) X2 connector.
 
@@ -662,7 +672,7 @@ class SetSparkLLMServiceConnector(object):
         model = model_select if model_select != "Custom" else custom_model
         if not model:
             model = "spark-x"
-        return (SparkConnectorGeneral(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
+        return (SparkConnectorGeneral(api_token, model, config_file=_host_config_file(config_file), config_key=config_key, prefer_local_config=prefer_local_config),)
 class SetOpenAILLMServiceConnector(object):
     """OpenAI connector (gpt-6 / gpt-5 families).
 
@@ -714,7 +724,7 @@ class SetOpenAILLMServiceConnector(object):
         model = model_select if model_select != "Custom" else custom_model
         if not model:
             model = "gpt-6-astra"
-        return (OpenAIConnectorGeneral(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
+        return (OpenAIConnectorGeneral(api_token, model, config_file=_host_config_file(config_file), config_key=config_key, prefer_local_config=prefer_local_config),)
 class SetGrokLLMServiceConnector(object):
     """xAI Grok connector.
 
@@ -763,7 +773,7 @@ class SetGrokLLMServiceConnector(object):
         model = model_select if model_select != "Custom" else custom_model
         if not model:
             model = "grok-4.7"
-        return (GrokConnectorGeneral(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
+        return (GrokConnectorGeneral(api_token, model, config_file=_host_config_file(config_file), config_key=config_key, prefer_local_config=prefer_local_config),)
 class SetOpenRouterLLMServiceConnector(object):
     """OpenRouter aggregator connector.
 
@@ -820,7 +830,7 @@ class SetOpenRouterLLMServiceConnector(object):
         model = model_select if model_select != "Custom" else custom_model
         if not model:
             model = "openrouter/auto"
-        return (OpenRouterConnectorGeneral(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
+        return (OpenRouterConnectorGeneral(api_token, model, config_file=_host_config_file(config_file), config_key=config_key, prefer_local_config=prefer_local_config),)
 class SetClaudeLLMServiceConnector(object):
     """Anthropic Claude connector (official OpenAI-compat layer).
 
@@ -872,7 +882,7 @@ class SetClaudeLLMServiceConnector(object):
         model = model_select if model_select != "Custom" else custom_model
         if not model:
             model = "claude-sonnet-5-5"
-        return (ClaudeConnectorGeneral(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
+        return (ClaudeConnectorGeneral(api_token, model, config_file=_host_config_file(config_file), config_key=config_key, prefer_local_config=prefer_local_config),)
 class SetSiliconFlowJevLLMServiceConnector(object):
     """SiliconFlow Jev / System One decision-model connector.
 
@@ -924,7 +934,7 @@ class SetSiliconFlowJevLLMServiceConnector(object):
         model = model_select if model_select != "Custom" else custom_model
         if not model:
             model = "Kev-4B"
-        return (SiliconFlowJevConnectorGeneral(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
+        return (SiliconFlowJevConnectorGeneral(api_token, model, config_file=_host_config_file(config_file), config_key=config_key, prefer_local_config=prefer_local_config),)
 class SetOllamaLLMServiceConnector(object):
     """Set Ollama (local) LLM service connector.
 
@@ -979,7 +989,7 @@ class SetOllamaLLMServiceConnector(object):
             host,
             model,
             api_token=api_token,
-            config_file=config_file,
+            config_file=_host_config_file(config_file),
             config_key=config_key,
             prefer_local_config=prefer_local_config,
             timeout=timeout,
@@ -1027,7 +1037,7 @@ class SetGeminiLLMServiceConnector(object):
         model = model_select if model_select != "Custom" else custom_model
         if not model:
             model = "gemini-3.8-flash"
-        return (GeminiConnectorGeneral(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
+        return (GeminiConnectorGeneral(api_token, model, config_file=_host_config_file(config_file), config_key=config_key, prefer_local_config=prefer_local_config),)
 class SetBailianLLMServiceConnector(object):
     @classmethod
     def INPUT_TYPES(cls):
@@ -1086,7 +1096,7 @@ class SetBailianLLMServiceConnector(object):
             model = model_select if model_select != "Custom" else custom_model
             if not model:
                 model = "qwen3.8-max"
-            return (BailianLLMServiceConnector(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
+            return (BailianLLMServiceConnector(api_token, model, config_file=_host_config_file(config_file), config_key=config_key, prefer_local_config=prefer_local_config),)
 class SetBailianTokenPlanLLMServiceConnector(object):
     """Alibaba Bailian Token Plan connector (multimodal subscription tier).
 
@@ -1142,7 +1152,7 @@ class SetBailianTokenPlanLLMServiceConnector(object):
         model = model_select if model_select != "Custom" else custom_model
         if not model:
             model = "qwen3.8-max"
-        return (BailianTokenPlanConnectorGeneral(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
+        return (BailianTokenPlanConnectorGeneral(api_token, model, config_file=_host_config_file(config_file), config_key=config_key, prefer_local_config=prefer_local_config),)
 class SetBailianCodingPlanLLMServiceConnector(object):
     """Alibaba Bailian Coding Plan connector (subscription tier).
 
@@ -1201,7 +1211,7 @@ class SetBailianCodingPlanLLMServiceConnector(object):
         model = model_select if model_select != "Custom" else custom_model
         if not model:
             model = "qwen3.7-plus"
-        return (BailianCodingPlanConnectorGeneral(api_token, model, config_file=config_file, config_key=config_key, prefer_local_config=prefer_local_config),)
+        return (BailianCodingPlanConnectorGeneral(api_token, model, config_file=_host_config_file(config_file), config_key=config_key, prefer_local_config=prefer_local_config),)
 class CheckLLMServiceConnectivity(object):
     @classmethod
     def INPUT_TYPES(cls):

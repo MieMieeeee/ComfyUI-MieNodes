@@ -225,7 +225,7 @@ def test_enhancer_empty_prompt_runs_pipeline(h3, monkeypatch):
             return "An H3 prompt synthesized from a default idea."
 
     monkeypatch.setattr(
-        gen, "image_tensor_batch_to_data_urls", lambda t: [] if t is None else ["data:image/jpeg;base64,AAAA"]
+        gen._impl, "image_tensor_batch_to_data_urls", lambda t: [] if t is None else ["data:image/jpeg;base64,AAAA"]
     )
     enhancer = gen.H3PromptEnhancer(_Conn())
     # Empty string and whitespace-only both trigger the fallback.
@@ -304,7 +304,7 @@ def test_enhancer_t2v_single_invoke(h3, monkeypatch):
             return "An H3 T2VA structured prompt."
 
     monkeypatch.setattr(
-        gen, "image_tensor_batch_to_data_urls", lambda t: [] if t is None else ["data:image/jpeg;base64,AAAA"]
+        gen._impl, "image_tensor_batch_to_data_urls", lambda t: [] if t is None else ["data:image/jpeg;base64,AAAA"]
     )
     enhancer = gen.H3PromptEnhancer(_Conn())
     out = enhancer("t2v - 文生视频", "a neon city", seed=7)
@@ -326,7 +326,7 @@ def test_enhancer_reference_two_stage_pipeline(h3, monkeypatch):
             return "An H3 Ref2VA structured prompt."
 
     monkeypatch.setattr(
-        gen, "image_tensor_batch_to_data_urls",
+        gen._impl, "image_tensor_batch_to_data_urls",
         lambda t: ["data:image/jpeg;base64,AAAA"] * 4 if t is not None else [],
     )
     enhancer = gen.H3PromptEnhancer(_Conn(), caption_sample_frames=8)
@@ -352,7 +352,7 @@ def test_enhancer_reference_empty_caption_short_circuits(h3, monkeypatch):
             return ""  # empty response
 
     monkeypatch.setattr(
-        gen, "image_tensor_batch_to_data_urls",
+        gen._impl, "image_tensor_batch_to_data_urls",
         lambda t: ["data:image/jpeg;base64,AAAA"] * 4 if t is not None else [],
     )
     enhancer = gen.H3PromptEnhancer(_Conn())
@@ -375,7 +375,7 @@ def test_enhancer_i2v_first_single_invoke(h3, monkeypatch):
             return "An H3 I2VA structured prompt."
 
     monkeypatch.setattr(
-        gen, "image_tensor_batch_to_data_urls",
+        gen._impl, "image_tensor_batch_to_data_urls",
         lambda t: ["data:image/jpeg;base64,AAAA"] if t is not None else [],
     )
     enhancer = gen.H3PromptEnhancer(_Conn())
@@ -396,7 +396,7 @@ def test_enhancer_empty_llm_response_falls_back(h3, monkeypatch):
             return ""
 
     monkeypatch.setattr(
-        gen, "image_tensor_batch_to_data_urls", lambda t: [] if t is None else ["data:image/jpeg;base64,AAAA"]
+        gen._impl, "image_tensor_batch_to_data_urls", lambda t: [] if t is None else ["data:image/jpeg;base64,AAAA"]
     )
     enhancer = gen.H3PromptEnhancer(_Conn())
     out = enhancer("t2v - 文生视频", "a neon city")
@@ -433,7 +433,7 @@ def test_enhancer_escalates_budget_on_length_starvation(h3, monkeypatch):
     -> one doubled retry at 16384 delivers the answer."""
     _, gen = h3
     monkeypatch.setattr(
-        gen, "image_tensor_batch_to_data_urls",
+        gen._impl, "image_tensor_batch_to_data_urls",
         lambda t: ["data:image/jpeg;base64,AAAA"] if t is not None else [],
     )
     conn = _StarvedConn([
@@ -456,7 +456,7 @@ def test_no_escalation_when_finish_reason_is_not_length(h3, monkeypatch):
     covered by test_enhancer_empty_llm_response_falls_back above.)"""
     _, gen = h3
     monkeypatch.setattr(
-        gen, "image_tensor_batch_to_data_urls",
+        gen._impl, "image_tensor_batch_to_data_urls",
         lambda t: [] if t is None else ["data:image/jpeg;base64,AAAA"],
     )
     conn = _StarvedConn([("content_filter", "")])
@@ -471,7 +471,7 @@ def test_escalation_stops_at_the_ceiling(h3, monkeypatch):
     fallback), never exceed the widget maximum."""
     _, gen = h3
     monkeypatch.setattr(
-        gen, "image_tensor_batch_to_data_urls",
+        gen._impl, "image_tensor_batch_to_data_urls",
         lambda t: [] if t is None else ["data:image/jpeg;base64,AAAA"],
     )
     conn = _StarvedConn([("length", ""), ("length", "")])

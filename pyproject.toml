@@ -6,10 +6,11 @@ license = { file = "LICENSE" }
 dependencies = [
     # The authoring layer - the asset library, the script contract, the
     # plan assembler, the prompt templates and the LLM connectors - is three
-    # packages on PyPI. They are released as one train with one version.
-    "comfyui-mie-llm>=0.1.4",
-    "comfyui-mie-prompt>=0.1.4",
-    "comfyui-mie-craft>=0.1.4",
+    # packages on PyPI, with independent versions. Prompt 0.1.10 supplies
+    # h3_image; Craft 0.1.7 supplies the extracted loop enhancer.
+    "comfyui-mie-llm>=0.2.0",
+    "comfyui-mie-prompt>=0.2.0",
+    "comfyui-mie-craft>=0.2.0",
     # The pack's own runtime dependencies, imported at module level.
     # ComfyUI supplies torch, numpy, pillow, opencv, torchaudio and
     # requests itself; these three are ours and were undeclared, so a

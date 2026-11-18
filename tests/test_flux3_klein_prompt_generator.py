@@ -839,8 +839,8 @@ def test_node_refuses_the_reasoning_fallback(helpers, mod):
 def test_node_logs_the_reply_when_the_bbox_split_fails(helpers, mod):
     """Without the log line this failure is undiagnosable from the UI."""
     logged: list[str] = []
-    original = mod.mie_log
-    mod.mie_log = lambda msg: logged.append(msg)
+    original = mod._impl.mie_log
+    mod._impl.mie_log = lambda msg: logged.append(msg)
     try:
         node = mod.Flux3KleinPromptUpsampler()
         with pytest.raises(ValueError):
@@ -849,7 +849,7 @@ def test_node_logs_the_reply_when_the_bbox_split_fails(helpers, mod):
                 helpers.MODES[2], helpers.PROMPT_PACKS[0], "x",
             )
     finally:
-        mod.mie_log = original
+        mod._impl.mie_log = original
     assert any("no parseable" in m and "a caption with no table" in m for m in logged)
 
 
