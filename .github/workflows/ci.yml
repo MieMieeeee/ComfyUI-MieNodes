@@ -46,9 +46,13 @@ jobs:
           #
           # The authoring packages come from PyPI here, exactly as they
           # do for a user.
+          # requirements.txt is the only place the versions are named.
+          # A second, separately pinned install would be able to downgrade
+          # one of the three packages below the floor the pack declares -
+          # and it did: a stale craft pin pulled 0.1.4 over 0.2.0 and the
+          # suite then failed on an import the pack does require.
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
-          python -m pip install "comfyui-mie-craft==0.1.4"
 
       - name: Install the test dependencies
         shell: bash
