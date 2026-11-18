@@ -1,7 +1,11 @@
 # 项目计划：H3 引擎 Fork 与短剧平台
 
 > **状态**：2026-11-05，已并入**三轮**外部评审意见。评审处置台账见 §16。
-> **本文件是唯一真源**，取代 `docs/PLAN_H3_ENGINE_FORK_AND_DRAMA_PLATFORM.md`（v3）与
+> **本文件为历史设计快照**。2026-11-18 的实施真源已移至
+> [引擎 PLAN.md](https://github.com/MieMieeeee/ComfyUI-Mie-H3-Engine/blob/main/PLAN.md)；
+> 拆分、0.2.0 发布与本机验收见
+> [完成记录](https://github.com/MieMieeeee/ComfyUI-Mie-H3-Engine/blob/main/notes/split-completion-2026-11-18.md)。
+> 初版曾取代 `docs/PLAN_H3_ENGINE_FORK_AND_DRAMA_PLATFORM.md`（v3）与
 > `docs/qa/h3-engine-fork-20261105/REVIEW_BRIEF.md`。
 > **上游**：`ethanfel/ComfyUI-MiniMaxH3-Context-Loop` @ `43afeff`（GPL-3.0）。
 > **前置**：`docs/PLAN_STORYBOARD_ASSET.md`、`docs/PLAN_STORYBOARD_FIRST_ASSET_V3.md`、
