@@ -8,9 +8,9 @@ there). What is tested here is the shell's own behaviour:
 * the widget surface and the plugin registration;
 * the message each mode puts on the wire -- the t2i task prompt with the
   draft substituted, the edit mode's interleaved reference-media parts and
-  the instruction last, the guide modes' system prompt;
+  the instruction last;
 * the reference-image metadata: the exact ratio comes from the pixels, and
-  the edit modes refuse to run without images;
+  the edit mode refuses to run without images;
 * the aspect-ratio policy: the user's choice wins, and t2i stays inside the
   ten official ratios;
 * the reply handling: the JSON contract, the corrective retry, the verbatim
@@ -177,11 +177,13 @@ def test_widget_surface(mod):
     assert "Prompt Generator" in node.CATEGORY
 
 
-def test_the_four_modes_are_offered(mod):
+def test_the_two_modes_are_offered(mod):
+    # 2026-11-22: the _guide modes left the dropdown (user ruling: the
+    # mode axis is the task axis, t2i / edit).
     labels = list(mod.MODES)
-    assert len(labels) == 4
+    assert len(labels) == 2
     codes = [mod.parse_mode(label) for label in labels]
-    assert codes == ["t2i", "edit", "t2i_guide", "edit_guide"]
+    assert codes == ["t2i", "edit"]
 
 
 def test_plugin_registration():
@@ -243,22 +245,6 @@ def test_edit_sends_the_reference_media_parts_and_the_instruction_last(mod):
     last = content[5]["text"]
     assert "把杯子变成蓝色" in last
     assert "User Aspect Ratio Selection: 16:9" in last
-
-
-def test_the_guide_modes_use_the_official_skill(mod):
-    connector = _FakeConnector(["```text\nA red cup on a wooden table.\n```\n\nAspect ratio: 3:4"])
-    node = mod.H3ImagePromptGenerator()
-    prompt, ratio, _raw = node.enhance(
-        llm_service_connector=connector,
-        mode=mod.MODES[2],
-        user_input="a product shot of a red cup",
-        seed=1,
-    )
-    system = connector.calls[0]["messages"][0]["content"]
-    assert "Text-to-image prompt writing guide" in system
-    assert "Aspect ratio:" in system
-    assert prompt == "A red cup on a wooden table."
-    assert ratio == "3:4"
 
 
 # --------------------------------------------------------------------------- #
@@ -485,4 +471,4 @@ def test_is_changed_is_stable_and_content_sensitive(mod):
     first = node.is_changed(**kwargs)
     assert first == node.is_changed(**kwargs)
     assert first != node.is_changed(**{**kwargs, "user_input": "一只狗"})
-    assert first != node.is_changed(**{**kwargs, "mode": mod.MODES[2]})
+    assert first != node.is_changed(**{**kwargs, "mode": mod.MODES[1]})

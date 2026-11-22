@@ -33,15 +33,11 @@ class H3ImagePromptGenerator:
                             "t2i 文生图增强 (默认) — the brief becomes an "
                             "English caption plus an aspect ratio, as one "
                             "JSON object.  "
-                            "edit 图像编辑增强 — an edit instruction plus the "
-                            "reference images become a three-part caption "
-                            "plus a target ratio; needs a vision-capable "
-                            "connector.  "
-                            "t2i_guide 文生图·写作指南 — the official "
-                            "prompt-writing skill: a free-text prompt block "
-                            "plus an 'Aspect ratio: W:H' line.  "
-                            "edit_guide 图像编辑·写作指南 — the same skill for "
-                            "editing, with the reference images."
+                            "edit 图像编辑增强 (含参考生图) — an edit "
+                            "instruction plus the reference images (the "
+                            "picture being edited first, extra references "
+                            "after) become a three-part caption plus a "
+                            "target ratio; needs a vision-capable connector."
                         ),
                     },
                 ),
@@ -82,14 +78,14 @@ class H3ImagePromptGenerator:
                     {
                         "tooltip": (
                             "Reference images, attached in order. Used by "
-                            "edit / edit_guide -- those modes need a "
+                            "edit -- that mode needs a "
                             "vision-capable connector, because the official "
                             "prompt requires the model to look at the "
                             "sources (<Picture N>, <Subject N>, transcribed "
                             "source text). The images are visible to the LLM "
                             "only; the image model receives them separately "
                             "through the H3-Image conditioning node. "
-                            "按序附上的参考图。edit / edit_guide 必填，需使用"
+                            "按序附上的参考图。edit 模式必填，需使用"
                             "支持视觉的 LLM 连接器：官方 prompt 要求模型"
                             "真的去看参考图。图片只给 LLM 看，出图仍由"
                             "H3-Image Conditioning 节点单独接收。"
@@ -102,10 +98,10 @@ class H3ImagePromptGenerator:
                         "default": ADAPTIVE,
                         "tooltip": (
                             "Aspect ratio / 宽高比. 'adaptive' lets the "
-                            "model choose. For t2i / t2i_guide only the ten "
+                            "model choose. For t2i only the ten "
                             "official values apply: "
                             + " ".join(ALLOWED_T2I_RATIOS)
-                            + ". For edit / edit_guide any positive-integer "
+                            + ". For edit any positive-integer "
                             "W:H is allowed -- the official edit prompt "
                             "explicitly refuses a preset list. The ratio is "
                             "never pixels: the canvas (4 MP to 20 MP, best "
@@ -245,7 +241,7 @@ class H3ImagePromptGenerator:
         value = (aspect_ratio or "").strip() or ADAPTIVE
         if value.lower() == ADAPTIVE:
             return ADAPTIVE
-        if mode in {"t2i", "t2i_guide"}:
+        if mode == "t2i":
             if value not in ALLOWED_T2I_RATIOS:
                 mie_log(
                     f"H3Image: {value!r} is not one of the ten official t2i "
@@ -254,7 +250,7 @@ class H3ImagePromptGenerator:
                 )
                 return ADAPTIVE
             return value
-        # edit / edit_guide: any positive-integer W:H.
+        # edit: any positive-integer W:H.
         left, _, right = value.partition(":")
         try:
             if int(left) > 0 and int(right) > 0:

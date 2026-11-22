@@ -15,7 +15,6 @@ from mie_prompt.h3_image_prompts import (  # noqa: F401  (re-exported)
     ALLOWED_T2I_RATIOS,
     DEFAULT_MAX_TOKENS,
     DEFAULT_TEMPERATURE,
-    GUIDE_MODES,
     IMAGE_MODES,
     JSON_MODES,
     MAX_REFERENCE_IMAGES,
@@ -36,7 +35,6 @@ from mie_prompt.h3_image_prompts import (  # noqa: F401  (re-exported)
     missing_literals,
     normalize_ratio,
     parse_expansion_reply,
-    parse_guide_reply,
     parse_mode,
     reference_media_line,
 )
