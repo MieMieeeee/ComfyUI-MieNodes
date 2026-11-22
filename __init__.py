@@ -289,7 +289,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     add_suffix("QwenImage21PromptGenerator"): add_emoji("Qwen-Image-2.1 Prompt Generator"),
     add_suffix("Flux3KleinPromptUpsampler"): add_emoji("FLUX.3 Klein Prompt Upsampler"),
     add_suffix("MossImagePromptUpsampler"): add_emoji("MOSS-Image 提示词增强器 · Prompt Upsampler"),
-    add_suffix("H3ImagePromptGenerator"): add_emoji("MiniMax H3-Image 提示词增强器 · H3-Image Prompt Upsampler"),
+    add_suffix("H3ImagePromptGenerator"): add_emoji("MiniMax H3-Image 提示词增强器 · Prompt Upsampler"),
     add_suffix("BuildPlanFromStoryboard"): add_emoji("零 LLM 组装剧本 · MiniMax H3 Build Plan From Script (Zero LLM)"),
     add_suffix("GetAbsolutePath"): add_emoji("Get Absolute Path"),
     add_suffix("GetFileInfo"): add_emoji("Get File Info"),
