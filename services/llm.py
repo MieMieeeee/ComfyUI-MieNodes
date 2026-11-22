@@ -375,8 +375,10 @@ class SetMiniMaxTokenPlanLLMServiceConnector(object):
     """MiniMax Token Plan / Coding Plan connector.
 
     Use this node when you have a Token Plan / Coding Plan API key
-    (`sk-cp-...` prefix). MiniMax-M3.1-Flash-Preview is the default;
-    M3 and the older M2 lineup stay available.
+    (`sk-cp-...` prefix). MiniMax-M3.1-Flash is the default (the
+    -Preview name was retired upstream and is now served by the GA
+    model); M3 stays. The M2 lineup left the plan's model list and
+    was removed here (2026-11-22, platform.minimax.io M Plan docs).
     """
 
     @classmethod
@@ -386,18 +388,11 @@ class SetMiniMaxTokenPlanLLMServiceConnector(object):
                 "api_token": ("STRING", {"default": ""}),
                 "model_select": (
                     [
-                        "MiniMax-M3.1-Flash-Preview",
+                        "MiniMax-M3.1-Flash",
                         "MiniMax-M3",
-                        "MiniMax-M2.7",
-                        "MiniMax-M2.7-highspeed",
-                        "MiniMax-M2.5",
-                        "MiniMax-M2.5-highspeed",
-                        "MiniMax-M2.1",
-                        "MiniMax-M2.1-highspeed",
-                        "MiniMax-M2",
                         "Custom",
                     ],
-                    {"default": "MiniMax-M3.1-Flash-Preview"},
+                    {"default": "MiniMax-M3.1-Flash"},
                 ),
             },
             "optional": {
@@ -422,7 +417,7 @@ class SetMiniMaxTokenPlanLLMServiceConnector(object):
     def execute(self, api_token, model_select, custom_model="", config_file="mie_llm_keys.json", config_key="minimax", prefer_local_config=True):
         model = model_select if model_select != "Custom" else custom_model
         if not model:
-            model = "MiniMax-M3.1-Flash-Preview"
+            model = "MiniMax-M3.1-Flash"
         return (MiniMaxTokenPlanConnectorGeneral(api_token, model, config_file=_host_config_file(config_file), config_key=config_key, prefer_local_config=prefer_local_config),)
 class SetMiMoLLMServiceConnector(object):
     """Standard Xiaomi MiMo Open Platform connector.

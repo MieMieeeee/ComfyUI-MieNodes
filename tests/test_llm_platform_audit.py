@@ -176,7 +176,7 @@ def test_zhipu_dropdowns_2026_09(llm_module, node):
 
 def test_minimax_m31_payload_requests_low_reasoning(llm_module):
     token = llm_module.MiniMaxTokenPlanConnectorGeneral(
-        "sk-cp-x", "MiniMax-M3.1-Flash-Preview"
+        "sk-cp-x", "MiniMax-M3.1-Flash"
     )
     payload = token.generate_payload([{"role": "user", "content": "hi"}])
     assert payload["reasoning_effort"] == "low"
@@ -214,14 +214,15 @@ def test_reasoning_effort_is_not_sent_to_other_providers(llm_module):
         assert "reasoning_effort" not in payload, cls.__name__
 
 
-def test_minimax_token_plan_default_is_m31_flash_preview(llm_module):
+def test_minimax_token_plan_default_is_m31_flash(llm_module):
     models, meta = _dropdown(llm_module, "SetMiniMaxTokenPlanLLMServiceConnector")
-    assert models[0] == "MiniMax-M3.1-Flash-Preview"
-    assert "MiniMax-M3" in models
-    assert meta["default"] == "MiniMax-M3.1-Flash-Preview"
+    # 2026-11-22: -Preview retired upstream (old name served by the GA
+    # model) and the M2 lineup left the plan's model list.
+    assert models == ["MiniMax-M3.1-Flash", "MiniMax-M3", "Custom"]
+    assert meta["default"] == "MiniMax-M3.1-Flash"
     node = llm_module.SetMiniMaxTokenPlanLLMServiceConnector()
     connector = node.execute(api_token="sk-cp-x", model_select="Custom", custom_model="")[0]
-    assert connector.model == "MiniMax-M3.1-Flash-Preview"
+    assert connector.model == "MiniMax-M3.1-Flash"
 
 
 def test_deepseek_dropdown_2026_09(llm_module):
